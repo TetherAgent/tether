@@ -77,6 +77,43 @@ test('observe websocket clients cannot write input', async () => {
   }
 });
 
+test('previous direct controller cannot write after control is claimed', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const sessionId = createSessionId();
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24
+  });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4894, store, ptySessions });
+
+  try {
+    const firstTicket = await requestTicket(4894);
+    const first = new WebSocket(`ws://127.0.0.1:4894/api/sessions/${sessionId}/stream?ticket=${firstTicket}&mode=control&surface=test`);
+    await waitForMessage(first, (text) => text.includes('replay.done'));
+
+    const secondTicket = await requestTicket(4894);
+    const second = new WebSocket(`ws://127.0.0.1:4894/api/sessions/${sessionId}/stream?ticket=${secondTicket}&mode=control&surface=test`);
+    await waitForMessage(second, (text) => text.includes('replay.done'));
+
+    first.send(JSON.stringify({ type: 'input', data: 'stale controller\r' }));
+    const error = await waitForMessage(first, (text) => text.includes('not_controller'));
+    assert.match(error, /not_controller/);
+    assert.equal(store.listEvents(sessionId).some((event) => event.type === 'user.input' && event.payload.data === 'stale controller\r'), false);
+
+    first.close();
+    second.close();
+  } finally {
+    ptySessions.stop(sessionId);
+    await daemon.close();
+    cleanup();
+  }
+});
+
 test('stop endpoint terminates live pty session', async () => {
   const { store, cleanup } = tempStore();
   const ptySessions = new PtySessionManager(store);

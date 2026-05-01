@@ -140,7 +140,11 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
 
   const writeInput = (clientId: string, sessionId: string, data: string) => {
     const subscription = subscriptions.get(subscriptionKey(clientId, sessionId));
-    if (subscription?.mode === 'observe') {
+    if (!subscription) {
+      sendError(clientId, sessionId, 'not_subscribed', 'client is not subscribed to this session');
+      return;
+    }
+    if (subscription.mode !== 'control') {
       sendError(clientId, sessionId, 'observe_only', 'observer clients cannot send input');
       return;
     }
@@ -152,7 +156,11 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
 
   const resizePty = (clientId: string, sessionId: string, cols: number, rows: number) => {
     const subscription = subscriptions.get(subscriptionKey(clientId, sessionId));
-    if (subscription?.mode === 'observe') {
+    if (!subscription) {
+      sendError(clientId, sessionId, 'not_subscribed', 'client is not subscribed to this session');
+      return;
+    }
+    if (subscription.mode !== 'control') {
       sendError(clientId, sessionId, 'observe_only', 'observer clients cannot resize');
       return;
     }

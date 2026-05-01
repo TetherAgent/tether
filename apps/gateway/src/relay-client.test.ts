@@ -188,6 +188,42 @@ test('gateway relay client blocks observe input', async () => {
   }
 });
 
+test('gateway relay client blocks unsubscribed input', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const sessionId = createSessionId();
+  const relay = await startRelayServer({ host: '127.0.0.1', port: 4915, secret: SECRET });
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24
+  });
+  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_unsubscribed', store, ptySessions });
+  const client = await connectRelayClient(relay.url);
+
+  try {
+    await waitForSessionList(client, sessionId);
+    client.send(JSON.stringify({ type: 'client.input', sessionId, data: 'blocked input\r' }));
+    const error = await waitForFrame(client, (frame) => frame.type === 'error' && frame.code === 'not_subscribed');
+    assert.equal(error.type, 'error');
+    assert.equal(
+      store
+        .listEvents(sessionId, 0, 5000)
+        .some((event) => event.type === 'user.input' && event.payload.data === 'blocked input\r'),
+      false
+    );
+  } finally {
+    client.close();
+    ptySessions.stop(sessionId);
+    await relayClient.close();
+    await relay.close();
+    cleanup();
+  }
+});
+
 async function connectRelayClient(relayUrl: string): Promise<WebSocket> {
   const url = new URL(relayUrl);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';

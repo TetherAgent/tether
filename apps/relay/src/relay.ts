@@ -3,6 +3,7 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import type {
   RelayClientToServerFrame,
+  RelayClientMode,
   RelayGatewayToServerFrame,
   RelayServerToClientFrame,
   RelayServerToGatewayFrame,
@@ -32,7 +33,7 @@ type GatewayState = {
 type ClientState = {
   clientId: string;
   socket: WebSocket;
-  subscriptions: Set<string>;
+  subscriptions: Map<string, RelayClientMode>;
 };
 
 export async function startRelayServer(options: RelayServerOptions): Promise<RunningRelayServer> {
@@ -149,7 +150,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
 
   function handleClient(socket: WebSocket): void {
     const clientId = `relay_${randomUUID()}`;
-    const subscriptions = new Set<string>();
+    const subscriptions = new Map<string, RelayClientMode>();
     let authenticated = false;
 
     socket.on('message', (data) => {
@@ -187,7 +188,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     });
   }
 
-  function handleClientFrame(clientId: string, subscriptions: Set<string>, frame: RelayClientToServerFrame): void {
+  function handleClientFrame(clientId: string, subscriptions: Map<string, RelayClientMode>, frame: RelayClientToServerFrame): void {
     switch (frame.type) {
       case 'client.list':
         forwardToGateway({ type: 'client.list', clientId });
@@ -196,7 +197,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         }
         break;
       case 'client.subscribe':
-        subscriptions.add(frame.sessionId);
+        subscriptions.set(frame.sessionId, frame.mode);
         forwardToGateway({
           type: 'client.subscribe',
           clientId,
@@ -206,9 +207,31 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         });
         break;
       case 'client.input':
+        if (subscriptions.get(frame.sessionId) !== 'control') {
+          sendToClient(clientId, {
+            type: 'error',
+            sessionId: frame.sessionId,
+            code: subscriptions.has(frame.sessionId) ? 'observe_only' : 'not_subscribed',
+            message: subscriptions.has(frame.sessionId)
+              ? 'observer clients cannot send input'
+              : 'client is not subscribed to this session'
+          });
+          break;
+        }
         forwardToGateway({ type: 'client.input', clientId, sessionId: frame.sessionId, data: frame.data });
         break;
       case 'client.resize':
+        if (subscriptions.get(frame.sessionId) !== 'control') {
+          sendToClient(clientId, {
+            type: 'error',
+            sessionId: frame.sessionId,
+            code: subscriptions.has(frame.sessionId) ? 'observe_only' : 'not_subscribed',
+            message: subscriptions.has(frame.sessionId)
+              ? 'observer clients cannot resize'
+              : 'client is not subscribed to this session'
+          });
+          break;
+        }
         forwardToGateway({
           type: 'client.resize',
           clientId,
@@ -239,7 +262,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
 
   function sendReplay(clientId: string, sessionId: string, events: RelayTerminalEvent[]): void {
     const client = clients.get(clientId);
-    if (!client || !client.subscriptions.has(sessionId)) {
+      if (!client || !client.subscriptions.has(sessionId)) {
       return;
     }
     for (const event of events) {

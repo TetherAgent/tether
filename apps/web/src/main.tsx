@@ -103,6 +103,21 @@ function buildRelayClientUrl(relayUrl: string): string {
   return url.toString();
 }
 
+function parseWsFrame(data: unknown): Record<string, unknown> | undefined {
+  if (typeof data !== 'string') {
+    return undefined;
+  }
+  try {
+    const frame = JSON.parse(data) as unknown;
+    if (frame && typeof frame === 'object' && !Array.isArray(frame)) {
+      return frame as Record<string, unknown>;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
 function sessionIdFromPath(): string | undefined {
   const parts = location.pathname.split('/').filter(Boolean);
   if (parts[0] === 'remote' && parts[1] === 'session') {
@@ -268,7 +283,13 @@ function SessionList({
     });
     ws.addEventListener('message', (message) => {
       if (disposed) return;
-      const frame = JSON.parse(message.data as string) as RelayServerToClientFrame;
+      const parsedFrame = parseWsFrame(message.data);
+      if (!parsedFrame || typeof parsedFrame.type !== 'string') {
+        setStatus('Bad relay frame');
+        ws?.close();
+        return;
+      }
+      const frame = parsedFrame as RelayServerToClientFrame;
       if (frame.type === 'client.auth.ok') {
         setStatus(`Relay · ${frame.clientId.slice(0, 8)}`);
         sendList();
@@ -743,7 +764,12 @@ function PtySessionView({
         if (disposed || socket.current !== ws) {
           return;
         }
-        const parsedFrame = JSON.parse(message.data as string);
+        const parsedFrame = parseWsFrame(message.data);
+        if (!parsedFrame || typeof parsedFrame.type !== 'string') {
+          setStatus('Bad stream frame');
+          nextWs.close();
+          return;
+        }
         if (connectionSettings.connectionMode === 'relay') {
           const frame = parsedFrame as RelayServerToClientFrame;
           if (frame.type === 'client.auth.ok') {

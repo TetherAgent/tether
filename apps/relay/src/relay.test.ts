@@ -99,6 +99,55 @@ test('relay forwards subscribed input and resize to gateway', async () => {
   }
 });
 
+test('relay rejects unsubscribed input and resize', async () => {
+  const relay = await startRelayServer({ host: '127.0.0.1', port: 4905, secret: SECRET });
+  const gateway = new WebSocket('ws://127.0.0.1:4905/gateway');
+  const client = new WebSocket('ws://127.0.0.1:4905/client');
+
+  try {
+    await authenticateGateway(gateway);
+    await authenticateClient(client);
+
+    client.send(JSON.stringify({ type: 'client.input', sessionId: 'tth_unsubscribed_test', data: 'blocked\r' }));
+    const inputError = await waitForJson(client, (message) => message.type === 'error' && message.code === 'not_subscribed');
+    assert.equal(inputError.sessionId, 'tth_unsubscribed_test');
+
+    client.send(JSON.stringify({ type: 'client.resize', sessionId: 'tth_unsubscribed_test', cols: 90, rows: 25 }));
+    const resizeError = await waitForJson(client, (message) => message.type === 'error' && message.code === 'not_subscribed');
+    assert.equal(resizeError.sessionId, 'tth_unsubscribed_test');
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+  }
+});
+
+test('relay rejects observe input and resize', async () => {
+  const relay = await startRelayServer({ host: '127.0.0.1', port: 4906, secret: SECRET });
+  const gateway = new WebSocket('ws://127.0.0.1:4906/gateway');
+  const client = new WebSocket('ws://127.0.0.1:4906/client');
+
+  try {
+    await authenticateGateway(gateway);
+    await authenticateClient(client);
+
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_observe_test', after: 0, mode: 'observe' }));
+    await waitForJson(gateway, (message) => message.type === 'client.subscribe');
+
+    client.send(JSON.stringify({ type: 'client.input', sessionId: 'tth_observe_test', data: 'blocked\r' }));
+    const inputError = await waitForJson(client, (message) => message.type === 'error' && message.code === 'observe_only');
+    assert.equal(inputError.sessionId, 'tth_observe_test');
+
+    client.send(JSON.stringify({ type: 'client.resize', sessionId: 'tth_observe_test', cols: 90, rows: 25 }));
+    const resizeError = await waitForJson(client, (message) => message.type === 'error' && message.code === 'observe_only');
+    assert.equal(resizeError.sessionId, 'tth_observe_test');
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+  }
+});
+
 test('relay rejects command-shaped frames', async () => {
   const relay = await startRelayServer({ host: '127.0.0.1', port: 4904, secret: SECRET });
   const gateway = new WebSocket('ws://127.0.0.1:4904/gateway');

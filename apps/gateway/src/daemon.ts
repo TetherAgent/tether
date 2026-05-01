@@ -315,8 +315,12 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       }
       if (frame.type === 'input' && typeof frame.data === 'string') {
         client.lastSeenAt = Date.now();
-        if (client.mode === 'observe') {
-          socket.send(JSON.stringify({ type: 'error', code: 'observe_only', message: 'observer clients cannot send input' }));
+        if (client.mode === 'observe' || controllers.get(session.id) !== clientId) {
+          socket.send(JSON.stringify({
+            type: 'error',
+            code: client.mode === 'observe' ? 'observe_only' : 'not_controller',
+            message: client.mode === 'observe' ? 'observer clients cannot send input' : 'client is not the active controller'
+          }));
           return;
         }
         const ok = options.ptySessions?.write(sessionId, { clientId, data: frame.data }) ?? false;
