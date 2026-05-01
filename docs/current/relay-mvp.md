@@ -12,6 +12,34 @@
 - `apps/relay` 只运行 Node relay 服务，负责认证后的 WebSocket frame 转发。它不 serve `apps/web` 静态文件，不启动 agent，不执行命令，也不持久化终端明文。
 - Gateway 是本机 session owner，负责已有 session、PTY 输入输出、事件 replay 和 resize。
 
+## 本地最简单启动 
+
+```
+  终端 1：启动 Relay
+
+  TETHER_RELAY_SECRET=dev-secret pnpm relay
+
+  终端 2：启动一个 session，并让 Gateway 连 Relay
+
+  TETHER_RELAY_URL=ws://127.0.0.1:4889 \
+  TETHER_RELAY_SECRET=dev-secret \
+  pnpm tether run codex --no-attach
+
+  终端 3：启动 Web
+
+  pnpm web:dev
+
+  然后浏览器打开：
+
+  http://localhost:5173
+
+  页面里填：
+
+  Connection: Relay
+  Relay URL: ws://127.0.0.1:4889
+  Secret: dev-secret
+```
+
 ## Relay 服务
 
 Relay 服务读取共享 secret：
