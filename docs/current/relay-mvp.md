@@ -235,7 +235,9 @@ wss://relay.example.com
 ## 安全边界
 
 Phase 1 的 `TETHER_RELAY_SECRET` 是个人 MVP 共享 secret，只适合自托管、个人使用和可信
-部署环境。完整 device-token pairing、设备授权、撤销和更细粒度的写权限校验属于 Phase 4。
+部署环境。完整 owner device-token pairing、设备授权、撤销和更细粒度的写权限校验属于
+Phase 4；多用户账号、Hosted Relay tenancy、Gateway/session ownership、角色和分享模型
+属于后续 Multi-user / Hosted Relay / Ownership Model。
 
 在 Phase 1 中：
 

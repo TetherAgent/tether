@@ -64,6 +64,7 @@ Recent decisions affecting current work:
 - v0.3 scope: personal Relay-first remote access; macOS Gateway owner; avoid broad multi-user/product relay scope
 - Relay MVP is Phase 1: self-hosted Relay, Gateway outbound WSS, owner link secret, one Gateway + remote Web client; Relay forwards frames only and never executes commands or persists terminal plaintext
 - Phase 6 is pulled forward before Phase 2-5 for solo-use priority: make Gateway a persistent service and separate it from `tether run` / provider command wrappers first; Phase 2-5 remain planned hardening work
+- Multi-user is not part of v0.3. Phase 4 is owner device authentication only; future Multi-user / Hosted Relay / Ownership Model must define accounts, tenancy, Gateway/session ownership, roles, sharing, revoke, and audit.
 - Detach hotkey: `Ctrl-]` (0x1D, ASCII GS) — CLI-side intercept only, not Gateway-side
 - PTY write chunking: 512 bytes per write with `setImmediate` between chunks (macOS PTY 1024-byte buffer bug)
 - node-pty must upgrade to ≥ 1.2.0-beta.12 before Phase 5 (GW-01) begins — closes fd-leak issue #907
@@ -89,7 +90,7 @@ Items acknowledged and carried forward from previous milestone close:
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
 | Phase 1.5 | Cloudflare Tunnel / Tailscale tooling | Deferred to v0.4+ | v0.3 scoping |
-| Relay hardening | Hosted Relay service, multi-user accounts, E2EE relay envelopes | Deferred after personal MVP | v0.3 reorder |
+| Relay hardening | Hosted Relay service, multi-user accounts, ownership model, E2EE relay envelopes | Deferred after personal MVP | v0.3 reorder |
 | Phase 3a | Provider abstraction (ACP / JSON-RPC) + multi-agent | Deferred | v0.3 scoping |
 | Phase 3b | Multi-machine federation | Deferred | v0.3 scoping |
 | Phase 3c | Push notifications + encrypted relay | Deferred | v0.3 scoping |

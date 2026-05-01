@@ -12,14 +12,16 @@ Build order is optimized for a solo user rather than a public multi-user service
 Relay MVP may use a single owner link secret and outbound Gateway connection, but it
 must still preserve the safety boundary: Relay only forwards authenticated frames, never
 executes commands, never accepts arbitrary process creation, and does not persist terminal
-plaintext. Full pairing/device-token auth remains a later phase before broader exposure.
+plaintext. Phase 4 only adds personal owner/device pairing and device tokens; multi-user
+accounts, hosted relay tenancy, organization/team permissions, and ownership models are
+tracked as post-v0.3 work.
 
 ## Phases
 
 - [x] **Phase 1: Personal Relay MVP** - Gateway connects outbound to a self-hosted Relay; one remote Web client can attach to an existing session
 - [ ] **Phase 2: Experience Hardening** - Detach hotkey, key passthrough, paste, ANSI, and TUI resize all verified on macOS
 - [ ] **Phase 3: Cleanup** - tmux fallback removed; single-transport codebase ready for auth work
-- [ ] **Phase 4: Authentication** - Pairing flow live; all write endpoints reject unauthenticated requests
+- [ ] **Phase 4: Owner Device Authentication** - Personal owner pairing flow live; all write endpoints reject unauthenticated devices
 - [ ] **Phase 5: Retention** - Event store bounded; WAL checkpoint scheduled; Gateway stable under multi-hour uptime
 - [ ] **Phase 6: Supervisor & launchd** - Single persistent Gateway owns all PTY sessions; auto-starts on login
 - [ ] **Phase 7: Security Tests & Final Cleanup** - Milestone exit gate; relay, auth, whitelist, mask, retention all covered by integration tests
@@ -64,16 +66,17 @@ plaintext. Full pairing/device-token auth remains a later phase before broader e
   3. The `transport` column and TypeScript type are retained with a code comment documenting the intent (historical rows readable; future extension point); only `'pty-event-stream'` is valid for new sessions
 **Plans**: TBD
 
-### Phase 4: Authentication
-**Goal**: Users can pair a phone or remote client with the Gateway via a one-time code, and all write operations require a valid device token
+### Phase 4: Owner Device Authentication
+**Goal**: The solo owner can pair a phone or remote client with the Gateway via a one-time code, and all write operations require a valid owner device token
 **Depends on**: Phase 3
 **Requirements**: AUTH-02, AUTH-01
 **Success Criteria** (what must be TRUE):
-  1. A user can run the pairing flow from the Web client: obtain a 6-digit code, enter it, and receive a device token stored in the browser; the token hash (SHA-256) is persisted in the `device_tokens` SQLite table and the raw token never touches disk
+  1. The owner can run the pairing flow from the Web client: obtain a 6-digit code, enter it, and receive a device token stored in the browser; the token hash (SHA-256) is persisted in the `device_tokens` SQLite table and the raw token never touches disk
   2. All write endpoints (`POST /api/sessions/:id/input`, `POST /api/sessions/:id/resize`, `POST /api/sessions/:id/stop`, `POST /api/sessions/:id/claim-control`, `POST /api/sessions`, `POST /api/ws-ticket`) return HTTP 401 when called without a valid `Authorization: Bearer <device-token>` header
   3. A paired device token remains valid across Gateway restarts; an unpaired client cannot write to any session
   4. Two simultaneous pairing-confirm requests for the same code produce exactly one success (no TOCTOU race); after 5 failed attempts the code is invalidated
   5. Relay-routed writes use the same device-token checks as direct HTTP/WS writes once this phase lands
+  6. This phase does not implement multi-user accounts, organizations, shared workspaces, roles, or per-user session ownership; those belong to the future Multi-user / Hosted Relay / Ownership Model phase
 **Plans**: TBD
 
 ### Phase 5: Retention
@@ -129,7 +132,7 @@ plaintext. Full pairing/device-token auth remains a later phase before broader e
 | 1. Personal Relay MVP | 4/4 | Complete | 2026-05-01 |
 | 2. Experience Hardening | 0/TBD | Not started | - |
 | 3. Cleanup | 0/TBD | Not started | - |
-| 4. Authentication | 0/TBD | Not started | - |
+| 4. Owner Device Authentication | 0/TBD | Not started | - |
 | 5. Retention | 0/TBD | Not started | - |
 | 6. Supervisor & launchd | 0/5 | Planned | - |
 | 7. Security Tests & Final Cleanup | 0/TBD | Not started | - |
@@ -138,4 +141,5 @@ plaintext. Full pairing/device-token auth remains a later phase before broader e
 *Roadmap created: 2026-05-01*
 *Milestone reordered: 2026-05-01 — personal Relay MVP moved to Phase 1*
 *Execution order update: 2026-05-01 — Phase 6 pulled forward after Phase 1 for solo-use Gateway persistence*
+*Future scope noted: 2026-05-01 — multi-user / hosted relay / ownership model deferred beyond v0.3*
 *Coverage: 15/15 v1 requirements mapped*
