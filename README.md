@@ -100,6 +100,31 @@ What stays: the Gateway, CLI shape, API boundaries, package layout.
 What gets swapped out: the tmux capture/send layer.
 Phase 1 is a demo, but the foundation is built to last.
 
+```mermaid
+flowchart TB
+  subgraph p1[Phase 1: tmux demo]
+    tmux[tmux session]
+    snapshot[capture-pane snapshot]
+    sendkeys[send-keys input]
+  end
+
+  subgraph p2[Phase 2: PTY-backed event stream]
+    pty[node-pty session]
+    events[terminal event stream]
+    clients[terminal / web / mobile / app clients]
+  end
+
+  subgraph future[Future: structured operations]
+    structured[structured events<br/>diff / approval / handoff]
+  end
+
+  tmux --> snapshot
+  tmux --> sendkeys
+  tmux -. replaced by .-> pty
+  pty --> events --> clients
+  events --> structured
+```
+
 ## Quick Start
 
 Requirements:
@@ -149,19 +174,42 @@ Current and planned surfaces:
 - Floating desktop console (watch without blocking your screen)
 - Automation entry point / agent-to-agent control API
 
-```text
-terminal attach        mobile PWA        desktop app        native clients
-      \                    |                 |                    /
-                         Tether Gateway
-                               |
-                    agent sessions on this machine
-                      codex / claude / opencode / ...
+```mermaid
+flowchart TB
+  cli[CLI<br/>native terminal attach]
+  pwa[Mobile / Web PWA]
+  desktop[Desktop app]
+  native[Native apps<br/>iOS / Android / HarmonyOS]
+  gateway[Tether Gateway<br/>local session owner]
+  sessions[Agent sessions on this machine<br/>Codex / Claude / OpenCode / ...]
+
+  cli --> gateway
+  pwa --> gateway
+  desktop --> gateway
+  native --> gateway
+  gateway --> sessions
 ```
 
 ## Product Direction
 
 Three access paths — same Gateway, from your home Wi-Fi to a flight halfway
 around the world:
+
+```mermaid
+flowchart LR
+  phone[Phone / Web / App]
+  desktop[Desktop / CLI]
+  tunnel[Tailscale / Cloudflare Tunnel]
+  relay[Tether Relay<br/>frame forwarding only]
+  gateway[Tether Gateway<br/>local session owner]
+  agent[Agent process<br/>Codex / Claude / OpenCode]
+
+  desktop --> gateway
+  phone -->|LAN| gateway
+  phone -->|Tunnel| tunnel --> gateway
+  phone -->|Relay| relay --> gateway
+  gateway --> agent
+```
 
 - **LAN**: phone and computer on the same network, direct to the Gateway.
   Zero middlemen.
@@ -183,6 +231,18 @@ Control plane principles — local first, cloud later:
   This is a hard architectural boundary, not a feature toggle.
 
 ## Roadmap
+
+```mermaid
+flowchart LR
+  p1[Phase 1<br/>tmux demo]
+  p15[Phase 1.5<br/>pairing + access]
+  p2[Phase 2<br/>event stream]
+  p3[Phase 3<br/>multi-machine + agents]
+  p4[Phase 4<br/>review UI]
+  future[Future<br/>apps + orchestration]
+
+  p1 --> p15 --> p2 --> p3 --> p4 --> future
+```
 
 | Phase | Theme | Key shift |
 | --- | --- | --- |

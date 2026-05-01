@@ -8,6 +8,22 @@ type Snapshot = {
   capturedAt: number;
 };
 
+type Session = {
+  id: string;
+  provider: string;
+  title: string;
+  projectPath: string;
+  status: string;
+  lastActiveAt: number;
+};
+
+type Gateway = {
+  id: string;
+  url: string;
+  pid: number;
+  lastSeenAt: number;
+};
+
 function sessionIdFromPath(): string | undefined {
   const parts = location.pathname.split('/').filter(Boolean);
   if (parts[0] === 'remote' && parts[1] === 'session') {
@@ -20,15 +36,82 @@ function App() {
   const sessionId = sessionIdFromPath();
 
   if (!sessionId) {
-    return (
-      <main className="empty">
-        <h1>Tether</h1>
-        <p>Select a session from the CLI output.</p>
-      </main>
-    );
+    return <SessionList />;
   }
 
   return <SessionView sessionId={sessionId} />;
+}
+
+function SessionList() {
+  const [sessions, setSessions] = React.useState<Session[]>([]);
+  const [gateways, setGateways] = React.useState<Gateway[]>([]);
+  const [status, setStatus] = React.useState('Loading');
+
+  const refresh = React.useCallback(async () => {
+    try {
+      const [sessionsResponse, gatewaysResponse] = await Promise.all([
+        fetch('/api/sessions'),
+        fetch('/api/gateways')
+      ]);
+      if (!sessionsResponse.ok) {
+        throw new Error(`sessions HTTP ${sessionsResponse.status}`);
+      }
+      if (!gatewaysResponse.ok) {
+        throw new Error(`gateways HTTP ${gatewaysResponse.status}`);
+      }
+      const sessionsData = (await sessionsResponse.json()) as { sessions: Session[] };
+      const gatewaysData = (await gatewaysResponse.json()) as { gateways: Gateway[] };
+      setSessions(sessionsData.sessions);
+      setGateways(gatewaysData.gateways);
+      setStatus(new Date().toLocaleTimeString());
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Disconnected');
+    }
+  }, []);
+
+  React.useEffect(() => {
+    refresh();
+    const timer = window.setInterval(refresh, 3000);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
+
+  return (
+    <>
+      <header>
+        <h1>Tether</h1>
+        <div className="status">{status}</div>
+      </header>
+      <main className="session-list">
+        {gateways.length > 0 ? (
+          <section className="gateway-list" aria-label="Gateways">
+            {gateways.map((gateway) => (
+              <div className="gateway-row" key={gateway.id}>
+                <span>{gateway.url}</span>
+                <span>pid {gateway.pid}</span>
+              </div>
+            ))}
+          </section>
+        ) : null}
+        {sessions.length === 0 ? (
+          <div className="empty">
+            <h2>No sessions</h2>
+            <p>Start one with the CLI, then refresh this page.</p>
+          </div>
+        ) : (
+          sessions.map((session) => (
+            <a className="session-card" href={`/remote/session/${encodeURIComponent(session.id)}`} key={session.id}>
+              <span className="session-card-title">{session.title || session.provider}</span>
+              <span className="session-card-meta">
+                {session.provider} · {session.status} · {new Date(session.lastActiveAt).toLocaleTimeString()}
+              </span>
+              <span className="session-card-id">{session.id}</span>
+              <span className="session-card-path">{session.projectPath}</span>
+            </a>
+          ))
+        )}
+      </main>
+    </>
+  );
 }
 
 function SessionView({ sessionId }: { sessionId: string }) {

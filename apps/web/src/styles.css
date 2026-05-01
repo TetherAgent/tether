@@ -84,6 +84,77 @@ button {
   padding: 0 16px;
 }
 
+h2 {
+  font-size: 18px;
+  margin: 0 0 8px;
+}
+
+p {
+  margin: 0;
+  color: #9aa4af;
+}
+
+.session-list {
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  background: #0c0e10;
+}
+
+.gateway-list {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.gateway-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  color: #9aa4af;
+  font-size: 12px;
+  border: 1px solid #2b3137;
+  border-radius: 6px;
+  background: #101419;
+}
+
+.session-card {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  color: #e8ecef;
+  text-decoration: none;
+  border: 1px solid #2b3137;
+  border-radius: 8px;
+  background: #171a1f;
+}
+
+.session-card:active,
+.session-card:hover {
+  border-color: #8fd0ff;
+}
+
+.session-card-title {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.session-card-meta,
+.session-card-id,
+.session-card-path {
+  font-size: 12px;
+  color: #9aa4af;
+  overflow-wrap: anywhere;
+}
+
+.session-card-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
 .empty {
-  padding: 24px;
+  padding: 24px 12px;
 }

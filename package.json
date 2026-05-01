@@ -10,7 +10,7 @@
     "typecheck": "pnpm -r --if-present run typecheck",
     "web:dev": "pnpm --filter @tether/web dev",
     "web:build": "pnpm --filter @tether/web build",
-    "dev": "tsx apps/cli/src/main.ts",
+    "dev": "tsx apps/cli/src/main.ts codex --host 0.0.0.0",
     "tether": "tsx apps/cli/src/main.ts"
   },
   "dependencies": {

@@ -6,6 +6,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import type { ServerType } from '@hono/node-server';
 import { maskSensitiveOutput } from './mask.js';
+import { listGateways, registerGateway, touchGateway, unregisterGateway } from './registry.js';
 import { Store } from './store.js';
 import { capturePane, sendKeys, sessionExists } from './tmux.js';
 
@@ -36,9 +37,32 @@ export function localLanAddress(): string | undefined {
 
 export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon> {
   const app = new Hono();
+  const displayHost = options.host === '0.0.0.0' ? localLanAddress() ?? '127.0.0.1' : options.host;
+  const url = `http://${displayHost}:${options.port}`;
 
-  app.get('/api/sessions', (c) => {
-    return c.json({ sessions: options.store.listSessions() });
+  app.get('/api/sessions', async (c) => {
+    const includeStopped = c.req.query('all') === '1';
+    const sessions = options.store.listSessions();
+    const liveSessions = [];
+    for (const session of sessions) {
+      const alive = await sessionExists(session.tmuxSessionName);
+      if (!alive && session.status === 'running') {
+        options.store.updateSessionStatus(session.id, 'stopped');
+        session.status = 'stopped';
+      }
+      if (alive && session.status === 'stopped') {
+        options.store.updateSessionStatus(session.id, 'running');
+        session.status = 'running';
+      }
+      if (alive || includeStopped) {
+        liveSessions.push(session);
+      }
+    }
+    return c.json({ sessions: liveSessions });
+  });
+
+  app.get('/api/gateways', async (c) => {
+    return c.json({ gateways: await listGateways() });
   });
 
   app.get('/api/sessions/:id/snapshot', async (c) => {
@@ -94,13 +118,17 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     return new Response(file);
   });
 
-  app.get('/remote/session/:id', async (c) => {
+  const serveWebApp = async () => {
     const html = await readFile(path.resolve(webDistDir, 'index.html'), 'utf8').catch(() => undefined);
     if (!html) {
-      return c.text('Web app is not built. Run: pnpm web:build', 503);
+      return new Response('Web app is not built. Run: pnpm web:build', { status: 503 });
     }
-    return c.html(html);
-  });
+    return new Response(html, { headers: { 'content-type': 'text/html; charset=UTF-8' } });
+  };
+
+  app.get('/', serveWebApp);
+  app.get('/remote', serveWebApp);
+  app.get('/remote/session/:id', serveWebApp);
 
   const server = serve({
     fetch: app.fetch,
@@ -108,11 +136,27 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     port: options.port
   }) as ServerType;
 
-  const displayHost = options.host === '0.0.0.0' ? localLanAddress() ?? '127.0.0.1' : options.host;
+  const gatewayId = `gw_${process.pid}_${options.port}`;
+  const now = Date.now();
+  await registerGateway({
+    id: gatewayId,
+    host: displayHost,
+    port: options.port,
+    url,
+    pid: process.pid,
+    startedAt: now,
+    lastSeenAt: now
+  });
+  const heartbeat = setInterval(() => {
+    touchGateway(gatewayId).catch(() => undefined);
+  }, 10_000);
+  heartbeat.unref();
+
   return {
-    url: `http://${displayHost}:${options.port}`,
-    close: () =>
-      new Promise((resolve, reject) => {
+    url,
+    close: () => {
+      clearInterval(heartbeat);
+      return new Promise<void>((resolve, reject) => {
         server.close((error) => {
           if (error) {
             reject(error);
@@ -120,6 +164,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           }
           resolve();
         });
-      })
+      }).finally(() => unregisterGateway(gatewayId).catch(() => undefined));
+    }
   };
 }
