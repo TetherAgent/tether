@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-05-01)
 
 **Core value:** 在 agent session 场景里，本地体验对齐 tmux，并在历史回放、多端接管、审计、手机/Web/App 接入上超越 tmux。
-**Current focus:** Phase 1 — Experience Hardening
+**Current focus:** Phase 1 — Personal Relay MVP
 
 ## Current Position
 
-Phase: 1 of 6 (Experience Hardening)
+Phase: 1 of 7 (Personal Relay MVP)
 Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-05-01 — Roadmap created; ready for Phase 1 planning
+Status: Context gathered; ready to plan
+Last activity: 2026-05-01 — Phase 1 Personal Relay MVP context gathered
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -43,7 +43,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
 - Phase 2 shipped: PTY-backed event stream (TRANSPORT-01..04, CLI-01/02, MULTI-01, WEB-01, REPLAY-01, SAFE-01..03, STATE-01, STRUCT-01) — all validated
-- v0.3 scope: zero new npm dependencies; macOS only
+- v0.3 scope: personal Relay-first remote access; macOS Gateway owner; avoid broad multi-user/product relay scope
+- Relay MVP is Phase 1: self-hosted Relay, Gateway outbound WSS, owner link secret, one Gateway + remote Web client; Relay forwards frames only and never executes commands or persists terminal plaintext
 - Detach hotkey: `Ctrl-]` (0x1D, ASCII GS) — CLI-side intercept only, not Gateway-side
 - PTY write chunking: 512 bytes per write with `setImmediate` between chunks (macOS PTY 1024-byte buffer bug)
 - node-pty must upgrade to ≥ 1.2.0-beta.12 before Phase 5 (GW-01) begins — closes fd-leak issue #907
@@ -69,7 +70,7 @@ Items acknowledged and carried forward from previous milestone close:
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
 | Phase 1.5 | Cloudflare Tunnel / Tailscale tooling | Deferred to v0.4+ | v0.3 scoping |
-| Phase 1.5 | Self-hosted relay MVP | Deferred to v0.4+ | v0.3 scoping |
+| Relay hardening | Hosted Relay service, multi-user accounts, E2EE relay envelopes | Deferred after personal MVP | v0.3 reorder |
 | Phase 3a | Provider abstraction (ACP / JSON-RPC) + multi-agent | Deferred | v0.3 scoping |
 | Phase 3b | Multi-machine federation | Deferred | v0.3 scoping |
 | Phase 3c | Push notifications + encrypted relay | Deferred | v0.3 scoping |
@@ -78,5 +79,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-05-01
-Stopped at: Roadmap and STATE.md created; REQUIREMENTS.md traceability updated
-Resume file: None
+Stopped at: Phase 1 context gathered
+Resume file: .planning/phases/01-personal-relay-mvp/01-CONTEXT.md
