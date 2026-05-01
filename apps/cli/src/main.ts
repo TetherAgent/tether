@@ -43,6 +43,8 @@ type StartOptions = {
   project: string;
   attach: boolean;
   transport: 'tmux' | 'pty';
+  relayUrl?: string;
+  relaySecret?: string;
 };
 
 function addProviderCommand(provider: Provider): void {
@@ -53,6 +55,8 @@ function addProviderCommand(provider: Provider): void {
     .option('--port <port>', 'daemon port', parsePort, 4789)
     .option('--project <path>', 'project directory', process.cwd())
     .option('--transport <transport>', 'session transport: pty or tmux', parseTransport, 'pty')
+    .option('--relay-url <url>', 'relay server URL; falls back to TETHER_RELAY_URL')
+    .option('--relay-secret <secret>', 'relay shared secret; falls back to TETHER_RELAY_SECRET')
     .option('--no-attach', 'start session without attaching this terminal')
     .action((options: StartOptions) => startProviderSession(provider, options));
 }
@@ -66,10 +70,18 @@ program
   .description('start a persistent Tether Gateway without creating a session')
   .option('--host <host>', 'daemon host to bind', '127.0.0.1')
   .option('--port <port>', 'daemon port', parsePort, 4789)
-  .action(async (options: { host: string; port: number }) => {
+  .option('--relay-url <url>', 'relay server URL; falls back to TETHER_RELAY_URL')
+  .option('--relay-secret <secret>', 'relay shared secret; falls back to TETHER_RELAY_SECRET')
+  .action(async (options: { host: string; port: number; relayUrl?: string; relaySecret?: string }) => {
     const store = new Store();
     const ptySessions = new PtySessionManager(store);
-    const daemon = await startDaemon({ host: options.host, port: options.port, store, ptySessions });
+    const daemon = await startDaemon({
+      host: options.host,
+      port: options.port,
+      store,
+      ptySessions,
+      relay: relayConfig(options)
+    });
     console.log(`Tether Gateway: ${daemon.url}`);
     console.log('Gateway is running. Press Ctrl-C to stop.');
     await waitForShutdown();
@@ -84,6 +96,8 @@ program
   .option('--port <port>', 'daemon port', parsePort, 4789)
   .option('--project <path>', 'project directory', process.cwd())
   .option('--transport <transport>', 'session transport: tmux or pty', parseTransport, 'pty')
+  .option('--relay-url <url>', 'relay server URL; falls back to TETHER_RELAY_URL')
+  .option('--relay-secret <secret>', 'relay shared secret; falls back to TETHER_RELAY_SECRET')
   .option('--no-attach', 'start session without attaching this terminal')
   .action((providerName: string, options: StartOptions) => {
     const provider = providers[providerName as ProviderName];
@@ -123,7 +137,7 @@ async function startProviderSession(provider: Provider, options: StartOptions): 
     lastActiveAt: now
   });
 
-  const daemon = await startDaemon({ host: options.host, port: options.port, store });
+  const daemon = await startDaemon({ host: options.host, port: options.port, store, relay: relayConfig(options) });
   const remoteUrl = `${daemon.url}/remote/session/${id}`;
   console.log(`Tether session: ${id}`);
   console.log(`Remote URL: ${remoteUrl}`);
@@ -158,7 +172,13 @@ async function startPtyProviderSession(provider: Provider, options: StartOptions
     rows
   });
 
-  const daemon = await startDaemon({ host: options.host, port: options.port, store, ptySessions });
+  const daemon = await startDaemon({
+    host: options.host,
+    port: options.port,
+    store,
+    ptySessions,
+    relay: relayConfig(options)
+  });
   const remoteUrl = `${daemon.url}/remote/session/${id}`;
   console.log(`Tether session: ${id}`);
   console.log(`Remote URL: ${remoteUrl}`);
@@ -318,6 +338,20 @@ function parseTransport(value: string): 'tmux' | 'pty' {
     return value;
   }
   throw new Error(`invalid transport: ${value}`);
+}
+
+function relayConfig(options: { relayUrl?: string; relaySecret?: string }):
+  | { url: string; secret: string }
+  | undefined {
+  const url = options.relayUrl ?? process.env.TETHER_RELAY_URL;
+  const secret = options.relaySecret ?? process.env.TETHER_RELAY_SECRET;
+  if (!url && !secret) {
+    return undefined;
+  }
+  if (!url || !secret) {
+    throw new Error('relay requires both --relay-url and --relay-secret, or TETHER_RELAY_URL and TETHER_RELAY_SECRET');
+  }
+  return { url, secret };
 }
 
 async function attachPtySession(

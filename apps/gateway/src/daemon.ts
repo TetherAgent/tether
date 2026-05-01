@@ -11,6 +11,7 @@ import { WebSocketServer } from 'ws';
 import { maskSensitiveOutput } from './mask.js';
 import type { PtySessionManager } from './pty.js';
 import { listGateways, registerGateway, touchGateway, unregisterGateway } from './registry.js';
+import { startRelayClient, type RunningRelayClient } from './relay-client.js';
 import { Store } from './store.js';
 import { capturePane, sendKeys, sessionExists } from './tmux.js';
 
@@ -19,6 +20,7 @@ export type DaemonOptions = {
   port: number;
   store: Store;
   ptySessions?: PtySessionManager;
+  relay?: { url: string; secret: string; gatewayId?: string };
 };
 
 export type RunningDaemon = {
@@ -362,7 +364,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     });
   });
 
-  const gatewayId = `gw_${process.pid}_${options.port}`;
+  const gatewayId = options.relay?.gatewayId ?? `gw_${process.pid}_${options.port}`;
   const now = Date.now();
   await registerGateway({
     id: gatewayId,
@@ -378,10 +380,22 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   }, 10_000);
   heartbeat.unref();
 
+  let relayClient: RunningRelayClient | undefined;
+  if (options.relay) {
+    relayClient = startRelayClient({
+      url: options.relay.url,
+      secret: options.relay.secret,
+      gatewayId,
+      store: options.store,
+      ptySessions: options.ptySessions
+    });
+  }
+
   return {
     url,
-    close: () => {
+    close: async () => {
       clearInterval(heartbeat);
+      await relayClient?.close();
       wss.close();
       return new Promise<void>((resolve, reject) => {
         server.close((error) => {
