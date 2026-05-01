@@ -84,6 +84,25 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
+  apps/relay:
+    dependencies:
+      '@tether/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      ws:
+        specifier: ^8.20.0
+        version: 8.20.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.15.29
+        version: 22.19.17
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
   apps/web:
     dependencies:
       '@vitejs/plugin-react':
