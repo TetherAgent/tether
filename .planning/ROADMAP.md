@@ -117,7 +117,7 @@ plaintext. Full pairing/device-token auth remains a later phase before broader e
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Personal Relay MVP | 3/4 | Executing | - |
+| 1. Personal Relay MVP | 4/4 | Verifying | - |
 | 2. Experience Hardening | 0/TBD | Not started | - |
 | 3. Cleanup | 0/TBD | Not started | - |
 | 4. Authentication | 0/TBD | Not started | - |
