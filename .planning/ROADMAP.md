@@ -36,7 +36,11 @@ plaintext. Full pairing/device-token auth remains a later phase before broader e
   3. A remote Web client can list and attach to an existing Gateway session through Relay; terminal output, input, resize, and control/observe mode frames round-trip through the relay
   4. Relay only forwards protocol frames between authenticated Gateway/client peers; it never spawns commands, never receives provider command/args/env, and does not persist terminal plaintext
   5. The MVP is explicitly single-owner/single-Gateway oriented; multi-user accounts, billing, federation, push notifications, and end-to-end encrypted relay envelopes are out of scope
-**Plans**: TBD
+**Plans**:
+  - `01-01-PLAN.md` — Relay Protocol Contract
+  - `01-02-PLAN.md` — Relay Service Runtime *(depends on Plan 01)*
+  - `01-03-PLAN.md` — Gateway Relay Bridge *(depends on Plans 01, 02)*
+  - `01-04-PLAN.md` — Web Relay Mode and End-to-End Verification *(depends on Plans 01, 02, 03)*
 
 ### Phase 2: Experience Hardening
 **Goal**: Local terminal experience is at parity with tmux — detach works, key sequences pass through correctly, paste arrives intact, ANSI renders faithfully, and TUI resize is clean
@@ -113,7 +117,7 @@ plaintext. Full pairing/device-token auth remains a later phase before broader e
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Personal Relay MVP | 0/TBD | Not started | - |
+| 1. Personal Relay MVP | 0/4 | Planned | - |
 | 2. Experience Hardening | 0/TBD | Not started | - |
 | 3. Cleanup | 0/TBD | Not started | - |
 | 4. Authentication | 0/TBD | Not started | - |
