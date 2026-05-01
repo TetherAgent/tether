@@ -23,7 +23,7 @@ tracked as post-v0.3 work.
 - [ ] **Phase 3: Cleanup** - tmux fallback removed; single-transport codebase ready for auth work
 - [ ] **Phase 4: Owner Device Authentication** - Personal owner pairing flow live; all write endpoints reject unauthenticated devices
 - [ ] **Phase 5: Retention** - Event store bounded; WAL checkpoint scheduled; Gateway stable under multi-hour uptime
-- [ ] **Phase 6: Supervisor & launchd** - Single persistent Gateway owns all PTY sessions; auto-starts on login
+- [x] **Phase 6: Supervisor & launchd** - Single persistent Gateway owns all PTY sessions; auto-starts on login
 - [ ] **Phase 7: Security Tests & Final Cleanup** - Milestone exit gate; relay, auth, whitelist, mask, retention all covered by integration tests
 
 ## Phase Details
@@ -134,7 +134,7 @@ tracked as post-v0.3 work.
 | 3. Cleanup | 0/TBD | Not started | - |
 | 4. Owner Device Authentication | 0/TBD | Not started | - |
 | 5. Retention | 0/TBD | Not started | - |
-| 6. Supervisor & launchd | 0/5 | Planned | - |
+| 6. Supervisor & launchd | 5/5 | Complete | 2026-05-02 |
 | 7. Security Tests & Final Cleanup | 0/TBD | Not started | - |
 
 ---

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.3
 milestone_name: milestone
 status: ready
-stopped_at: Phase 6 planned
-last_updated: "2026-05-01T15:47:47.471Z"
-last_activity: 2026-05-01 -- Phase 6 planning complete
+stopped_at: Phase 6 complete
+last_updated: "2026-05-02T00:00:00Z"
+last_activity: 2026-05-02 -- Phase 6 complete
 progress:
   total_phases: 7
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 9
-  completed_plans: 4
-  percent: 44
+  completed_plans: 9
+  percent: 100
 ---
 
 # Project State
@@ -21,22 +21,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-01)
 
 **Core value:** 在 agent session 场景里，本地体验对齐 tmux，并在历史回放、多端接管、审计、手机/Web/App 接入上超越 tmux。
-**Current focus:** Phase 6 — Supervisor & launchd
+**Current focus:** Phase 2 — Experience Hardening
 
 ## Current Position
 
-Phase: 6 of 7 (Supervisor & launchd)
-Plan: 0 of 5 in current phase
-Status: Ready to execute
-Last activity: 2026-05-01 -- Phase 6 planning complete
+Phase: 2 of 7 (Experience Hardening)
+Plan: 0 of TBD in current phase
+Status: Phase 6 complete; ready to resume normal roadmap order at Phase 2
+Last activity: 2026-05-02 -- Phase 6 complete
 
-Progress: [████░░░░░░] 44%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 4
+- Total plans completed: 9
 - Average duration: — min
 - Total execution time: 0 hours
 
@@ -98,6 +98,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-01T15:32:38.077Z
-Stopped at: Phase 6 planned
-Resume file: .planning/phases/06-supervisor-launchd/06-01-PLAN.md
+Last session: 2026-05-02T00:00:00Z
+Stopped at: Phase 6 complete
+Resume file: .planning/ROADMAP.md

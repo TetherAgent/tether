@@ -39,8 +39,8 @@ This is a **personal remote-access milestone** — Phase 2 PTY-backed event stre
 
 ### Supervisor & Background Service (P1 — required to make Gateway the single session owner)
 
-- [ ] **GW-01**: A single persistent `tether gateway` process owns all PTY sessions. CLI `tether run / codex / claude / opencode / attach / stop` commands probe for a running Gateway and forward to it; absence of a running Gateway falls back to inline bootstrap with a warning. node-pty is upgraded to >= 1.2.0-beta.12 (closes fd-leak issue #907) before this requirement is closed.
-- [ ] **GW-02**: User can run `tether gateway install` to register a `~/Library/LaunchAgents/sh.tether.gateway.plist` that launches Gateway at login (`RunAtLoad`), restarts on crash (`KeepAlive`), and uses an absolute `node` path snapshotted at install time. `tether gateway uninstall` removes it cleanly.
+- [x] **GW-01**: A single persistent `tether gateway` process owns all PTY sessions. CLI `tether run / codex / claude / opencode / attach / stop` commands probe for a running Gateway and forward to it; absence of a running Gateway falls back to inline bootstrap with a warning. node-pty is upgraded to >= 1.2.0-beta.12 (closes fd-leak issue #907) before this requirement is closed.
+- [x] **GW-02**: User can run `tether gateway install` to register a `~/Library/LaunchAgents/sh.tether.gateway.plist` that launches Gateway at login (`RunAtLoad`), restarts on crash (`KeepAlive`), and uses an absolute `node` path snapshotted at install time. `tether gateway uninstall` removes it cleanly.
 
 ### Tests (P1 — milestone exit gate)
 
@@ -102,8 +102,8 @@ This is a **personal remote-access milestone** — Phase 2 PTY-backed event stre
 | AUTH-02 | Phase 4 | Pending |
 | AUTH-01 | Phase 4 | Pending |
 | RETAIN-01 | Phase 5 | Pending |
-| GW-01 | Phase 6 | Pending |
-| GW-02 | Phase 6 | Pending |
+| GW-01 | Phase 6 | Complete |
+| GW-02 | Phase 6 | Complete |
 | TEST-01 | Phase 7 | Pending |
 | CLEAN-03 | Phase 7 | Pending |
 

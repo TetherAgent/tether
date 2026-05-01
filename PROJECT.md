@@ -94,6 +94,13 @@ pnpm typecheck
 pnpm test
 pnpm tether --help
 pnpm tether gateway
+pnpm tether gateway config
+pnpm tether gateway install
+pnpm tether gateway start
+pnpm tether gateway stop
+pnpm tether gateway restart
+pnpm tether gateway status
+pnpm tether gateway uninstall
 pnpm tether codex
 pnpm tether run codex --no-attach
 pnpm tether attach <id> --control

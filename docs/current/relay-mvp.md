@@ -12,17 +12,20 @@
 - `apps/relay` 只运行 Node relay 服务，负责认证后的 WebSocket frame 转发。它不 serve `apps/web` 静态文件，不启动 agent，不执行命令，也不持久化终端明文。
 - Gateway 是本机 session owner，负责已有 session、PTY 输入输出、事件 replay 和 resize。
 
-## 本地最简单启动 
+## 本地最简单启动
 
 ```
   终端 1：启动 Relay
 
   TETHER_RELAY_SECRET=dev-secret pnpm relay
 
-  终端 2：启动一个 session，并让 Gateway 连 Relay
+  终端 2：配置并启动常驻 Gateway，让 Gateway 连 Relay
 
-  TETHER_RELAY_URL=ws://127.0.0.1:4889 \
-  TETHER_RELAY_SECRET=dev-secret \
+  pnpm tether gateway config --host 127.0.0.1 --port 4789 \
+    --relay-url ws://127.0.0.1:4889 \
+    --relay-secret dev-secret \
+    --allow-api-session-create
+  pnpm tether gateway start
   pnpm tether run codex --no-attach
 
   终端 3：启动 Web
@@ -71,7 +74,12 @@ relay frame 转发职责保持分离。
 Gateway 使用 relay URL 和 secret 主动连到 relay：
 
 ```bash
-pnpm tether run codex --no-attach --relay-url wss://relay.example.com --relay-secret <personal-secret>
+pnpm tether gateway config \
+  --relay-url wss://relay.example.com \
+  --relay-secret <personal-secret> \
+  --allow-api-session-create
+pnpm tether gateway start
+pnpm tether run codex --no-attach
 ```
 
 也可以通过环境变量提供：
@@ -79,8 +87,13 @@ pnpm tether run codex --no-attach --relay-url wss://relay.example.com --relay-se
 ```bash
 TETHER_RELAY_URL=wss://relay.example.com \
 TETHER_RELAY_SECRET=<personal-secret> \
-pnpm tether run codex --no-attach
+pnpm tether gateway
 ```
+
+日常使用推荐持久化到 `~/.tether/config.json` 后通过 `pnpm tether gateway start` 管理
+Gateway；环境变量更适合一次性前台验证。`pnpm tether run codex --no-attach` 默认会优先
+转发给常驻 Gateway 创建 session，只有未检测到常驻 Gateway 或显式 `--inline` 时才回到
+单次 CLI 内联 Gateway。
 
 ## 浏览器使用
 
@@ -128,13 +141,16 @@ curl http://127.0.0.1:4889/healthz
 ok
 ```
 
-### 2. 启动 Gateway session 并连接 Relay
+### 2. 启动常驻 Gateway 并连接 Relay
 
 Terminal 2：
 
 ```bash
-TETHER_RELAY_URL=ws://127.0.0.1:4889 \
-TETHER_RELAY_SECRET=dev-secret \
+pnpm tether gateway config --host 127.0.0.1 --port 4789 \
+  --relay-url ws://127.0.0.1:4889 \
+  --relay-secret dev-secret \
+  --allow-api-session-create
+pnpm tether gateway start
 pnpm tether run codex --no-attach
 ```
 
@@ -219,8 +235,11 @@ pnpm relay
 本机 Gateway 使用公网 relay base URL：
 
 ```bash
-TETHER_RELAY_URL=wss://relay.example.com \
-TETHER_RELAY_SECRET=<personal-secret> \
+pnpm tether gateway config \
+  --relay-url wss://relay.example.com \
+  --relay-secret <personal-secret> \
+  --allow-api-session-create
+pnpm tether gateway start
 pnpm tether run codex --no-attach
 ```
 

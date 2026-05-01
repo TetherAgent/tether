@@ -7,9 +7,11 @@
     "tether": "./src/main.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test src/*.test.ts"
   },
   "dependencies": {
+    "@tether/config": "workspace:*",
     "@tether/core": "workspace:*",
     "@tether/gateway": "workspace:*",
     "commander": "^13.1.0",

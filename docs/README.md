@@ -21,6 +21,7 @@
 
 | 文档路径 | 状态 | 内容描述 |
 | --- | --- | --- |
+| [gateway-supervisor.md](current/gateway-supervisor.md) | **Current** | Phase 6 Gateway supervisor：常驻 Gateway、launchd 后台运行、CLI 转发和 inline fallback |
 | [relay-mvp.md](current/relay-mvp.md) | **Current** | Phase 1 Personal Relay MVP：nginx serve `apps/web`，`apps/relay` 作为 Node relay 服务 |
 
 ## 当前工作草稿 (`working/`)

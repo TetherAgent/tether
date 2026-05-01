@@ -65,8 +65,8 @@ supervisor、retention 和 tmux fallback 下线。
 - [ ] **AUTH-01**: input / resize / stop / claim-control 全部接入 owner device token auth
 - [ ] **AUTH-02**: 完整 owner device pairing 流程（一次性 code + token hash 落库）
 - [ ] **RETAIN-01**: event retention 初版（默认 7 天 / 每 session 100MB，先到先清）
-- [ ] **GW-01**: `tether gateway` 升级为真 supervisor — 单进程统一持有所有 PTY session
-- [ ] **GW-02**: macOS launchd / 后台保活方案（评估 + 落地起步）
+- [x] **GW-01**: `tether gateway` 升级为真 supervisor — 单进程统一持有所有 PTY session
+- [x] **GW-02**: macOS launchd / 后台保活方案（评估 + 落地起步）
 - [ ] **TEST-01**: auth / provider whitelist / secret mask / 旧接口兼容 / retention 的安全和集成测试
 
 **P2 — Phase 2 收口**

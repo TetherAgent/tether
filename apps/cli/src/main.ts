@@ -3,10 +3,19 @@ import { Command } from 'commander';
 import WebSocket from 'ws';
 import type { RawData } from 'ws';
 import {
+  configPath,
+  readTetherConfig,
+  resolveGatewayConfig,
+  resolveRelayConfig,
+  writeTetherConfig,
+  type TetherConfig
+} from '@tether/config';
+import {
   assertTmuxAvailable,
   attachSession,
   createAgentSession,
   formatTmuxError,
+  listGateways,
   localLanAddress,
   sendKeys,
   sessionExists,
@@ -17,7 +26,18 @@ import {
   showStatusMessage,
 } from '@tether/gateway';
 import { createSessionId } from '@tether/gateway';
-import type { ProviderName } from '@tether/core';
+import { isProviderName, PROVIDERS, type ProviderDefinition } from '@tether/core';
+import { buildCreateSessionPayload } from './forwarding.js';
+import {
+  installLaunchAgent,
+  launchAgentPath,
+  launchAgentStatus,
+  restartLaunchAgent,
+  startLaunchAgent,
+  stopLaunchAgent,
+  uninstallLaunchAgent,
+  type LaunchAgentStatus
+} from './launchd.js';
 
 const program = new Command();
 
@@ -26,28 +46,41 @@ program
   .description('Agent console for sharing one CLI agent session across devices')
   .version('0.1.0');
 
-type Provider = {
-  name: ProviderName;
-  command: string;
-};
-
-const providers = {
-  codex: { name: 'codex', command: 'codex' },
-  claude: { name: 'claude', command: 'claude' },
-  opencode: { name: 'opencode', command: 'opencode' }
-} satisfies Record<ProviderName, Provider>;
-
 type StartOptions = {
   host: string;
   port: number;
   project: string;
   attach: boolean;
   transport: 'tmux' | 'pty';
+  inline?: boolean;
   relayUrl?: string;
   relaySecret?: string;
 };
 
-function addProviderCommand(provider: Provider): void {
+type GatewayStatus = {
+  ok?: unknown;
+  pid?: unknown;
+  url?: unknown;
+  host?: unknown;
+  port?: unknown;
+  allowApiSessionCreate?: unknown;
+  relay?: {
+    configured?: unknown;
+    state?: unknown;
+  };
+};
+
+type CreatedGatewaySession = {
+  id: string;
+};
+
+class NonTetherGatewayError extends Error {
+  constructor(url: string) {
+    super(`端口已被非 Tether 服务占用，无法作为常驻 Gateway 使用：${url}`);
+  }
+}
+
+function addProviderCommand(provider: ProviderDefinition): void {
   program
     .command(provider.name)
     .description(`start a tether-managed ${provider.name} session`)
@@ -55,37 +88,145 @@ function addProviderCommand(provider: Provider): void {
     .option('--port <port>', 'daemon port', parsePort, 4789)
     .option('--project <path>', 'project directory', process.cwd())
     .option('--transport <transport>', 'session transport: pty or tmux', parseTransport, 'pty')
+    .option('--inline', '强制使用 inline Gateway，不转发到常驻 Gateway')
     .option('--relay-url <url>', 'relay server URL; falls back to TETHER_RELAY_URL')
     .option('--relay-secret <secret>', 'relay shared secret; falls back to TETHER_RELAY_SECRET')
     .option('--no-attach', 'start session without attaching this terminal')
     .action((options: StartOptions) => startProviderSession(provider, options));
 }
 
-for (const provider of Object.values(providers)) {
+for (const provider of Object.values(PROVIDERS)) {
   addProviderCommand(provider);
 }
 
-program
+const gatewayCommand = program
   .command('gateway')
   .description('start a persistent Tether Gateway without creating a session')
-  .option('--host <host>', 'daemon host to bind', '127.0.0.1')
-  .option('--port <port>', 'daemon port', parsePort, 4789)
+  .option('--host <host>', 'daemon host to bind')
+  .option('--port <port>', 'daemon port', parsePort)
   .option('--relay-url <url>', 'relay server URL; falls back to TETHER_RELAY_URL')
   .option('--relay-secret <secret>', 'relay shared secret; falls back to TETHER_RELAY_SECRET')
-  .action(async (options: { host: string; port: number; relayUrl?: string; relaySecret?: string }) => {
+  .action(async (options: { host?: string; port?: number; relayUrl?: string; relaySecret?: string }, command: Command) => {
+    const file = readTetherConfig();
+    const gateway = resolveGatewayConfig({ cli: gatewayCliConfig(options, command), file });
     const store = new Store();
     const ptySessions = new PtySessionManager(store);
     const daemon = await startDaemon({
-      host: options.host,
-      port: options.port,
+      host: gateway.host,
+      port: gateway.port,
       store,
       ptySessions,
-      relay: relayConfig(options)
+      allowApiSessionCreate: gateway.allowApiSessionCreate,
+      relay: relayConfig(options, file)
     });
     console.log(`Tether Gateway: ${daemon.url}`);
     console.log('Gateway is running. Press Ctrl-C to stop.');
     await waitForShutdown();
     await daemon.close();
+  });
+
+gatewayCommand
+  .command('config')
+  .description('write local Tether Gateway configuration')
+  .option('--host <host>', 'Gateway host')
+  .option('--port <port>', 'Gateway port', parsePort)
+  .option('--relay-url <url>', 'Relay URL')
+  .option('--relay-secret <secret>', 'Relay shared secret')
+  .option('--allow-api-session-create', '允许 Gateway API 创建白名单 provider session')
+  .action(async (options: {
+    host?: string;
+    port?: number;
+    relayUrl?: string;
+    relaySecret?: string;
+    allowApiSessionCreate?: boolean;
+  }, command: Command) => {
+    const gatewayOptions = command.parent?.opts<{
+      host?: string;
+      port?: number;
+      relayUrl?: string;
+      relaySecret?: string;
+    }>() ?? {};
+    const host = options.host ?? gatewayOptions.host;
+    const port = options.port ?? gatewayOptions.port;
+    const relayUrl = options.relayUrl ?? gatewayOptions.relayUrl;
+    const relaySecret = options.relaySecret ?? gatewayOptions.relaySecret;
+    const existing = readTetherConfig();
+    const next: TetherConfig = {
+      ...existing,
+      gateway: { ...existing.gateway },
+      relay: { ...existing.relay }
+    };
+    if (host !== undefined) {
+      next.gateway = { ...next.gateway, host };
+    }
+    if (port !== undefined) {
+      next.gateway = { ...next.gateway, port };
+    }
+    if (command.getOptionValueSource('allowApiSessionCreate') === 'cli') {
+      next.gateway = { ...next.gateway, allowApiSessionCreate: options.allowApiSessionCreate === true };
+    }
+    if (relayUrl !== undefined) {
+      next.relay = { ...next.relay, url: relayUrl };
+    }
+    if (relaySecret !== undefined) {
+      next.relay = { ...next.relay, secret: relaySecret };
+    }
+    if (next.gateway && Object.keys(next.gateway).length === 0) {
+      delete next.gateway;
+    }
+    if (next.relay && Object.keys(next.relay).length === 0) {
+      delete next.relay;
+    }
+    await writeTetherConfig(next);
+    console.log(`Gateway 配置已写入：${configPath()}`);
+  });
+
+gatewayCommand
+  .command('install')
+  .description('install the macOS LaunchAgent without starting Gateway')
+  .action(async () => {
+    const plistPath = await installLaunchAgent();
+    console.log(`LaunchAgent 已安装：${plistPath}`);
+    console.log('Gateway 尚未启动。运行 tether gateway start 可通过 launchd 启动。');
+  });
+
+gatewayCommand
+  .command('start')
+  .description('start Gateway through launchd')
+  .action(async () => {
+    const status = await startLaunchAgent();
+    console.log(`Gateway 已通过 launchd 启动：${status.path}`);
+  });
+
+gatewayCommand
+  .command('stop')
+  .description('stop Gateway through launchd')
+  .action(async () => {
+    await stopLaunchAgent();
+    console.log('Gateway 已停止。');
+  });
+
+gatewayCommand
+  .command('restart')
+  .description('restart Gateway through launchd')
+  .action(async () => {
+    await restartLaunchAgent();
+    console.log('Gateway 已重启。');
+  });
+
+gatewayCommand
+  .command('uninstall')
+  .description('stop Gateway and remove the macOS LaunchAgent')
+  .action(async () => {
+    const plistPath = await uninstallLaunchAgent();
+    console.log(`LaunchAgent 已卸载：${plistPath}`);
+  });
+
+gatewayCommand
+  .command('status')
+  .description('print Gateway status in Chinese')
+  .action(async () => {
+    await printGatewayStatus();
   });
 
 program
@@ -96,18 +237,49 @@ program
   .option('--port <port>', 'daemon port', parsePort, 4789)
   .option('--project <path>', 'project directory', process.cwd())
   .option('--transport <transport>', 'session transport: tmux or pty', parseTransport, 'pty')
+  .option('--inline', '强制使用 inline Gateway，不转发到常驻 Gateway')
   .option('--relay-url <url>', 'relay server URL; falls back to TETHER_RELAY_URL')
   .option('--relay-secret <secret>', 'relay shared secret; falls back to TETHER_RELAY_SECRET')
   .option('--no-attach', 'start session without attaching this terminal')
   .action((providerName: string, options: StartOptions) => {
-    const provider = providers[providerName as ProviderName];
-    if (!provider) {
+    if (!isProviderName(providerName)) {
       throw new Error(`unknown provider: ${providerName}`);
     }
+    const provider = PROVIDERS[providerName];
     return startProviderSession(provider, options);
   });
 
-async function startProviderSession(provider: Provider, options: StartOptions): Promise<void> {
+async function startProviderSession(provider: ProviderDefinition, options: StartOptions): Promise<void> {
+  if (options.inline !== true) {
+    const gatewayUrl = await findPersistentGateway(options);
+    if (gatewayUrl) {
+      const session = await createSessionViaGateway(provider, options, gatewayUrl);
+      if (session) {
+        const remoteUrl = `${gatewayUrl}/remote/session/${session.id}`;
+        console.log(`Tether session: ${session.id}`);
+        console.log(`Remote URL: ${remoteUrl}`);
+        if (options.attach) {
+          const gateway = new URL(gatewayUrl);
+          const result = await attachPtySession(session.id, {
+            host: gateway.hostname,
+            port: Number(gateway.port),
+            mode: 'control'
+          });
+          if (result !== 'exited') {
+            console.error(`已断开本地 attach。常驻 Gateway 仍在托管 ${remoteUrl}`);
+          }
+        }
+        return;
+      }
+    } else {
+      console.warn('未检测到常驻 Gateway，正在为本次会话启动 inline Gateway。运行 tether gateway install 可让会话由后台 Gateway 常驻托管。');
+    }
+  }
+
+  if (options.inline === true) {
+    console.log('已启用 inline 模式：本次会话不会转发到常驻 Gateway。');
+  }
+
   if (options.transport === 'pty') {
     await startPtyProviderSession(provider, options);
     return;
@@ -156,7 +328,7 @@ async function startProviderSession(provider: Provider, options: StartOptions): 
   }
 }
 
-async function startPtyProviderSession(provider: Provider, options: StartOptions): Promise<void> {
+async function startPtyProviderSession(provider: ProviderDefinition, options: StartOptions): Promise<void> {
   const projectPath = path.resolve(options.project);
   const store = new Store();
   const ptySessions = new PtySessionManager(store);
@@ -197,6 +369,63 @@ async function startPtyProviderSession(provider: Provider, options: StartOptions
       console.error(`Detached. Gateway is still serving ${remoteUrl}`);
     }
   }
+}
+
+async function findPersistentGateway(options: Pick<StartOptions, 'host' | 'port'>): Promise<string | undefined> {
+  const urls = await gatewayCandidateUrls(options);
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    for (const url of urls) {
+      const status = await fetchGatewayStatus(url);
+      if (status === 'non-tether') {
+        throw new NonTetherGatewayError(url);
+      }
+      if (status) {
+        return status;
+      }
+    }
+
+    if (attempt < 3) {
+      console.warn(`常驻 Gateway 可能正在重启，${attempt}/3 次探测失败，500ms 后重试。`);
+      await sleep(500);
+    }
+  }
+  return undefined;
+}
+
+async function gatewayCandidateUrls(options: Pick<StartOptions, 'host' | 'port'>): Promise<string[]> {
+  const config = resolveGatewayConfig({ cli: { host: options.host, port: options.port } });
+  const candidates = new Set<string>();
+  for (const record of await listGateways()) {
+    candidates.add(record.url);
+  }
+  candidates.add(`http://${config.host}:${config.port}`);
+  return [...candidates];
+}
+
+async function createSessionViaGateway(
+  provider: ProviderDefinition,
+  options: Pick<StartOptions, 'project'>,
+  gatewayUrl: string
+): Promise<CreatedGatewaySession | undefined> {
+  const response = await fetch(`${gatewayUrl}/api/sessions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(buildCreateSessionPayload(provider, options))
+  });
+
+  if (response.status === 403) {
+    console.warn('常驻 Gateway 当前未启用 API session creation。请在 ~/.tether/config.json 中开启 gateway.allowApiSessionCreate 后重启 Gateway；本次将回退到 inline Gateway。');
+    return undefined;
+  }
+  if (!response.ok) {
+    throw new Error(`创建常驻 Gateway session 失败：HTTP ${response.status}`);
+  }
+
+  const body = (await response.json()) as { session?: { id?: unknown } };
+  if (typeof body.session?.id !== 'string') {
+    throw new Error('创建常驻 Gateway session 失败：响应缺少 session id');
+  }
+  return { id: body.session.id };
 }
 
 program
@@ -340,11 +569,26 @@ function parseTransport(value: string): 'tmux' | 'pty' {
   throw new Error(`invalid transport: ${value}`);
 }
 
-function relayConfig(options: { relayUrl?: string; relaySecret?: string }):
+function gatewayCliConfig(
+  options: { host?: string; port?: number; allowApiSessionCreate?: boolean },
+  command: Command
+): { host?: string; port?: number; allowApiSessionCreate?: boolean } {
+  return {
+    host: command.getOptionValueSource('host') === 'cli' ? options.host : undefined,
+    port: command.getOptionValueSource('port') === 'cli' ? options.port : undefined,
+    allowApiSessionCreate:
+      command.getOptionValueSource('allowApiSessionCreate') === 'cli'
+        ? options.allowApiSessionCreate
+        : undefined
+  };
+}
+
+function relayConfig(options: { relayUrl?: string; relaySecret?: string }, file?: TetherConfig):
   | { url: string; secret: string }
   | undefined {
-  const url = options.relayUrl ?? process.env.TETHER_RELAY_URL;
-  const secret = options.relaySecret ?? process.env.TETHER_RELAY_SECRET;
+  const config = file ?? readTetherConfig();
+  const url = options.relayUrl ?? process.env.TETHER_RELAY_URL ?? config.relay?.url;
+  const secret = options.relaySecret ?? process.env.TETHER_RELAY_SECRET ?? config.relay?.secret;
   if (!url && !secret) {
     return undefined;
   }
@@ -352,6 +596,129 @@ function relayConfig(options: { relayUrl?: string; relaySecret?: string }):
     throw new Error('relay requires both --relay-url and --relay-secret, or TETHER_RELAY_URL and TETHER_RELAY_SECRET');
   }
   return { url, secret };
+}
+
+async function printGatewayStatus(): Promise<void> {
+  const file = readTetherConfig();
+  const gatewayConfig = resolveGatewayConfig({ file });
+  const relay = resolveRelayConfig({ file });
+  const launchd = await getLaunchAgentStatus();
+  const registryRecords = await listGateways();
+  const api = await fetchFirstGatewayStatus([
+    ...registryRecords.map((record) => record.url),
+    `http://${gatewayConfig.host}:${gatewayConfig.port}`
+  ]);
+  const registry = registryRecords[0];
+  const url = stringValue(api?.url) ?? registry?.url ?? `http://${gatewayConfig.host}:${gatewayConfig.port}`;
+  const host = stringValue(api?.host) ?? registry?.host ?? gatewayConfig.host;
+  const port = numberValue(api?.port) ?? registry?.port ?? gatewayConfig.port;
+  const pid = numberValue(api?.pid) ?? launchd.pid ?? registry?.pid;
+  const relayConfigured = booleanValue(api?.relay?.configured) ?? Boolean(relay);
+  const relayState = stringValue(api?.relay?.state);
+
+  console.log('Gateway 状态');
+  console.log(`运行状态: ${api ? '运行中' : '已停止或不可连接'}`);
+  console.log(`PID: ${pid ?? '-'}`);
+  console.log(`URL: ${url}`);
+  console.log(`配置文件: ${configPath()}`);
+  console.log(`Host: ${host}`);
+  console.log(`Port: ${port}`);
+  console.log(`Relay 配置: ${relayConfigured ? '已配置' : '未配置'}`);
+  console.log(`Relay 连接: ${relayState ?? '未确认'}`);
+  console.log(`LaunchAgent: ${formatLaunchAgentStatus(launchd)}`);
+}
+
+async function getLaunchAgentStatus(): Promise<LaunchAgentStatus> {
+  try {
+    return await launchAgentStatus();
+  } catch (error: unknown) {
+    return {
+      label: 'sh.tether.gateway',
+      path: launchAgentPath(),
+      installed: false,
+      loaded: false,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+async function fetchFirstGatewayStatus(urls: string[]): Promise<GatewayStatus | undefined> {
+  const seen = new Set<string>();
+  for (const url of urls) {
+    if (seen.has(url)) {
+      continue;
+    }
+    seen.add(url);
+    const status = await fetchGatewayStatusBody(url);
+    if (status) {
+      return status;
+    }
+  }
+  return undefined;
+}
+
+async function fetchGatewayStatusBody(url: string): Promise<GatewayStatus | undefined> {
+  let response: Response;
+  try {
+    response = await fetch(`${url}/api/status`);
+  } catch {
+    return undefined;
+  }
+  if (!response.ok) {
+    return undefined;
+  }
+  const status = (await response.json().catch(() => undefined)) as GatewayStatus | undefined;
+  if (!status || status.ok !== true) {
+    return undefined;
+  }
+  return status;
+}
+
+function formatLaunchAgentStatus(status: LaunchAgentStatus): string {
+  if (status.loaded) {
+    return status.installed ? '已安装，已加载' : '未安装，已加载';
+  }
+  if (status.installed) {
+    return '已安装，未加载';
+  }
+  return '未安装';
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+async function fetchGatewayStatus(url: string): Promise<string | 'non-tether' | undefined> {
+  let response: Response;
+  try {
+    response = await fetch(`${url}/api/status`);
+  } catch {
+    return undefined;
+  }
+
+  if (!response.ok) {
+    return response.status === 404 ? 'non-tether' : undefined;
+  }
+
+  const status = (await response.json().catch(() => undefined)) as GatewayStatus | undefined;
+  if (!status || status.ok !== true || typeof status.url !== 'string') {
+    return 'non-tether';
+  }
+  return status.url;
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 async function attachPtySession(
