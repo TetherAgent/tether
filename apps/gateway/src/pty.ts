@@ -98,6 +98,10 @@ export class PtySessionManager {
     return this.sessions.has(id);
   }
 
+  liveSessionIds(): string[] {
+    return [...this.sessions.keys()];
+  }
+
   write(sessionId: string, options: PtyInputOptions): boolean {
     const live = this.sessions.get(sessionId);
     if (!live) {

@@ -30,11 +30,26 @@ type Gateway = {
 };
 
 type WebTransportMode = 'ws' | 'http';
+type ClientMode = 'control' | 'observe';
+
+type ClientInfo = {
+  clientId: string;
+  deviceName: string;
+  surface: string;
+  mode: ClientMode;
+  attachedAt: number;
+  lastSeenAt: number;
+};
 
 const WEB_TRANSPORT_KEY = 'tether:webTransportMode';
+const WEB_CLIENT_MODE_KEY = 'tether:webClientMode';
 
 function readWebTransportMode(): WebTransportMode {
   return window.localStorage.getItem(WEB_TRANSPORT_KEY) === 'http' ? 'http' : 'ws';
+}
+
+function readClientMode(): ClientMode {
+  return window.localStorage.getItem(WEB_CLIENT_MODE_KEY) === 'observe' ? 'observe' : 'control';
 }
 
 function sessionIdFromPath(): string | undefined {
@@ -271,10 +286,32 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
   const terminal = React.useRef<Terminal | undefined>(undefined);
   const socket = React.useRef<WebSocket | undefined>(undefined);
   const transportMode = React.useMemo(readWebTransportMode, []);
+  const [clientMode, setClientMode] = React.useState<ClientMode>(readClientMode);
+  const [clients, setClients] = React.useState<ClientInfo[]>([]);
+  const [controllerClientId, setControllerClientId] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState(initialStatus);
   const [text, setText] = React.useState('');
 
+  const refreshClients = React.useCallback(async () => {
+    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/clients`);
+    if (!response.ok) {
+      return;
+    }
+    const data = (await response.json()) as { controllerClientId: string | null; clients: ClientInfo[] };
+    setControllerClientId(data.controllerClientId);
+    setClients(data.clients);
+  }, [sessionId]);
+
+  const changeClientMode = React.useCallback((mode: ClientMode) => {
+    window.localStorage.setItem(WEB_CLIENT_MODE_KEY, mode);
+    setClientMode(mode);
+  }, []);
+
   const sendHttpInput = React.useCallback(async (data: string): Promise<boolean> => {
+    if (clientMode === 'observe') {
+      setStatus('Observe mode');
+      return false;
+    }
     const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/input`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -285,9 +322,13 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
       return false;
     }
     return true;
-  }, [sessionId]);
+  }, [clientMode, sessionId]);
 
   const sendWsInput = React.useCallback((data: string): boolean => {
+    if (clientMode === 'observe') {
+      setStatus('Observe mode');
+      return false;
+    }
     const ws = socket.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       setStatus('WS unavailable');
@@ -295,7 +336,7 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
     }
     ws.send(JSON.stringify({ type: 'input', data }));
     return true;
-  }, []);
+  }, [clientMode]);
 
   const sendTerminalInput = React.useCallback((data: string): void => {
     if (transportMode === 'http') {
@@ -346,7 +387,6 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
     let resizeFrame = 0;
     let disposed = false;
     let ws: WebSocket | undefined;
-    let clientId: string | undefined;
     let replayComplete = false;
     const sendResize = () => {
       if (term.cols === lastSize.cols && term.rows === lastSize.rows) {
@@ -446,7 +486,7 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
       const { ticket } = (await response.json()) as { ticket: string };
       const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const nextWs = new WebSocket(
-        `${scheme}://${window.location.host}/api/sessions/${encodeURIComponent(sessionId)}/stream?after=${after}&ticket=${encodeURIComponent(ticket)}&surface=web&mode=control`
+        `${scheme}://${window.location.host}/api/sessions/${encodeURIComponent(sessionId)}/stream?after=${after}&ticket=${encodeURIComponent(ticket)}&surface=web&mode=${clientMode}`
       );
       ws = nextWs;
       socket.current = nextWs;
@@ -464,7 +504,7 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
         }
         const frame = JSON.parse(message.data as string) as StreamFrame;
         if (frame.type === 'hello') {
-          clientId = frame.clientId;
+          refreshClients().catch(() => undefined);
           setStatus(`Streaming · ${frame.clientId.slice(0, 8)}`);
           return;
         }
@@ -482,6 +522,9 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
         if (frame.event.type === 'session.exited') {
           setStatus('Exited');
           nextWs.close();
+        }
+        if (frame.event.type === 'client.attached' || frame.event.type === 'client.detached' || frame.event.type === 'client.control_changed') {
+          refreshClients().catch(() => undefined);
         }
       });
       nextWs.addEventListener('close', () => {
@@ -504,6 +547,7 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
     });
     const observer = new ResizeObserver(fitAndResize);
     observer.observe(root);
+    const clientsTimer = window.setInterval(() => refreshClients().catch(() => undefined), 3000);
 
     return () => {
       disposed = true;
@@ -512,20 +556,44 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
         window.clearInterval(tailTimer);
       }
       observer.disconnect();
+      window.clearInterval(clientsTimer);
       input.dispose();
       ws?.close();
       term.dispose();
     };
-  }, [sendTerminalInput, sessionId, transportMode]);
+  }, [clientMode, refreshClients, sendTerminalInput, sessionId, transportMode]);
+
+  async function stopSession(): Promise<void> {
+    setStatus('Stopping');
+    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/stop`, { method: 'POST' });
+    setStatus(response.ok ? 'Stopped' : `Stop failed: HTTP ${response.status}`);
+  }
 
   return (
     <>
       <header>
         <h1>Tether</h1>
-        <div className="status">{status}</div>
+        <div className="header-actions">
+          <label className="mode-select">
+            Mode
+            <select value={clientMode} onChange={(event) => changeClientMode(event.target.value as ClientMode)}>
+              <option value="control">Control</option>
+              <option value="observe">Observe</option>
+            </select>
+          </label>
+          <button className="secondary-button" type="button" onClick={() => stopSession()}>Stop</button>
+          <div className="status">{status}</div>
+        </div>
       </header>
       <main className="terminal-shell" onMouseDown={() => terminal.current?.focus()}>
         <div ref={terminalRef} className="terminal-host" />
+        {clients.length > 0 ? (
+          <aside className="client-strip">
+            <span>controller {controllerClientId ? controllerClientId.slice(0, 8) : '-'}</span>
+            <span>{clients.length} client{clients.length === 1 ? '' : 's'}</span>
+            <span>{transportMode.toUpperCase()}</span>
+          </aside>
+        ) : null}
       </main>
       <form onSubmit={sendLine}>
         <textarea

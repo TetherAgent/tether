@@ -89,11 +89,11 @@ docs/working/ → openspec/changes/<name>/ → openspec/specs/<capability>/ → 
 常用命令：
 
 ```bash
-brew install tmux
 pnpm install
 pnpm typecheck
 pnpm test
 pnpm tether --help
+pnpm tether gateway
 pnpm tether codex
 pnpm tether run codex --no-attach
 pnpm tether attach <id> --control
@@ -101,6 +101,7 @@ pnpm tether attach <id> --observe
 pnpm tether clients <id>
 pnpm tether stop <id>
 pnpm tether codex --host 0.0.0.0
+pnpm tether codex --transport tmux
 ```
 
 `--host 0.0.0.0` 仅用于可信局域网调试。当前 WS 有一次性 ticket，但还没有完整

@@ -84,6 +84,26 @@ select {
   height: 100%;
 }
 
+.client-strip {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  max-width: min(70vw, 560px);
+  color: #9aa4af;
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.client-strip span {
+  padding: 3px 6px;
+  border: 1px solid #2b3137;
+  border-radius: 999px;
+  background: rgb(16 20 25 / 86%);
+}
+
 pre {
   box-sizing: border-box;
   min-height: 100%;
@@ -122,6 +142,13 @@ button {
   border: 0;
   border-radius: 6px;
   padding: 0 16px;
+}
+
+.secondary-button {
+  color: #e8ecef;
+  background: #242a31;
+  border: 1px solid #3a424b;
+  padding: 6px 10px;
 }
 
 h2 {
@@ -224,4 +251,47 @@ p {
 
 .empty {
   padding: 24px 12px;
+}
+
+@media (max-width: 720px) {
+  header {
+    padding: 10px;
+    align-items: flex-start;
+  }
+
+  .header-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .mode-select {
+    font-size: 11px;
+  }
+
+  .terminal-host {
+    padding: 6px;
+  }
+
+  form {
+    padding: 8px;
+    grid-template-columns: 1fr 72px;
+  }
+
+  textarea {
+    padding: 10px;
+    font-size: 16px;
+  }
+
+  button {
+    padding: 0 10px;
+  }
+
+  .client-strip {
+    left: 8px;
+    right: 8px;
+    top: auto;
+    bottom: 8px;
+    max-width: none;
+  }
 }

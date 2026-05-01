@@ -47,7 +47,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   const tickets = new Map<string, number>();
   const clients = new Map<string, Map<string, ClientInfo>>();
   const controllers = new Map<string, string>();
-
   app.post('/api/ws-ticket', (c) => {
     const ticket = randomUUID();
     tickets.set(ticket, Date.now() + 60_000);
@@ -61,7 +60,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     for (const session of sessions) {
       const alive =
         session.transport === 'pty-event-stream'
-          ? options.ptySessions?.hasLiveSession(session.id) ?? session.status === 'running'
+          ? options.ptySessions?.hasLiveSession(session.id) ?? false
           : await sessionExists(session.tmuxSessionName);
       if (!alive && session.status === 'running' && session.transport === 'tmux') {
         options.store.updateSessionStatus(session.id, 'stopped');
@@ -228,6 +227,14 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     hostname: options.host,
     port: options.port
   }) as ServerType;
+
+  const livePtyIds = options.ptySessions?.liveSessionIds() ?? [];
+  for (const sessionId of options.store.markRunningPtySessionsLost(livePtyIds)) {
+    options.store.appendEvent(sessionId, 'session.error', {
+      code: 'session_lost',
+      message: 'Gateway restarted without a live PTY handle'
+    });
+  }
 
   const wss = new WebSocketServer({ server: server as unknown as HttpServer });
   wss.on('connection', (socket, request) => {

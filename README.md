@@ -8,7 +8,10 @@
 > machine — and take over from any device.
 > Persistent. Observable. Approvable. Orchestratable.
 
-**Current status**: Phase 1 demo skeleton runs the full end-to-end loop.
+**Current status**: PTY-backed event stream is now the default transport.
+`tether codex`, `tether claude`, and `tether opencode` run inside a
+Gateway-owned PTY session with append-only events, WebSocket attach, Web
+xterm rendering, and a tmux fallback for migration.
 
 The chat window is the wrong abstraction.
 
@@ -79,49 +82,42 @@ Tether has been built around that bet from day one:
 
 ## What Already Runs
 
-Phase 1 is intentionally thin. The point is to prove that one agent session
-can be taken over seamlessly between desktop and phone — before pouring
-concrete on event streams or heavy architecture. No paper promises.
-
 Working today:
 
 - `tether codex` / `tether claude` — wrap an agent into a managed session in
   one command
 - Local Gateway / daemon on `127.0.0.1:4789`
-- tmux-backed session adapter (demo-stage; will be replaced)
-- Terminal attach on the desktop, session view on phone / web
-- Phone input forwarded live into the existing agent process
-- Polling snapshot API (becomes an event stream in Phase 2)
-- SQLite session registry
+- Gateway-owned `node-pty` sessions with append-only `session_events`
+- Native terminal attach, Web xterm attach, and mobile-web/PWA-ready layout
+- WebSocket live stream by default, explicit HTTP fallback when needed
+- Control / observe attach modes and active-controller resize ownership
+- Attached client registry, stop endpoint, session lost detection
+- SQLite session and event registry
+- tmux fallback through `--transport tmux` for migration only
 - pnpm workspace skeleton: CLI, Gateway, protocol, config, UI, web, and native
   client packages all in place
 
-What stays: the Gateway, CLI shape, API boundaries, package layout.
-What gets swapped out: the tmux capture/send layer.
-Phase 1 is a demo, but the foundation is built to last.
+The old tmux capture/send layer is no longer the default path. It remains as a
+fallback while the PTY event-stream path hardens.
 
 ```mermaid
 flowchart TB
-  subgraph p1[Phase 1: tmux demo]
-    tmux[tmux session]
-    snapshot[capture-pane snapshot]
-    sendkeys[send-keys input]
-  end
-
-  subgraph p2[Phase 2: PTY-backed event stream]
+  subgraph current[Current: PTY-backed event stream]
     pty[node-pty session]
     events[terminal event stream]
     clients[terminal / web / mobile / app clients]
+  end
+
+  subgraph fallback[Migration fallback]
+    tmux[tmux session]
   end
 
   subgraph future[Future: structured operations]
     structured[structured events<br/>diff / approval / handoff]
   end
 
-  tmux --> snapshot
-  tmux --> sendkeys
-  tmux -. replaced by .-> pty
   pty --> events --> clients
+  tmux -. --transport tmux .-> clients
   events --> structured
 ```
 
@@ -131,11 +127,9 @@ Requirements:
 
 - Node.js 20+
 - pnpm
-- tmux
 - Codex CLI or Claude CLI installed locally
 
 ```bash
-brew install tmux
 pnpm install
 pnpm tether --help
 pnpm tether codex
@@ -155,8 +149,25 @@ pnpm tether codex --host 0.0.0.0
 pnpm tether claude --host 0.0.0.0
 ```
 
-Phase 1 LAN mode does not enable device authentication yet. Use it only on a
-trusted network.
+LAN mode currently has one-time WebSocket tickets but does not yet have full
+device-token pairing. Use it only on a trusted network.
+
+Useful commands:
+
+```bash
+pnpm tether gateway
+pnpm tether run codex --no-attach
+pnpm tether attach <session-id> --control
+pnpm tether attach <session-id> --observe
+pnpm tether clients <session-id>
+pnpm tether stop <session-id>
+pnpm tether codex --transport tmux   # migration fallback
+```
+
+Current local limitation: multiple `run --no-attach` sessions are supported,
+but each PTY session is still owned by the CLI/Gateway process that created it.
+Until the full Gateway supervisor lands, run concurrent detached sessions on
+separate ports, or keep the creating process alive.
 
 ## Surfaces
 
@@ -235,29 +246,29 @@ Control plane principles — local first, cloud later:
 ```mermaid
 flowchart LR
   p1[Phase 1<br/>tmux demo]
-  p15[Phase 1.5<br/>pairing + access]
-  p2[Phase 2<br/>event stream]
+  p2[Phase 2<br/>PTY event stream]
+  p15[Phase 2.5<br/>pairing + access]
   p3[Phase 3<br/>multi-machine + agents]
   p4[Phase 4<br/>review UI]
   future[Future<br/>apps + orchestration]
 
-  p1 --> p15 --> p2 --> p3 --> p4 --> future
+  p1 --> p2 --> p15 --> p3 --> p4 --> future
 ```
 
 | Phase | Theme | Key shift |
 | --- | --- | --- |
-| Phase 1 | Demo | tmux proves the desktop / phone shared-session loop |
-| Phase 1.5 | Access | pairing, device tokens, three-tier LAN / tunnel / relay entry |
-| Phase 2 | Event stream | drop snapshot polling, go fully native session events |
+| Phase 1 | Demo | tmux proved the desktop / phone shared-session loop |
+| Phase 2 | Event stream | PTY-backed event stream becomes the default transport |
+| Phase 2.5 | Access | pairing, device tokens, three-tier LAN / tunnel / relay entry |
 | Phase 3 | Scale out | multi-machine, parallel agents, background tasks, push |
 | Phase 4 | Review UI | diffs, file tree, approval surfaces, permission review |
 | Future | Apps | desktop app, mobile native apps, Flutter clients, floating console |
 | Future | Orchestration | agent handoff, verification loops, agent teams, scheduled work |
 
-**Phase 2 is the watershed.** Before it, Tether is "shared sessions." After
-it, Tether becomes a real agent operations platform — event streams turn
-approvals, multi-agent coordination, app clients, and relay sync from
-duct-taped extensions into natural extensions.
+**Phase 2 is the watershed.** Tether is moving from "shared sessions" into an
+agent operations platform: event streams turn approvals, multi-agent
+coordination, app clients, and relay sync from duct-taped extensions into
+natural extensions.
 
 ## Why Another Agent Console?
 
@@ -299,7 +310,7 @@ release.
   listen on any external interface unless you say so.
 - **Exposure must be explicit**: sharing on the LAN requires `--host 0.0.0.0`
   by hand. Nothing leaks because of a stray default.
-- **Writes require credentials**: from Phase 1.5 onward, every client write
+- **Writes require credentials**: from Phase 2.5 onward, every client write
   action requires a device token.
 - **Clients can send input, never get a shell**: phone and web clients can
   message an existing agent session — they cannot gain arbitrary command
@@ -313,7 +324,7 @@ release.
 
 ```text
 apps/cli        tether command entry
-apps/gateway    local Gateway / daemon and Phase 1 tmux adapter
+apps/gateway    local Gateway, PTY event stream, and tmux fallback
 apps/web        React/Vite web client for session viewing
 packages/core   core types and business model
 packages/protocol
@@ -345,8 +356,8 @@ Package manager: pnpm.
 
 Runtime: Node.js 20+.
 
-TypeScript is run directly through `tsx`; Phase 1 does not require a bundled
-server build.
+TypeScript is run directly through `tsx`; the Web client is built with Vite and
+served by the Gateway from `apps/web/dist`.
 
 ## License
 

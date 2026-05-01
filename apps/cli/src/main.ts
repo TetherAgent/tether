@@ -62,6 +62,21 @@ for (const provider of Object.values(providers)) {
 }
 
 program
+  .command('gateway')
+  .description('start a persistent Tether Gateway without creating a session')
+  .option('--host <host>', 'daemon host to bind', '127.0.0.1')
+  .option('--port <port>', 'daemon port', parsePort, 4789)
+  .action(async (options: { host: string; port: number }) => {
+    const store = new Store();
+    const ptySessions = new PtySessionManager(store);
+    const daemon = await startDaemon({ host: options.host, port: options.port, store, ptySessions });
+    console.log(`Tether Gateway: ${daemon.url}`);
+    console.log('Gateway is running. Press Ctrl-C to stop.');
+    await waitForShutdown();
+    await daemon.close();
+  });
+
+program
   .command('run')
   .argument('<provider>')
   .description('start a PTY event-stream session for a provider')
@@ -240,7 +255,7 @@ program
   .command('send')
   .argument('<id>')
   .argument('<text>')
-  .description('send text to an existing tmux-backed session')
+  .description('send text to an existing session')
   .action(async (id: string, text: string) => {
     const store = new Store();
     const session = store.getSession(id);
@@ -383,4 +398,12 @@ async function requestWsTicket(options: { host: string; port: number }): Promise
     throw new Error('ticket response missing ticket');
   }
   return body.ticket;
+}
+
+async function waitForShutdown(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const done = () => resolve();
+    process.once('SIGINT', done);
+    process.once('SIGTERM', done);
+  });
 }

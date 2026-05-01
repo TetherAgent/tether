@@ -149,6 +149,18 @@ export class Store {
     this.db.prepare('UPDATE sessions SET attach_state = ?, updated_at = ? WHERE id = ?').run(attachState, now, id);
   }
 
+  markRunningPtySessionsLost(liveSessionIds: Iterable<string>, now = Date.now()): string[] {
+    const live = new Set(liveSessionIds);
+    const sessions = this.listSessions().filter(
+      (session) => session.transport === 'pty-event-stream' && session.status === 'running' && !live.has(session.id)
+    );
+    const update = this.db.prepare('UPDATE sessions SET status = ?, attach_state = ?, updated_at = ? WHERE id = ?');
+    for (const session of sessions) {
+      update.run('lost', 'detached', now, session.id);
+    }
+    return sessions.map((session) => session.id);
+  }
+
   appendEvent<TPayload extends Record<string, unknown>>(
     sessionId: string,
     type: SessionEventType,
