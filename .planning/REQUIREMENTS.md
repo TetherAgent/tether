@@ -83,30 +83,28 @@ This is a **finishing milestone** — Phase 2 PTY-backed event stream main path 
 
 ## Traceability
 
-Empty until roadmap is generated.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EXP-01 | TBD | Pending |
-| EXP-02 | TBD | Pending |
-| EXP-03 | TBD | Pending |
-| EXP-04 | TBD | Pending |
-| EXP-05 | TBD | Pending |
-| CLEAN-01 | TBD | Pending |
-| CLEAN-02 | TBD | Pending |
-| AUTH-01 | TBD | Pending |
-| AUTH-02 | TBD | Pending |
-| RETAIN-01 | TBD | Pending |
-| GW-01 | TBD | Pending |
-| GW-02 | TBD | Pending |
-| TEST-01 | TBD | Pending |
-| CLEAN-03 | TBD | Pending |
+| EXP-01 | Phase 1 | Pending |
+| EXP-02 | Phase 1 | Pending |
+| EXP-03 | Phase 1 | Pending |
+| EXP-04 | Phase 1 | Pending |
+| EXP-05 | Phase 1 | Pending |
+| CLEAN-01 | Phase 2 | Pending |
+| CLEAN-02 | Phase 2 | Pending |
+| AUTH-02 | Phase 3 | Pending |
+| AUTH-01 | Phase 3 | Pending |
+| RETAIN-01 | Phase 4 | Pending |
+| GW-01 | Phase 5 | Pending |
+| GW-02 | Phase 5 | Pending |
+| TEST-01 | Phase 6 | Pending |
+| CLEAN-03 | Phase 6 | Pending |
 
 **Coverage:**
 - v1 requirements: 14 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 14
+- Mapped to phases: 14
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-01*
-*Last updated: 2026-05-01 after initialization*
+*Last updated: 2026-05-01 — traceability populated after roadmap creation*
