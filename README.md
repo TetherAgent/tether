@@ -81,3 +81,11 @@ Gateway 运行时托管 `apps/web/dist`；如果没有构建，`/remote/session/
 - AI 协作入口：[AGENTS.md](AGENTS.md)
 
 立项后走 OpenSpec 流程进入 `openspec/changes/`。
+
+## License
+
+Apache-2.0，见 [LICENSE](./LICENSE)。
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=dream2672/tether&type=Date)](https://www.star-history.com/#dream2672/tether&Date)
