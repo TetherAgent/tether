@@ -77,6 +77,67 @@ test('observe websocket clients cannot write input', async () => {
   }
 });
 
+test('observe websocket clients cannot resize pty', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const sessionId = createSessionId();
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24
+  });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4895, store, ptySessions });
+
+  try {
+    const ticket = await requestTicket(4895);
+    const ws = new WebSocket(`ws://127.0.0.1:4895/api/sessions/${sessionId}/stream?ticket=${ticket}&mode=observe&surface=test`);
+    await waitForMessage(ws, (text) => text.includes('replay.done'));
+    ws.send(JSON.stringify({ type: 'resize', cols: 100, rows: 30 }));
+    const error = await waitForMessage(ws, (text) => text.includes('observe_only'));
+    assert.match(error, /observe_only/);
+    assert.equal(store.listEvents(sessionId).some((event) => event.type === 'terminal.resize' && event.payload.cols === 100), false);
+    ws.close();
+  } finally {
+    ptySessions.stop(sessionId);
+    await daemon.close();
+    cleanup();
+  }
+});
+
+test('direct websocket controller can resize pty', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const sessionId = createSessionId();
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24
+  });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4896, store, ptySessions });
+
+  try {
+    const ticket = await requestTicket(4896);
+    const ws = new WebSocket(`ws://127.0.0.1:4896/api/sessions/${sessionId}/stream?ticket=${ticket}&mode=control&surface=test`);
+    await waitForMessage(ws, (text) => text.includes('replay.done'));
+    ws.send(JSON.stringify({ type: 'resize', cols: 100, rows: 30 }));
+    await waitFor(
+      () => store.listEvents(sessionId).some((event) => event.type === 'terminal.resize' && event.payload.cols === 100),
+      1000
+    );
+    ws.close();
+  } finally {
+    ptySessions.stop(sessionId);
+    await daemon.close();
+    cleanup();
+  }
+});
+
 test('previous direct controller cannot write after control is claimed', async () => {
   const { store, cleanup } = tempStore();
   const ptySessions = new PtySessionManager(store);

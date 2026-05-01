@@ -266,7 +266,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       sessionClients = new Map();
       clients.set(session.id, sessionClients);
     }
-    if (mode === 'control' || !controllers.has(session.id)) {
+    if (mode === 'control') {
       controllers.set(session.id, clientId);
     }
     const client: ClientInfo = {
@@ -335,7 +335,12 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         typeof frame.rows === 'number'
       ) {
         client.lastSeenAt = Date.now();
-        if (controllers.get(session.id) !== clientId) {
+        if (client.mode === 'observe' || controllers.get(session.id) !== clientId) {
+          socket.send(JSON.stringify({
+            type: 'error',
+            code: client.mode === 'observe' ? 'observe_only' : 'not_controller',
+            message: client.mode === 'observe' ? 'observer clients cannot resize' : 'client is not the active controller'
+          }));
           return;
         }
         const ok = options.ptySessions?.resize(sessionId, clientId, frame.cols, frame.rows) ?? false;

@@ -150,6 +150,42 @@ test('gateway relay client forwards control input to pty', async () => {
   }
 });
 
+test('gateway relay client forwards control resize to pty', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const sessionId = createSessionId();
+  const relay = await startRelayServer({ host: '127.0.0.1', port: 4916, secret: SECRET });
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24
+  });
+  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_resize', store, ptySessions });
+  const client = await connectRelayClient(relay.url);
+
+  try {
+    await waitForSessionList(client, sessionId);
+    const replayDonePromise = waitForFrame(client, (frame) => frame.type === 'replay.done' && frame.sessionId === sessionId);
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control' }));
+    await replayDonePromise;
+    client.send(JSON.stringify({ type: 'client.resize', sessionId, cols: 100, rows: 30 }));
+    await waitFor(() =>
+      store
+        .listEvents(sessionId, 0, 5000)
+        .some((event) => event.type === 'terminal.resize' && event.payload.cols === 100 && event.payload.rows === 30)
+    );
+  } finally {
+    client.close();
+    ptySessions.stop(sessionId);
+    await relayClient.close();
+    await relay.close();
+    cleanup();
+  }
+});
+
 test('gateway relay client blocks observe input', async () => {
   const { store, cleanup } = tempStore();
   const ptySessions = new PtySessionManager(store);
@@ -188,6 +224,44 @@ test('gateway relay client blocks observe input', async () => {
   }
 });
 
+test('gateway relay client blocks observe resize', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const sessionId = createSessionId();
+  const relay = await startRelayServer({ host: '127.0.0.1', port: 4917, secret: SECRET });
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24
+  });
+  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_observe_resize', store, ptySessions });
+  const client = await connectRelayClient(relay.url);
+
+  try {
+    await waitForSessionList(client, sessionId);
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'observe' }));
+    await waitForFrame(client, (frame) => frame.type === 'replay.done' && frame.sessionId === sessionId);
+    client.send(JSON.stringify({ type: 'client.resize', sessionId, cols: 100, rows: 30 }));
+    const error = await waitForFrame(client, (frame) => frame.type === 'error' && frame.code === 'observe_only');
+    assert.equal(error.type, 'error');
+    assert.equal(
+      store
+        .listEvents(sessionId, 0, 5000)
+        .some((event) => event.type === 'terminal.resize' && event.payload.cols === 100),
+      false
+    );
+  } finally {
+    client.close();
+    ptySessions.stop(sessionId);
+    await relayClient.close();
+    await relay.close();
+    cleanup();
+  }
+});
+
 test('gateway relay client blocks unsubscribed input', async () => {
   const { store, cleanup } = tempStore();
   const ptySessions = new PtySessionManager(store);
@@ -213,6 +287,42 @@ test('gateway relay client blocks unsubscribed input', async () => {
       store
         .listEvents(sessionId, 0, 5000)
         .some((event) => event.type === 'user.input' && event.payload.data === 'blocked input\r'),
+      false
+    );
+  } finally {
+    client.close();
+    ptySessions.stop(sessionId);
+    await relayClient.close();
+    await relay.close();
+    cleanup();
+  }
+});
+
+test('gateway relay client blocks unsubscribed resize', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const sessionId = createSessionId();
+  const relay = await startRelayServer({ host: '127.0.0.1', port: 4918, secret: SECRET });
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24
+  });
+  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_unsubscribed_resize', store, ptySessions });
+  const client = await connectRelayClient(relay.url);
+
+  try {
+    await waitForSessionList(client, sessionId);
+    client.send(JSON.stringify({ type: 'client.resize', sessionId, cols: 100, rows: 30 }));
+    const error = await waitForFrame(client, (frame) => frame.type === 'error' && frame.code === 'not_subscribed');
+    assert.equal(error.type, 'error');
+    assert.equal(
+      store
+        .listEvents(sessionId, 0, 5000)
+        .some((event) => event.type === 'terminal.resize' && event.payload.cols === 100),
       false
     );
   } finally {
