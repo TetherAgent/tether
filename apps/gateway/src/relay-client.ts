@@ -27,6 +27,7 @@ type RelaySubscription = {
 
 const MIN_RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_DELAY_MS = 5000;
+const RELAY_FORBIDDEN_KEYS = new Set(['command', 'args', 'argv', 'env', 'providerCommand']);
 
 export function startRelayClient(options: RelayClientOptions): RunningRelayClient {
   let closed = false;
@@ -243,6 +244,27 @@ function toRelayEvent(event: SessionEvent): RelayTerminalEvent {
     sessionId: event.sessionId,
     type: event.type,
     ts: event.ts,
-    payload: event.payload
+    payload: sanitizeRelayPayload(event.payload)
   };
+}
+
+function sanitizeRelayPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (RELAY_FORBIDDEN_KEYS.has(key)) {
+      continue;
+    }
+    sanitized[key] = sanitizeRelayValue(value);
+  }
+  return sanitized;
+}
+
+function sanitizeRelayValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeRelayValue(item));
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+  return sanitizeRelayPayload(value as Record<string, unknown>);
 }
