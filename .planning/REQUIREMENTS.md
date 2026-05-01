@@ -1,0 +1,112 @@
+# Requirements: Tether v0.3 — Remote Access
+
+**Defined:** 2026-05-01
+**Core Value:** 在 agent session 场景里，本地体验对齐 tmux，并在历史回放、多端接管、审计、手机/Web/App 接入上超越 tmux。
+
+## Milestone Scope
+
+This is a **finishing milestone** — Phase 2 PTY-backed event stream main path is shipped (see `.planning/PROJECT.md` Validated section). The 11 v0.3 requirements below cover the unchecked items from the original Phase 2 acceptance criteria, grouped by priority.
+
+**Milestone exit:** All P0+P1 requirements pass; user can safely expose Gateway to phone over LAN with device-token auth; local terminal experience does not regress vs tmux.
+
+## v1 Requirements
+
+### Experience Hardening (P0 — local terminal experience must not regress vs tmux)
+
+- [ ] **EXP-01**: User can detach from a `tether attach <id>` session via a Tether-defined hotkey (`Ctrl-]`) without killing the agent. Hotkey is CLI-side; closing the attach client is also still a valid detach.
+- [ ] **EXP-02**: `Enter` / `Backspace` / `Ctrl-C` / `Ctrl-D` behave the same inside `tether attach` as in a direct `tmux attach` to the same agent. Verified against Codex and Claude TUIs on macOS.
+- [ ] **EXP-03**: Pasting >2KB of text via bracketed paste into `tether attach` reaches the agent intact (no truncation, no control-character misinterpretation, no macOS 1024-byte buffer corruption).
+- [ ] **EXP-04**: ANSI color, cursor movement, screen clearing, and alternate-screen TUIs (Codex / Claude full-screen modes) render correctly on both CLI attach and Web xterm.js client.
+- [ ] **EXP-05**: Resizing the terminal while a complex TUI is mounted (Codex / Claude) does not produce persistent layout corruption — agent re-renders within one frame after resize completes.
+
+### Cleanup (P2 — clears the deck before auth work)
+
+- [ ] **CLEAN-01**: tmux fallback transport (`--transport tmux`) is removed from production paths. Historical `transport='tmux'` rows in SQLite remain readable but no new tmux sessions can be created.
+- [ ] **CLEAN-02**: `transport` column / TypeScript `SessionTransport` type is either removed or explicitly retained as a future extension point with a documented migration path (decision recorded).
+
+### Authentication (P1 — gates remote access)
+
+- [ ] **AUTH-02**: User can run `tether pair`, receive a one-time pairing code (or QR), enter it from a phone/Web client, and receive a device token. Token hash (SHA-256) is stored in SQLite `device_tokens` table; raw token only ever exists in memory and the response payload.
+- [ ] **AUTH-01**: All write endpoints (input / resize / stop / claim-control / release-control / `POST /api/sessions` / `POST /api/ws-ticket`) reject requests without a valid `Authorization: Bearer <device-token>` header. Device names appear in `client.attached` events.
+
+### Retention & Storage Health (P1 — required before multi-hour Gateway uptimes)
+
+- [ ] **RETAIN-01**: Gateway runs an internal retention job (default: keep 7 days OR 100MB per session, whichever hits first; configurable). Job is scheduled inside the Gateway process, runs every 15 minutes, deletes rows in batches without blocking writers, and triggers `PRAGMA wal_checkpoint(RESTART)` on a longer cadence to prevent WAL bloat.
+
+### Supervisor & Background Service (P1 — required to make Gateway the single session owner)
+
+- [ ] **GW-01**: A single persistent `tether gateway` process owns all PTY sessions. CLI `tether run / codex / claude / opencode / attach / stop` commands probe for a running Gateway and forward to it; absence of a running Gateway falls back to inline bootstrap with a warning. node-pty is upgraded to ≥ 1.2.0-beta.12 (closes fd-leak issue #907) before this requirement is closed.
+- [ ] **GW-02**: User can run `tether gateway install` to register a `~/Library/LaunchAgents/sh.tether.gateway.plist` that launches Gateway at login (`RunAtLoad`), restarts on crash (`KeepAlive`), and uses an absolute `node` path snapshotted at install time. `tether gateway uninstall` removes it cleanly.
+
+### Tests (P1 — milestone exit gate)
+
+- [ ] **TEST-01**: Integration tests cover: write endpoints reject unauthenticated requests; provider whitelist rejects non-listed providers; secret mask redacts known tokens in `terminal.output` and `user.input` events; legacy snapshot/send endpoints still respond correctly through the event store; retention job deletes correct rows under both time-based and size-based triggers.
+
+### Structured Event Cleanup (P2 — minor)
+
+- [ ] **CLEAN-03**: ROADMAP/Phase docs note that Phase 4 owns the full diff/approval UI; `approval.requested` / `diff.detected` / `agent.handoff` event types have an exhaustive-switch parser test that fails when new event types are added without handling.
+
+## v2 Requirements (deferred — not in v0.3 roadmap)
+
+### Phase 1.5 — Remote Access (full)
+
+- **TUNNEL-01**: First-class Cloudflare Tunnel / Tailscale documentation and `--public-url` flag end-to-end.
+- **RELAY-01**: Self-hosted relay MVP (Gateway outbound WSS, no public IP).
+- **PUSH-01**: APNs / FCM push notifications.
+
+### Phase 3a — Provider Abstraction
+
+- **PROV-01**: ACP / JSON-RPC provider protocol abstraction; multi-agent concurrent tabs.
+
+### Phase 3b — Federation
+
+- **FED-01**: Multi-machine federation with discovery and trust model.
+
+### Phase 4 — Read-only Review UI
+
+- **REVIEW-01**: Read-only diff viewer / file tree / rich permission review (NOT a code editor).
+
+## Out of Scope
+
+| Feature | Reason |
+|---------|--------|
+| Cloudflare Tunnel / Tailscale tooling | Phase 1.5 scope — v0.3 only validates LAN + device-token; tunnel UX waits |
+| Self-hosted relay | Phase 1.5 scope — Tunnel/Tailscale is enough for solo remote attach until v0.4+ |
+| Provider abstraction layer | Phase 3a — adds complexity without changing v0.3 finishing surface |
+| Multi-machine federation | Phase 3b — orthogonal, separate milestone |
+| Push notifications + encrypted relay | Phase 3c — depends on relay first |
+| Diff / file tree / approval UI | Phase 4 — v0.3 ships only the structured-event placeholder |
+| Code patch editor / full code editor / LSP | **Permanent** — IDE-creep boundary |
+| tmux pane / window / prefix / copy mode / plugins | **Permanent** — Tether is not a general multiplexer |
+| Arbitrary shell command remote execution | **Permanent** — security baseline |
+| Linux / Windows support | v0.3 is macOS-only |
+
+## Traceability
+
+Empty until roadmap is generated.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| EXP-01 | TBD | Pending |
+| EXP-02 | TBD | Pending |
+| EXP-03 | TBD | Pending |
+| EXP-04 | TBD | Pending |
+| EXP-05 | TBD | Pending |
+| CLEAN-01 | TBD | Pending |
+| CLEAN-02 | TBD | Pending |
+| AUTH-01 | TBD | Pending |
+| AUTH-02 | TBD | Pending |
+| RETAIN-01 | TBD | Pending |
+| GW-01 | TBD | Pending |
+| GW-02 | TBD | Pending |
+| TEST-01 | TBD | Pending |
+| CLEAN-03 | TBD | Pending |
+
+**Coverage:**
+- v1 requirements: 14 total
+- Mapped to phases: 0 (roadmap pending)
+- Unmapped: 14
+
+---
+*Requirements defined: 2026-05-01*
+*Last updated: 2026-05-01 after initialization*
