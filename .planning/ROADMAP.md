@@ -97,7 +97,16 @@ plaintext. Full pairing/device-token auth remains a later phase before broader e
   3. `tether gateway install` registers `~/Library/LaunchAgents/sh.tether.gateway.plist`, uses an absolute node path snapshotted at install time, and the Gateway auto-starts on next login; `tether gateway uninstall` removes the plist and unloads it cleanly
   4. After an unexpected Gateway crash, launchd restarts it; CLI commands issued after restart can create new sessions and attach to them
   5. Gateway relay connection can be managed by the persistent Gateway process rather than by short-lived CLI processes
-**Plans**: TBD
+**Plans**:
+  - **Wave 1**:
+    - `06-01-PLAN.md` — Gateway Config and Provider Policy Foundation
+  - **Wave 2** *(blocked on Wave 1 completion)*:
+    - `06-02-PLAN.md` — Gateway Session Creation API and Runtime Status
+  - **Wave 3** *(blocked on required earlier plans)*:
+    - `06-03-PLAN.md` — CLI Forwarding and Inline Fallback *(depends on Plans 01, 02)*
+    - `06-04-PLAN.md` — launchd Lifecycle and Chinese Gateway Status *(depends on Plan 01)*
+  - **Wave 4** *(blocked on Wave 2 and Wave 3 completion)*:
+    - `06-05-PLAN.md` — Supervisor Documentation and End-to-End Verification *(depends on Plans 02, 03, 04)*
 
 ### Phase 7: Security Tests & Final Cleanup
 **Goal**: The v0.3 milestone exit criteria are satisfied — integration tests verify relay safety, auth properties, and the Phase 2 structured event schema is closed
@@ -122,7 +131,7 @@ plaintext. Full pairing/device-token auth remains a later phase before broader e
 | 3. Cleanup | 0/TBD | Not started | - |
 | 4. Authentication | 0/TBD | Not started | - |
 | 5. Retention | 0/TBD | Not started | - |
-| 6. Supervisor & launchd | 0/TBD | Not started | - |
+| 6. Supervisor & launchd | 0/5 | Planned | - |
 | 7. Security Tests & Final Cleanup | 0/TBD | Not started | - |
 
 ---
