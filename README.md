@@ -88,4 +88,4 @@ Apache-2.0，见 [LICENSE](./LICENSE)。
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=dream2672/tether&type=Date)](https://www.star-history.com/#dream2672/tether&Date)
+[![Star History Chart](https://api.star-history.com/image?repos=dream2672/tether&type=Date)](https://www.star-history.com/#dream2672/tether&Date)
