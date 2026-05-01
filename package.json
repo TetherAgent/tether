@@ -1,0 +1,34 @@
+{
+  "name": "tether",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "tether": "./bin/tether"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "web:dev": "pnpm --filter @tether/web dev",
+    "web:build": "pnpm --filter @tether/web build",
+    "dev": "tsx apps/cli/src/main.ts",
+    "tether": "tsx apps/cli/src/main.ts"
+  },
+  "dependencies": {
+    "@tether/cli": "workspace:*",
+    "@tether/gateway": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.29",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
+  }
+}

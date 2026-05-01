@@ -1,0 +1,25 @@
+{
+  "name": "@tether/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./store": "./src/store.ts",
+    "./tmux": "./src/tmux.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.4",
+    "@tether/core": "workspace:*",
+    "better-sqlite3": "^11.10.0",
+    "hono": "^4.7.11"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.29",
+    "typescript": "^5.8.3"
+  }
+}

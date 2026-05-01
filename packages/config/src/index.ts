@@ -1,0 +1,2 @@
+export const DEFAULT_GATEWAY_PORT = 4789;
+export const DEFAULT_GATEWAY_HOST = '127.0.0.1';

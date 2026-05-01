@@ -1,0 +1,168 @@
+# AI 项目上下文
+
+## 产品
+
+**Tether** 是 Agent 控制台。
+
+把"用户直接运行 `codex` / `claude`（或其他 agent CLI）"包装成由 daemon 托管的会话，让
+任意设备（电脑命令行、手机 PWA、Web）连到同一个会话上。
+
+定位：
+
+- **不是 IDE**——不替代 VS Code / Cursor，不做完整代码编辑器
+- **是 Agent 控制台**——让用户在任何设备上和正在跑的 agent 同步对齐，
+  审阅 agent 做了什么、批准它要做什么
+- 远期叙事："像管 app 一样管 agent"
+
+详细设计见 `docs/working/2026-05-01-tether-agent-console.md`。
+
+## 关键架构决策
+
+### 1. 阶段路线（共 4 阶段）
+
+| 阶段 | 主题 | 核心抽象 |
+|---|---|---|
+| Phase 1 | Demo：手机/电脑同窗口 | tmux + capture-pane 轮询（一次性脚手架），支持 codex/claude CLI |
+| Phase 1.5 | 认证与访问层 | device token + LAN / tunnel / relay 入口 |
+| Phase 2 | 单机无缝切换 | **切换到事件流**（替换 tmux 主轴） |
+| Phase 3 | 多机 + 多 agent + 后台任务 | 事件流 + federation + 推送 |
+| Phase 4 | IDE 化（控制台之上） | 在事件流上加 diff / 文件树 / 权限 UI |
+
+**Phase 1 → Phase 2 是架构换血**：tmux 包装层、capture-pane 轮询、send-keys
+注入会被替换。Phase 1 是验证用户价值的一次性脚手架。
+
+### 2. 选择 B 路线（事件流原生）
+
+不是 tmux/PTY 原生，也不是混合双管线。理由：手机 UI 天花板、和 paseo 对标的
+功能扩张性、单人维护可承受度。详见 design doc §4.2。
+
+### 3. IDE 化推迟到 Phase 4
+
+Phase 2/3 不做 diff 渲染、文件树、富权限审阅 UI。Phase 4 也只服务"审阅 agent +
+批准 agent"，**不替代 VS Code**。
+
+### 4. 访问与账户方向
+
+Phase 1 demo 里的 daemon 后续升级为本机常驻 **Tether Gateway**：负责 auth/pairing、
+session registry、UI surface registry、agent process manager，以及 LAN/tunnel/relay
+连接入口。Gateway 是本机 session owner；手机/Web/电脑端都是 UI surface。
+
+访问层分三种模式：LAN、第三方 tunnel、自建 relay。三者必须共用同一套 device token
+认证；Phase 1 demo 的未认证局域网访问不能进入外网场景。
+
+- LAN：手机直接访问 Gateway 的局域网地址，`--host 0.0.0.0` 必须显式开启。
+- Tunnel：支持 Cloudflare Tunnel / Tailscale，通过 `--public-url` 生成外部 URL。
+- Relay：Gateway 主动 outbound WSS 连接 Tether Relay，relay 只转发 frame，不执行命令。
+
+同一个 agent session 可以挂多个 UI surface：terminal attach、mobile web、desktop web、
+floating console。手机可以请求电脑打开某个 surface，但只能触发白名单动作
+（打开本地 URL、attach 既有 session、focus 既有 UI），不能执行任意命令。
+
+账户体系优先做本地配对和设备授权：`tether pair`、`tether devices`、
+`tether revoke <device-id>`。云账户延后到 relay/federation/push 阶段，只做控制平面
+（登录、设备、路由、push、远程 revoke），默认不持有会话明文。
+
+仓库已迁移为 pnpm monorepo 雏形：当前有 `apps/gateway`、`apps/cli`、`apps/web`、
+`packages/core`、`packages/protocol`、`packages/config`、`packages/ui` 和
+`native/` 预留区。`apps/relay` 后续按 Phase 1.5/2 需要再补。
+
+HarmonyOS / Flutter / iOS / Android 都视为 client surface，只消费 Gateway/Relay 协议；
+不要在原生 app 中复制 session 管理、权限判断或 relay 路由。先稳定 PWA 和
+`packages/protocol`，再生成或手写 Dart / ArkTS client SDK。
+
+## 技术栈
+
+| 层 | 选型 |
+|---|---|
+| 运行时 | Node.js 20+ LTS |
+| 语言 | TypeScript（`tsx` 直跑，不打包） |
+| HTTP | Hono |
+| CLI 参数 | commander |
+| SQLite | better-sqlite3 |
+| 子进程 | 原生 `node:child_process`（**绝不** `shell:true`） |
+| 前端（Phase 1） | `apps/web` React/Vite + `setInterval(1500ms)` |
+| 前端（Phase 2 起） | xterm.js + 事件 timeline 面板，PWA |
+| 包管理 | pnpm |
+| Gateway 单例 | `~/.tether/daemon.pid` + lockfile（当前实现仍沿用 daemon 命名） |
+
+## 仓库结构（当前）
+
+```
+/Users/dream/code/tether/
+├── AGENTS.md / CLAUDE.md / PROJECT.md / AI_CONTEXT.md   # AI 协作规则
+├── README.md
+├── package.json / pnpm-workspace.yaml / tsconfig.base.json
+├── bin/tether                                           # 可执行入口
+├── apps/
+│   ├── cli/                                             # commander 分发
+│   └── gateway/                                         # Hono server + tmux demo adapter
+│   └── web/                                             # React/Vite Web 客户端
+├── packages/
+│   ├── core/                                            # 核心类型
+│   ├── protocol/                                        # API / Relay frame 契约
+│   ├── config/                                          # 默认配置
+│   └── ui/                                              # 共享 UI 预留
+├── native/                                              # Flutter / HarmonyOS 预留
+├── docs/
+│   ├── README.md                                        # 文档治理
+│   ├── current/                                         # 长期事实
+│   └── working/                                         # 立项前草稿
+└── openspec/
+    ├── specs/                                           # 长期能力契约
+    └── changes/                                         # 活跃变更
+```
+
+文件总量目标（Phase 1）：< 500 行 TS + 一个 HTML。
+
+## 数据模型（Phase 1）
+
+```ts
+type Session = {
+  id: string                 // tth_YYYYMMDD_xxxxxx
+  provider: 'codex' | 'claude'
+  title: string
+  projectPath: string
+  status: 'running' | 'detached' | 'stopped' | 'completed' | 'failed'
+  tmuxSessionName: string    // tether_<id>
+  command: string
+  createdAt: number
+  updatedAt: number
+  lastActiveAt: number
+}
+```
+
+存储路径：`~/.tether/tether.db`。Phase 2 起新增 `events` 与 `devices` 表。
+
+## tmux 操作约定（仅 Phase 1）
+
+| 行为 | 命令 |
+|---|---|
+| 创建 | `tmux new-session -d -s tether_<id> -c "$PROJECT_PATH" "codex"` 或 `"claude"` |
+| 注入 prompt | `tmux send-keys -t tether_<id> "$PROMPT" Enter` |
+| 电脑 attach | `tmux attach -t tether_<id>` |
+| 手机读取 | `tmux capture-pane -t tether_<id> -p -S -200` |
+| 手机发送 | `spawn('tmux', ['send-keys', '-t', name, content, 'Enter'])` |
+| 停止 | `tmux kill-session -t tether_<id>` |
+
+铁律：
+- **绝不**用 `shell:true` 拼字符串
+- 所有外部命令一律走列表参数
+
+## 与外部参考项目的关系
+
+| 仓库 | 角色 | 是否复用代码 |
+|---|---|---|
+| `/Users/dream/code/github/codex_manager` | 设计参考（README 风格、`/remote` 交互思路、auth 模型） | 否（Python，语言不同） |
+| `/Users/dream/code/github/paseo` | 高级能力对标（事件流、WebSocket mux、provider 抽象、加密 relay） | Phase 2/3 可能借鉴具体协议格式 |
+
+## 安全约束（项目专属）
+
+Tether 直接控制本机命令行，安全是底线：
+
+- daemon 默认只绑 `127.0.0.1`
+- 客户端写操作必须经过认证（Phase 1 demo 期局域网内可降级，需在文档明确标注）
+- 客户端只能 `send-keys` 到既有 agent 进程，**不能**让 daemon 起任意进程
+- 终端输出外发前要做基础敏感信息掩码（已知 API Key 格式、常见 token 格式）
+- 配对 token：一次性 / 5 分钟过期 / 使用后失效；配对成功后发长期 device token
+
+详细安全规则见 `PROJECT.md`「安全门槛」一节。
