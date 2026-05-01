@@ -45,6 +45,14 @@ h1 {
   gap: 12px;
 }
 
+.connection-settings {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .mode-select {
   display: flex;
   align-items: center;
@@ -53,12 +61,25 @@ h1 {
   font-size: 12px;
 }
 
-select {
+.relay-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #9aa4af;
+  font-size: 12px;
+}
+
+select,
+input {
   color: #e8ecef;
   background: #0c0e10;
   border: 1px solid #3a424b;
   border-radius: 6px;
   padding: 4px 8px;
+}
+
+.relay-field input {
+  width: 180px;
 }
 
 .scrollport {
@@ -267,6 +288,15 @@ p {
 
   .mode-select {
     font-size: 11px;
+  }
+
+  .connection-settings,
+  .relay-field {
+    gap: 6px;
+  }
+
+  .relay-field input {
+    width: min(44vw, 180px);
   }
 
   .terminal-host {

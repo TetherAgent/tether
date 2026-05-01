@@ -31,6 +31,13 @@ type Gateway = {
 
 type WebTransportMode = 'ws' | 'http';
 type ClientMode = 'control' | 'observe';
+type ConnectionMode = 'direct' | 'relay';
+
+type ConnectionSettings = {
+  connectionMode: ConnectionMode;
+  relayUrl: string;
+  relaySecret: string;
+};
 
 type ClientInfo = {
   clientId: string;
@@ -41,8 +48,20 @@ type ClientInfo = {
   lastSeenAt: number;
 };
 
+type RelayServerToClientFrame =
+  | { type: 'client.auth.ok'; clientId: string }
+  | { type: 'client.auth.failed'; code: string; message: string }
+  | { type: 'sessions'; sessions: Session[] }
+  | { type: 'hello'; clientId: string; gatewayId?: string }
+  | { type: 'event'; event: SessionEvent }
+  | { type: 'replay.done'; sessionId: string; latestEventId: number }
+  | { type: 'error'; sessionId?: string; code: string; message: string };
+
 const WEB_TRANSPORT_KEY = 'tether:webTransportMode';
 const WEB_CLIENT_MODE_KEY = 'tether:webClientMode';
+const CONNECTION_MODE_KEY = 'tether:connectionMode';
+const RELAY_URL_KEY = 'tether:relayUrl';
+const RELAY_SECRET_KEY = 'tether:relaySecret';
 
 function readWebTransportMode(): WebTransportMode {
   return window.localStorage.getItem(WEB_TRANSPORT_KEY) === 'http' ? 'http' : 'ws';
@@ -50,6 +69,38 @@ function readWebTransportMode(): WebTransportMode {
 
 function readClientMode(): ClientMode {
   return window.localStorage.getItem(WEB_CLIENT_MODE_KEY) === 'observe' ? 'observe' : 'control';
+}
+
+function readConnectionMode(): ConnectionMode {
+  return window.localStorage.getItem(CONNECTION_MODE_KEY) === 'relay' ? 'relay' : 'direct';
+}
+
+function readConnectionSettings(): ConnectionSettings {
+  return {
+    connectionMode: readConnectionMode(),
+    relayUrl: window.localStorage.getItem(RELAY_URL_KEY) ?? '',
+    relaySecret: window.localStorage.getItem(RELAY_SECRET_KEY) ?? ''
+  };
+}
+
+function buildRelayClientUrl(relayUrl: string): string {
+  const value = relayUrl.trim();
+  if (!value) {
+    throw new Error('Relay URL required');
+  }
+  const url = new URL(value);
+  if (url.protocol === 'http:') {
+    url.protocol = 'ws:';
+  } else if (url.protocol === 'https:') {
+    url.protocol = 'wss:';
+  }
+  if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
+    throw new Error('Relay URL must use ws, wss, http, or https');
+  }
+  url.pathname = `${url.pathname.replace(/\/$/, '')}/client`;
+  url.search = '';
+  url.hash = '';
+  return url.toString();
 }
 
 function sessionIdFromPath(): string | undefined {
@@ -62,15 +113,84 @@ function sessionIdFromPath(): string | undefined {
 
 function App() {
   const sessionId = sessionIdFromPath();
+  const [connectionSettings, setConnectionSettings] = React.useState<ConnectionSettings>(readConnectionSettings);
+
+  const updateConnectionSettings = React.useCallback((next: ConnectionSettings) => {
+    window.localStorage.setItem(CONNECTION_MODE_KEY, next.connectionMode);
+    window.localStorage.setItem(RELAY_URL_KEY, next.relayUrl);
+    window.localStorage.setItem(RELAY_SECRET_KEY, next.relaySecret);
+    setConnectionSettings(next);
+  }, []);
 
   if (!sessionId) {
-    return <SessionList />;
+    return <SessionList connectionSettings={connectionSettings} onConnectionSettingsChange={updateConnectionSettings} />;
   }
 
-  return <SessionView sessionId={sessionId} />;
+  return (
+    <SessionView
+      sessionId={sessionId}
+      connectionSettings={connectionSettings}
+      onConnectionSettingsChange={updateConnectionSettings}
+    />
+  );
 }
 
-function SessionList() {
+function ConnectionSettingsControl({
+  settings,
+  onChange
+}: {
+  settings: ConnectionSettings;
+  onChange: (settings: ConnectionSettings) => void;
+}) {
+  const update = React.useCallback((patch: Partial<ConnectionSettings>) => {
+    onChange({ ...settings, ...patch });
+  }, [onChange, settings]);
+
+  return (
+    <div className="connection-settings" aria-label="Connection settings">
+      <label className="mode-select">
+        Connection
+        <select value={settings.connectionMode} onChange={(event) => update({ connectionMode: event.target.value as ConnectionMode })}>
+          <option value="direct">Direct</option>
+          <option value="relay">Relay</option>
+        </select>
+      </label>
+      {settings.connectionMode === 'relay' ? (
+        <>
+          <label className="relay-field">
+            Relay URL
+            <input
+              type="url"
+              inputMode="url"
+              autoComplete="url"
+              placeholder="wss://relay.example.com"
+              value={settings.relayUrl}
+              onChange={(event) => update({ relayUrl: event.target.value })}
+            />
+          </label>
+          <label className="relay-field">
+            Secret
+            <input
+              type="password"
+              autoComplete="current-password"
+              placeholder="Relay secret"
+              value={settings.relaySecret}
+              onChange={(event) => update({ relaySecret: event.target.value })}
+            />
+          </label>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function SessionList({
+  connectionSettings,
+  onConnectionSettingsChange
+}: {
+  connectionSettings: ConnectionSettings;
+  onConnectionSettingsChange: (settings: ConnectionSettings) => void;
+}) {
   const [sessions, setSessions] = React.useState<Session[]>([]);
   const [history, setHistory] = React.useState<Session[]>([]);
   const [gateways, setGateways] = React.useState<Gateway[]>([]);
@@ -82,7 +202,7 @@ function SessionList() {
     setWebTransportMode(mode);
   }, []);
 
-  const refresh = React.useCallback(async () => {
+  const refreshDirect = React.useCallback(async () => {
     try {
       const [sessionsResponse, historyResponse, gatewaysResponse] = await Promise.all([
         fetch('/api/sessions'),
@@ -112,23 +232,97 @@ function SessionList() {
   }, []);
 
   React.useEffect(() => {
-    refresh();
-    const timer = window.setInterval(refresh, 3000);
+    if (connectionSettings.connectionMode !== 'direct') {
+      return undefined;
+    }
+    refreshDirect();
+    const timer = window.setInterval(refreshDirect, 3000);
     return () => window.clearInterval(timer);
-  }, [refresh]);
+  }, [connectionSettings.connectionMode, refreshDirect]);
+
+  React.useEffect(() => {
+    if (connectionSettings.connectionMode !== 'relay') {
+      return undefined;
+    }
+    let disposed = false;
+    let ws: WebSocket | undefined;
+    let timer: number | undefined;
+    setSessions([]);
+    setHistory([]);
+    setGateways([]);
+    try {
+      ws = new WebSocket(buildRelayClientUrl(connectionSettings.relayUrl));
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Invalid relay URL');
+      return undefined;
+    }
+    const sendList = () => {
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'client.list' }));
+      }
+    };
+    ws.addEventListener('open', () => {
+      if (disposed) return;
+      setStatus('Authenticating relay');
+      ws?.send(JSON.stringify({ type: 'client.auth', secret: connectionSettings.relaySecret }));
+    });
+    ws.addEventListener('message', (message) => {
+      if (disposed) return;
+      const frame = JSON.parse(message.data as string) as RelayServerToClientFrame;
+      if (frame.type === 'client.auth.ok') {
+        setStatus(`Relay · ${frame.clientId.slice(0, 8)}`);
+        sendList();
+        timer = window.setInterval(sendList, 3000);
+        return;
+      }
+      if (frame.type === 'client.auth.failed') {
+        setStatus(frame.message);
+        ws?.close();
+        return;
+      }
+      if (frame.type === 'sessions') {
+        setSessions(frame.sessions);
+        setStatus(new Date().toLocaleTimeString());
+        return;
+      }
+      if (frame.type === 'error') {
+        setStatus(frame.message);
+      }
+    });
+    ws.addEventListener('close', () => {
+      if (!disposed) {
+        setStatus('Relay disconnected');
+      }
+    });
+    ws.addEventListener('error', () => {
+      if (!disposed) {
+        setStatus('Relay error');
+      }
+    });
+    return () => {
+      disposed = true;
+      if (timer) {
+        window.clearInterval(timer);
+      }
+      ws?.close();
+    };
+  }, [connectionSettings.connectionMode, connectionSettings.relaySecret, connectionSettings.relayUrl]);
 
   return (
     <>
       <header>
         <h1>Tether</h1>
         <div className="header-actions">
-          <label className="mode-select">
-            Web
-            <select value={webTransportMode} onChange={(event) => changeWebTransportMode(event.target.value as WebTransportMode)}>
-              <option value="ws">WS</option>
-              <option value="http">HTTP fallback</option>
-            </select>
-          </label>
+          <ConnectionSettingsControl settings={connectionSettings} onChange={onConnectionSettingsChange} />
+          {connectionSettings.connectionMode === 'direct' ? (
+            <label className="mode-select">
+              Web
+              <select value={webTransportMode} onChange={(event) => changeWebTransportMode(event.target.value as WebTransportMode)}>
+                <option value="ws">WS</option>
+                <option value="http">HTTP fallback</option>
+              </select>
+            </label>
+          ) : null}
           <div className="status">{status}</div>
         </div>
       </header>
@@ -183,7 +377,15 @@ function SessionCard({ session }: { session: Session }) {
   );
 }
 
-function SessionView({ sessionId }: { sessionId: string }) {
+function SessionView({
+  sessionId,
+  connectionSettings,
+  onConnectionSettingsChange
+}: {
+  sessionId: string;
+  connectionSettings: ConnectionSettings;
+  onConnectionSettingsChange: (settings: ConnectionSettings) => void;
+}) {
   const [snapshot, setSnapshot] = React.useState<Snapshot>({ text: '', capturedAt: Date.now() });
   const [status, setStatus] = React.useState('Connecting');
   const [text, setText] = React.useState('');
@@ -191,6 +393,11 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const scrollRef = React.useRef<HTMLElement>(null);
 
   const refresh = React.useCallback(async () => {
+    if (connectionSettings.connectionMode === 'relay') {
+      setTransport('pty-event-stream');
+      setStatus('Relay');
+      return;
+    }
     try {
       const scrollport = scrollRef.current;
       const wasNearBottom = scrollport
@@ -212,7 +419,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Disconnected');
     }
-  }, [sessionId]);
+  }, [connectionSettings.connectionMode, sessionId]);
 
   React.useEffect(() => {
     refresh();
@@ -224,7 +431,14 @@ function SessionView({ sessionId }: { sessionId: string }) {
   }, [refresh, transport]);
 
   if (transport === 'pty-event-stream') {
-    return <PtySessionView sessionId={sessionId} initialStatus={status} />;
+    return (
+      <PtySessionView
+        sessionId={sessionId}
+        initialStatus={status}
+        connectionSettings={connectionSettings}
+        onConnectionSettingsChange={onConnectionSettingsChange}
+      />
+    );
   }
 
   async function send(event: React.FormEvent<HTMLFormElement>) {
@@ -281,7 +495,17 @@ type StreamFrame =
   | { type: 'event'; event: SessionEvent }
   | { type: 'error'; code: string; message: string };
 
-function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initialStatus: string }) {
+function PtySessionView({
+  sessionId,
+  initialStatus,
+  connectionSettings,
+  onConnectionSettingsChange
+}: {
+  sessionId: string;
+  initialStatus: string;
+  connectionSettings: ConnectionSettings;
+  onConnectionSettingsChange: (settings: ConnectionSettings) => void;
+}) {
   const terminalRef = React.useRef<HTMLDivElement>(null);
   const terminal = React.useRef<Terminal | undefined>(undefined);
   const socket = React.useRef<WebSocket | undefined>(undefined);
@@ -293,6 +517,9 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
   const [text, setText] = React.useState('');
 
   const refreshClients = React.useCallback(async () => {
+    if (connectionSettings.connectionMode === 'relay') {
+      return;
+    }
     const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/clients`);
     if (!response.ok) {
       return;
@@ -300,7 +527,7 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
     const data = (await response.json()) as { controllerClientId: string | null; clients: ClientInfo[] };
     setControllerClientId(data.controllerClientId);
     setClients(data.clients);
-  }, [sessionId]);
+  }, [connectionSettings.connectionMode, sessionId]);
 
   const changeClientMode = React.useCallback((mode: ClientMode) => {
     window.localStorage.setItem(WEB_CLIENT_MODE_KEY, mode);
@@ -308,6 +535,9 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
   }, []);
 
   const sendHttpInput = React.useCallback(async (data: string): Promise<boolean> => {
+    if (connectionSettings.connectionMode === 'relay') {
+      return false;
+    }
     if (clientMode === 'observe') {
       setStatus('Observe mode');
       return false;
@@ -322,7 +552,7 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
       return false;
     }
     return true;
-  }, [clientMode, sessionId]);
+  }, [clientMode, connectionSettings.connectionMode, sessionId]);
 
   const sendWsInput = React.useCallback((data: string): boolean => {
     if (clientMode === 'observe') {
@@ -334,17 +564,21 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
       setStatus('WS unavailable');
       return false;
     }
-    ws.send(JSON.stringify({ type: 'input', data }));
+    ws.send(JSON.stringify(
+      connectionSettings.connectionMode === 'relay'
+        ? { type: 'client.input', sessionId, data }
+        : { type: 'input', data }
+    ));
     return true;
-  }, [clientMode]);
+  }, [clientMode, connectionSettings.connectionMode, sessionId]);
 
   const sendTerminalInput = React.useCallback((data: string): void => {
-    if (transportMode === 'http') {
+    if (connectionSettings.connectionMode === 'direct' && transportMode === 'http') {
       sendHttpInput(data).catch(() => setStatus('Input failed'));
       return;
     }
     sendWsInput(data);
-  }, [sendHttpInput, sendWsInput, transportMode]);
+  }, [connectionSettings.connectionMode, sendHttpInput, sendWsInput, transportMode]);
 
   const sendLine = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -353,16 +587,18 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
       return;
     }
     setStatus('Sending');
-    const send = transportMode === 'http' ? sendHttpInput(`${value}\r`) : Promise.resolve(sendWsInput(`${value}\r`));
+    const send = connectionSettings.connectionMode === 'direct' && transportMode === 'http'
+      ? sendHttpInput(`${value}\r`)
+      : Promise.resolve(sendWsInput(`${value}\r`));
     send
       .then((ok) => {
         if (!ok) return;
         setText('');
-        setStatus(transportMode === 'http' ? 'Sent · HTTP' : 'Sent · WS');
+        setStatus(connectionSettings.connectionMode === 'relay' ? 'Sent · Relay' : transportMode === 'http' ? 'Sent · HTTP' : 'Sent · WS');
         terminal.current?.focus();
       })
       .catch(() => setStatus('Input failed'));
-  }, [sendHttpInput, sendWsInput, text, transportMode]);
+  }, [connectionSettings.connectionMode, sendHttpInput, sendWsInput, text, transportMode]);
 
   React.useEffect(() => {
     const root = terminalRef.current;
@@ -394,7 +630,11 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
       }
       lastSize = { cols: term.cols, rows: term.rows };
       if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        ws.send(JSON.stringify(
+          connectionSettings.connectionMode === 'relay'
+            ? { type: 'client.resize', sessionId, cols: term.cols, rows: term.rows }
+            : { type: 'resize', cols: term.cols, rows: term.rows }
+        ));
       }
     };
     const fitAndResize = () => {
@@ -440,6 +680,10 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
     };
 
     const replayEvents = async () => {
+      if (connectionSettings.connectionMode === 'relay') {
+        replayComplete = false;
+        return;
+      }
       setStatus('Replaying');
       const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/events?after=0&limit=5000`);
       if (!response.ok) {
@@ -474,25 +718,22 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
 
     const connectStream = async () => {
       await replayEvents();
-      if (transportMode === 'http') {
+      if (connectionSettings.connectionMode === 'direct' && transportMode === 'http') {
         tailTimer = window.setInterval(pollTail, 500);
         setStatus('Streaming · HTTP fallback');
         return;
       }
-      const response = await fetch('/api/ws-ticket', { method: 'POST' });
-      if (!response.ok) {
-        throw new Error(`ticket HTTP ${response.status}`);
-      }
-      const { ticket } = (await response.json()) as { ticket: string };
-      const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
-      const nextWs = new WebSocket(
-        `${scheme}://${window.location.host}/api/sessions/${encodeURIComponent(sessionId)}/stream?after=${after}&ticket=${encodeURIComponent(ticket)}&surface=web&mode=${clientMode}`
-      );
+      const nextWs = await openStreamWebSocket();
       ws = nextWs;
       socket.current = nextWs;
 
       nextWs.addEventListener('open', () => {
         if (disposed || socket.current !== ws) {
+          return;
+        }
+        if (connectionSettings.connectionMode === 'relay') {
+          setStatus('Authenticating relay');
+          nextWs.send(JSON.stringify({ type: 'client.auth', secret: connectionSettings.relaySecret }));
           return;
         }
         setStatus('Streaming · WS');
@@ -502,7 +743,40 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
         if (disposed || socket.current !== ws) {
           return;
         }
-        const frame = JSON.parse(message.data as string) as StreamFrame;
+        const parsedFrame = JSON.parse(message.data as string);
+        if (connectionSettings.connectionMode === 'relay') {
+          const frame = parsedFrame as RelayServerToClientFrame;
+          if (frame.type === 'client.auth.ok') {
+            setStatus(`Relay · ${frame.clientId.slice(0, 8)}`);
+            nextWs.send(JSON.stringify({ type: 'client.subscribe', sessionId, after, mode: clientMode }));
+            return;
+          }
+          if (frame.type === 'client.auth.failed') {
+            setStatus(frame.message);
+            nextWs.close();
+            return;
+          }
+          if (frame.type === 'hello') {
+            setStatus(`Relay · ${frame.clientId.slice(0, 8)}`);
+            return;
+          }
+          if (frame.type === 'error') {
+            setStatus(frame.message);
+            return;
+          }
+          if (frame.type === 'replay.done') {
+            replayComplete = true;
+            after = Math.max(after, frame.latestEventId);
+            fitAddon.fit();
+            sendResize();
+            return;
+          }
+          if (frame.type === 'event') {
+            writeEvent(frame.event);
+          }
+          return;
+        }
+        const frame = parsedFrame as StreamFrame;
         if (frame.type === 'hello') {
           refreshClients().catch(() => undefined);
           setStatus(`Streaming · ${frame.clientId.slice(0, 8)}`);
@@ -540,6 +814,20 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
         setStatus('Stream error');
       });
     };
+    const openStreamWebSocket = async (): Promise<WebSocket> => {
+      if (connectionSettings.connectionMode === 'relay') {
+        return new WebSocket(buildRelayClientUrl(connectionSettings.relayUrl));
+      }
+      const response = await fetch('/api/ws-ticket', { method: 'POST' });
+      if (!response.ok) {
+        throw new Error(`ticket HTTP ${response.status}`);
+      }
+      const { ticket } = (await response.json()) as { ticket: string };
+      const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      return new WebSocket(
+        `${scheme}://${window.location.host}/api/sessions/${encodeURIComponent(sessionId)}/stream?after=${after}&ticket=${encodeURIComponent(ticket)}&surface=web&mode=${clientMode}`
+      );
+    };
     connectStream().catch((error: unknown) => {
       if (!disposed) {
         setStatus(error instanceof Error ? error.message : 'Stream unavailable');
@@ -547,7 +835,9 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
     });
     const observer = new ResizeObserver(fitAndResize);
     observer.observe(root);
-    const clientsTimer = window.setInterval(() => refreshClients().catch(() => undefined), 3000);
+    const clientsTimer = connectionSettings.connectionMode === 'direct'
+      ? window.setInterval(() => refreshClients().catch(() => undefined), 3000)
+      : undefined;
 
     return () => {
       disposed = true;
@@ -556,14 +846,32 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
         window.clearInterval(tailTimer);
       }
       observer.disconnect();
-      window.clearInterval(clientsTimer);
+      if (clientsTimer) {
+        window.clearInterval(clientsTimer);
+      }
       input.dispose();
+      if (connectionSettings.connectionMode === 'relay' && ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'client.detach', sessionId }));
+      }
       ws?.close();
       term.dispose();
     };
-  }, [clientMode, refreshClients, sendTerminalInput, sessionId, transportMode]);
+  }, [
+    clientMode,
+    connectionSettings.connectionMode,
+    connectionSettings.relaySecret,
+    connectionSettings.relayUrl,
+    refreshClients,
+    sendTerminalInput,
+    sessionId,
+    transportMode
+  ]);
 
   async function stopSession(): Promise<void> {
+    if (connectionSettings.connectionMode === 'relay') {
+      setStatus('Stop is direct-only');
+      return;
+    }
     setStatus('Stopping');
     const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/stop`, { method: 'POST' });
     setStatus(response.ok ? 'Stopped' : `Stop failed: HTTP ${response.status}`);
@@ -574,6 +882,7 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
       <header>
         <h1>Tether</h1>
         <div className="header-actions">
+          <ConnectionSettingsControl settings={connectionSettings} onChange={onConnectionSettingsChange} />
           <label className="mode-select">
             Mode
             <select value={clientMode} onChange={(event) => changeClientMode(event.target.value as ClientMode)}>
@@ -581,7 +890,9 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
               <option value="observe">Observe</option>
             </select>
           </label>
-          <button className="secondary-button" type="button" onClick={() => stopSession()}>Stop</button>
+          {connectionSettings.connectionMode === 'direct' ? (
+            <button className="secondary-button" type="button" onClick={() => stopSession()}>Stop</button>
+          ) : null}
           <div className="status">{status}</div>
         </div>
       </header>
@@ -592,6 +903,11 @@ function PtySessionView({ sessionId, initialStatus }: { sessionId: string; initi
             <span>controller {controllerClientId ? controllerClientId.slice(0, 8) : '-'}</span>
             <span>{clients.length} client{clients.length === 1 ? '' : 's'}</span>
             <span>{transportMode.toUpperCase()}</span>
+          </aside>
+        ) : connectionSettings.connectionMode === 'relay' ? (
+          <aside className="client-strip">
+            <span>Relay</span>
+            <span>{clientMode}</span>
           </aside>
         ) : null}
       </main>
