@@ -21,7 +21,7 @@
 
 | 文档路径 | 状态 | 内容描述 |
 | --- | --- | --- |
-| *(暂无)* | — | 立项后回写本表 |
+| [relay-mvp.md](current/relay-mvp.md) | **Current** | Phase 1 Personal Relay MVP：nginx serve `apps/web`，`apps/relay` 作为 Node relay 服务 |
 
 ## 当前工作草稿 (`working/`)
 
