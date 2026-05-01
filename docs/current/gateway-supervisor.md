@@ -7,6 +7,77 @@ PTY session；CLI 只负责发起请求和 attach，关闭 CLI 不应杀掉 sess
 `tether codex --inline` 是调试 fallback：它强制使用旧的单次 CLI 内联 Gateway，不走
 常驻 Gateway 转发路径。
 
+## 大白话怎么用
+
+如果你只是自己在这台 Mac 上用，记住这条主线：
+
+```text
+先让 Gateway 在后台跑着，然后平时直接 tether codex。
+```
+
+第一次配置本机后台 Gateway：
+
+```bash
+pnpm tether gateway config --host 127.0.0.1 --port 4789 --allow-api-session-create
+pnpm tether gateway install
+pnpm tether gateway start
+pnpm tether gateway status
+```
+
+以后每天正常用：
+
+```bash
+pnpm tether codex
+```
+
+这时 `codex` session 是由后台 Gateway 托管的。你关掉当前终端，session 理论上也不应该
+跟着死；手机/Web/其他终端后续可以再 attach。
+
+如果你只是想临时前台跑 Gateway 看日志，不想装后台：
+
+```bash
+pnpm tether gateway
+```
+
+然后另开一个终端：
+
+```bash
+pnpm tether codex
+```
+
+如果你怀疑后台 Gateway 有问题，想强制走旧模式：
+
+```bash
+pnpm tether codex --inline
+```
+
+如果你要连自建 Relay，先写 Relay 配置，再启动 Gateway：
+
+```bash
+pnpm tether gateway config \
+  --relay-url wss://relay.example.com \
+  --relay-secret <personal-secret> \
+  --allow-api-session-create
+pnpm tether gateway start
+pnpm tether codex
+```
+
+常用检查和清理：
+
+```bash
+pnpm tether gateway status    # 看后台 Gateway 有没有跑、PID、端口、Relay 状态
+pnpm tether ls                # 看当前 sessions
+pnpm tether gateway stop      # 停掉后台 Gateway
+pnpm tether gateway uninstall # 删除登录启动
+```
+
+一句话区分：
+
+- `pnpm tether gateway start`：让后台 Gateway 跑起来。
+- `pnpm tether codex`：开一个由后台 Gateway 托管的 Codex session。
+- `pnpm tether codex --inline`：强制旧模式，只适合调试。
+- `pnpm tether gateway status`：看现在到底跑没跑。
+
 ## 日常命令
 
 ```bash
