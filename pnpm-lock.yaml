@@ -58,6 +58,9 @@ importers:
       '@tether/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@tether/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       better-sqlite3:
         specifier: ^11.10.0
         version: 11.10.0
