@@ -22,6 +22,20 @@ export type PtyInputOptions = {
 
 type EventListener = (event: SessionEvent) => void;
 
+export const MAX_TERMINAL_COLS = 500;
+export const MAX_TERMINAL_ROWS = 200;
+
+export function isValidTerminalSize(cols: unknown, rows: unknown): cols is number {
+  return (
+    Number.isInteger(cols) &&
+    Number.isInteger(rows) &&
+    Number(cols) > 0 &&
+    Number(rows) > 0 &&
+    Number(cols) <= MAX_TERMINAL_COLS &&
+    Number(rows) <= MAX_TERMINAL_ROWS
+  );
+}
+
 type LivePtySession = {
   session: Session;
   pty: IPty;
@@ -120,6 +134,9 @@ export class PtySessionManager {
   }
 
   resize(sessionId: string, clientId: string, cols: number, rows: number): boolean {
+    if (!isValidTerminalSize(cols, rows)) {
+      return false;
+    }
     const live = this.sessions.get(sessionId);
     if (!live) {
       return false;

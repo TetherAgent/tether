@@ -138,6 +138,36 @@ test('direct websocket controller can resize pty', async () => {
   }
 });
 
+test('direct websocket rejects invalid resize dimensions', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const sessionId = createSessionId();
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24
+  });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4897, store, ptySessions });
+
+  try {
+    const ticket = await requestTicket(4897);
+    const ws = new WebSocket(`ws://127.0.0.1:4897/api/sessions/${sessionId}/stream?ticket=${ticket}&mode=control&surface=test`);
+    await waitForMessage(ws, (text) => text.includes('replay.done'));
+    ws.send(JSON.stringify({ type: 'resize', cols: 0, rows: 0 }));
+    const error = await waitForMessage(ws, (text) => text.includes('bad_resize'));
+    assert.match(error, /bad_resize/);
+    assert.equal(store.listEvents(sessionId).some((event) => event.type === 'terminal.resize' && event.payload.cols === 0), false);
+    ws.close();
+  } finally {
+    ptySessions.stop(sessionId);
+    await daemon.close();
+    cleanup();
+  }
+});
+
 test('previous direct controller cannot write after control is claimed', async () => {
   const { store, cleanup } = tempStore();
   const ptySessions = new PtySessionManager(store);

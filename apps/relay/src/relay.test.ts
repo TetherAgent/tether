@@ -148,6 +148,25 @@ test('relay rejects observe input and resize', async () => {
   }
 });
 
+test('relay rejects invalid resize frames', async () => {
+  const relay = await startRelayServer({ host: '127.0.0.1', port: 4907, secret: SECRET });
+  const gateway = new WebSocket('ws://127.0.0.1:4907/gateway');
+  const client = new WebSocket('ws://127.0.0.1:4907/client');
+
+  try {
+    await authenticateGateway(gateway);
+    await authenticateClient(client);
+
+    client.send(JSON.stringify({ type: 'client.resize', sessionId: 'tth_invalid_resize_test', cols: 0, rows: 0 }));
+    const close = await waitForClose(client);
+    assert.equal(close.code, 1008);
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+  }
+});
+
 test('relay rejects command-shaped frames', async () => {
   const relay = await startRelayServer({ host: '127.0.0.1', port: 4904, secret: SECRET });
   const gateway = new WebSocket('ws://127.0.0.1:4904/gateway');

@@ -24,6 +24,8 @@ export type RunningRelayServer = {
 
 const POLICY_VIOLATION = 1008;
 const FORBIDDEN_KEYS = new Set(['command', 'args', 'argv', 'env', 'providerCommand']);
+const MAX_TERMINAL_COLS = 500;
+const MAX_TERMINAL_ROWS = 200;
 
 type GatewayState = {
   gatewayId: string;
@@ -366,12 +368,23 @@ function isClientFrame(frame: Record<string, unknown>): frame is RelayClientToSe
     case 'client.input':
       return typeof frame.sessionId === 'string' && typeof frame.data === 'string';
     case 'client.resize':
-      return typeof frame.sessionId === 'string' && typeof frame.cols === 'number' && typeof frame.rows === 'number';
+      return typeof frame.sessionId === 'string' && isValidTerminalSize(frame.cols, frame.rows);
     case 'client.detach':
       return typeof frame.sessionId === 'string';
     default:
       return false;
   }
+}
+
+function isValidTerminalSize(cols: unknown, rows: unknown): cols is number {
+  return (
+    Number.isInteger(cols) &&
+    Number.isInteger(rows) &&
+    Number(cols) > 0 &&
+    Number(rows) > 0 &&
+    Number(cols) <= MAX_TERMINAL_COLS &&
+    Number(rows) <= MAX_TERMINAL_ROWS
+  );
 }
 
 function isRelayTerminalEvent(value: unknown): value is RelayTerminalEvent {

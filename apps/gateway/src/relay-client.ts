@@ -5,7 +5,7 @@ import type {
   RelaySession,
   RelayTerminalEvent
 } from '@tether/protocol';
-import type { PtySessionManager } from './pty.js';
+import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import type { Session, SessionEvent, Store } from './store.js';
 
 export type RelayClientOptions = {
@@ -162,6 +162,10 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     }
     if (subscription.mode !== 'control') {
       sendError(clientId, sessionId, 'observe_only', 'observer clients cannot resize');
+      return;
+    }
+    if (!isValidTerminalSize(cols, rows)) {
+      sendError(clientId, sessionId, 'bad_resize', 'resize requires positive terminal dimensions');
       return;
     }
     const ok = options.ptySessions?.resize(sessionId, clientId, cols, rows) ?? false;

@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import WebSocket from 'ws';
-import type { RelayServerToClientFrame } from '@tether/protocol';
+import WebSocket, { WebSocketServer } from 'ws';
+import type { RelayGatewayToServerFrame, RelayServerToClientFrame } from '@tether/protocol';
 import { startRelayServer } from '../../relay/src/relay.js';
 import { createSessionId } from './ids.js';
 import { PtySessionManager } from './pty.js';
@@ -334,6 +334,45 @@ test('gateway relay client blocks unsubscribed resize', async () => {
   }
 });
 
+test('gateway relay client rejects invalid resize dimensions', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const sessionId = createSessionId();
+  const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 4919 });
+  const gatewaySocketPromise = waitForGatewaySocket(fakeRelay);
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24
+  });
+  const relayClient = startRelayClient({ url: 'ws://127.0.0.1:4919', secret: SECRET, gatewayId: 'gw_test_bad_resize', store, ptySessions });
+
+  try {
+    const gatewaySocket = await gatewaySocketPromise;
+    await waitForGatewayFrame(gatewaySocket, (frame) => frame.type === 'gateway.auth');
+    gatewaySocket.send(JSON.stringify({ type: 'gateway.auth.ok', gatewayId: 'gw_test_bad_resize' }));
+    gatewaySocket.send(JSON.stringify({ type: 'client.subscribe', clientId: 'relay_bad_resize', sessionId, after: 0, mode: 'control' }));
+    await waitForGatewayFrame(gatewaySocket, (frame) => frame.type === 'gateway.replay' && frame.clientId === 'relay_bad_resize');
+    gatewaySocket.send(JSON.stringify({ type: 'client.resize', clientId: 'relay_bad_resize', sessionId, cols: 0, rows: 0 }));
+    const error = await waitForGatewayFrame(gatewaySocket, (frame) => frame.type === 'gateway.error' && frame.code === 'bad_resize');
+    assert.equal(error.type, 'gateway.error');
+    assert.equal(
+      store
+        .listEvents(sessionId, 0, 5000)
+        .some((event) => event.type === 'terminal.resize' && event.payload.cols === 0),
+      false
+    );
+  } finally {
+    ptySessions.stop(sessionId);
+    await relayClient.close();
+    await closeWebSocketServer(fakeRelay);
+    cleanup();
+  }
+});
+
 async function connectRelayClient(relayUrl: string): Promise<WebSocket> {
   const url = new URL(relayUrl);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -385,6 +424,55 @@ async function waitForFrame(
     ws.on('message', onMessage);
     ws.on('error', onError);
   });
+}
+
+async function waitForGatewaySocket(server: WebSocketServer): Promise<WebSocket> {
+  return await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timed out waiting for gateway socket')), 1500);
+    server.once('connection', (socket) => {
+      clearTimeout(timer);
+      resolve(socket);
+    });
+    server.once('error', reject);
+  });
+}
+
+async function waitForGatewayFrame(
+  ws: WebSocket,
+  predicate: (frame: RelayGatewayToServerFrame) => boolean,
+  timeoutMs = 1500
+): Promise<RelayGatewayToServerFrame> {
+  return await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('timed out waiting for gateway frame'));
+    }, timeoutMs);
+    const onMessage = (raw: WebSocket.RawData) => {
+      const frame = JSON.parse(raw.toString()) as RelayGatewayToServerFrame;
+      if (predicate(frame)) {
+        cleanup();
+        resolve(frame);
+      }
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      ws.off('message', onMessage);
+      ws.off('error', onError);
+    };
+    ws.on('message', onMessage);
+    ws.on('error', onError);
+  });
+}
+
+async function closeWebSocketServer(server: WebSocketServer): Promise<void> {
+  for (const client of server.clients) {
+    client.close();
+  }
+  await new Promise<void>((resolve) => server.close(() => resolve()));
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 1500): Promise<void> {

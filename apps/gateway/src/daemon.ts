@@ -9,7 +9,7 @@ import { Hono } from 'hono';
 import type { ServerType } from '@hono/node-server';
 import { WebSocketServer } from 'ws';
 import { maskSensitiveOutput } from './mask.js';
-import type { PtySessionManager } from './pty.js';
+import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import { listGateways, registerGateway, touchGateway, unregisterGateway } from './registry.js';
 import { startRelayClient, type RunningRelayClient } from './relay-client.js';
 import { Store } from './store.js';
@@ -341,6 +341,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             code: client.mode === 'observe' ? 'observe_only' : 'not_controller',
             message: client.mode === 'observe' ? 'observer clients cannot resize' : 'client is not the active controller'
           }));
+          return;
+        }
+        if (!isValidTerminalSize(frame.cols, frame.rows)) {
+          socket.send(JSON.stringify({ type: 'error', code: 'bad_resize', message: 'resize requires positive terminal dimensions' }));
           return;
         }
         const ok = options.ptySessions?.resize(sessionId, clientId, frame.cols, frame.rows) ?? false;
