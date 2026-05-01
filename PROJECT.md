@@ -43,7 +43,7 @@
 
 - 单文件小改：至少跑受影响范围内的最小闭环（相关测试、lint、typecheck）。
 - API、数据模型、共享类型、跨模块改动：必须跑相关测试和类型检查。
-- 终端 / 子进程交互改动：在本地实际起 daemon + tmux 验证一次端到端，
+- 终端 / 子进程交互改动：在本地实际起 Gateway + PTY event stream 验证一次端到端，
   不能仅依赖单元测试。
 - OpenSpec change 实现：按 `tasks.md` 的验收项逐项验证。
 - 如果无法运行验证，必须明确说明：没跑什么、为什么没跑、残余风险是什么。
@@ -54,8 +54,8 @@ Tether 直接控制本机命令行，安全是底线，必须始终遵守：
 
 - 子进程调用一律走 `child_process.spawn(cmd, args[])`，**绝不**使用 `shell:true`。
 - daemon 默认监听 `127.0.0.1`，仅在用户显式 pair / 显式开启 `--host` 时才暴露。
-- 客户端写操作必须经过认证（Phase 1 demo 期局域网内可降级，但要在文档中
-  明确标注"未启用认证"）。
+- WebSocket 写操作必须通过 HTTP 换一次性 ticket 后连接；公网/device token
+  认证仍按后续 pairing 设计补齐。
 - 终端输出向手机/Web 客户端外发前要做基础敏感信息掩码（已知 API Key 格式、
   常见 token 格式）。
 - 不让任何客户端能让 daemon 执行任意 shell 命令；客户端只能 `send-keys`
@@ -92,12 +92,19 @@ docs/working/ → openspec/changes/<name>/ → openspec/specs/<capability>/ → 
 brew install tmux
 pnpm install
 pnpm typecheck
+pnpm test
 pnpm tether --help
 pnpm tether codex
+pnpm tether run codex --no-attach
+pnpm tether attach <id> --control
+pnpm tether attach <id> --observe
+pnpm tether clients <id>
+pnpm tether stop <id>
 pnpm tether codex --host 0.0.0.0
 ```
 
-`--host 0.0.0.0` 仅用于 Phase 1 局域网 demo，当前未启用认证，只能在可信网络使用。
+`--host 0.0.0.0` 仅用于可信局域网调试。当前 WS 有一次性 ticket，但还没有完整
+device token / pairing；不要直接暴露到公网。
 
 ## 编辑器/AI 工具配套
 

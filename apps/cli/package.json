@@ -12,10 +12,12 @@
   "dependencies": {
     "@tether/core": "workspace:*",
     "@tether/gateway": "workspace:*",
-    "commander": "^13.1.0"
+    "commander": "^13.1.0",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.29",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.8.3"
   }
 }

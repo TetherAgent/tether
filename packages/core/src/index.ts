@@ -1,4 +1,4 @@
-export type ProviderName = 'codex' | 'claude';
+export type ProviderName = 'codex' | 'claude' | 'opencode';
 
 export type Gateway = {
   id: string;

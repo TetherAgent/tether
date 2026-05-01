@@ -29,7 +29,8 @@
 | Phase 4 | IDE 化（控制台之上） | 在事件流上加 diff / 文件树 / 权限 UI |
 
 **Phase 1 → Phase 2 是架构换血**：tmux 包装层、capture-pane 轮询、send-keys
-注入会被替换。Phase 1 是验证用户价值的一次性脚手架。
+注入正在被 PTY-backed event stream 替换。当前默认 `tether codex` / `tether claude`
+已走 PTY event stream；tmux 仅作为 `--transport tmux` 迁移期 fallback。
 
 ### 2. 选择 B 路线（事件流原生）
 
@@ -80,8 +81,7 @@ HarmonyOS / Flutter / iOS / Android 都视为 client surface，只消费 Gateway
 | CLI 参数 | commander |
 | SQLite | better-sqlite3 |
 | 子进程 | 原生 `node:child_process`（**绝不** `shell:true`） |
-| 前端（Phase 1） | `apps/web` React/Vite + `setInterval(1500ms)` |
-| 前端（Phase 2 起） | xterm.js + 事件 timeline 面板，PWA |
+| 前端 | `apps/web` React/Vite + xterm.js + transcript 兜底，PWA 方向 |
 | 包管理 | pnpm |
 | Gateway 单例 | `~/.tether/daemon.pid` + lockfile（当前实现仍沿用 daemon 命名） |
 
@@ -95,7 +95,7 @@ HarmonyOS / Flutter / iOS / Android 都视为 client surface，只消费 Gateway
 ├── bin/tether                                           # 可执行入口
 ├── apps/
 │   ├── cli/                                             # commander 分发
-│   └── gateway/                                         # Hono server + tmux demo adapter
+│   └── gateway/                                         # Hono server + PTY event stream + tmux fallback
 │   └── web/                                             # React/Vite Web 客户端
 ├── packages/
 │   ├── core/                                            # 核心类型
@@ -112,9 +112,7 @@ HarmonyOS / Flutter / iOS / Android 都视为 client surface，只消费 Gateway
     └── changes/                                         # 活跃变更
 ```
 
-文件总量目标（Phase 1）：< 500 行 TS + 一个 HTML。
-
-## 数据模型（Phase 1）
+## 数据模型（当前）
 
 ```ts
 type Session = {
@@ -122,18 +120,37 @@ type Session = {
   provider: 'codex' | 'claude'
   title: string
   projectPath: string
-  status: 'running' | 'detached' | 'stopped' | 'completed' | 'failed'
-  tmuxSessionName: string    // tether_<id>
+  status: 'running' | 'stopped' | 'completed' | 'failed' | 'lost'
+  attachState: 'attached' | 'detached'
+  tmuxSessionName: string    // tmux fallback 使用；PTY session 为空
   command: string
+  pid?: number
+  transport: 'pty-event-stream' | 'tmux'
   createdAt: number
   updatedAt: number
   lastActiveAt: number
 }
 ```
 
-存储路径：`~/.tether/tether.db`。Phase 2 起新增 `events` 与 `devices` 表。
+存储路径：`~/.tether/tether.db`。当前已有 `session_events` 表，terminal output、
+user input、client attach/detach、resize、control change 都走 append-only event。
 
-## tmux 操作约定（仅 Phase 1）
+## PTY Event Stream 操作约定（默认）
+
+| 行为 | 命令 |
+|---|---|
+| 创建并 attach | `tether codex` / `tether claude` / `tether opencode` |
+| 显式创建 | `tether run codex` |
+| 后台创建 | `tether run codex --no-attach` |
+| 本地 attach | `tether attach <id> --control` 或 `--observe` |
+| 查看 client | `tether clients <id>` |
+| 发送输入 | `tether send <id> "text"` 或 Web 输入框 |
+| 停止 | `tether stop <id>` |
+
+WebSocket 使用 HTTP 换一次性 ticket，再通过 query 连接 stream；浏览器不依赖
+自定义 Authorization header。Gateway 在 `hello` 分配 `clientId`。
+
+## tmux 操作约定（迁移期 fallback）
 
 | 行为 | 命令 |
 |---|---|

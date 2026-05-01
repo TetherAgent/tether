@@ -11,9 +11,10 @@ body {
 }
 
 #root {
-  min-height: 100vh;
+  height: 100vh;
   display: grid;
   grid-template-rows: auto 1fr auto;
+  overflow: hidden;
 }
 
 header {
@@ -38,10 +39,49 @@ h1 {
   white-space: nowrap;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mode-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #9aa4af;
+  font-size: 12px;
+}
+
+select {
+  color: #e8ecef;
+  background: #0c0e10;
+  border: 1px solid #3a424b;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
 .scrollport {
   min-height: 0;
   overflow: auto;
   background: #0c0e10;
+}
+
+.terminal-shell {
+  position: relative;
+  min-height: 0;
+  overflow: auto;
+  background: #0c0e10;
+}
+
+.terminal-host {
+  box-sizing: border-box;
+  height: 100%;
+  padding: 10px;
+}
+
+.terminal-host .xterm {
+  height: 100%;
 }
 
 pre {
@@ -120,6 +160,33 @@ p {
   border: 1px solid #2b3137;
   border-radius: 6px;
   background: #101419;
+}
+
+.session-section {
+  display: grid;
+  gap: 10px;
+}
+
+.section-heading,
+.history-section summary {
+  color: #9aa4af;
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.history-section {
+  margin-top: 4px;
+}
+
+.history-section summary {
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.history-section[open] summary {
+  margin-bottom: 10px;
 }
 
 .session-card {

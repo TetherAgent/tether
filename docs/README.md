@@ -30,6 +30,7 @@
 | 文档路径 | 状态 | 内容描述 |
 | --- | --- | --- |
 | [2026-05-01-tether-agent-console.md](working/2026-05-01-tether-agent-console.md) | **Working** | 项目主设计：定位、阶段路线（Phase 1–4）、技术栈与决策记录 |
+| [2026-05-01-phase-2-pty-event-stream.md](working/2026-05-01-phase-2-pty-event-stream.md) | **Working** | Phase 2 设计草案：用 PTY-backed event stream 替换 tmux，并定义任务与验收 |
 
 ## 工作流（Ideas → Code）
 

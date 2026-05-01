@@ -5,4 +5,4 @@ logs/
 .tether/
 *.log
 .DS_Store
-docs/working/2026-05-01-tether-agent-console.md
+docs/working/*
