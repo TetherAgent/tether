@@ -83,6 +83,15 @@ function readConnectionSettings(): ConnectionSettings {
   };
 }
 
+function splitActiveSessions(allSessions: Session[]): { active: Session[]; history: Session[] } {
+  const active = allSessions.filter((session) => session.status === 'running');
+  const activeIds = new Set(active.map((session) => session.id));
+  return {
+    active,
+    history: allSessions.filter((session) => !activeIds.has(session.id)).slice(0, 8)
+  };
+}
+
 function buildRelayClientUrl(relayUrl: string): string {
   const value = relayUrl.trim();
   if (!value) {
@@ -236,8 +245,9 @@ function SessionList({
       const sessionsData = (await sessionsResponse.json()) as { sessions: Session[] };
       const historyData = (await historyResponse.json()) as { sessions: Session[] };
       const gatewaysData = (await gatewaysResponse.json()) as { gateways: Gateway[] };
-      const activeIds = new Set(sessionsData.sessions.map((session) => session.id));
-      setSessions(sessionsData.sessions);
+      const active = sessionsData.sessions.filter((session) => session.status === 'running');
+      const activeIds = new Set(active.map((session) => session.id));
+      setSessions(active);
       setHistory(historyData.sessions.filter((session) => !activeIds.has(session.id)).slice(0, 8));
       setGateways(gatewaysData.gateways);
       setStatus(new Date().toLocaleTimeString());
@@ -302,7 +312,9 @@ function SessionList({
         return;
       }
       if (frame.type === 'sessions') {
-        setSessions(frame.sessions);
+        const next = splitActiveSessions(frame.sessions);
+        setSessions(next.active);
+        setHistory(next.history);
         setStatus(new Date().toLocaleTimeString());
         return;
       }
