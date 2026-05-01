@@ -13,7 +13,7 @@ This is a **personal remote-access milestone** — Phase 2 PTY-backed event stre
 
 ### Personal Relay MVP (P0 — remote access for a solo owner)
 
-- [ ] **RELAY-01**: Gateway can connect outbound to a self-hosted Relay over WSS using an owner-configured relay link secret. A remote Web client can authenticate to that Relay, list/attach to existing Gateway sessions, and exchange terminal output/input/resize/control frames. Relay only forwards authenticated protocol frames, never executes commands, never accepts provider command/args/env, and does not persist terminal plaintext. Multi-user accounts, billing, federation, push, and full E2EE relay envelopes are out of scope for this requirement.
+- [x] **RELAY-01**: Gateway can connect outbound to a self-hosted Relay over WSS using an owner-configured relay link secret. A remote Web client can authenticate to that Relay, list/attach to existing Gateway sessions, and exchange terminal output/input/resize/control frames. Relay only forwards authenticated protocol frames, never executes commands, never accepts provider command/args/env, and does not persist terminal plaintext. Multi-user accounts, billing, federation, push, and full E2EE relay envelopes are out of scope for this requirement.
 
 ### Experience Hardening (P0 — local terminal experience must not regress vs tmux)
 
@@ -90,7 +90,7 @@ This is a **personal remote-access milestone** — Phase 2 PTY-backed event stre
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RELAY-01 | Phase 1 | Pending |
+| RELAY-01 | Phase 1 | Satisfied |
 | EXP-01 | Phase 2 | Pending |
 | EXP-02 | Phase 2 | Pending |
 | EXP-03 | Phase 2 | Pending |

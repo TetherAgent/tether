@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.3
 milestone_name: milestone
-status: executing
-stopped_at: Phase 1 context gathered
-last_updated: "2026-05-01T14:05:05.040Z"
-last_activity: 2026-05-01 -- Phase 1 execution complete, verification pending
+status: ready
+stopped_at: Phase 1 complete
+last_updated: "2026-05-01T14:34:28.195Z"
+last_activity: 2026-05-01 -- Phase 1 complete, ready for Phase 2 discussion
 progress:
   total_phases: 7
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
   completed_plans: 4
-  percent: 90
+  percent: 14
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-01)
 
 **Core value:** 在 agent session 场景里，本地体验对齐 tmux，并在历史回放、多端接管、审计、手机/Web/App 接入上超越 tmux。
-**Current focus:** Phase 1 — Personal Relay MVP
+**Current focus:** Phase 2 — Experience Hardening
 
 ## Current Position
 
-Phase: 1 of 7 (Personal Relay MVP)
-Plan: 4 of 4 in current phase
-Status: Verifying
-Last activity: 2026-05-01 -- Phase 1 execution complete, verification pending
+Phase: 2 of 7 (Experience Hardening)
+Plan: 0 of TBD in current phase
+Status: Ready to discuss
+Last activity: 2026-05-01 -- Phase 1 complete, ready for Phase 2 discussion
 
-Progress: [█████████░] 90%
+Progress: [█░░░░░░░░░] 14%
 
 ## Performance Metrics
 

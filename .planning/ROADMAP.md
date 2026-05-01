@@ -16,7 +16,7 @@ plaintext. Full pairing/device-token auth remains a later phase before broader e
 
 ## Phases
 
-- [ ] **Phase 1: Personal Relay MVP** - Gateway connects outbound to a self-hosted Relay; one remote Web client can attach to an existing session
+- [x] **Phase 1: Personal Relay MVP** - Gateway connects outbound to a self-hosted Relay; one remote Web client can attach to an existing session
 - [ ] **Phase 2: Experience Hardening** - Detach hotkey, key passthrough, paste, ANSI, and TUI resize all verified on macOS
 - [ ] **Phase 3: Cleanup** - tmux fallback removed; single-transport codebase ready for auth work
 - [ ] **Phase 4: Authentication** - Pairing flow live; all write endpoints reject unauthenticated requests
@@ -117,7 +117,7 @@ plaintext. Full pairing/device-token auth remains a later phase before broader e
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Personal Relay MVP | 4/4 | Verifying | - |
+| 1. Personal Relay MVP | 4/4 | Complete | 2026-05-01 |
 | 2. Experience Hardening | 0/TBD | Not started | - |
 | 3. Cleanup | 0/TBD | Not started | - |
 | 4. Authentication | 0/TBD | Not started | - |

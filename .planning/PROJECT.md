@@ -48,13 +48,11 @@ retention 和 tmux fallback 下线。
 - ✓ **SAFE-03**: Gateway 默认仅 `127.0.0.1`，LAN 暴露需显式 `--host 0.0.0.0` — Phase 2C
 - ✓ **STATE-01**: Gateway 重启后无法接管的 PTY session 标记为 `lost` — Phase 2B
 - ✓ **STRUCT-01**: `approval.requested` / `diff.detected` / `agent.handoff` 占位 event 已加 — Phase 2D
+- ✓ **RELAY-01**: 自建 Relay MVP：Gateway outbound WSS 连接 Relay，远端 Web client 可通过 Relay attach/control 既有 session；Relay 只转发认证后的协议 frame，不执行命令、不持久化终端明文 — Phase 1, 2026-05-01
 
 ### Active（v0.3 — Personal Relay Access 范围）
 
 **P0 — 个人远程访问与本地体验硬指标**
-
-- [ ] **RELAY-01**: 自建 Relay MVP：Gateway outbound WSS 连接 Relay，远端 Web client
-  可通过 Relay attach 既有 session；Relay 只转发认证后的协议 frame，不执行命令、不持久化终端明文
 
 - [ ] **EXP-01**: 设计并实现 Tether detach 快捷键 / command mode（不复刻 tmux prefix）
 - [ ] **EXP-02**: 验证并修复 `Enter / Backspace / Ctrl-C / Ctrl-D` 行为
