@@ -31,7 +31,7 @@
 | Minimal relay-only Web page | Build a temporary simple page and merge later. | |
 
 **User's choice:** Reuse the existing Web UI.
-**Notes:** The same session list, xterm terminal, control/observe mode, resize, and replay behavior should be reused where possible.
+**Notes:** The same session list, xterm terminal, control/observe mode, resize, and replay behavior should be reused where possible. User later clarified that `apps/web` is served through nginx; Relay should not be responsible for serving the static Web build.
 
 ---
 

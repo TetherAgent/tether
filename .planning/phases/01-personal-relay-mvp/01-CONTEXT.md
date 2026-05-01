@@ -25,21 +25,22 @@ This phase must not break or replace the current LAN/localhost Gateway path. Dir
 - **D-05:** Reuse the existing `apps/web` UI instead of creating a separate remote UI.
 - **D-06:** Add a relay connection mode in the Web client's connection layer. The same session list, xterm terminal, control/observe mode, resize, and event replay concepts should work in both direct Gateway mode and relay mode.
 - **D-07:** Avoid duplicating terminal UI behavior. Planning should focus on extracting/adapting the transport layer, not rebuilding the page.
+- **D-08:** The public `apps/web` build is expected to be served by nginx, not by `apps/relay`. Relay should focus on authenticated relay API/WS/frame forwarding.
 
 ### MVP Security Boundary
-- **D-08:** Phase 1 uses an owner-configured shared secret rather than the full device-token/pairing system.
-- **D-09:** The relay server reads the secret from configuration, e.g. `TETHER_RELAY_SECRET`.
-- **D-10:** The Gateway supplies the secret when connecting to the relay.
-- **D-11:** The remote Web client prompts for the secret and may store it in browser `localStorage` for the MVP.
-- **D-12:** The remote Web client is allowed to operate in control mode in Phase 1. It is not observe-only.
-- **D-13:** Authentication failure must close/reject the relay connection. Do not silently downgrade to limited access.
-- **D-14:** Full device-token auth and pairing remain Phase 4 work. Phase 1 should be designed so relay-routed writes can later reuse the same auth checks as direct writes.
+- **D-09:** Phase 1 uses an owner-configured shared secret rather than the full device-token/pairing system.
+- **D-10:** The relay server reads the secret from configuration, e.g. `TETHER_RELAY_SECRET`.
+- **D-11:** The Gateway supplies the secret when connecting to the relay.
+- **D-12:** The remote Web client prompts for the secret and may store it in browser `localStorage` for the MVP.
+- **D-13:** The remote Web client is allowed to operate in control mode in Phase 1. It is not observe-only.
+- **D-14:** Authentication failure must close/reject the relay connection. Do not silently downgrade to limited access.
+- **D-15:** Full device-token auth and pairing remain Phase 4 work. Phase 1 should be designed so relay-routed writes can later reuse the same auth checks as direct writes.
 
 ### Relay Protocol Contract
-- **D-15:** Upgrade `packages/protocol` from placeholder `RelayFrame` types into a formal relay contract.
-- **D-16:** The contract should clearly separate Gateway<->Relay and Client<->Relay frame directions.
-- **D-17:** The Phase 1 contract should cover auth/register, client auth, session list/metadata, subscribe with cursor, replay completion, terminal events, input, resize, control/observe mode, error frames, and reconnect/cursor continuation.
-- **D-18:** Do not over-design future production features such as hosted accounts, federation, push, or end-to-end encrypted relay envelopes. Keep the protocol extensible but implement only the MVP frames needed for personal relay use.
+- **D-16:** Upgrade `packages/protocol` from placeholder `RelayFrame` types into a formal relay contract.
+- **D-17:** The contract should clearly separate Gateway<->Relay and Client<->Relay frame directions.
+- **D-18:** The Phase 1 contract should cover auth/register, client auth, session list/metadata, subscribe with cursor, replay completion, terminal events, input, resize, control/observe mode, error frames, and reconnect/cursor continuation.
+- **D-19:** Do not over-design future production features such as hosted accounts, federation, push, or end-to-end encrypted relay envelopes. Keep the protocol extensible but implement only the MVP frames needed for personal relay use.
 
 ### the agent's Discretion
 - Choose exact command names, flag names, and internal module boundaries in sympathy with existing CLI/Gateway patterns.
@@ -90,7 +91,7 @@ This phase must not break or replace the current LAN/localhost Gateway path. Dir
 ### Integration Points
 - Add `apps/relay` as a workspace app.
 - Add Gateway relay-client logic without breaking direct Gateway HTTP/WS serving.
-- Add Web relay mode in the connection layer while reusing terminal/session UI.
+- Add Web relay mode in the connection layer while reusing terminal/session UI. The built Web app is served by nginx in the user's deployment.
 - Expand `packages/protocol` into shared relay frame types consumed by Gateway, Relay, and Web.
 
 </code_context>
@@ -99,6 +100,7 @@ This phase must not break or replace the current LAN/localhost Gateway path. Dir
 ## Specific Ideas
 
 - The user has their own Node.js server and wants the relay deployable there.
+- The user serves `apps/web` through nginx; `apps/relay` should not be planned as the static Web host.
 - Local development may simulate the relay as a separate local process before deploying to the real server.
 - The desired topology is: local computer/Gateway -> relay server -> remote client.
 - The user wants a formal protocol contract, not an ad hoc one-off relay implementation.
