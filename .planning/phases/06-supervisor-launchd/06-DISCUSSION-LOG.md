@@ -53,8 +53,8 @@
 | npm registry 发布 | 正式发布到 npm | |
 | 本机全局 `tether` 命令 | 支持个人机器全局命令和 launchd 绝对入口 | ✓ |
 
-**User's choice:** `install` 只注册下次登录启动；后台运行用 `start/stop/restart`；状态输出中文；本期需要本机全局命令，不要求 npm 发布。  
-**Notes:** launchd plist 不能依赖 `pnpm tether` 和 repo 工作目录，必须写绝对入口。
+**User's choice:** `install` 只注册下次登录启动；后台运行用 `start/stop/restart`；`gateway start` 可以自动确保 plist 已存在；状态输出中文；本期需要本机全局命令，不要求 npm 发布。  
+**Notes:** launchd plist 不能依赖 `pnpm tether`、当前工作目录、shell 环境或 `$HOME` 展开，必须写绝对入口。
 
 ---
 
@@ -68,9 +68,24 @@
 | 自动换端口 | 默认端口占用时自动寻找新端口 | |
 | 端口冲突报错 | 非 Tether 进程占用端口时中文报错 | ✓ |
 | Relay 断线不阻塞本地 | 本地 session 创建继续，状态页显示 Relay 未连接 | ✓ |
+| Relay 精确连接状态 | 低成本可实现时，status 显示 connected/disconnected | ✓ |
 
 **User's choice:** 接受默认建议。  
 **Notes:** 失败提示必须让用户知道是 Gateway 重启、端口占用、还是回退到 inline。
+
+---
+
+## Session 创建安全开关
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| 默认开启 `POST /api/sessions` | 安装后即可远程/API 创建 session | |
+| 默认关闭，需要配置开启 | 默认拒绝 API 创建 session，用户显式开启后可用 | ✓ |
+| 允许任意 command/args/env | 作为通用远程执行入口 | |
+| 只允许 provider 白名单 | 只能创建 `codex/claude/opencode` 等既有 provider | ✓ |
+
+**User's choice:** 增加配置开关，默认关闭。即使开启，也只能走 provider 白名单，不能接受任意 command/args/env。  
+**Notes:** 这是 Phase 6 对 `POST /api/sessions` 的安全边界；Phase 4 后续再接 device token / pairing。
 
 ---
 

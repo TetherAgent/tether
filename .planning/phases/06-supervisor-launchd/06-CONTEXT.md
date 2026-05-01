@@ -32,6 +32,7 @@ This phase also owns local Gateway configuration and macOS launchd lifecycle com
 - **D-12:** Add `tether gateway install` to register macOS launchd login startup only; it must not automatically start Gateway immediately.
 - **D-13:** Add `tether gateway uninstall` to remove the launchd registration. It should also stop the background Gateway when one is running; if no Gateway is running, it should still remove the plist cleanly.
 - **D-14:** Prefer launchd for background start/stop/restart rather than CLI-owned daemonization/forking, so background run, login startup, and crash restart share one supervisor mechanism.
+- **D-14a:** `tether gateway start` may automatically ensure the LaunchAgent plist exists before starting. This is treated as an implicit local install for user convenience; `gateway install` still means "register only, do not start".
 
 ### Configuration
 - **D-15:** Use `~/.tether/config.json` as the local Gateway configuration file. Do not use executable `config.js`.
@@ -39,6 +40,7 @@ This phase also owns local Gateway configuration and macOS launchd lifecycle com
 - **D-17:** Configuration precedence is: CLI flags > environment variables > `~/.tether/config.json` > defaults.
 - **D-18:** Add a user-facing way to write config, expected as `tether gateway config --host ... --port ... --relay-url ... --relay-secret ...`.
 - **D-19:** Phase 6 may move Gateway config concerns out of later Phase 4/5 plans if they conflict. Phase 4 should keep auth/pairing; Phase 5 should keep retention/storage health.
+- **D-19a:** Add a config switch for remote/API session creation, default off. When off, `POST /api/sessions` must reject session creation. When on, it still only accepts provider names from the existing whitelist and must not accept arbitrary command/args/env.
 
 ### Launchd and Installation
 - **D-20:** The launchd plist path is `~/Library/LaunchAgents/sh.tether.gateway.plist`.
@@ -50,7 +52,7 @@ This phase also owns local Gateway configuration and macOS launchd lifecycle com
 ### Status and Failure Semantics
 - **D-25:** User-facing CLI output for Gateway lifecycle and fallback messages should be Chinese by default.
 - **D-26:** `tether gateway status` should show at least: running/stopped, PID when available, URL, config file path, host/port, Relay configured yes/no, Relay connected yes/no when available, and LaunchAgent installed/not installed.
-- **D-27:** Relay disconnect must not block local session creation. It should be visible in `gateway status` as disconnected/unavailable.
+- **D-27:** Relay disconnect must not block local session creation. If low-cost to implement in Phase 6, `gateway status` should show precise Relay connected/disconnected state; otherwise it may show configured/unavailable as a fallback.
 - **D-28:** If registry contains a Gateway record but the CLI cannot connect, the CLI should say in Chinese that Gateway may be restarting, retry, then fall back inline if still unreachable.
 
 ### Scope Boundary
@@ -58,11 +60,12 @@ This phase also owns local Gateway configuration and macOS launchd lifecycle com
 - **D-30:** Retention, WAL checkpoint scheduling, and event storage cleanup remain Phase 5 and are not implemented in this phase.
 - **D-31:** tmux fallback removal remains Phase 3 and is not implemented in this phase.
 - **D-32:** npm registry publishing is deferred; this phase only needs reliable local/global command behavior for the user's machine.
+- **D-33:** The session creation API is a controlled Gateway feature, not a general remote execution API. Even when enabled by config, it must preserve the provider whitelist and reject arbitrary command execution shapes.
 
 ### the agent's Discretion
 - Choose exact internal module boundaries for config loading, launchd plist generation, Gateway probing, and provider-session forwarding.
 - Choose the exact Chinese wording for CLI messages as long as it is clear and actionable.
-- Choose whether `gateway start` requires a prior `gateway install` or can create/update the plist on demand, as long as the final UX remains simple and documented.
+- Choose the exact config key name for enabling Gateway session creation, as long as the default is disabled and the whitelist-only boundary is explicit.
 
 </decisions>
 
@@ -120,16 +123,17 @@ This phase also owns local Gateway configuration and macOS launchd lifecycle com
 - User-facing output currently has English strings; Phase 6 should localize new Gateway lifecycle/status output to Chinese.
 
 ### Integration Points
-- Add Gateway-side `POST /api/sessions` or equivalent internal API so a persistent Gateway can create PTY sessions on behalf of CLI commands.
+- Add Gateway-side `POST /api/sessions` or equivalent internal API so a persistent Gateway can create PTY sessions on behalf of CLI commands. This endpoint should be disabled by default via config and, when enabled, must accept only whitelisted provider names.
 - Refactor CLI provider startup so it can either forward to a persistent Gateway or run inline via `--inline` / fallback.
 - Add config read/write helpers around `~/.tether/config.json`.
 - Add launchd helper code for plist install/uninstall/start/stop/restart/status.
 - Extend status to combine launchd state, registry records, Gateway HTTP health, and Relay connectivity where available.
 
 ### Feasibility Notes
-- The plan is feasible with existing architecture, but not purely wiring: a new session-create API is required because the current CLI creates PTY sessions before starting Gateway.
+- The plan is feasible with existing architecture, but not purely wiring: a new session-create API is required because the current CLI creates PTY sessions before starting Gateway. The API must be config-gated by default and whitelist-only when enabled.
 - Background mode should use launchd to avoid two supervisor systems. This keeps crash restart and login startup aligned.
-- Relay status may need a small runtime health surface from `relay-client.ts`; if exact connection state is not already available, status can initially report configured/unavailable conservatively.
+- `gateway start` can automatically create/update the plist before starting, so the user does not need to run `gateway install` first.
+- Relay status may need a small runtime health surface from `relay-client.ts`; if exact connection state is low-cost, implement precise connected/disconnected status in Phase 6.
 
 </code_context>
 
