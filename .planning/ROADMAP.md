@@ -4,9 +4,9 @@
 
 Finishing milestone: Phase 2 PTY-backed event stream is shipped. This roadmap now
 prioritizes personal remote use: ship a minimal self-hosted Relay first so the user can
-reach the Mac Gateway without LAN/VPN assumptions, then harden local terminal parity,
-remove tmux fallback, add full device-token auth, bound storage, install the Gateway as
-the single persistent session owner, and close with security/integration tests.
+reach the Mac Gateway without LAN/VPN assumptions, then pull the persistent Gateway
+service forward for solo daily use, and continue with terminal parity, cleanup, auth,
+retention, and security/integration tests.
 
 Build order is optimized for a solo user rather than a public multi-user service. The
 Relay MVP may use a single owner link secret and outbound Gateway connection, but it
@@ -89,7 +89,7 @@ plaintext. Full pairing/device-token auth remains a later phase before broader e
 
 ### Phase 6: Supervisor & launchd
 **Goal**: A single persistent `tether gateway` process owns all PTY sessions; it auto-starts on macOS login, restarts on crash, and can be installed or uninstalled with a single command
-**Depends on**: Phase 5
+**Depends on**: Phase 1 (pulled forward for solo use; Phase 4 auth and Phase 5 retention remain later hardening)
 **Requirements**: GW-01, GW-02
 **Success Criteria** (what must be TRUE):
   1. `tether codex` (or any provider command) in a new terminal finds a running Gateway, forwards session creation to it via `POST /api/sessions`, and attaches — the PTY handle lives in the persistent Gateway process, not the CLI process
@@ -128,4 +128,5 @@ plaintext. Full pairing/device-token auth remains a later phase before broader e
 ---
 *Roadmap created: 2026-05-01*
 *Milestone reordered: 2026-05-01 — personal Relay MVP moved to Phase 1*
+*Execution order update: 2026-05-01 — Phase 6 pulled forward after Phase 1 for solo-use Gateway persistence*
 *Coverage: 15/15 v1 requirements mapped*

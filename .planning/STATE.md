@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-01)
 
 **Core value:** 在 agent session 场景里，本地体验对齐 tmux，并在历史回放、多端接管、审计、手机/Web/App 接入上超越 tmux。
-**Current focus:** Phase 2 — Experience Hardening
+**Current focus:** Phase 6 — Supervisor & launchd
 
 ## Current Position
 
-Phase: 2 of 7 (Experience Hardening)
+Phase: 6 of 7 (Supervisor & launchd)
 Plan: 0 of TBD in current phase
 Status: Ready to discuss
-Last activity: 2026-05-01 -- Phase 1 complete, ready for Phase 2 discussion
+Last activity: 2026-05-01 -- User confirmed Phase 6 should be pulled forward before Phase 2-5
 
 Progress: [█░░░░░░░░░] 14%
 
@@ -63,6 +63,7 @@ Recent decisions affecting current work:
 - Phase 2 shipped: PTY-backed event stream (TRANSPORT-01..04, CLI-01/02, MULTI-01, WEB-01, REPLAY-01, SAFE-01..03, STATE-01, STRUCT-01) — all validated
 - v0.3 scope: personal Relay-first remote access; macOS Gateway owner; avoid broad multi-user/product relay scope
 - Relay MVP is Phase 1: self-hosted Relay, Gateway outbound WSS, owner link secret, one Gateway + remote Web client; Relay forwards frames only and never executes commands or persists terminal plaintext
+- Phase 6 is pulled forward before Phase 2-5 for solo-use priority: make Gateway a persistent service and separate it from `tether run` / provider command wrappers first; Phase 2-5 remain planned hardening work
 - Detach hotkey: `Ctrl-]` (0x1D, ASCII GS) — CLI-side intercept only, not Gateway-side
 - PTY write chunking: 512 bytes per write with `setImmediate` between chunks (macOS PTY 1024-byte buffer bug)
 - node-pty must upgrade to ≥ 1.2.0-beta.12 before Phase 5 (GW-01) begins — closes fd-leak issue #907
@@ -97,5 +98,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-05-01
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-personal-relay-mvp/01-CONTEXT.md
+Stopped at: Phase 6 pulled forward, ready for Phase 6 discussion
+Resume file: .planning/ROADMAP.md
