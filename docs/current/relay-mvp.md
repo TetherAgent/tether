@@ -43,13 +43,13 @@ relay frame 转发职责保持分离。
 Gateway 使用 relay URL 和 secret 主动连到 relay：
 
 ```bash
-pnpm tether run codex --no-attach --relay-url wss://relay.example.com/gateway --relay-secret <personal-secret>
+pnpm tether run codex --no-attach --relay-url wss://relay.example.com --relay-secret <personal-secret>
 ```
 
 也可以通过环境变量提供：
 
 ```bash
-TETHER_RELAY_URL=wss://relay.example.com/gateway \
+TETHER_RELAY_URL=wss://relay.example.com \
 TETHER_RELAY_SECRET=<personal-secret> \
 pnpm tether run codex --no-attach
 ```

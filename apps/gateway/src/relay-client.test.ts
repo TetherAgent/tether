@@ -8,10 +8,17 @@ import type { RelayGatewayToServerFrame, RelayServerToClientFrame } from '@tethe
 import { startRelayServer } from '../../relay/src/relay.js';
 import { createSessionId } from './ids.js';
 import { PtySessionManager } from './pty.js';
-import { startRelayClient } from './relay-client.js';
+import { relayGatewayUrl, startRelayClient } from './relay-client.js';
 import { Store } from './store.js';
 
 const SECRET = 'relay-client-test-secret';
+
+test('gateway relay URL preserves wss and avoids duplicate gateway path', () => {
+  assert.equal(relayGatewayUrl('wss://relay.example.com'), 'wss://relay.example.com/gateway');
+  assert.equal(relayGatewayUrl('wss://relay.example.com/gateway'), 'wss://relay.example.com/gateway');
+  assert.equal(relayGatewayUrl('https://relay.example.com'), 'wss://relay.example.com/gateway');
+  assert.equal(relayGatewayUrl('http://127.0.0.1:4889'), 'ws://127.0.0.1:4889/gateway');
+});
 
 function tempStore(): { store: Store; cleanup: () => void } {
   const dir = mkdtempSync(path.join(tmpdir(), 'tether-relay-client-'));

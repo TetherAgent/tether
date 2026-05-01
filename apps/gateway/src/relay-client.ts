@@ -215,10 +215,19 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   };
 }
 
-function relayGatewayUrl(url: string): string {
+export function relayGatewayUrl(url: string): string {
   const parsed = new URL(url);
-  parsed.protocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
-  parsed.pathname = `${parsed.pathname.replace(/\/$/, '')}/gateway`;
+  if (parsed.protocol === 'https:') {
+    parsed.protocol = 'wss:';
+  } else if (parsed.protocol === 'http:') {
+    parsed.protocol = 'ws:';
+  } else if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
+    throw new Error('relay URL must use ws, wss, http, or https');
+  }
+  const normalizedPath = parsed.pathname.replace(/\/$/, '');
+  parsed.pathname = normalizedPath.endsWith('/gateway') ? normalizedPath : `${normalizedPath}/gateway`;
+  parsed.search = '';
+  parsed.hash = '';
   return parsed.toString();
 }
 
