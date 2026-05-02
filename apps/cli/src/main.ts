@@ -38,6 +38,7 @@ import {
   uninstallLaunchAgent,
   type LaunchAgentStatus
 } from './launchd.js';
+import { runningSessionIds } from './session-stop.js';
 
 const program = new Command();
 
@@ -528,31 +529,49 @@ program
 
 program
   .command('stop')
-  .argument('<id>')
+  .argument('[id]')
+  .option('--all', 'stop all running sessions')
   .option('--host <host>', 'daemon host', '127.0.0.1')
   .option('--port <port>', 'daemon port', parsePort, 4789)
   .description('stop a running session')
-  .action(async (id: string, options: { host: string; port: number }) => {
-    const session = new Store().getSession(id);
-    if (!session) {
-      throw new Error(`unknown session: ${id}`);
-    }
-    if (session.transport === 'pty-event-stream') {
-      const response = await fetch(`http://${options.host}:${options.port}/api/sessions/${encodeURIComponent(id)}/stop`, {
-        method: 'POST'
-      });
-      if (!response.ok) {
-        throw new Error(`stop failed: HTTP ${response.status}`);
+  .action(async (id: string | undefined, options: { all?: boolean; host: string; port: number }) => {
+    const store = new Store();
+    if (options.all) {
+      const ids = runningSessionIds(store.listSessions());
+      for (const sessionId of ids) {
+        await stopSession(store, sessionId, options);
+        console.log(`已关闭 ${sessionId}`);
       }
+      console.log(`已关闭 ${ids.length} 个 session。`);
       return;
     }
-    await sendKeys(session.tmuxSessionName, 'C-c');
+    if (!id) {
+      throw new Error('missing session id; use `tether stop <id>` or `tether stop --all`');
+    }
+    await stopSession(store, id, options);
   });
 
 program.parseAsync().catch((error: unknown) => {
   console.error(formatTmuxError(error));
   process.exitCode = 1;
 });
+
+async function stopSession(store: Store, id: string, options: { host: string; port: number }): Promise<void> {
+  const session = store.getSession(id);
+  if (!session) {
+    throw new Error(`unknown session: ${id}`);
+  }
+  if (session.transport === 'pty-event-stream') {
+    const response = await fetch(`http://${options.host}:${options.port}/api/sessions/${encodeURIComponent(id)}/stop`, {
+      method: 'POST'
+    });
+    if (!response.ok) {
+      throw new Error(`stop failed: HTTP ${response.status}`);
+    }
+    return;
+  }
+  await sendKeys(session.tmuxSessionName, 'C-c');
+}
 
 function parsePort(value: string): number {
   const port = Number(value);

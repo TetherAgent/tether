@@ -34,6 +34,13 @@
 | [2026-05-01-tether-agent-console.md](working/2026-05-01-tether-agent-console.md) | **Working** | 项目主设计：定位、阶段路线（Phase 1–4）、技术栈与决策记录 |
 | [2026-05-01-phase-2-pty-event-stream.md](working/2026-05-01-phase-2-pty-event-stream.md) | **Working** | Phase 2 设计草案：用 PTY-backed event stream 替换 tmux，并定义任务与验收 |
 
+## 工作流指南
+
+| 文档路径 | 状态 | 内容描述 |
+| --- | --- | --- |
+| [gsd-workflow-guide.md](gsd-workflow-guide.md) | **Guide** | 在 Tether 仓库内使用 GSD 做需求拆解、计划、执行和验收 |
+| [gsd-usage.zh-CN.md](gsd-usage.zh-CN.md) | **Guide** | GSD 命令速查和常见组合 |
+
 ## 工作流（Ideas → Code）
 
 1. **想法 / 问题阶段**：在 `docs/working/` 写草稿。

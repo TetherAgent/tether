@@ -107,6 +107,7 @@ pnpm tether attach <id> --control
 pnpm tether attach <id> --observe
 pnpm tether clients <id>
 pnpm tether stop <id>
+pnpm tether stop --all
 pnpm tether codex --host 0.0.0.0
 pnpm tether codex --transport tmux
 ```
