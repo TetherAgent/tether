@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "paths": {
+      "@tether/core": ["../../packages/core/src/index.ts"]
+    },
+    "target": "ES2022",
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "include": [
+    "**/*.ts"
+  ]
+}

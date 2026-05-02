@@ -1,8 +1,10 @@
 import fs from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import readline from 'node:readline/promises';
 import { Command } from 'commander';
 import WebSocket from 'ws';
 import type { RawData } from 'ws';
@@ -90,6 +92,16 @@ type CreatedGatewaySession = {
   id: string;
 };
 
+type GatewayAuthState = {
+  serverUrl: string;
+  gatewayId: string;
+  accountId: string;
+  workspaceId: string;
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+};
+
 class NonTetherGatewayError extends Error {
   constructor(url: string) {
     super(`端口已被非 Tether 服务占用，无法作为常驻 Gateway 使用：${url}`);
@@ -140,6 +152,62 @@ const gatewayCommand = program
     console.log('Gateway is running. Press Ctrl-C to stop.');
     await waitForShutdown();
     await daemon.close();
+  });
+
+gatewayCommand
+  .command('login')
+  .description('bind this local Gateway to the remote auth server and persist auth.json')
+  .option('--server-url <url>', 'Server base URL; falls back to TETHER_SERVER_URL')
+  .option('--email <email>', 'account email')
+  .option('--password <password>', 'account password')
+  .action(async (options: { serverUrl?: string; email?: string; password?: string }) => {
+    const serverUrl = normalizeServerUrl(options.serverUrl ?? process.env.TETHER_SERVER_URL);
+    if (!serverUrl) {
+      throw new Error('缺少 Server URL。请传 --server-url 或设置 TETHER_SERVER_URL');
+    }
+    const email = options.email ?? await promptLine('邮箱: ');
+    const password = options.password ?? await promptLine('密码: ');
+    if (!email || !password) {
+      throw new Error('邮箱和密码不能为空');
+    }
+    const response = await fetch(`${serverUrl}/api/gateway/bind`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password, gatewayName: os.hostname() })
+    });
+    if (!response.ok) {
+      throw new Error(`Gateway 登录失败：HTTP ${response.status}。请确认账号密码，必要时重新执行 tether gateway login。`);
+    }
+    const body = (await response.json()) as {
+      gateway?: { id?: unknown };
+      accountId?: unknown;
+      workspaceId?: unknown;
+      gatewayAccessToken?: unknown;
+      gatewayRefreshToken?: unknown;
+    };
+    if (
+      typeof body.gateway?.id !== 'string' ||
+      typeof body.accountId !== 'string' ||
+      typeof body.workspaceId !== 'string' ||
+      typeof body.gatewayAccessToken !== 'string' ||
+      typeof body.gatewayRefreshToken !== 'string'
+    ) {
+      throw new Error('Gateway 登录失败：响应缺少必要字段');
+    }
+    const payload = decodeTokenPayload(body.gatewayAccessToken);
+    if (!payload || typeof payload.expiresAt !== 'number') {
+      throw new Error('Gateway 登录失败：access token 缺少 expiresAt');
+    }
+    await writeGatewayAuthState({
+      serverUrl,
+      gatewayId: body.gateway.id,
+      accountId: body.accountId,
+      workspaceId: body.workspaceId,
+      accessToken: body.gatewayAccessToken,
+      refreshToken: body.gatewayRefreshToken,
+      expiresAt: payload.expiresAt
+    });
+    console.log(`Gateway 登录成功，凭据已写入：${gatewayAuthPath()}`);
   });
 
 gatewayCommand
@@ -502,12 +570,16 @@ async function createSessionViaGateway(
   options: Pick<StartOptions, 'project'>,
   gatewayUrl: string
 ): Promise<CreatedGatewaySession | undefined> {
+  const authHeaders = await gatewayAuthHeaders();
   const response = await fetch(`${gatewayUrl}/api/sessions`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...authHeaders },
     body: JSON.stringify(buildCreateSessionPayload(provider, options))
   });
 
+  if (response.status === 401) {
+    throw new Error('常驻 Gateway 鉴权失败。请重新执行 tether gateway login。');
+  }
   if (response.status === 403) {
     console.warn('常驻 Gateway 当前未启用 API session creation。请在 ~/.tether/config.json 中开启 gateway.allowApiSessionCreate 后重启 Gateway；本次将回退到 inline Gateway。');
     return undefined;
@@ -609,7 +681,7 @@ program
     if (session.transport === 'pty-event-stream') {
       const response = await fetch(`http://127.0.0.1:4789/api/sessions/${encodeURIComponent(id)}/input`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...(await gatewayAuthHeaders()) },
         body: JSON.stringify({ data: `${text}\r` })
       });
       if (!response.ok) {
@@ -657,7 +729,8 @@ async function stopSession(store: Store, id: string, options: { host: string; po
   }
   if (session.transport === 'pty-event-stream') {
     const response = await fetch(`http://${options.host}:${options.port}/api/sessions/${encodeURIComponent(id)}/stop`, {
-      method: 'POST'
+      method: 'POST',
+      headers: await gatewayAuthHeaders()
     });
     if (!response.ok) {
       throw new Error(`stop failed: HTTP ${response.status}`);
@@ -977,8 +1050,8 @@ async function attachPtySession(
   id: string,
   options: { host: string; port: number; mode?: 'control' | 'observe' }
 ): Promise<'detached' | 'exited'> {
-  const ticket = await requestWsTicket(options);
   const mode = options.mode ?? 'control';
+  const ticket = await requestWsTicket(options, id, mode);
   const url = `ws://${options.host}:${options.port}/api/sessions/${encodeURIComponent(id)}/stream?ticket=${encodeURIComponent(ticket)}&surface=cli&mode=${mode}`;
   const ws = new WebSocket(url);
   let result: 'detached' | 'exited' = 'detached';
@@ -1041,16 +1114,89 @@ async function attachPtySession(
   return result;
 }
 
-async function requestWsTicket(options: { host: string; port: number }): Promise<string> {
-  const response = await fetch(`http://${options.host}:${options.port}/api/ws-ticket`, { method: 'POST' });
+async function requestWsTicket(
+  options: { host: string; port: number },
+  sessionId: string,
+  mode: 'control' | 'observe'
+): Promise<string> {
+  const response = await fetch(`http://${options.host}:${options.port}/api/ws-ticket`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(await gatewayAuthHeaders()) },
+    body: JSON.stringify({ sessionId, mode })
+  });
   if (!response.ok) {
-    throw new Error(`ticket failed: HTTP ${response.status}`);
+    throw new Error(`ticket failed: HTTP ${response.status}。如凭据已过期，请重新执行 tether gateway login。`);
   }
   const body = (await response.json()) as { ticket?: unknown };
   if (typeof body.ticket !== 'string') {
     throw new Error('ticket response missing ticket');
   }
   return body.ticket;
+}
+
+function gatewayAuthPath(): string {
+  return process.env.TETHER_AUTH_PATH ?? path.join(os.homedir(), '.tether', 'auth.json');
+}
+
+async function gatewayAuthHeaders(): Promise<Record<string, string>> {
+  const auth = await readGatewayAuthState();
+  if (auth.expiresAt <= Date.now()) {
+    throw new Error('本地 auth.json 已过期，请重新执行 tether gateway login。');
+  }
+  return { authorization: `Bearer ${auth.accessToken}` };
+}
+
+async function readGatewayAuthState(): Promise<GatewayAuthState> {
+  const raw = await readFile(gatewayAuthPath(), 'utf8').catch(() => undefined);
+  if (!raw) {
+    throw new Error('缺少 ~/.tether/auth.json，请先执行 tether gateway login。');
+  }
+  const parsed = JSON.parse(raw) as Partial<GatewayAuthState>;
+  if (
+    typeof parsed.serverUrl !== 'string' ||
+    typeof parsed.gatewayId !== 'string' ||
+    typeof parsed.accountId !== 'string' ||
+    typeof parsed.workspaceId !== 'string' ||
+    typeof parsed.accessToken !== 'string' ||
+    typeof parsed.refreshToken !== 'string' ||
+    typeof parsed.expiresAt !== 'number'
+  ) {
+    throw new Error('auth.json 格式无效，请重新执行 tether gateway login。');
+  }
+  return parsed as GatewayAuthState;
+}
+
+async function writeGatewayAuthState(state: GatewayAuthState): Promise<void> {
+  await mkdir(path.dirname(gatewayAuthPath()), { recursive: true });
+  await writeFile(gatewayAuthPath(), `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+}
+
+function decodeTokenPayload(token: string): { expiresAt?: unknown } | undefined {
+  const parts = token.split('.');
+  if (parts.length !== 3) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as { expiresAt?: unknown };
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeServerUrl(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  return value.replace(/\/+$/, '');
+}
+
+async function promptLine(prompt: string): Promise<string> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return (await rl.question(prompt)).trim();
+  } finally {
+    rl.close();
+  }
 }
 
 async function waitForShutdown(): Promise<void> {

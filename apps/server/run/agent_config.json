@@ -1,0 +1,646 @@
+{
+  "config": {
+    "session": {
+      "maxAge": 86400000,
+      "key": "EGG_SESS",
+      "httpOnly": true,
+      "encrypt": true,
+      "logValue": true
+    },
+    "security": {
+      "domainWhiteList": [],
+      "protocolWhiteList": [],
+      "defaultMiddleware": "csrf,hsts,methodnoallow,noopen,nosniff,csp,xssProtection,xframe,dta",
+      "csrf": {
+        "enable": false,
+        "type": "ctoken",
+        "ignoreJSON": false,
+        "useSession": false,
+        "cookieName": "csrfToken",
+        "sessionName": "csrfToken",
+        "headerName": "x-csrf-token",
+        "bodyName": "_csrf",
+        "queryName": "_csrf",
+        "rotateWhenInvalid": false,
+        "supportedRequests": [
+          {
+            "path": {},
+            "methods": [
+              "POST",
+              "PATCH",
+              "DELETE",
+              "PUT",
+              "CONNECT"
+            ]
+          }
+        ],
+        "refererWhiteList": [],
+        "cookieOptions": {
+          "signed": false
+        }
+      },
+      "xframe": {
+        "enable": true,
+        "value": "SAMEORIGIN"
+      },
+      "hsts": {
+        "enable": false,
+        "maxAge": 31536000,
+        "includeSubdomains": false
+      },
+      "dta": {
+        "enable": true
+      },
+      "methodnoallow": {
+        "enable": true
+      },
+      "noopen": {
+        "enable": true
+      },
+      "nosniff": {
+        "enable": true
+      },
+      "referrerPolicy": {
+        "enable": false,
+        "value": "no-referrer-when-downgrade"
+      },
+      "xssProtection": {
+        "enable": true,
+        "value": "1; mode=block"
+      },
+      "csp": {
+        "enable": false,
+        "policy": {}
+      },
+      "ssrf": {
+        "ipBlackList": null,
+        "ipExceptionList": null,
+        "hostnameExceptionList": null,
+        "checkAddress": null
+      },
+      "_protocolWhiteListSet": "<Set>"
+    },
+    "helper": {
+      "shtml": {}
+    },
+    "jsonp": {
+      "limit": 50,
+      "callback": [
+        "_callback",
+        "callback"
+      ],
+      "csrf": false
+    },
+    "onerror": {
+      "errorPageUrl": "",
+      "appErrorFilter": null,
+      "templatePath": "/Users/dream/code/tether/node_modules/.pnpm/egg-onerror@2.4.0/node_modules/egg-onerror/lib/onerror_page.mustache"
+    },
+    "i18n": {
+      "defaultLocale": "en_US",
+      "dirs": [],
+      "queryField": "locale",
+      "cookieField": "locale",
+      "cookieDomain": "",
+      "cookieMaxAge": "1y"
+    },
+    "watcher": {
+      "type": "development",
+      "eventSources": {
+        "default": "/Users/dream/code/tether/node_modules/.pnpm/egg-watcher@3.1.1/node_modules/egg-watcher/lib/event-sources/default",
+        "development": "/Users/dream/code/tether/node_modules/.pnpm/egg-watcher@3.1.1/node_modules/egg-watcher/lib/event-sources/development"
+      }
+    },
+    "customLogger": {
+      "scheduleLogger": {
+        "consoleLevel": "NONE",
+        "file": "egg-schedule.log"
+      }
+    },
+    "schedule": {
+      "directory": []
+    },
+    "multipart": {
+      "mode": "stream",
+      "autoFields": false,
+      "defaultCharset": "utf8",
+      "defaultParamCharset": "utf8",
+      "fieldNameSize": 100,
+      "fieldSize": "100kb",
+      "fields": 10,
+      "fileSize": "10mb",
+      "files": 10,
+      "fileExtensions": [],
+      "whitelist": null,
+      "allowArrayField": false,
+      "tmpdir": "/var/folders/9b/4tmpybhx5930q1gqq_4rp83h0000gn/T/egg-multipart-tmp/@tether/server",
+      "cleanSchedule": {
+        "cron": "0 30 4 * * *",
+        "disable": false
+      }
+    },
+    "development": {
+      "watchDirs": [],
+      "ignoreDirs": [],
+      "fastReady": false,
+      "reloadOnDebug": true,
+      "overrideDefault": false,
+      "overrideIgnore": false
+    },
+    "logrotator": {
+      "filesRotateByHour": null,
+      "hourDelimiter": "-",
+      "filesRotateBySize": null,
+      "maxFileSize": 52428800,
+      "maxFiles": 10,
+      "rotateDuration": 60000,
+      "maxDays": 31
+    },
+    "static": {
+      "prefix": "/public/",
+      "dir": "/Users/dream/code/tether/apps/server/app/public",
+      "dynamic": true,
+      "preload": false,
+      "buffer": false,
+      "maxFiles": 1000
+    },
+    "view": {
+      "root": "/Users/dream/code/tether/apps/server/app/view",
+      "cache": false,
+      "defaultExtension": ".html",
+      "defaultViewEngine": "",
+      "mapping": {}
+    },
+    "cors": {
+      "credentials": true,
+      "origin": "<Function origin>",
+      "allowMethods": "GET,HEAD,PUT,POST,DELETE,PATCH,OPTIONS"
+    },
+    "jwt": {
+      "secret": "<String len: 23>",
+      "enable": false
+    },
+    "io": {
+      "init": {},
+      "namespace": {
+        "/": {
+          "connectionMiddleware": [],
+          "packetMiddleware": []
+        }
+      }
+    },
+    "mysql": {
+      "default": {
+        "database": null,
+        "connectionLimit": 5
+      },
+      "app": true,
+      "agent": false,
+      "client": {
+        "host": "rm-j6c5939hk4w250v5xxo.mysql.rds.aliyuncs.com",
+        "port": 3306,
+        "user": "tether_prod",
+        "password": "<String len: 25>",
+        "database": "tether_prd"
+      }
+    },
+    "bcrypt": {
+      "saltRounds": 10
+    },
+    "console": {
+      "ignore": "/favicon.ico",
+      "success": "green",
+      "error": "red",
+      "debug": "gray"
+    },
+    "logger": {
+      "level": "INFO",
+      "consoleLevel": "INFO",
+      "dir": "/Users/dream/code/tether/apps/server/logs/@tether/server",
+      "encoding": "utf8",
+      "env": "local",
+      "disableConsoleAfterReady": false,
+      "outputJSON": false,
+      "buffer": true,
+      "appLogName": "@tether/server-web.log",
+      "coreLogName": "egg-web.log",
+      "agentLogName": "egg-agent.log",
+      "errorLogName": "common-error.log",
+      "coreLogger": {
+        "consoleLevel": "WARN"
+      },
+      "allowDebugAtProd": false,
+      "enablePerformanceTimer": false,
+      "enableFastContextLogger": false,
+      "type": "agent",
+      "localStorage": "<AsyncLocalStorage>"
+    },
+    "env": "local",
+    "name": "@tether/server",
+    "keys": "<String len: 38>",
+    "cookies": {},
+    "proxy": false,
+    "maxIpsCount": 0,
+    "maxProxyCount": 0,
+    "protocolHeaders": "x-forwarded-proto",
+    "ipHeaders": "x-forwarded-for",
+    "hostHeaders": "",
+    "pkg": {
+      "name": "@tether/server",
+      "version": "0.1.0",
+      "private": true,
+      "type": "commonjs",
+      "scripts": {
+        "dev": "egg-bin dev --ts",
+        "test": "tsx --test test/**/*.test.ts",
+        "typecheck": "tsc -p tsconfig.json --noEmit"
+      },
+      "dependencies": {
+        "@tether/core": "workspace:*",
+        "egg": "^3.31.0",
+        "egg-bcrypt": "^1.0.0",
+        "egg-console": "^1.0.2",
+        "egg-cors": "^2.2.3",
+        "egg-jwt": "^3.1.0",
+        "egg-mysql": "^3.0.0",
+        "egg-redis": "^2.5.0",
+        "egg-socket.io": "^4.0.0",
+        "mysql2": "^3.22.3"
+      },
+      "devDependencies": {
+        "@types/node": "^22.15.29",
+        "egg-bin": "^6.6.0",
+        "tsx": "^4.19.4",
+        "typescript": "^5.8.3"
+      }
+    },
+    "baseDir": "/Users/dream/code/tether/apps/server",
+    "HOME": "/Users/dream",
+    "rundir": "/Users/dream/code/tether/apps/server/run",
+    "dump": {
+      "ignore": "<Set>",
+      "timing": {
+        "slowBootActionMinDuration": 5000
+      }
+    },
+    "confusedConfigurations": {
+      "bodyparser": "bodyParser",
+      "notFound": "notfound",
+      "sitefile": "siteFile",
+      "middlewares": "middleware",
+      "httpClient": "httpclient"
+    },
+    "notfound": {
+      "pageUrl": ""
+    },
+    "siteFile": {
+      "/favicon.ico": "<Buffer len: 6463>",
+      "cacheControl": "public, max-age=2592000"
+    },
+    "bodyParser": {
+      "enable": true,
+      "encoding": "utf8",
+      "formLimit": "1mb",
+      "jsonLimit": "1mb",
+      "textLimit": "1mb",
+      "strict": true,
+      "queryString": {
+        "arrayLimit": 100,
+        "depth": 5,
+        "parameterLimit": 1000
+      },
+      "onerror": "<Function onerror>"
+    },
+    "httpclient": {
+      "enableDNSCache": false,
+      "dnsCacheLookupInterval": 10000,
+      "dnsCacheMaxLength": 1000,
+      "request": {
+        "timeout": 5000
+      },
+      "httpAgent": {
+        "keepAlive": true,
+        "freeSocketTimeout": 4000,
+        "maxSockets": 9007199254740991,
+        "maxFreeSockets": 256
+      },
+      "httpsAgent": {
+        "keepAlive": true,
+        "freeSocketTimeout": 4000,
+        "maxSockets": 9007199254740991,
+        "maxFreeSockets": 256
+      },
+      "useHttpClientNext": false
+    },
+    "meta": {
+      "enable": true,
+      "logging": false
+    },
+    "coreMiddleware": [
+      "meta",
+      "siteFile",
+      "notfound",
+      "bodyParser",
+      "overrideMethod"
+    ],
+    "workerStartTimeout": 600000,
+    "serverTimeout": null,
+    "cluster": {
+      "listen": {
+        "path": "",
+        "port": 4800,
+        "hostname": "127.0.0.1"
+      }
+    },
+    "clusterClient": {
+      "maxWaitTime": 60000,
+      "responseTimeout": 60000
+    },
+    "onClientError": null,
+    "redis": {
+      "client": {
+        "host": "127.0.0.1",
+        "port": 6379,
+        "db": 0
+      }
+    },
+    "coreMiddlewares": "~config~coreMiddleware",
+    "appMiddlewares": [],
+    "appMiddleware": "~config~appMiddlewares"
+  },
+  "plugins": {
+    "onerror": {
+      "enable": true,
+      "package": "egg-onerror",
+      "name": "onerror",
+      "dependencies": [],
+      "optionalDependencies": [
+        "jsonp"
+      ],
+      "env": [],
+      "from": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/plugin.js",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-onerror@2.4.0/node_modules/egg-onerror",
+      "version": "2.4.0"
+    },
+    "session": {
+      "enable": true,
+      "package": "egg-session",
+      "name": "session",
+      "dependencies": [],
+      "optionalDependencies": [],
+      "env": [],
+      "from": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/plugin.js",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-session@3.3.0/node_modules/egg-session",
+      "version": "3.3.0",
+      "dependents": [
+        "socketIO"
+      ]
+    },
+    "i18n": {
+      "enable": true,
+      "package": "egg-i18n",
+      "name": "i18n",
+      "dependencies": [],
+      "optionalDependencies": [],
+      "env": [],
+      "from": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/plugin.js",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-i18n@2.1.1/node_modules/egg-i18n",
+      "version": "2.1.1"
+    },
+    "watcher": {
+      "enable": true,
+      "package": "egg-watcher",
+      "name": "watcher",
+      "dependencies": [],
+      "optionalDependencies": [],
+      "env": [],
+      "from": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/plugin.js",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-watcher@3.1.1/node_modules/egg-watcher",
+      "version": "3.1.1",
+      "dependents": [
+        "development"
+      ]
+    },
+    "multipart": {
+      "enable": true,
+      "package": "egg-multipart",
+      "name": "multipart",
+      "dependencies": [],
+      "optionalDependencies": [
+        "schedule"
+      ],
+      "env": [],
+      "from": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/plugin.js",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-multipart@3.5.0/node_modules/egg-multipart",
+      "version": "3.5.0"
+    },
+    "security": {
+      "enable": true,
+      "package": "egg-security",
+      "name": "security",
+      "dependencies": [],
+      "optionalDependencies": [
+        "session"
+      ],
+      "env": [],
+      "from": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/plugin.js",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-security@3.7.0/node_modules/egg-security",
+      "version": "3.7.0"
+    },
+    "development": {
+      "enable": true,
+      "package": "egg-development",
+      "name": "development",
+      "dependencies": [
+        "watcher"
+      ],
+      "optionalDependencies": [],
+      "env": [
+        "local"
+      ],
+      "from": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/plugin.js",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-development@3.0.2/node_modules/egg-development",
+      "version": "3.0.2"
+    },
+    "logrotator": {
+      "enable": true,
+      "package": "egg-logrotator",
+      "name": "logrotator",
+      "dependencies": [
+        "schedule"
+      ],
+      "optionalDependencies": [],
+      "env": [],
+      "from": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/plugin.js",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-logrotator@3.2.0/node_modules/egg-logrotator",
+      "version": "3.2.0"
+    },
+    "schedule": {
+      "enable": true,
+      "package": "egg-schedule",
+      "name": "schedule",
+      "dependencies": [],
+      "optionalDependencies": [],
+      "env": [],
+      "from": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/plugin.js",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-schedule@4.0.1/node_modules/egg-schedule",
+      "version": "4.0.1",
+      "dependents": [
+        "logrotator"
+      ]
+    },
+    "static": {
+      "enable": true,
+      "package": "egg-static",
+      "name": "static",
+      "dependencies": [],
+      "optionalDependencies": [],
+      "env": [],
+      "from": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/plugin.js",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-static@2.3.1/node_modules/egg-static",
+      "version": "2.3.1"
+    },
+    "jsonp": {
+      "enable": true,
+      "package": "egg-jsonp",
+      "name": "jsonp",
+      "dependencies": [],
+      "optionalDependencies": [
+        "security"
+      ],
+      "env": [],
+      "from": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/plugin.js",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-jsonp@2.0.0/node_modules/egg-jsonp",
+      "version": "2.0.0"
+    },
+    "view": {
+      "enable": true,
+      "package": "egg-view",
+      "name": "view",
+      "dependencies": [],
+      "optionalDependencies": [],
+      "env": [],
+      "from": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/plugin.js",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-view@2.1.4/node_modules/egg-view",
+      "version": "2.1.4"
+    },
+    "cors": {
+      "enable": true,
+      "package": "egg-cors",
+      "name": "cors",
+      "dependencies": [],
+      "optionalDependencies": [],
+      "env": [],
+      "from": "/Users/dream/code/tether/apps/server/config/plugin.ts",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-cors@2.2.4/node_modules/egg-cors",
+      "version": "2.2.4"
+    },
+    "jwt": {
+      "enable": true,
+      "package": "egg-jwt",
+      "name": "jwt",
+      "dependencies": [],
+      "optionalDependencies": [
+        "onerror"
+      ],
+      "env": [],
+      "from": "/Users/dream/code/tether/apps/server/config/plugin.ts",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-jwt@3.1.7/node_modules/egg-jwt",
+      "version": "3.1.7"
+    },
+    "redis": {
+      "enable": false,
+      "package": "egg-redis",
+      "name": "redis",
+      "dependencies": [],
+      "optionalDependencies": [],
+      "env": [],
+      "from": "/Users/dream/code/tether/apps/server/config/plugin.ts",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-redis@2.6.1/node_modules/egg-redis",
+      "version": "2.6.1"
+    },
+    "socketIO": {
+      "enable": true,
+      "package": "egg-socket.io",
+      "name": "socketIO",
+      "dependencies": [
+        "session"
+      ],
+      "optionalDependencies": [],
+      "env": [],
+      "from": "/Users/dream/code/tether/apps/server/config/plugin.ts",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-socket.io@4.1.6/node_modules/egg-socket.io",
+      "version": "4.1.6"
+    },
+    "mysql": {
+      "enable": true,
+      "package": "egg-mysql",
+      "name": "mysql",
+      "dependencies": [],
+      "optionalDependencies": [],
+      "env": [],
+      "from": "/Users/dream/code/tether/apps/server/config/plugin.ts",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-mysql@3.4.0/node_modules/egg-mysql",
+      "version": "3.4.0"
+    },
+    "bcrypt": {
+      "enable": true,
+      "package": "egg-bcrypt",
+      "name": "bcrypt",
+      "dependencies": [],
+      "optionalDependencies": [],
+      "env": [],
+      "from": "/Users/dream/code/tether/apps/server/config/plugin.ts",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-bcrypt@1.1.0/node_modules/egg-bcrypt",
+      "version": "1.1.0"
+    },
+    "console": {
+      "enable": true,
+      "package": "egg-console",
+      "name": "console",
+      "dependencies": [],
+      "optionalDependencies": [],
+      "env": [],
+      "from": "/Users/dream/code/tether/apps/server/config/plugin.ts",
+      "path": "/Users/dream/code/tether/node_modules/.pnpm/egg-console@1.1.6/node_modules/egg-console",
+      "version": "1.1.6"
+    }
+  },
+  "appInfo": {
+    "name": "@tether/server",
+    "baseDir": "/Users/dream/code/tether/apps/server",
+    "env": "local",
+    "scope": "",
+    "HOME": "/Users/dream",
+    "pkg": {
+      "name": "@tether/server",
+      "version": "0.1.0",
+      "private": true,
+      "type": "commonjs",
+      "scripts": {
+        "dev": "egg-bin dev --ts",
+        "test": "tsx --test test/**/*.test.ts",
+        "typecheck": "tsc -p tsconfig.json --noEmit"
+      },
+      "dependencies": {
+        "@tether/core": "workspace:*",
+        "egg": "^3.31.0",
+        "egg-bcrypt": "^1.0.0",
+        "egg-console": "^1.0.2",
+        "egg-cors": "^2.2.3",
+        "egg-jwt": "^3.1.0",
+        "egg-mysql": "^3.0.0",
+        "egg-redis": "^2.5.0",
+        "egg-socket.io": "^4.0.0",
+        "mysql2": "^3.22.3"
+      },
+      "devDependencies": {
+        "@types/node": "^22.15.29",
+        "egg-bin": "^6.6.0",
+        "tsx": "^4.19.4",
+        "typescript": "^5.8.3"
+      }
+    },
+    "root": "/Users/dream/code/tether/apps/server"
+  }
+}

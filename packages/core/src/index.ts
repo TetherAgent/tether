@@ -23,3 +23,28 @@ export type Gateway = {
 export type UISurfaceKind = 'terminal' | 'mobile-web' | 'desktop-web' | 'floating';
 
 export type WorkTargetRole = 'frontend' | 'backend' | 'package' | 'internal' | 'docs' | 'other';
+
+export type AuthTokenClass =
+  | 'normal_client_access'
+  | 'normal_client_refresh'
+  | 'management_access'
+  | 'management_refresh'
+  | 'gateway_access'
+  | 'gateway_refresh'
+  | 'ws_ticket';
+
+export type SessionAccessMode = 'control' | 'observe';
+
+export type AuthScopePayload = {
+  accountId: string;
+  workspaceId: string;
+  gatewayId?: string;
+  sessionId?: string;
+  userId?: string;
+  adminUserId?: string;
+  deviceId?: string;
+  mode?: SessionAccessMode;
+  tokenClass: AuthTokenClass;
+  expiresAt: number;
+  jti: string;
+};

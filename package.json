@@ -8,12 +8,13 @@
   },
   "scripts": {
     "typecheck": "pnpm -r --if-present run typecheck",
-    "web:dev": "pnpm --filter @tether/web dev",
-    "web:build": "pnpm --filter @tether/web build",
-    "dev": "tsx apps/cli/src/main.ts codex --host 0.0.0.0",
-    "relay": "tsx apps/relay/src/main.ts",
-    "tether": "tsx apps/cli/src/main.ts",
-    "test": "pnpm -r --if-present run test"
+    "dev:web": "pnpm --filter @tether/web dev",
+    "dev:server": "EGG_SERVER_ENV=local pnpm --filter @tether/server dev",
+    "build:web": "pnpm --filter @tether/web build",
+    "dev:codex": "tsx apps/cli/src/main.ts codex --host 0.0.0.0",
+    "dev:relay": "tsx apps/relay/src/main.ts",
+    "test": "pnpm -r --if-present run test",
+    "tether": "tsx apps/cli/src/main.ts"
   },
   "dependencies": {
     "@tether/cli": "workspace:*",

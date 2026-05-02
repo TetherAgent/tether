@@ -1,14 +1,66 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import WebSocket from 'ws';
-import type { RelaySession } from '@tether/protocol';
+import type { RelayAuthScope, RelaySession } from '@tether/protocol';
 import { startRelayServer } from './relay.js';
 
 const SECRET = 'test-relay-secret';
+const GATEWAY_TOKEN = 'gateway-token';
+const CLIENT_TOKEN = 'client-token';
+const CLIENT_TICKET = 'client-ticket';
+
+function createRelay() {
+  return startRelayServer({
+    host: '127.0.0.1',
+    port: nextPort(),
+    secret: SECRET,
+    validateToken: async (token) => {
+      if (token === GATEWAY_TOKEN) {
+        return {
+          accountId: 'acct_1',
+          workspaceId: 'ws_1',
+          gatewayId: 'gateway-test',
+          tokenClass: 'gateway_access',
+          expiresAt: Date.now() + 60_000,
+          jti: 'jti_gateway'
+        };
+      }
+      if (token === CLIENT_TOKEN) {
+        return {
+          accountId: 'acct_1',
+          workspaceId: 'ws_1',
+          userId: 'user_1',
+          tokenClass: 'normal_client_access',
+          expiresAt: Date.now() + 60_000,
+          jti: 'jti_client'
+        };
+      }
+      if (token === CLIENT_TICKET) {
+        return {
+          accountId: 'acct_1',
+          workspaceId: 'ws_1',
+          gatewayId: 'gateway-test',
+          sessionId: 'tth_ticket_test',
+          mode: 'observe',
+          tokenClass: 'ws_ticket',
+          expiresAt: Date.now() + 60_000,
+          jti: 'jti_ticket'
+        };
+      }
+      return undefined;
+    }
+  });
+}
+
+let relayPort = 4900;
+function nextPort(): number {
+  relayPort += 1;
+  return relayPort;
+}
 
 test('relay rejects unauthenticated sockets', async () => {
-  const relay = await startRelayServer({ host: '127.0.0.1', port: 4901, secret: SECRET });
-  const client = new WebSocket('ws://127.0.0.1:4901/client');
+  const relay = await createRelay();
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
 
   try {
     await waitForOpen(client);
@@ -22,15 +74,19 @@ test('relay rejects unauthenticated sockets', async () => {
 });
 
 test('relay forwards session list from gateway to client', async () => {
-  const relay = await startRelayServer({ host: '127.0.0.1', port: 4902, secret: SECRET });
-  const gateway = new WebSocket('ws://127.0.0.1:4902/gateway');
-  const client = new WebSocket('ws://127.0.0.1:4902/client');
+  const relay = await createRelay();
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
   const sessions: RelaySession[] = [
     {
       id: 'tth_relay_test',
       provider: 'codex',
       title: 'Relay Test',
       projectPath: process.cwd(),
+      accountId: 'acct_1',
+      workspaceId: 'ws_1',
+      gatewayId: 'gateway-test',
+      userId: 'user_1',
       status: 'running',
       transport: 'pty-event-stream',
       lastActiveAt: Date.now()
@@ -56,13 +112,31 @@ test('relay forwards session list from gateway to client', async () => {
 });
 
 test('relay forwards subscribed input and resize to gateway', async () => {
-  const relay = await startRelayServer({ host: '127.0.0.1', port: 4903, secret: SECRET });
-  const gateway = new WebSocket('ws://127.0.0.1:4903/gateway');
-  const client = new WebSocket('ws://127.0.0.1:4903/client');
+  const relay = await createRelay();
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
 
   try {
     await authenticateGateway(gateway);
     const clientId = await authenticateClient(client);
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [{
+        id: 'tth_input_test',
+        provider: 'codex',
+        title: 'Input Test',
+        projectPath: process.cwd(),
+        accountId: 'acct_1',
+        workspaceId: 'ws_1',
+        gatewayId: 'gateway-test',
+        userId: 'user_1',
+        status: 'running',
+        transport: 'pty-event-stream',
+        lastActiveAt: Date.now()
+      }]
+    }));
+    await waitForJson(client, (message) => message.type === 'sessions');
 
     client.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_input_test', after: 7, mode: 'control' }));
     const subscribe = await waitForJson(gateway, (message) => message.type === 'client.subscribe');
@@ -108,9 +182,9 @@ test('relay forwards subscribed input and resize to gateway', async () => {
 });
 
 test('relay rejects unsubscribed input and resize', async () => {
-  const relay = await startRelayServer({ host: '127.0.0.1', port: 4905, secret: SECRET });
-  const gateway = new WebSocket('ws://127.0.0.1:4905/gateway');
-  const client = new WebSocket('ws://127.0.0.1:4905/client');
+  const relay = await createRelay();
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
 
   try {
     await authenticateGateway(gateway);
@@ -131,13 +205,31 @@ test('relay rejects unsubscribed input and resize', async () => {
 });
 
 test('relay rejects observe input and resize', async () => {
-  const relay = await startRelayServer({ host: '127.0.0.1', port: 4906, secret: SECRET });
-  const gateway = new WebSocket('ws://127.0.0.1:4906/gateway');
-  const client = new WebSocket('ws://127.0.0.1:4906/client');
+  const relay = await createRelay();
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
 
   try {
     await authenticateGateway(gateway);
     await authenticateClient(client);
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [{
+        id: 'tth_observe_test',
+        provider: 'codex',
+        title: 'Observe Test',
+        projectPath: process.cwd(),
+        accountId: 'acct_1',
+        workspaceId: 'ws_1',
+        gatewayId: 'gateway-test',
+        userId: 'user_1',
+        status: 'running',
+        transport: 'pty-event-stream',
+        lastActiveAt: Date.now()
+      }]
+    }));
+    await waitForJson(client, (message) => message.type === 'sessions');
 
     client.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_observe_test', after: 0, mode: 'observe' }));
     await waitForJson(gateway, (message) => message.type === 'client.subscribe');
@@ -157,9 +249,9 @@ test('relay rejects observe input and resize', async () => {
 });
 
 test('relay rejects invalid resize frames', async () => {
-  const relay = await startRelayServer({ host: '127.0.0.1', port: 4907, secret: SECRET });
-  const gateway = new WebSocket('ws://127.0.0.1:4907/gateway');
-  const client = new WebSocket('ws://127.0.0.1:4907/client');
+  const relay = await createRelay();
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
 
   try {
     await authenticateGateway(gateway);
@@ -176,9 +268,9 @@ test('relay rejects invalid resize frames', async () => {
 });
 
 test('relay rejects command-shaped frames', async () => {
-  const relay = await startRelayServer({ host: '127.0.0.1', port: 4904, secret: SECRET });
-  const gateway = new WebSocket('ws://127.0.0.1:4904/gateway');
-  const client = new WebSocket('ws://127.0.0.1:4904/client');
+  const relay = await createRelay();
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
 
   try {
     await authenticateGateway(gateway);
@@ -194,15 +286,50 @@ test('relay rejects command-shaped frames', async () => {
   }
 });
 
+test('relay rejects cross-account session list and wrong-session ticket subscribe', async () => {
+  const relay = await createRelay();
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const ticketClient = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+
+  try {
+    await authenticateGateway(gateway);
+    await authenticateClient(client);
+    await authenticateClient(ticketClient, { token: CLIENT_TICKET });
+
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [
+        { id: 'tth_ticket_test', provider: 'codex', title: 'ok', projectPath: process.cwd(), accountId: 'acct_1', workspaceId: 'ws_1', gatewayId: 'gateway-test', status: 'running', transport: 'pty-event-stream', lastActiveAt: Date.now() },
+        { id: 'tth_other_account', provider: 'codex', title: 'no', projectPath: process.cwd(), accountId: 'acct_2', workspaceId: 'ws_2', gatewayId: 'gateway-test', status: 'running', transport: 'pty-event-stream', lastActiveAt: Date.now() }
+      ]
+    }));
+
+    const sessions = await waitForJson(client, (message) => message.type === 'sessions');
+    assert.equal(Array.isArray(sessions.sessions), true);
+    assert.equal((sessions.sessions as RelaySession[]).some((session) => session.id === 'tth_other_account'), false);
+
+    ticketClient.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_other_account', after: 0, mode: 'observe' }));
+    const error = await waitForJson(ticketClient, (message) => message.type === 'error' && message.code === 'forbidden');
+    assert.equal(error.sessionId, 'tth_other_account');
+  } finally {
+    gateway.close();
+    client.close();
+    ticketClient.close();
+    await relay.close();
+  }
+});
+
 async function authenticateGateway(ws: WebSocket): Promise<void> {
   await waitForOpen(ws);
-  ws.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-test', secret: SECRET }));
+  ws.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-test', token: GATEWAY_TOKEN }));
   await waitForJson(ws, (message) => message.type === 'gateway.auth.ok');
 }
 
-async function authenticateClient(ws: WebSocket): Promise<string> {
+async function authenticateClient(ws: WebSocket, options?: { token?: string; scope?: RelayAuthScope }): Promise<string> {
   await waitForOpen(ws);
-  ws.send(JSON.stringify({ type: 'client.auth', secret: SECRET }));
+  ws.send(JSON.stringify({ type: 'client.auth', token: options?.token ?? CLIENT_TOKEN, scope: options?.scope }));
   const auth = await waitForJson(ws, (message) => message.type === 'client.auth.ok');
   assert.equal(typeof auth.clientId, 'string');
   return auth.clientId as string;

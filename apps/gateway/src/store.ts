@@ -13,6 +13,11 @@ export type Session = {
   provider: ProviderName;
   title: string;
   projectPath: string;
+  accountId?: string;
+  workspaceId?: string;
+  userId?: string;
+  deviceId?: string;
+  gatewayId?: string;
   status: SessionStatus;
   attachState: AttachState;
   tmuxSessionName: string;
@@ -51,6 +56,11 @@ type SessionRow = {
   provider: ProviderName;
   title: string;
   project_path: string;
+  account_id?: string | null;
+  workspace_id?: string | null;
+  user_id?: string | null;
+  device_id?: string | null;
+  gateway_id?: string | null;
   status: SessionStatus;
   attach_state?: AttachState;
   tmux_session_name: string;
@@ -83,6 +93,11 @@ export class Store {
         provider TEXT NOT NULL,
         title TEXT,
         project_path TEXT,
+        account_id TEXT,
+        workspace_id TEXT,
+        user_id TEXT,
+        device_id TEXT,
+        gateway_id TEXT,
         status TEXT NOT NULL,
         tmux_session_name TEXT NOT NULL,
         command TEXT NOT NULL,
@@ -123,11 +138,11 @@ export class Store {
     this.db
       .prepare(
         `INSERT INTO sessions (
-          id, provider, title, project_path, status, attach_state, tmux_session_name,
+          id, provider, title, project_path, account_id, workspace_id, user_id, device_id, gateway_id, status, attach_state, tmux_session_name,
           command, pid, transport,
           created_at, updated_at, last_active_at
         ) VALUES (
-          @id, @provider, @title, @project_path, @status, @attach_state, @tmux_session_name,
+          @id, @provider, @title, @project_path, @account_id, @workspace_id, @user_id, @device_id, @gateway_id, @status, @attach_state, @tmux_session_name,
           @command, @pid, @transport,
           @created_at, @updated_at, @last_active_at
         )`
@@ -233,6 +248,21 @@ export class Store {
     if (!columns.has('transport')) {
       this.db.exec("ALTER TABLE sessions ADD COLUMN transport TEXT NOT NULL DEFAULT 'tmux'");
     }
+    if (!columns.has('account_id')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN account_id TEXT');
+    }
+    if (!columns.has('workspace_id')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN workspace_id TEXT');
+    }
+    if (!columns.has('user_id')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN user_id TEXT');
+    }
+    if (!columns.has('device_id')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN device_id TEXT');
+    }
+    if (!columns.has('gateway_id')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN gateway_id TEXT');
+    }
   }
 }
 
@@ -246,6 +276,11 @@ function fromRow(row: SessionRow): Session {
     provider: row.provider,
     title: row.title,
     projectPath: row.project_path,
+    accountId: row.account_id ?? undefined,
+    workspaceId: row.workspace_id ?? undefined,
+    userId: row.user_id ?? undefined,
+    deviceId: row.device_id ?? undefined,
+    gatewayId: row.gateway_id ?? undefined,
     status: row.status,
     attachState: row.attach_state ?? 'detached',
     tmuxSessionName: row.tmux_session_name,
@@ -264,6 +299,11 @@ function toRow(session: Session): SessionRow {
     provider: session.provider,
     title: session.title,
     project_path: session.projectPath,
+    account_id: session.accountId ?? null,
+    workspace_id: session.workspaceId ?? null,
+    user_id: session.userId ?? null,
+    device_id: session.deviceId ?? null,
+    gateway_id: session.gatewayId ?? null,
     status: session.status,
     attach_state: session.attachState,
     tmux_session_name: session.tmuxSessionName,

@@ -3,7 +3,7 @@
 ## Overview
 
 Finishing milestone: Phase 2 PTY-backed event stream is shipped, and Phase 1 Personal
-Relay MVP plus Phase 6 persistent Gateway are already complete. The roadmap now treats
+Relay MVP plus the pulled-forward persistent Gateway supervisor are already complete. The roadmap now treats
 the shared-secret Personal Relay path as a temporary bootstrap, not the target security
 model. The target is authenticated multi-account remote access: external clients log in,
 Gateways authenticate at startup, Relay authenticates both Gateway and client WebSockets,
@@ -11,20 +11,29 @@ and every session operation is scoped by account/workspace/Gateway/session owner
 
 The safety boundary remains unchanged: Relay forwards authenticated protocol frames only.
 It never executes commands, never accepts arbitrary process creation, never becomes the
-source of truth for ownership, and never persists terminal plaintext. Multi-account auth is
-now in-scope for v0.3; hosted SaaS billing, organization administration, full E2EE relay
-envelopes, federation, and push notifications remain post-v0.3.
+source of truth for ownership, and never persists terminal plaintext. Account registration,
+login, token issuance, Gateway binding, Relay authorization checks, and audit ingestion
+belong to a dedicated remote Server service, not to Relay or the local Gateway.
+Multi-account auth and the minimum account management console are now in-scope for v0.3;
+hosted SaaS billing, advanced organization administration, full E2EE relay envelopes,
+federation, and push notifications remain post-v0.3.
+
+Completed foundation: **Supervisor & launchd** was pulled forward and shipped on
+2026-05-02. It remains a prerequisite capability for auth/runtime work, but it no longer
+occupies an active roadmap phase number.
 
 ## Phases
 
 - [x] **Phase 1: Personal Relay MVP** - Gateway connects outbound to a self-hosted Relay; one remote Web client can attach to an existing session
 - [ ] **Phase 2: Experience Hardening** - Detach hotkey, key passthrough, paste, ANSI, and TUI resize all verified on macOS
-- [ ] **Phase 3: Cleanup** - tmux fallback removed; single-transport codebase ready for auth work
-- [ ] **Phase 4: Account & Auth Contract** - Short no-code contract gate for ownership, roles, token classes, and Auth/Gateway/Relay boundaries before implementation
-- [ ] **Phase 5: Multi-user Auth, Relay Auth & Audit** - Implements the Phase 4 contract: login, Gateway startup auth, scoped WS tickets, role checks, Relay auth, and identity audit events
-- [ ] **Phase 6: Retention** - Event store bounded; WAL checkpoint scheduled; Gateway stable under multi-hour uptime
-- [x] **Phase 7: Supervisor & launchd** - Single persistent Gateway owns all PTY sessions; auto-starts on login
+- [x] **Phase 3: Cleanup** - tmux fallback removed; single-transport codebase ready for auth work (completed 2026-05-02)
+- [x] **Phase 4: Account & Auth Contract** - Short no-code contract gate for ownership, roles, token classes, Server, Web, Gateway, and Relay boundaries before implementation (completed 2026-05-02)
+- [ ] **Phase 5: Web-first Account Setup & Server Auth Runtime** - Adds remote `apps/server`, first-owner Web registration, login/token/Gateway binding/Relay auth/role/audit runtime
+- [ ] **Phase 6: Account Management Console** - Web admin surface for workspace members, roles, devices, Gateways, revoke/unlink, and audit visibility
+- [ ] **Phase 7: Retention** - Event store bounded; WAL checkpoint scheduled; Gateway stable under multi-hour uptime
 - [ ] **Phase 8: Security, Isolation Tests & Final Cleanup** - Milestone exit gate; account isolation, relay auth, whitelist, mask, retention all covered by integration tests
+- [ ] **Phase 9: Flutter Client App** - Phone-first Flutter client for remote Relay/LAN session viewing and control, with HarmonyOS support and generated Dart protocol
+- [ ] **Phase 10: Multi-workspace Expansion** - Product support for creating/switching workspaces, binding Gateways per workspace, and isolating members, sessions, audit, and admin pages by workspace
 
 ## Phase Details
 
@@ -77,33 +86,68 @@ envelopes, federation, and push notifications remain post-v0.3.
 ### Phase 4: Account & Auth Contract
 **Goal**: Produce a short executable contract for multi-account auth before implementation. This phase does not change runtime code, database schema, API handlers, Relay behavior, or Web UI.
 **Depends on**: Phase 3
-**Requirements**: ACCOUNT-01, ACCOUNT-02, ACCOUNT-03, ACCOUNT-04, ACCOUNT-05
+**Requirements**: ACCOUNT-01, ACCOUNT-02, ACCOUNT-03, ACCOUNT-04, ACCOUNT-05, SERVER-01, SETUP-01, SETUP-03
 **Success Criteria** (what must be TRUE):
   1. A single `ACCOUNT-AUTH-SPEC.md` (or equivalent Phase 4 plan artifact) defines the canonical graph: `account -> workspace -> gateway -> session`, plus `user` and `device`
-  2. The contract maps role permissions for list/read/subscribe/input/resize/claim-control/release-control/stop/session-create/Gateway-admin
-  3. The contract defines token classes: client access token, client refresh token, device identity, Gateway token, and short-lived WS ticket
-  4. The contract fixes trust boundaries: remote auth/control-plane owns accounts, users, devices, Gateway registration, token issuance, refresh, logout, and revoke; Gateway stores only minimal cached identity/session metadata
-  5. The contract documents Relay as a routing layer, not an ownership or execution authority
-  6. Phase 5 plans reference this contract and may not start until the contract has no unresolved ownership, token, or role questions
-**Plans**: TBD
+  2. The contract defines separate management-console accounts and normal Web/session user accounts; the first management-console registration becomes `super_admin`
+  3. The contract states normal Web/session accounts have no v0.3 role hierarchy: a normal user can access/control only their own authorized sessions
+  4. The contract maps management-console permissions separately: v0.3 management roles are `super_admin` and `admin`; management permissions never automatically grant terminal/session control
+  5. The contract defines token classes: normal client access/refresh tokens, management access/refresh tokens, device identity, Gateway token, and short-lived WS ticket
+  6. The contract defines same-user multi-device sync through an authenticated Server notification WebSocket for metadata/invalidation events, while terminal PTY bytes stay on Relay/Gateway session sockets
+  7. The contract fixes trust boundaries: remote `apps/server` owns accounts, users, devices, Gateway registration, token issuance, refresh, logout, revoke, Relay authorization decisions, notification sync, and audit ingestion; Gateway stores only minimal cached identity/session metadata
+  8. The contract documents Relay as a routing layer, not an ownership or execution authority
+  9. The contract defines Web-first bootstrap: first-owner registration is completed from Web, management console has separate registration/login, and bootstrap closes once an owner exists; CLI bootstrap is not the normal path
+  10. Phase 5 plans reference this contract and may not start until the contract has no unresolved ownership, token, setup, management realm, sync, or role questions
+**Plans**:
+- `04-01-PLAN.md` — Account Auth Contract Specification
 
-### Phase 5: Multi-user Auth, Relay Auth & Audit
-**Goal**: Implement the Phase 4 contract so logged-in users and authenticated Gateways can use direct and Relay paths with consistent authorization and auditable identity
+### Phase 5: Web-first Account Setup & Server Auth Runtime
+**Goal**: Implement the Phase 4 contract as a complete Web-first account setup and auth runtime. This creates the remote `apps/server` service, adds shadcn-based Web registration/login flows in `apps/web`, authenticates Gateway startup/binding, authorizes Relay/Gateway access, and records identity-bearing audit events. This phase is the "door system", not the full account management console.
 **Depends on**: Phase 4
-**Requirements**: AUTH-01, AUTH-02, AUTH-03, AUTH-04, AUTH-05, AUTH-06, RELAY-AUTH-01, RELAY-AUTH-02, RELAY-AUTH-03, AUDIT-01, AUDIT-02
+**Requirements**: SERVER-01, SERVER-02, WEBUI-01, SETUP-01, SETUP-02, SETUP-03, AUTH-01, AUTH-02, AUTH-03, AUTH-04, AUTH-05, AUTH-06, AUTH-07, RELAY-AUTH-01, RELAY-AUTH-02, RELAY-AUTH-03, AUDIT-01, AUDIT-02
 **Success Criteria** (what must be TRUE):
-  1. External Web/native clients log in to the remote auth/control-plane and receive short-lived access tokens plus refresh tokens
-  2. Gateway startup authenticates to the remote auth/control-plane, binds to an account/workspace, and receives or refreshes a Gateway token before publishing sessions through Relay
-  3. HTTP write endpoints and WS ticket issuance reject missing, invalid, revoked, cross-account, or under-authorized tokens
-  4. Browser WS uses a short-lived, single-use ticket scoped to account/workspace/Gateway/session/mode
-  5. Relay authenticates both Gateway and client sockets and routes frames only inside authorized account/workspace/Gateway/session boundaries
-  6. Multiple users can observe the same session; only authorized controllers can input/resize/claim-control, and arbitration is deterministic
-  7. Identity-bearing audit events record account/workspace/user/device/Gateway/session/role without storing raw tokens
+  1. `apps/server` exists as the remote source of truth for account, user, workspace, device, Gateway registration, token, authorization, and audit state
+  2. `apps/web` includes a shadcn-based `/register` flow that creates the first account/default workspace/owner user/device when no owner exists, while `/setup?token=...` is no longer part of the required product path
+  3. `apps/web` includes shadcn-based normal Web login and separate management-console login/registration flows; external Web/native clients receive normal access/refresh tokens, while management-console users receive management-scoped tokens
+  4. `tether gateway login` prompts for account credentials in the CLI, binds the local Gateway to the account/default workspace through Server, and receives or refreshes a Gateway token before publishing sessions through Relay
+  5. HTTP write endpoints and WS ticket issuance reject missing, invalid, revoked, cross-account, or under-authorized tokens
+  6. Browser WS uses a short-lived, single-use ticket scoped to account/workspace/Gateway/session/mode
+  7. Relay authenticates both Gateway and client sockets and routes frames only inside authorized account/workspace/Gateway/session boundaries
+  8. Normal users can access/control only their own sessions; multi-user session sharing, observer/controller roles, and control arbitration are deferred
+  9. A logged-in user can open multiple Web/native clients, and Server pushes lightweight metadata/invalidation events to those devices so session lists, Gateway online state, logout, token/device revoke, and auth state changes sync without page refresh
+  10. Identity-bearing audit events record account/workspace/user/device/Gateway/session or management admin identity without storing raw tokens
+  11. Any UI shipped in this phase uses shadcn components and is limited to registration, login, authenticated session access, and Gateway binding; workspace/member/device/Gateway administration is Phase 6
+**Plans**:
+  - **Wave 1**:
+    - `05-01-PLAN.md` — Server Scaffold, SQL Bootstrap, and Shared Auth Contract
+    - `05-02-PLAN.md` — Web shadcn Foundation and Auth Shell
+  - **Wave 2** *(blocked on Wave 1 completion)*:
+    - `05-03-PLAN.md` — Server Auth, Gateway Binding, Notification, and Audit Runtime *(depends on Plans 01, 02)*
+    - `05-04-PLAN.md` — Gateway Login, Direct Endpoint Authorization, and Scoped WS Tickets *(depends on Plans 01, 03)*
+  - **Wave 3** *(blocked on Wave 1 and Wave 2 completion)*:
+    - `05-05-PLAN.md` — Relay Token Authorization and Boundary Enforcement *(depends on Plans 01, 03, 04)*
+    - `05-06-PLAN.md` — Web Registration, Login, Admin Auth Pages, and Authenticated Session Access *(depends on Plans 02, 03, 04)*
+  - **Wave 4** *(blocked on Wave 2 and Wave 3 completion)*:
+    - `05-07-PLAN.md` — Cross-Package Verification, E2E Auth Checks, and Phase Fact Sync *(depends on Plans 03, 04, 05, 06)*
+
+### Phase 6: Account Management Console
+**Goal**: Provide the first shadcn-based account management Web UI for operating the Phase 5 auth model without hand-editing data or relying on CLI-only administration
+**Depends on**: Phase 5
+**Requirements**: WEBUI-01, MGMT-01, MGMT-02, MGMT-03, MGMT-04, MGMT-05, MGMT-06
+**Success Criteria** (what must be TRUE):
+  1. The management console is built inside `apps/web` using shadcn components and consistent layout primitives
+  2. The management console has its own login and registration flow; the first registered management user is `super_admin`, and later management users are `admin` unless promoted by `super_admin`
+  3. A logged-in management user can view the current account/workspace context and see their management permissions
+  4. `super_admin` can manage management users and system/security settings; `admin` can manage normal users, normal user devices, Gateway unlinking, and audit viewing but cannot manage management users or system/security settings
+  5. Users can view their devices; authorized management users can see each user's devices, device type, online/offline state, notification WebSocket state, and last seen time, then revoke devices and see revoke status reflected in token/session behavior
+  6. Authorized management users can view registered Gateways, see last-seen/auth state, and unlink a Gateway so it can no longer publish sessions through Relay
+  7. Authorized management users can inspect identity-bearing audit events filtered by account/workspace/user/device/Gateway/session/action without exposing raw tokens or secrets
+  8. Authorized management users can see per-user login analytics: successful login count, failed login count, last login time, active/revoked devices, and recent auth/security events
 **Plans**: TBD
 
-### Phase 6: Retention
+### Phase 7: Retention
 **Goal**: The `session_events` table is bounded; the SQLite WAL file cannot grow unbounded during long Gateway uptimes
-**Depends on**: Phase 5
+**Depends on**: Phase 6
 **Requirements**: RETAIN-01
 **Success Criteria** (what must be TRUE):
   1. Events older than 7 days are deleted automatically; after the retention job runs, no `session_events` row has a `ts` value older than 7 days
@@ -112,41 +156,46 @@ envelopes, federation, and push notifications remain post-v0.3.
   4. The Gateway process exits cleanly (no dangling interval) when `close()` is called
 **Plans**: TBD
 
-### Phase 7: Supervisor & launchd
-**Goal**: A single persistent `tether gateway` process owns all PTY sessions; it auto-starts on macOS login, restarts on crash, and can be installed or uninstalled with a single command
-**Depends on**: Phase 1 (completed earlier and renumbered after multi-account roadmap update; Phase 4/5 auth and Phase 6 retention remain later hardening)
-**Requirements**: GW-01, GW-02
-**Success Criteria** (what must be TRUE):
-  1. `tether codex` (or any provider command) in a new terminal finds a running Gateway, forwards session creation to it via `POST /api/sessions`, and attaches — the PTY handle lives in the persistent Gateway process, not the CLI process
-  2. `tether codex` when no Gateway is running falls back to in-process bootstrap with a visible warning; the user experience degrades gracefully rather than failing
-  3. `tether gateway install` registers `~/Library/LaunchAgents/sh.tether.gateway.plist`, uses an absolute node path snapshotted at install time, and the Gateway auto-starts on next login; `tether gateway uninstall` removes the plist and unloads it cleanly
-  4. After an unexpected Gateway crash, launchd restarts it; CLI commands issued after restart can create new sessions and attach to them
-  5. Gateway relay connection can be managed by the persistent Gateway process rather than by short-lived CLI processes
-**Plans**:
-  - **Wave 1**:
-    - `06-01-PLAN.md` — Gateway Config and Provider Policy Foundation
-  - **Wave 2** *(blocked on Wave 1 completion)*:
-    - `06-02-PLAN.md` — Gateway Session Creation API and Runtime Status
-  - **Wave 3** *(blocked on required earlier plans)*:
-    - `06-03-PLAN.md` — CLI Forwarding and Inline Fallback *(depends on Plans 01, 02)*
-    - `06-04-PLAN.md` — launchd Lifecycle and Chinese Gateway Status *(depends on Plan 01)*
-  - **Wave 4** *(blocked on Wave 2 and Wave 3 completion)*:
-    - `06-05-PLAN.md` — Supervisor Documentation and End-to-End Verification *(depends on Plans 02, 03, 04)*
-
 ### Phase 8: Security, Isolation Tests & Final Cleanup
 **Goal**: The v0.3 milestone exit criteria are satisfied — integration tests verify account isolation, relay safety, auth properties, and the structured event schema is closed
-**Depends on**: Phase 7
+**Depends on**: Phase 7 and completed Supervisor foundation
 **Requirements**: TEST-01, CLEAN-03
 **Success Criteria** (what must be TRUE):
   1. Integration tests assert that Relay rejects unauthenticated Gateway/client connections and never accepts arbitrary provider command/args/env frames
   2. Integration tests assert that Gateway startup without a valid Gateway token cannot publish sessions
   3. Integration tests assert that account A cannot list, subscribe to, or control account B sessions
-  4. Integration tests assert that observers cannot input/resize/stop and revoked tokens cannot obtain WS tickets or write
+  4. Integration tests assert that management-scoped tokens cannot control sessions, users cannot control sessions they do not own, and revoked tokens cannot obtain WS tickets or write
   5. Integration tests assert that `POST /api/sessions` with a non-whitelisted provider name is rejected
   6. Integration tests assert that API keys matching known patterns are redacted in `terminal.output` and `user.input` events stored in the DB
   7. Integration tests assert that the legacy snapshot (`GET /api/sessions/:id/snapshot`) and send (`POST /api/sessions/:id/send`) endpoints still respond correctly through the event store
   8. Integration tests assert that the retention job deletes the correct rows under both the 7-day time trigger and the 100 MB per-session size trigger
   9. `approval.requested`, `diff.detected`, and `agent.handoff` event types have an exhaustive-switch parser test that fails compilation when a new event type is added without a handler; roadmap and phase docs note that future review UI owns the full diff/approval surface
+**Plans**: TBD
+
+### Phase 9: Flutter Client App
+**Goal**: Build a phone-first Flutter client surface that can remotely view and take over existing Gateway-owned agent sessions through Relay, also support LAN Gateway direct mode, and account for Flutter on HarmonyOS. The app consumes Gateway/Relay protocol and generated Dart types from `packages/protocol`; it does not own sessions, start providers, duplicate auth decisions, or route Relay frames itself.
+**Depends on**: Phase 8
+**Requirements**: TBD
+**Success Criteria** (what must be TRUE):
+  1. Flutter app skeleton exists under `native/flutter/` with documented local dev/build/test commands and without breaking existing pnpm workspace validation
+  2. The app supports Relay-first remote connection to list, view, observe/control, input, resize, detach from, and replay existing sessions
+  3. The app also supports LAN Gateway direct connection for same-network/dev usage
+  4. The app embeds a real terminal-style interactive surface suitable for Codex/Claude-style TUIs, with any degraded fallback explicitly documented
+  5. Dart protocol types or SDK are generated from `packages/protocol`, or the phase leaves a verified generation bridge with no separate hand-maintained Dart contract
+  6. HarmonyOS compatibility risks for Flutter plugins, terminal rendering, secure storage, WebSocket behavior, and packaging are researched and documented before implementation choices are locked
+  7. The app never sends arbitrary command/provider args/env/process creation requests and never duplicates Gateway session ownership, auth decisions, or Relay routing logic
+**Plans**: TBD
+
+### Phase 10: Multi-workspace Expansion
+**Goal**: Expand the v0.3 default-workspace model into full product support for multiple workspaces per account.
+**Depends on**: Phase 6
+**Requirements**: WORKSPACE-01
+**Success Criteria** (what must be TRUE):
+  1. Users can create and switch workspaces from `apps/web`
+  2. Gateways can be bound or moved to a specific workspace
+  3. Members and roles can be managed per workspace without leaking access across workspaces
+  4. Session list, session access, audit filters, and management pages are scoped by active workspace
+  5. Existing default-workspace accounts migrate without losing Gateway/session ownership
 **Plans**: TBD
 
 ## Progress
@@ -155,16 +204,21 @@ envelopes, federation, and push notifications remain post-v0.3.
 |-------|----------------|--------|-----------|
 | 1. Personal Relay MVP | 4/4 | Complete | 2026-05-01 |
 | 2. Experience Hardening | 0/TBD | Not started | - |
-| 3. Cleanup | 0/4 | Planned | - |
-| 4. Account & Auth Contract | 0/TBD | Not started | - |
-| 5. Multi-user Auth, Relay Auth & Audit | 0/TBD | Not started | - |
-| 6. Retention | 0/TBD | Not started | - |
-| 7. Supervisor & launchd | 5/5 | Complete | 2026-05-02 |
+| 3. Cleanup | 4/4 | Complete    | 2026-05-02 |
+| 4. Account & Auth Contract | 1/1 | Complete    | 2026-05-02 |
+| 5. Web-first Account Setup & Server Auth Runtime | 7/7 | In verification | - |
+| 6. Account Management Console | 0/TBD | Not started | - |
+| 7. Retention | 0/TBD | Not started | - |
 | 8. Security, Isolation Tests & Final Cleanup | 0/TBD | Not started | - |
+| 9. Flutter Client App | 0/TBD | Not started | - |
+| 10. Multi-workspace Expansion | 0/TBD | Not started | - |
 
 ---
 *Roadmap created: 2026-05-01*
 *Milestone reordered: 2026-05-01 — personal Relay MVP moved to Phase 1*
 *Execution order update: 2026-05-01 — Phase 6 pulled forward after Phase 1 for solo-use Gateway persistence*
 *Scope update: 2026-05-02 — multi-account auth promoted into v0.3; shared-secret Relay remains bootstrap only*
-*Coverage: 28/28 v1 requirements mapped*
+*Scope update: 2026-05-02 — Account Management Console split out as Phase 6; Retention moved to Phase 7; pulled-forward Supervisor recorded as completed foundation*
+*Scope update: 2026-05-02 — Phase 5 changed to Web-first setup/login plus dedicated apps/server; Relay remains routing-only and management UI remains Phase 6*
+*Scope update: 2026-05-02 — WORKSPACE-01 promoted to Phase 10 for future discuss/plan flow*
+*Coverage: 40/40 v1 requirements mapped*

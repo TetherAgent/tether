@@ -2,11 +2,38 @@ export type RelaySessionStatus = 'running' | 'stopped' | 'completed' | 'failed' 
 
 export type RelayClientMode = 'control' | 'observe';
 
+export type RelayAuthTokenClass =
+  | 'normal_client_access'
+  | 'normal_client_refresh'
+  | 'management_access'
+  | 'management_refresh'
+  | 'gateway_access'
+  | 'gateway_refresh'
+  | 'ws_ticket';
+
+export type RelayAuthScope = {
+  accountId: string;
+  workspaceId: string;
+  gatewayId?: string;
+  sessionId?: string;
+  userId?: string;
+  adminUserId?: string;
+  deviceId?: string;
+  mode?: RelayClientMode;
+  tokenClass: RelayAuthTokenClass;
+  expiresAt: number;
+  jti: string;
+};
+
 export type RelaySession = {
   id: string;
   provider: string;
   title: string;
   projectPath: string;
+  accountId?: string;
+  workspaceId?: string;
+  gatewayId?: string;
+  userId?: string;
   status: RelaySessionStatus;
   transport: 'pty-event-stream' | 'tmux';
   lastActiveAt: number;
@@ -21,7 +48,7 @@ export type RelayTerminalEvent = {
 };
 
 export type RelayGatewayToServerFrame =
-  | { type: 'gateway.auth'; gatewayId: string; secret: string }
+  | { type: 'gateway.auth'; gatewayId: string; token?: string; secret?: string; scope?: RelayAuthScope }
   | { type: 'gateway.sessions'; gatewayId: string; sessions: RelaySession[] }
   | { type: 'gateway.replay'; gatewayId: string; clientId: string; sessionId: string; events: RelayTerminalEvent[] }
   | { type: 'gateway.event'; gatewayId: string; event: RelayTerminalEvent }
@@ -38,7 +65,8 @@ export type RelayServerToGatewayFrame =
   | { type: 'client.detach'; clientId: string; sessionId: string };
 
 export type RelayClientToServerFrame =
-  | { type: 'client.auth'; secret: string }
+  // `secret` is retained only for the personal-relay bootstrap fallback path.
+  | { type: 'client.auth'; token?: string; ticket?: string; scope?: RelayAuthScope; secret?: string }
   | { type: 'client.list' }
   | { type: 'client.subscribe'; sessionId: string; after?: number; mode: RelayClientMode }
   | { type: 'client.input'; sessionId: string; data: string }

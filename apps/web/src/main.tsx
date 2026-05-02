@@ -1,9 +1,19 @@
 import * as React from 'react';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { BrowserRouter, Link, Navigate, Route, Routes, matchPath, useLocation } from 'react-router-dom';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
+import { Button } from './components/ui/button.js';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './components/ui/card.js';
+import { AuthProvider } from './contexts/auth-context.js';
+import { useAuth } from './hooks/use-auth.js';
+import { gatewayAuthHeaders, requestGatewayWsTicket } from './lib/api.js';
+import { AdminLoginPage } from './pages/admin-login-page.js';
+import { AdminRegisterPage } from './pages/admin-register-page.js';
+import { LoginPage } from './pages/login-page.js';
+import { RegisterPage } from './pages/register-page.js';
 import './styles.css';
 
 type Snapshot = {
@@ -174,16 +184,7 @@ function displayMessage(message: string): string {
   }
 }
 
-function sessionIdFromPath(): string | undefined {
-  const parts = location.pathname.split('/').filter(Boolean);
-  if (parts[0] === 'remote' && parts[1] === 'session') {
-    return parts[2];
-  }
-  return undefined;
-}
-
 function App() {
-  const sessionId = sessionIdFromPath();
   const [connectionSettings, setConnectionSettings] = React.useState<ConnectionSettings>(readConnectionSettings);
 
   const updateConnectionSettings = React.useCallback((next: ConnectionSettings) => {
@@ -193,17 +194,115 @@ function App() {
     setConnectionSettings(next);
   }, []);
 
-  if (!sessionId) {
-    return <SessionList connectionSettings={connectionSettings} onConnectionSettingsChange={updateConnectionSettings} />;
+  return (
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/admin/register" element={<AdminRegisterPage />} />
+          <Route path="/admin/login" element={<AdminLoginPage />} />
+          <Route
+            path="/admin"
+            element={
+              <RequireAdminAuth>
+                <AdminShellPlaceholder />
+              </RequireAdminAuth>
+            }
+          />
+          <Route
+            path="*"
+            element={
+              <RequireUserAuth>
+                <SessionSurface connectionSettings={connectionSettings} onConnectionSettingsChange={updateConnectionSettings} />
+              </RequireUserAuth>
+            }
+          />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
+  );
+}
+
+function RequireUserAuth({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const { authReady, normalAuth } = useAuth();
+
+  if (!authReady) {
+    return null;
   }
 
+  if (!normalAuth) {
+    return <Navigate replace to="/login" state={{ from: location.pathname }} />;
+  }
+
+  return <>{children}</>;
+}
+
+function RequireAdminAuth({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const { authReady, managementAuth } = useAuth();
+
+  if (!authReady) {
+    return null;
+  }
+
+  if (!managementAuth) {
+    return <Navigate replace to="/admin/login" state={{ from: location.pathname }} />;
+  }
+
+  return <>{children}</>;
+}
+
+function AdminShellPlaceholder() {
+  const { logoutManagement } = useAuth();
+
   return (
-    <SessionView
-      sessionId={sessionId}
-      connectionSettings={connectionSettings}
-      onConnectionSettingsChange={updateConnectionSettings}
-    />
+    <main className="auth-shell">
+      <Card className="auth-card">
+        <CardHeader>
+          <CardTitle>Management shell placeholder</CardTitle>
+          <CardDescription>Phase 5 先保留管理域入口，真正的管理台属于 Phase 6。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="auth-meta-note">
+            当前只验证 auth route shell、realm 隔离和后续 `/admin` 入口占位，不把管理 token 接到 terminal control。
+          </p>
+        </CardContent>
+        <CardFooter>
+          <Button onClick={logoutManagement} type="button" variant="secondary">
+            Sign out
+          </Button>
+          <Button asChild variant="secondary">
+            <Link to="/">Back to session shell</Link>
+          </Button>
+        </CardFooter>
+      </Card>
+    </main>
   );
+}
+
+function SessionSurface({
+  connectionSettings,
+  onConnectionSettingsChange
+}: {
+  connectionSettings: ConnectionSettings;
+  onConnectionSettingsChange: (settings: ConnectionSettings) => void;
+}) {
+  const location = useLocation();
+  const matchedSession = matchPath('/remote/session/:sessionId', location.pathname);
+
+  if (matchedSession?.params.sessionId) {
+    return (
+      <SessionView
+        sessionId={matchedSession.params.sessionId}
+        connectionSettings={connectionSettings}
+        onConnectionSettingsChange={onConnectionSettingsChange}
+      />
+    );
+  }
+
+  return <SessionList connectionSettings={connectionSettings} onConnectionSettingsChange={onConnectionSettingsChange} />;
 }
 
 function ConnectionSettingsControl({
@@ -262,6 +361,7 @@ function SessionList({
   connectionSettings: ConnectionSettings;
   onConnectionSettingsChange: (settings: ConnectionSettings) => void;
 }) {
+  const { logoutNormal, normalAuth } = useAuth();
   const [sessions, setSessions] = React.useState<Session[]>([]);
   const [history, setHistory] = React.useState<Session[]>([]);
   const [gateways, setGateways] = React.useState<Gateway[]>([]);
@@ -338,7 +438,11 @@ function SessionList({
       if (disposed) return;
       listSocket.current = ws;
       setStatus('正在验证 Relay');
-      ws?.send(JSON.stringify({ type: 'client.auth', secret: connectionSettings.relaySecret }));
+      ws?.send(JSON.stringify(
+        normalAuth?.accessToken
+          ? { type: 'client.auth', token: normalAuth.accessToken }
+          : { type: 'client.auth', secret: connectionSettings.relaySecret }
+      ));
     });
     ws.addEventListener('message', (message) => {
       if (disposed) return;
@@ -356,6 +460,7 @@ function SessionList({
         return;
       }
       if (frame.type === 'client.auth.failed') {
+        logoutNormal();
         setStatus(displayMessage(frame.message));
         ws?.close();
         return;
@@ -391,7 +496,7 @@ function SessionList({
         listSocket.current = undefined;
       }
     };
-  }, [connectionSettings.connectionMode, connectionSettings.relaySecret, connectionSettings.relayUrl]);
+  }, [connectionSettings.connectionMode, connectionSettings.relaySecret, connectionSettings.relayUrl, logoutNormal, normalAuth?.accessToken]);
 
   const stopSession = React.useCallback(async (sessionId: string) => {
     setStatus('正在停止');
@@ -407,13 +512,19 @@ function SessionList({
       setStatus('已发送停止请求');
       return;
     }
-    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/stop`, { method: 'POST' });
+    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/stop`, {
+      method: 'POST',
+      headers: gatewayAuthHeaders(normalAuth?.accessToken)
+    });
     if (!response.ok) {
+      if (response.status === 401) {
+        logoutNormal();
+      }
       setStatus(`停止失败：HTTP ${response.status}`);
       return;
     }
     await refreshDirect();
-  }, [connectionSettings.connectionMode, refreshDirect]);
+  }, [connectionSettings.connectionMode, logoutNormal, normalAuth?.accessToken, refreshDirect]);
 
   const stopAllSessions = React.useCallback(async () => {
     for (const session of sessions) {
@@ -427,6 +538,7 @@ function SessionList({
         <h1>Tether</h1>
         <div className="header-actions">
           <ConnectionSettingsControl settings={connectionSettings} onChange={onConnectionSettingsChange} />
+          <button className="secondary-button" type="button" onClick={logoutNormal}>退出登录</button>
           {sessions.length > 0 ? (
             <button className="secondary-button" type="button" onClick={() => void stopAllSessions()}>全部停止</button>
           ) : null}
@@ -507,6 +619,7 @@ function SessionView({
   connectionSettings: ConnectionSettings;
   onConnectionSettingsChange: (settings: ConnectionSettings) => void;
 }) {
+  const { logoutNormal, normalAuth } = useAuth();
   const [snapshot, setSnapshot] = React.useState<Snapshot>({ text: '', capturedAt: Date.now() });
   const [status, setStatus] = React.useState('连接中');
   const [text, setText] = React.useState('');
@@ -570,10 +683,16 @@ function SessionView({
     setStatus('正在发送');
     const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/send`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...gatewayAuthHeaders(normalAuth?.accessToken)
+      },
       body: JSON.stringify({ text: value })
     });
     if (!response.ok) {
+      if (response.status === 401) {
+        logoutNormal();
+      }
       setStatus(`发送失败：HTTP ${response.status}`);
       setText(value);
       return;
@@ -627,6 +746,7 @@ function PtySessionView({
   connectionSettings: ConnectionSettings;
   onConnectionSettingsChange: (settings: ConnectionSettings) => void;
 }) {
+  const { logoutNormal, normalAuth } = useAuth();
   const terminalRef = React.useRef<HTMLDivElement>(null);
   const terminal = React.useRef<Terminal | undefined>(undefined);
   const socket = React.useRef<WebSocket | undefined>(undefined);
@@ -665,15 +785,21 @@ function PtySessionView({
     }
     const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/input`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...gatewayAuthHeaders(normalAuth?.accessToken)
+      },
       body: JSON.stringify({ data })
     });
     if (!response.ok) {
+      if (response.status === 401) {
+        logoutNormal();
+      }
       setStatus(`输入失败：HTTP ${response.status}`);
       return false;
     }
     return true;
-  }, [clientMode, connectionSettings.connectionMode, sessionId]);
+  }, [clientMode, connectionSettings.connectionMode, logoutNormal, normalAuth?.accessToken, sessionId]);
 
   const sendWsInput = React.useCallback((data: string): boolean => {
     if (clientMode === 'observe') {
@@ -854,7 +980,11 @@ function PtySessionView({
         }
         if (connectionSettings.connectionMode === 'relay') {
           setStatus('正在验证 Relay');
-          nextWs.send(JSON.stringify({ type: 'client.auth', secret: connectionSettings.relaySecret }));
+          nextWs.send(JSON.stringify(
+            normalAuth?.accessToken
+              ? { type: 'client.auth', token: normalAuth.accessToken }
+              : { type: 'client.auth', secret: connectionSettings.relaySecret }
+          ));
           return;
         }
         setStatus('正在同步 · WS');
@@ -878,6 +1008,7 @@ function PtySessionView({
             return;
           }
           if (frame.type === 'client.auth.failed') {
+            logoutNormal();
             setStatus(displayMessage(frame.message));
             nextWs.close();
             return;
@@ -944,11 +1075,11 @@ function PtySessionView({
       if (connectionSettings.connectionMode === 'relay') {
         return new WebSocket(buildRelayClientUrl(connectionSettings.relayUrl));
       }
-      const response = await fetch('/api/ws-ticket', { method: 'POST' });
-      if (!response.ok) {
-        throw new Error(`ticket HTTP ${response.status}`);
-      }
-      const { ticket } = (await response.json()) as { ticket: string };
+      const { ticket } = await requestGatewayWsTicket({
+        sessionId,
+        mode: clientMode,
+        accessToken: normalAuth?.accessToken ?? ''
+      });
       const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
       return new WebSocket(
         `${scheme}://${window.location.host}/api/sessions/${encodeURIComponent(sessionId)}/stream?after=${after}&ticket=${encodeURIComponent(ticket)}&surface=web&mode=${clientMode}`
@@ -987,6 +1118,8 @@ function PtySessionView({
     connectionSettings.connectionMode,
     connectionSettings.relaySecret,
     connectionSettings.relayUrl,
+    logoutNormal,
+    normalAuth?.accessToken,
     refreshClients,
     sendTerminalInput,
     sessionId,
@@ -1006,7 +1139,13 @@ function PtySessionView({
       return;
     }
     setStatus('正在停止');
-    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/stop`, { method: 'POST' });
+    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/stop`, {
+      method: 'POST',
+      headers: gatewayAuthHeaders(normalAuth?.accessToken)
+    });
+    if (response.status === 401) {
+      logoutNormal();
+    }
     setStatus(response.ok ? '已停止' : `停止失败：HTTP ${response.status}`);
   }
 

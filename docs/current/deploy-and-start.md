@@ -34,7 +34,7 @@ pnpm install
 
 ```bash
 # 终端 1：Relay
-TETHER_RELAY_SECRET=dev-secret pnpm relay
+TETHER_RELAY_SECRET=dev-secret pnpm dev:relay
 
 # 终端 2：本机 Gateway + Codex
 pnpm tether gateway config --host 127.0.0.1 --port 4789 \
@@ -45,7 +45,7 @@ pnpm tether gateway start
 pnpm tether codex
 
 # 终端 3：Web
-pnpm web:dev
+pnpm dev:web
 ```
 
 浏览器打开：
@@ -62,6 +62,138 @@ Relay URL: ws://127.0.0.1:4889
 Secret: dev-secret
 ```
 
+## Phase 5 本地登录验收怎么启动
+
+如果你当前要验的是 Phase 5 的 `/register`、`/login`、`/admin/login`、Gateway bind 和
+MySQL 鉴权链路，最短路径不是先起公网 Relay，而是先把本地 Web、Gateway、Server 起好。
+
+推荐分 3 个终端。
+
+先看最短启动主线：
+
+```bash
+# 终端 1
+pnpm dev:web
+
+# 终端 2
+pnpm tether gateway status
+
+# 终端 3
+pnpm dev:server
+```
+
+如果 `gateway status` 显示没启动，再按下面的 Gateway 步骤补 `config/start`。
+如果你要走真库模式，再把终端 3 改成后面的 MySQL 启动命令。
+
+### 终端 1：Web
+
+```bash
+pnpm dev:web
+```
+
+浏览器打开：
+
+```text
+http://127.0.0.1:4790
+```
+
+### 终端 2：Gateway
+
+先确认本机 Gateway 状态：
+
+```bash
+pnpm tether gateway status
+curl http://127.0.0.1:4789/api/status
+```
+
+如果还没启动，先跑：
+
+```bash
+pnpm tether gateway config --host 127.0.0.1 --port 4789 --allow-api-session-create
+pnpm tether gateway start
+```
+
+如果你只是想前台看日志，也可以直接：
+
+```bash
+pnpm tether gateway
+```
+
+### 终端 3：Server
+
+先说结论：
+
+`pnpm dev:server` 现在走标准 Egg `local` 环境启动。`apps/server/config/config.local.ts`
+会作为本地 MySQL 配置覆盖层自动生效；`config.default.ts` 会在 `local` 环境下补一个本地
+JWT secret，所以不需要再手动包一层脚本去读 `config.local.ts`。
+
+直接运行：
+
+```bash
+pnpm dev:server
+```
+
+健康检查：
+
+```bash
+curl http://127.0.0.1:4800/healthz
+```
+
+### 现在怎么验
+
+先看页面和重定向：
+
+- 打开 `http://127.0.0.1:4790/login`
+- 打开 `http://127.0.0.1:4790/admin/login`
+- 未登录访问 `/` 应该跳到 `/login`
+- 未登录访问 `/admin` 应该跳到 `/admin/login`
+
+再看账号登录：
+
+- 普通用户走 `/login`
+- 管理用户走 `/admin/login`
+
+如果你已经有测试账号，直接登录；如果没有，就先从 `/register` 注册普通用户。
+
+### API 快速验收
+
+普通用户登录：
+
+```bash
+curl -X POST http://127.0.0.1:4800/api/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"email":"<normal-user-email>","password":"<password>"}'
+```
+
+管理用户登录：
+
+```bash
+curl -X POST http://127.0.0.1:4800/api/admin/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"email":"<admin-email>","password":"<password>"}'
+```
+
+Gateway bind：
+
+```bash
+curl -X POST http://127.0.0.1:4800/api/gateway/bind \
+  -H 'content-type: application/json' \
+  -d '{"email":"<normal-user-email>","password":"<password>","gatewayName":"local-gateway"}'
+```
+
+### 最后一个手工验收点
+
+Phase 5 当前只剩一个明确人工项：same-user multi-device metadata refresh。
+
+最短测法：
+
+1. 用同一个普通账号在两个浏览器窗口登录
+2. 两边都进入 `/`
+3. 一边做 session 变化或 logout
+4. 看另一边是否自动刷新 metadata，或在退出后失去登录态
+
+这个点只验 metadata 和 auth state，不要求同步 PTY 输出字节。
+
 ## 云服务器部署
 
 以下以阿里云一台 Node 服务器为例。服务器只跑 Relay 和 Web，不跑 Gateway。
@@ -72,7 +204,7 @@ Secret: dev-secret
 git clone <your-repo-url> tether
 cd tether
 pnpm install
-pnpm web:build
+pnpm build:web
 ```
 
 ### 2. 启动 Relay
@@ -80,7 +212,7 @@ pnpm web:build
 先用前台方式验证：
 
 ```bash
-TETHER_RELAY_SECRET=<your-secret> pnpm relay
+TETHER_RELAY_SECRET=<your-secret> pnpm dev:relay
 ```
 
 看到类似输出即可：
@@ -123,7 +255,7 @@ pm2 delete tether-relay
 cd /opt/tether
 git pull
 pnpm install
-pnpm web:build
+pnpm build:web
 pm2 restart tether-relay --update-env
 ```
 
@@ -308,13 +440,13 @@ nginx -t
 cd /opt/tether
 git pull
 pnpm install
-pnpm web:build
+pnpm build:web
 pm2 restart tether-relay --update-env
 nginx -t
 nginx -s reload
 ```
 
-如果只改了 Web 文案或前端代码，也要重新 `pnpm web:build`，因为 nginx serve 的是
+如果只改了 Web 文案或前端代码，也要重新 `pnpm build:web`，因为 nginx serve 的是
 `apps/web/dist` 里的静态产物。
 
 公网 WebSocket 检查：
@@ -441,7 +573,7 @@ pnpm tether gateway restart
 如果你只想先跑通外网：
 
 ```text
-1. 云服务器：pnpm install && pnpm web:build
+1. 云服务器：pnpm install && pnpm build:web
 2. 云服务器：TETHER_RELAY_SECRET=<secret> pm2 start pnpm --name tether-relay -- relay
 3. 云服务器：pm2 save && pm2 startup
 4. 云服务器：nginx serve apps/web/dist，并代理 /gateway /client 到 127.0.0.1:4889

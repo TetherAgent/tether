@@ -1,0 +1,29 @@
+{
+  "name": "@tether/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "dev": "egg-bin dev --ts",
+    "test": "tsx --test test/**/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@tether/core": "workspace:*",
+    "egg": "^3.31.0",
+    "egg-bcrypt": "^1.0.0",
+    "egg-console": "^1.0.2",
+    "egg-cors": "^2.2.3",
+    "egg-jwt": "^3.1.0",
+    "egg-mysql": "^3.0.0",
+    "egg-redis": "^2.5.0",
+    "egg-socket.io": "^4.0.0",
+    "mysql2": "^3.22.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.29",
+    "egg-bin": "^6.6.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}

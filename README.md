@@ -338,12 +338,12 @@ native/         Flutter / HarmonyOS client placeholders
 Web development:
 
 ```bash
-pnpm web:dev
-pnpm web:build
+pnpm dev:web
+pnpm build:web
 ```
 
 Gateway serves `apps/web/dist` at runtime. If the web app has not been built,
-`/remote/session/:id` will ask you to run `pnpm web:build`.
+`/remote/session/:id` will ask you to run `pnpm build:web`.
 
 ## Development
 

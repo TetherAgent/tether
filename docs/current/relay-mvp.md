@@ -9,7 +9,7 @@
 
 ## 组件职责
 
-- `apps/web` 是浏览器客户端。生产环境先运行 `pnpm web:build` 生成静态产物，再由 nginx serve。
+- `apps/web` 是浏览器客户端。生产环境先运行 `pnpm build:web` 生成静态产物，再由 nginx serve。
 - `apps/relay` 只运行 Node relay 服务，负责认证后的 WebSocket frame 转发。它不 serve `apps/web` 静态文件，不启动 agent，不执行命令，也不持久化终端明文。
 - Gateway 是本机 session owner，负责已有 session、PTY 输入输出、事件 replay 和 resize。
 
@@ -28,7 +28,7 @@ Gateway 启动时认证并绑定 account/workspace，Relay 的 `/gateway` 和 `/
 ```
   终端 1：启动 Relay
 
-  TETHER_RELAY_SECRET=dev-secret pnpm relay
+  TETHER_RELAY_SECRET=dev-secret pnpm dev:relay
 
   终端 2：配置并启动常驻 Gateway，让 Gateway 连 Relay
 
@@ -41,7 +41,7 @@ Gateway 启动时认证并绑定 account/workspace，Relay 的 `/gateway` 和 `/
 
   终端 3：启动 Web
 
-  pnpm web:dev
+  pnpm dev:web
 
   然后浏览器打开：
 
@@ -59,7 +59,7 @@ Gateway 启动时认证并绑定 account/workspace，Relay 的 `/gateway` 和 `/
 Relay 服务当前读取共享 secret：
 
 ```bash
-TETHER_RELAY_SECRET=<personal-secret> pnpm relay
+TETHER_RELAY_SECRET=<personal-secret> pnpm dev:relay
 ```
 
 默认端口由 `apps/relay` 控制，当前本地默认是 `4889`。生产部署时建议只把 relay 的
@@ -73,7 +73,7 @@ WebSocket/API 路径交给 Node 服务，例如：
 `apps/web` 不由 relay 进程托管。构建并交给 nginx serve：
 
 ```bash
-pnpm web:build
+pnpm build:web
 ```
 
 nginx 应把浏览器页面、静态资源和 SPA fallback 指向 `apps/web` 的构建产物；relay 的
@@ -131,7 +131,7 @@ Terminal 3: apps/web Vite dev server
 Terminal 1：
 
 ```bash
-TETHER_RELAY_SECRET=dev-secret pnpm relay
+TETHER_RELAY_SECRET=dev-secret pnpm dev:relay
 ```
 
 期望看到类似输出：
@@ -180,7 +180,7 @@ pnpm tether run opencode --no-attach
 Terminal 3：
 
 ```bash
-pnpm web:dev
+pnpm dev:web
 ```
 
 打开 Vite 输出的本地地址，通常是：
@@ -240,7 +240,7 @@ pnpm test
 TETHER_RELAY_HOST=0.0.0.0 \
 TETHER_RELAY_PORT=4889 \
 TETHER_RELAY_SECRET=<personal-secret> \
-pnpm relay
+pnpm dev:relay
 ```
 
 本机 Gateway 使用公网 relay base URL：

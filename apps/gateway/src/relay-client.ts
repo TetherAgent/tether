@@ -1,5 +1,9 @@
+import { readFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import WebSocket from 'ws';
 import type {
+  RelayAuthScope,
   RelayGatewayToServerFrame,
   RelayServerToGatewayFrame,
   RelaySession,
@@ -12,6 +16,8 @@ export type RelayClientOptions = {
   url: string;
   secret: string;
   gatewayId: string;
+  token?: string;
+  scope?: RelayAuthScope;
   store: Store;
   ptySessions?: PtySessionManager;
 };
@@ -63,9 +69,17 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     socket = new WebSocket(relayGatewayUrl(options.url));
 
     socket.on('open', () => {
-      reconnectDelayMs = MIN_RECONNECT_DELAY_MS;
-      send({ type: 'gateway.auth', gatewayId: options.gatewayId, secret: options.secret });
-      sendSessions();
+      void (async () => {
+        const auth = await resolveRelayAuth(options);
+        if (!auth) {
+          console.error('Relay auth failed: missing ~/.tether/auth.json or invalid gateway token. Run: tether gateway login');
+          setConnectionState('auth_failed');
+          socket?.close();
+          return;
+        }
+        reconnectDelayMs = MIN_RECONNECT_DELAY_MS;
+        send({ type: 'gateway.auth', gatewayId: auth.gatewayId, token: auth.token, scope: auth.scope, secret: options.secret });
+      })();
     });
 
     socket.on('message', (data) => {
@@ -121,6 +135,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     switch (frame.type) {
       case 'gateway.auth.ok':
         setConnectionState('connected');
+        sendSessions();
         return;
       case 'gateway.auth.failed':
         setConnectionState('auth_failed');
@@ -303,6 +318,10 @@ function toRelaySession(session: Session): RelaySession {
     provider: session.provider,
     title: session.title,
     projectPath: session.projectPath,
+    accountId: session.accountId,
+    workspaceId: session.workspaceId,
+    gatewayId: session.gatewayId,
+    userId: session.userId,
     status: session.status,
     transport: session.transport,
     lastActiveAt: session.lastActiveAt
@@ -338,4 +357,52 @@ function sanitizeRelayValue(value: unknown): unknown {
     return value;
   }
   return sanitizeRelayPayload(value as Record<string, unknown>);
+}
+
+async function resolveRelayAuth(
+  options: RelayClientOptions
+): Promise<{ gatewayId: string; token?: string; scope: RelayAuthScope } | undefined> {
+  if (options.token && options.scope) {
+    return {
+      gatewayId: options.scope.gatewayId ?? options.gatewayId,
+      token: options.token,
+      scope: options.scope
+    };
+  }
+
+  const raw = await readFile(process.env.TETHER_AUTH_PATH ?? path.join(os.homedir(), '.tether', 'auth.json'), 'utf8').catch(() => undefined);
+  if (!raw) {
+    return undefined;
+  }
+  const parsed = JSON.parse(raw) as {
+    gatewayId?: unknown;
+    accountId?: unknown;
+    workspaceId?: unknown;
+    accessToken?: unknown;
+    expiresAt?: unknown;
+  };
+  if (
+    typeof parsed.gatewayId !== 'string' ||
+    typeof parsed.accountId !== 'string' ||
+    typeof parsed.workspaceId !== 'string' ||
+    typeof parsed.accessToken !== 'string' ||
+    typeof parsed.expiresAt !== 'number'
+  ) {
+    return undefined;
+  }
+  if (parsed.expiresAt <= Date.now()) {
+    return undefined;
+  }
+  return {
+    gatewayId: parsed.gatewayId,
+    token: parsed.accessToken,
+    scope: {
+      accountId: parsed.accountId,
+      workspaceId: parsed.workspaceId,
+      gatewayId: parsed.gatewayId,
+      tokenClass: 'gateway_access',
+      expiresAt: parsed.expiresAt,
+      jti: 'relay-auth-local'
+    }
+  };
 }

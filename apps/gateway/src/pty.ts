@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
-import type { ProviderName } from '@tether/core';
+import type { AuthScopePayload, ProviderName } from '@tether/core';
 import { maskSensitiveOutput } from './mask.js';
 import type { Session, SessionEvent } from './store.js';
 import { Store } from './store.js';
@@ -13,6 +13,7 @@ export type CreatePtySessionOptions = {
   projectPath: string;
   cols: number;
   rows: number;
+  owner?: Pick<AuthScopePayload, 'accountId' | 'workspaceId' | 'userId' | 'deviceId' | 'gatewayId'>;
 };
 
 export type PtyInputOptions = {
@@ -64,6 +65,11 @@ export class PtySessionManager {
       provider: options.provider,
       title,
       projectPath: options.projectPath,
+      accountId: options.owner?.accountId,
+      workspaceId: options.owner?.workspaceId,
+      userId: options.owner?.userId,
+      deviceId: options.owner?.deviceId,
+      gatewayId: options.owner?.gatewayId,
       status: 'running',
       attachState: 'detached',
       tmuxSessionName: '',

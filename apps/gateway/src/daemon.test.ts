@@ -1,4 +1,5 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
@@ -9,12 +10,124 @@ import { createSessionId } from './ids.js';
 import { PtySessionManager } from './pty.js';
 import { Store } from './store.js';
 
+const TOKEN_GATEWAY = 'gateway-test-token';
+const TOKEN_NORMAL = 'normal-test-token';
+const TOKEN_NORMAL_OTHER = 'normal-test-token-other';
+const TOKEN_MANAGEMENT = 'management-test-token';
+
 function tempStore(): { store: Store; cleanup: () => void } {
   const dir = mkdtempSync(path.join(tmpdir(), 'tether-daemon-'));
   return {
     store: new Store(path.join(dir, 'tether.db')),
     cleanup: () => rmSync(dir, { recursive: true, force: true })
   };
+}
+
+async function withAuthFixture<T>(run: (fixture: {
+  authHeaders: (token?: string) => Record<string, string>;
+}) => Promise<T>): Promise<T> {
+  const dir = mkdtempSync(path.join(tmpdir(), 'tether-auth-'));
+  const authPath = path.join(dir, 'auth.json');
+  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    if (req.method !== 'POST' || req.url !== '/api/token/validate') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    const body = await readRequestBody(req);
+    const token = typeof body?.token === 'string' ? body.token : '';
+    if (token === TOKEN_GATEWAY) {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({
+        accountId: 'acct_test',
+        workspaceId: 'ws_test',
+        gatewayId: 'gw_test',
+        userId: 'user_test',
+        deviceId: 'device_test',
+        tokenClass: 'gateway_access',
+        expiresAt: Date.now() + 60_000,
+        jti: 'jti_gateway'
+      }));
+      return;
+    }
+    if (token === TOKEN_NORMAL) {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({
+        accountId: 'acct_test',
+        workspaceId: 'ws_test',
+        userId: 'user_test',
+        deviceId: 'device_test',
+        tokenClass: 'normal_client_access',
+        expiresAt: Date.now() + 60_000,
+        jti: 'jti_normal'
+      }));
+      return;
+    }
+    if (token === TOKEN_NORMAL_OTHER) {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({
+        accountId: 'acct_test',
+        workspaceId: 'ws_test',
+        userId: 'user_other',
+        deviceId: 'device_other',
+        tokenClass: 'normal_client_access',
+        expiresAt: Date.now() + 60_000,
+        jti: 'jti_normal_other'
+      }));
+      return;
+    }
+    if (token === TOKEN_MANAGEMENT) {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({
+        accountId: 'acct_test',
+        workspaceId: 'ws_test',
+        adminUserId: 'admin_test',
+        tokenClass: 'management_access',
+        expiresAt: Date.now() + 60_000,
+        jti: 'jti_management'
+      }));
+      return;
+    }
+    res.statusCode = 401;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ error: 'invalid_token' }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('auth fixture failed to bind');
+  }
+  const previousAuthPath = process.env.TETHER_AUTH_PATH;
+  process.env.TETHER_AUTH_PATH = authPath;
+  writeFileSync(authPath, `${JSON.stringify({
+    serverUrl: `http://127.0.0.1:${address.port}`,
+    gatewayId: 'gw_test',
+    accountId: 'acct_test',
+    workspaceId: 'ws_test',
+    accessToken: TOKEN_GATEWAY,
+    refreshToken: 'refresh_test_secret',
+    expiresAt: Date.now() + 60_000
+  }, null, 2)}\n`, 'utf8');
+  try {
+    return await run({
+      authHeaders: (token = TOKEN_GATEWAY) => ({ authorization: `Bearer ${token}` })
+    });
+  } finally {
+    process.env.TETHER_AUTH_PATH = previousAuthPath;
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function readRequestBody(req: IncomingMessage): Promise<Record<string, unknown> | undefined> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  if (chunks.length === 0) {
+    return undefined;
+  }
+  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
 }
 
 test('status reports gateway runtime details', async () => {
@@ -88,19 +201,71 @@ test('session creation rejects command-shaped payloads', async () => {
   });
 
   try {
-    const response = await fetch('http://127.0.0.1:4900/api/sessions', {
+    await withAuthFixture(async ({ authHeaders }) => {
+      const response = await fetch('http://127.0.0.1:4900/api/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({
+          provider: 'codex',
+          projectPath: process.cwd(),
+          cols: 120,
+          rows: 40,
+          nested: { env: { SECRET: 'blocked' } }
+        })
+      });
+      assert.equal(response.status, 400);
+      assert.deepEqual(await response.json(), { error: 'command-shaped session creation is not allowed' });
+    });
+  } finally {
+    await daemon.close();
+    cleanup();
+  }
+});
+
+test('session creation rejects missing token', async () => {
+  const { store, cleanup } = tempStore();
+  const daemon = await startDaemon({
+    host: '127.0.0.1',
+    port: 4909,
+    store,
+    ptySessions: new PtySessionManager(store),
+    allowApiSessionCreate: true
+  });
+
+  try {
+    const response = await fetch('http://127.0.0.1:4909/api/sessions', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        provider: 'codex',
-        projectPath: process.cwd(),
-        cols: 120,
-        rows: 40,
-        nested: { env: { SECRET: 'blocked' } }
-      })
+      body: JSON.stringify({ provider: 'codex', projectPath: process.cwd(), cols: 120, rows: 40 })
     });
-    assert.equal(response.status, 400);
-    assert.deepEqual(await response.json(), { error: 'command-shaped session creation is not allowed' });
+    assert.equal(response.status, 401);
+    assert.deepEqual(await response.json(), { error: 'missing_token' });
+  } finally {
+    await daemon.close();
+    cleanup();
+  }
+});
+
+test('session creation rejects management token', async () => {
+  const { store, cleanup } = tempStore();
+  const daemon = await startDaemon({
+    host: '127.0.0.1',
+    port: 4910,
+    store,
+    ptySessions: new PtySessionManager(store),
+    allowApiSessionCreate: true
+  });
+
+  try {
+    await withAuthFixture(async ({ authHeaders }) => {
+      const response = await fetch('http://127.0.0.1:4910/api/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders(TOKEN_MANAGEMENT) },
+        body: JSON.stringify({ provider: 'codex', projectPath: process.cwd(), cols: 120, rows: 40 })
+      });
+      assert.equal(response.status, 403);
+      assert.deepEqual(await response.json(), { error: 'wrong_token_class' });
+    });
   } finally {
     await daemon.close();
     cleanup();
@@ -119,23 +284,25 @@ test('session creation accepts whitelisted provider when enabled', async () => {
   const daemon = await startDaemon({ host: '127.0.0.1', port: 4901, store, ptySessions, allowApiSessionCreate: true, config: {} });
 
   try {
-    const response = await fetch('http://127.0.0.1:4901/api/sessions', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ provider: 'codex', projectPath: binDir, cols: 100, rows: 30 })
+    await withAuthFixture(async ({ authHeaders }) => {
+      const response = await fetch('http://127.0.0.1:4901/api/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ provider: 'codex', projectPath: binDir, cols: 100, rows: 30 })
+      });
+      assert.equal(response.status, 201);
+      const body = (await response.json()) as { session?: { id?: string; provider?: string; command?: string; projectPath?: string } };
+      assert.equal(body.session?.provider, 'codex');
+      assert.equal(body.session?.command, 'codex');
+      assert.equal(body.session?.projectPath, path.resolve(binDir));
+      const createdId = body.session?.id;
+      assert.equal(typeof createdId, 'string');
+      if (!createdId) {
+        throw new Error('created session id missing');
+      }
+      assert.equal(ptySessions.hasLiveSession(createdId), true);
+      ptySessions.stop(createdId);
     });
-    assert.equal(response.status, 201);
-    const body = (await response.json()) as { session?: { id?: string; provider?: string; command?: string; projectPath?: string } };
-    assert.equal(body.session?.provider, 'codex');
-    assert.equal(body.session?.command, 'codex');
-    assert.equal(body.session?.projectPath, path.resolve(binDir));
-    const createdId = body.session?.id;
-    assert.equal(typeof createdId, 'string');
-    if (!createdId) {
-      throw new Error('created session id missing');
-    }
-    assert.equal(ptySessions.hasLiveSession(createdId), true);
-    ptySessions.stop(createdId);
   } finally {
     process.env.PATH = originalPath;
     await daemon.close();
@@ -161,19 +328,21 @@ test('session creation uses configured provider command path', async () => {
   });
 
   try {
-    const response = await fetch('http://127.0.0.1:4908/api/sessions', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ provider: 'codex', projectPath: binDir, cols: 100, rows: 30 })
+    await withAuthFixture(async ({ authHeaders }) => {
+      const response = await fetch('http://127.0.0.1:4908/api/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ provider: 'codex', projectPath: binDir, cols: 100, rows: 30 })
+      });
+      assert.equal(response.status, 201);
+      const body = (await response.json()) as { session?: { id?: string; command?: string } };
+      assert.equal(body.session?.command, fakeCodex);
+      const createdId = body.session?.id;
+      assert.equal(typeof createdId, 'string');
+      if (createdId) {
+        ptySessions.stop(createdId);
+      }
     });
-    assert.equal(response.status, 201);
-    const body = (await response.json()) as { session?: { id?: string; command?: string } };
-    assert.equal(body.session?.command, fakeCodex);
-    const createdId = body.session?.id;
-    assert.equal(typeof createdId, 'string');
-    if (createdId) {
-      ptySessions.stop(createdId);
-    }
   } finally {
     await daemon.close();
     cleanup();
@@ -225,15 +394,17 @@ test('observe websocket clients cannot write input', async () => {
   const daemon = await startDaemon({ host: '127.0.0.1', port: 4892, store, ptySessions });
 
   try {
-    const ticket = await requestTicket(4892);
-    const ws = new WebSocket(`ws://127.0.0.1:4892/api/sessions/${sessionId}/stream?ticket=${ticket}&mode=observe&surface=test`);
-    const message = await waitForMessage(ws, (text) => text.includes('replay.done'));
-    assert.match(message, /replay\.done/);
-    ws.send(JSON.stringify({ type: 'input', data: 'blocked\r' }));
-    const error = await waitForMessage(ws, (text) => text.includes('observe_only'));
-    assert.match(error, /observe_only/);
-    assert.equal(store.listEvents(sessionId).some((event) => event.type === 'user.input' && event.payload.data === 'blocked\r'), false);
-    ws.close();
+    await withAuthFixture(async ({ authHeaders }) => {
+      const ticket = await requestTicket(4892, sessionId, 'observe', authHeaders());
+      const ws = new WebSocket(`ws://127.0.0.1:4892/api/sessions/${sessionId}/stream?ticket=${ticket}&mode=observe&surface=test`);
+      const message = await waitForMessage(ws, (text) => text.includes('replay.done'));
+      assert.match(message, /replay\.done/);
+      ws.send(JSON.stringify({ type: 'input', data: 'blocked\r' }));
+      const error = await waitForMessage(ws, (text) => text.includes('observe_only'));
+      assert.match(error, /observe_only/);
+      assert.equal(store.listEvents(sessionId).some((event) => event.type === 'user.input' && event.payload.data === 'blocked\r'), false);
+      ws.close();
+    });
   } finally {
     ptySessions.stop(sessionId);
     await daemon.close();
@@ -256,14 +427,16 @@ test('observe websocket clients cannot resize pty', async () => {
   const daemon = await startDaemon({ host: '127.0.0.1', port: 4895, store, ptySessions });
 
   try {
-    const ticket = await requestTicket(4895);
-    const ws = new WebSocket(`ws://127.0.0.1:4895/api/sessions/${sessionId}/stream?ticket=${ticket}&mode=observe&surface=test`);
-    await waitForMessage(ws, (text) => text.includes('replay.done'));
-    ws.send(JSON.stringify({ type: 'resize', cols: 100, rows: 30 }));
-    const error = await waitForMessage(ws, (text) => text.includes('observe_only'));
-    assert.match(error, /observe_only/);
-    assert.equal(store.listEvents(sessionId).some((event) => event.type === 'terminal.resize' && event.payload.cols === 100), false);
-    ws.close();
+    await withAuthFixture(async ({ authHeaders }) => {
+      const ticket = await requestTicket(4895, sessionId, 'observe', authHeaders());
+      const ws = new WebSocket(`ws://127.0.0.1:4895/api/sessions/${sessionId}/stream?ticket=${ticket}&mode=observe&surface=test`);
+      await waitForMessage(ws, (text) => text.includes('replay.done'));
+      ws.send(JSON.stringify({ type: 'resize', cols: 100, rows: 30 }));
+      const error = await waitForMessage(ws, (text) => text.includes('observe_only'));
+      assert.match(error, /observe_only/);
+      assert.equal(store.listEvents(sessionId).some((event) => event.type === 'terminal.resize' && event.payload.cols === 100), false);
+      ws.close();
+    });
   } finally {
     ptySessions.stop(sessionId);
     await daemon.close();
@@ -286,15 +459,55 @@ test('direct websocket controller can resize pty', async () => {
   const daemon = await startDaemon({ host: '127.0.0.1', port: 4896, store, ptySessions });
 
   try {
-    const ticket = await requestTicket(4896);
-    const ws = new WebSocket(`ws://127.0.0.1:4896/api/sessions/${sessionId}/stream?ticket=${ticket}&mode=control&surface=test`);
-    await waitForMessage(ws, (text) => text.includes('replay.done'));
-    ws.send(JSON.stringify({ type: 'resize', cols: 100, rows: 30 }));
-    await waitFor(
-      () => store.listEvents(sessionId).some((event) => event.type === 'terminal.resize' && event.payload.cols === 100),
-      1000
-    );
-    ws.close();
+    await withAuthFixture(async ({ authHeaders }) => {
+      const ticket = await requestTicket(4896, sessionId, 'control', authHeaders());
+      const ws = new WebSocket(`ws://127.0.0.1:4896/api/sessions/${sessionId}/stream?ticket=${ticket}&mode=control&surface=test`);
+      await waitForMessage(ws, (text) => text.includes('replay.done'));
+      ws.send(JSON.stringify({ type: 'resize', cols: 100, rows: 30 }));
+      await waitFor(
+        () => store.listEvents(sessionId).some((event) => event.type === 'terminal.resize' && event.payload.cols === 100),
+        1000
+      );
+      ws.close();
+    });
+  } finally {
+    ptySessions.stop(sessionId);
+    await daemon.close();
+    cleanup();
+  }
+});
+
+test('ws ticket rejects same-account token for a different owner session', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const port = 5400 + Math.floor(Math.random() * 1000);
+  const sessionId = createSessionId();
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24,
+    owner: {
+      accountId: 'acct_test',
+      workspaceId: 'ws_test',
+      userId: 'user_test',
+      deviceId: 'device_test'
+    }
+  });
+  const daemon = await startDaemon({ host: '127.0.0.1', port, store, ptySessions });
+
+  try {
+    await withAuthFixture(async ({ authHeaders }) => {
+      const response = await fetch(`http://127.0.0.1:${port}/api/ws-ticket`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders(TOKEN_NORMAL_OTHER) },
+        body: JSON.stringify({ sessionId, mode: 'observe' })
+      });
+      assert.equal(response.status, 403);
+      assert.deepEqual(await response.json(), { error: 'forbidden_owner' });
+    });
   } finally {
     ptySessions.stop(sessionId);
     await daemon.close();
@@ -317,14 +530,16 @@ test('direct websocket rejects invalid resize dimensions', async () => {
   const daemon = await startDaemon({ host: '127.0.0.1', port: 4897, store, ptySessions });
 
   try {
-    const ticket = await requestTicket(4897);
-    const ws = new WebSocket(`ws://127.0.0.1:4897/api/sessions/${sessionId}/stream?ticket=${ticket}&mode=control&surface=test`);
-    await waitForMessage(ws, (text) => text.includes('replay.done'));
-    ws.send(JSON.stringify({ type: 'resize', cols: 0, rows: 0 }));
-    const error = await waitForMessage(ws, (text) => text.includes('bad_resize'));
-    assert.match(error, /bad_resize/);
-    assert.equal(store.listEvents(sessionId).some((event) => event.type === 'terminal.resize' && event.payload.cols === 0), false);
-    ws.close();
+    await withAuthFixture(async ({ authHeaders }) => {
+      const ticket = await requestTicket(4897, sessionId, 'control', authHeaders());
+      const ws = new WebSocket(`ws://127.0.0.1:4897/api/sessions/${sessionId}/stream?ticket=${ticket}&mode=control&surface=test`);
+      await waitForMessage(ws, (text) => text.includes('replay.done'));
+      ws.send(JSON.stringify({ type: 'resize', cols: 0, rows: 0 }));
+      const error = await waitForMessage(ws, (text) => text.includes('bad_resize'));
+      assert.match(error, /bad_resize/);
+      assert.equal(store.listEvents(sessionId).some((event) => event.type === 'terminal.resize' && event.payload.cols === 0), false);
+      ws.close();
+    });
   } finally {
     ptySessions.stop(sessionId);
     await daemon.close();
@@ -347,21 +562,23 @@ test('previous direct controller cannot write after control is claimed', async (
   const daemon = await startDaemon({ host: '127.0.0.1', port: 4894, store, ptySessions });
 
   try {
-    const firstTicket = await requestTicket(4894);
-    const first = new WebSocket(`ws://127.0.0.1:4894/api/sessions/${sessionId}/stream?ticket=${firstTicket}&mode=control&surface=test`);
-    await waitForMessage(first, (text) => text.includes('replay.done'));
+    await withAuthFixture(async ({ authHeaders }) => {
+      const firstTicket = await requestTicket(4894, sessionId, 'control', authHeaders());
+      const first = new WebSocket(`ws://127.0.0.1:4894/api/sessions/${sessionId}/stream?ticket=${firstTicket}&mode=control&surface=test`);
+      await waitForMessage(first, (text) => text.includes('replay.done'));
 
-    const secondTicket = await requestTicket(4894);
-    const second = new WebSocket(`ws://127.0.0.1:4894/api/sessions/${sessionId}/stream?ticket=${secondTicket}&mode=control&surface=test`);
-    await waitForMessage(second, (text) => text.includes('replay.done'));
+      const secondTicket = await requestTicket(4894, sessionId, 'control', authHeaders());
+      const second = new WebSocket(`ws://127.0.0.1:4894/api/sessions/${sessionId}/stream?ticket=${secondTicket}&mode=control&surface=test`);
+      await waitForMessage(second, (text) => text.includes('replay.done'));
 
-    first.send(JSON.stringify({ type: 'input', data: 'stale controller\r' }));
-    const error = await waitForMessage(first, (text) => text.includes('not_controller'));
-    assert.match(error, /not_controller/);
-    assert.equal(store.listEvents(sessionId).some((event) => event.type === 'user.input' && event.payload.data === 'stale controller\r'), false);
+      first.send(JSON.stringify({ type: 'input', data: 'stale controller\r' }));
+      const error = await waitForMessage(first, (text) => text.includes('not_controller'));
+      assert.match(error, /not_controller/);
+      assert.equal(store.listEvents(sessionId).some((event) => event.type === 'user.input' && event.payload.data === 'stale controller\r'), false);
 
-    first.close();
-    second.close();
+      first.close();
+      second.close();
+    });
   } finally {
     ptySessions.stop(sessionId);
     await daemon.close();
@@ -384,7 +601,10 @@ test('stop endpoint terminates live pty session', async () => {
   const daemon = await startDaemon({ host: '127.0.0.1', port: 4893, store, ptySessions });
 
   try {
-    const response = await fetch(`http://127.0.0.1:4893/api/sessions/${sessionId}/stop`, { method: 'POST' });
+    const response = await withAuthFixture(async ({ authHeaders }) => fetch(`http://127.0.0.1:4893/api/sessions/${sessionId}/stop`, {
+      method: 'POST',
+      headers: authHeaders()
+    }));
     assert.equal(response.ok, true);
     await waitFor(() => store.getSession(sessionId)?.status !== 'running', 1000);
     assert.equal(ptySessions.hasLiveSession(sessionId), false);
@@ -394,8 +614,17 @@ test('stop endpoint terminates live pty session', async () => {
   }
 });
 
-async function requestTicket(port: number): Promise<string> {
-  const response = await fetch(`http://127.0.0.1:${port}/api/ws-ticket`, { method: 'POST' });
+async function requestTicket(
+  port: number,
+  sessionId: string,
+  mode: 'control' | 'observe',
+  headers: Record<string, string>
+): Promise<string> {
+  const response = await fetch(`http://127.0.0.1:${port}/api/ws-ticket`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify({ sessionId, mode })
+  });
   const body = (await response.json()) as { ticket?: unknown };
   assert.equal(typeof body.ticket, 'string');
   return body.ticket as string;

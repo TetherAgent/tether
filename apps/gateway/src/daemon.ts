@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import type { Server as HttpServer } from 'node:http';
 import os from 'node:os';
@@ -10,13 +11,13 @@ import type { ServerType } from '@hono/node-server';
 import { WebSocketServer } from 'ws';
 import { readTetherConfig, type TetherConfig } from '@tether/config';
 import { isProviderName, PROVIDERS } from '@tether/core';
-import type { ProviderName } from '@tether/core';
+import type { AuthScopePayload, AuthTokenClass, ProviderName, SessionAccessMode } from '@tether/core';
 import { createSessionId } from './ids.js';
 import { maskSensitiveOutput } from './mask.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import { listGateways, registerGateway, touchGateway, unregisterGateway } from './registry.js';
 import { startRelayClient, type RunningRelayClient } from './relay-client.js';
-import { Store } from './store.js';
+import { Store, type Session } from './store.js';
 import { capturePane, sendKeys, sessionExists } from './tmux.js';
 
 export type DaemonOptions = {
@@ -32,6 +33,24 @@ export type DaemonOptions = {
 export type RunningDaemon = {
   url: string;
   close: () => Promise<void>;
+};
+
+type GatewayAuthState = {
+  serverUrl: string;
+  gatewayId: string;
+  accountId: string;
+  workspaceId: string;
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+};
+
+type AuthenticatedActor = AuthScopePayload;
+
+type WsTicketPayload = AuthScopePayload & {
+  tokenClass: 'ws_ticket';
+  sessionId: string;
+  mode: SessionAccessMode;
 };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -52,13 +71,51 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   const app = new Hono();
   const displayHost = options.host === '0.0.0.0' ? localLanAddress() ?? '127.0.0.1' : options.host;
   const url = `http://${displayHost}:${options.port}`;
-  const tickets = new Map<string, number>();
+  const consumedTicketJtis = new Set<string>();
   const clients = new Map<string, Map<string, ClientInfo>>();
   const controllers = new Map<string, string>();
   let relayClient: RunningRelayClient | undefined;
-  app.post('/api/ws-ticket', (c) => {
-    const ticket = randomUUID();
-    tickets.set(ticket, Date.now() + 60_000);
+  app.post('/api/ws-ticket', async (c) => {
+    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
+    if (!actor.ok) {
+      return c.json({ error: actor.error }, actor.status);
+    }
+    const body = await c.req.json<unknown>().catch(() => undefined);
+    if (!body || typeof body !== 'object') {
+      return c.json({ error: 'invalid JSON body' }, 400);
+    }
+    const request = body as Record<string, unknown>;
+    if (typeof request.sessionId !== 'string') {
+      return c.json({ error: 'sessionId is required' }, 400);
+    }
+    const mode = request.mode === 'observe' ? 'observe' : request.mode === 'control' ? 'control' : undefined;
+    if (!mode) {
+      return c.json({ error: 'mode is required' }, 400);
+    }
+    const session = options.store.getSession(request.sessionId);
+    if (!session) {
+      return c.json({ error: 'session not found' }, 404);
+    }
+    const ownership = authorizeSessionAccess(session, actor.payload);
+    if (!ownership.ok) {
+      return c.json({ error: ownership.error }, ownership.status);
+    }
+    const authState = await loadGatewayAuthState();
+    if (!authState.ok) {
+      return c.json({ error: authState.error }, authState.status);
+    }
+    const ticket = issueWsTicket({
+      accountId: actor.payload.accountId,
+      workspaceId: actor.payload.workspaceId,
+      gatewayId: actor.payload.gatewayId ?? authState.value.gatewayId,
+      userId: actor.payload.userId,
+      deviceId: actor.payload.deviceId,
+      sessionId: session.id,
+      mode,
+      tokenClass: 'ws_ticket',
+      expiresAt: Date.now() + 60_000,
+      jti: `wst_${randomUUID().replace(/-/g, '')}`
+    }, authState.value.refreshToken);
     return c.json({ ticket, expiresInMs: 60_000 });
   });
 
@@ -107,6 +164,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (options.allowApiSessionCreate !== true) {
       return c.json({ error: 'session creation is disabled' }, 403);
     }
+    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
+    if (!actor.ok) {
+      return c.json({ error: actor.error }, actor.status);
+    }
 
     const body = await c.req.json<unknown>().catch(() => undefined);
     if (!body || typeof body !== 'object') {
@@ -146,7 +207,21 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     }
 
     const id = createSessionId();
-    const session = options.ptySessions.create({ id, provider, command, projectPath, cols, rows: terminalRows });
+    const session = options.ptySessions.create({
+      id,
+      provider,
+      command,
+      projectPath,
+      cols,
+      rows: terminalRows,
+      owner: {
+        accountId: actor.payload.accountId,
+        workspaceId: actor.payload.workspaceId,
+        userId: actor.payload.userId,
+        deviceId: actor.payload.deviceId,
+        gatewayId: actor.payload.gatewayId
+      }
+    });
     return c.json({ session }, 201);
   });
 
@@ -176,9 +251,17 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   });
 
   app.post('/api/sessions/:id/send', async (c) => {
+    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
+    if (!actor.ok) {
+      return c.json({ error: actor.error }, actor.status);
+    }
     const session = options.store.getSession(c.req.param('id'));
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
+    }
+    const ownership = authorizeSessionAccess(session, actor.payload);
+    if (!ownership.ok) {
+      return c.json({ error: ownership.error }, ownership.status);
     }
 
     const body = await c.req.json<{ text?: unknown }>().catch(() => undefined);
@@ -232,9 +315,17 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   });
 
   app.post('/api/sessions/:id/input', async (c) => {
+    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
+    if (!actor.ok) {
+      return c.json({ error: actor.error }, actor.status);
+    }
     const session = options.store.getSession(c.req.param('id'));
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
+    }
+    const ownership = authorizeSessionAccess(session, actor.payload);
+    if (!ownership.ok) {
+      return c.json({ error: ownership.error }, ownership.status);
     }
     if (session.transport !== 'pty-event-stream') {
       return c.json({ error: 'session is not pty-backed' }, 409);
@@ -252,9 +343,17 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   });
 
   app.post('/api/sessions/:id/stop', async (c) => {
+    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
+    if (!actor.ok) {
+      return c.json({ error: actor.error }, actor.status);
+    }
     const session = options.store.getSession(c.req.param('id'));
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
+    }
+    const ownership = authorizeSessionAccess(session, actor.payload);
+    if (!ownership.ok) {
+      return c.json({ error: ownership.error }, ownership.status);
     }
     if (session.transport === 'pty-event-stream') {
       const ok = options.ptySessions?.stop(session.id) ?? false;
@@ -310,7 +409,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   }
 
   const wss = new WebSocketServer({ server: server as unknown as HttpServer });
-  wss.on('connection', (socket, request) => {
+  wss.on('connection', async (socket, request) => {
     const parsedUrl = new URL(request.url ?? '/', url);
     const match = /^\/api\/sessions\/([^/]+)\/stream$/.exec(parsedUrl.pathname);
     if (!match) {
@@ -324,13 +423,19 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       return;
     }
     const ticket = parsedUrl.searchParams.get('ticket');
-    if (!consumeTicket(tickets, ticket)) {
-      socket.close(1008, 'invalid ticket');
+    const mode = parsedUrl.searchParams.get('mode') === 'observe' ? 'observe' : 'control';
+    const authState = await loadGatewayAuthState();
+    if (!authState.ok) {
+      socket.close(1008, authState.error);
+      return;
+    }
+    const ticketPayload = consumeTicket(consumedTicketJtis, ticket, sessionId, mode, authState.value.refreshToken);
+    if (!ticketPayload.ok) {
+      socket.close(1008, ticketPayload.error);
       return;
     }
 
     const clientId = `cli_${randomUUID()}`;
-    const mode = parsedUrl.searchParams.get('mode') === 'observe' ? 'observe' : 'control';
     const after = parseIntegerQuery(parsedUrl.searchParams.get('after') ?? undefined, 0);
     let sessionClients = clients.get(session.id);
     if (!sessionClients) {
@@ -548,13 +653,188 @@ function containsForbiddenSessionCreateKey(value: unknown): boolean {
   return false;
 }
 
-function consumeTicket(tickets: Map<string, number>, ticket: string | null): boolean {
+async function authorizeRequest(
+  authorization: string | undefined,
+  allowedTokenClasses: AuthTokenClass[]
+): Promise<
+  | { ok: true; payload: AuthenticatedActor }
+  | { ok: false; status: 401 | 403 | 500; error: string }
+> {
+  const token = bearerTokenFromHeader(authorization);
+  if (!token) {
+    return { ok: false, status: 401, error: 'missing_token' };
+  }
+  const authState = await loadGatewayAuthState();
+  if (!authState.ok) {
+    return authState;
+  }
+  const payload = await validateAccessToken(authState.value.serverUrl, token);
+  if (!payload) {
+    return { ok: false, status: 401, error: 'invalid_token' };
+  }
+  if (!allowedTokenClasses.includes(payload.tokenClass)) {
+    return { ok: false, status: 403, error: 'wrong_token_class' };
+  }
+  return { ok: true, payload };
+}
+
+function authorizeSessionAccess(
+  session: Session,
+  actor: AuthenticatedActor
+): { ok: true } | { ok: false; status: 403; error: string } {
+  if (session.accountId && session.accountId !== actor.accountId) {
+    return { ok: false, status: 403, error: 'forbidden_account' };
+  }
+  if (session.workspaceId && session.workspaceId !== actor.workspaceId) {
+    return { ok: false, status: 403, error: 'forbidden_workspace' };
+  }
+  if (session.userId && actor.userId && session.userId !== actor.userId) {
+    return { ok: false, status: 403, error: 'forbidden_owner' };
+  }
+  if (session.gatewayId && actor.gatewayId && session.gatewayId !== actor.gatewayId) {
+    return { ok: false, status: 403, error: 'forbidden_gateway' };
+  }
+  if (session.userId && !actor.userId) {
+    return { ok: false, status: 403, error: 'forbidden_owner' };
+  }
+  return { ok: true };
+}
+
+function bearerTokenFromHeader(headerValue: string | undefined): string | undefined {
+  if (!headerValue || !headerValue.startsWith('Bearer ')) {
+    return undefined;
+  }
+  return headerValue.slice(7).trim();
+}
+
+async function loadGatewayAuthState(): Promise<
+  | { ok: true; value: GatewayAuthState }
+  | { ok: false; status: 500 | 401; error: string }
+> {
+  const raw = await readFile(gatewayAuthPath(), 'utf8').catch(() => undefined);
+  if (!raw) {
+    return { ok: false, status: 401, error: 'gateway_auth_missing' };
+  }
+  const parsed = parseGatewayAuthState(raw);
+  if (!parsed) {
+    return { ok: false, status: 500, error: 'gateway_auth_invalid' };
+  }
+  if (parsed.expiresAt <= Date.now()) {
+    return { ok: false, status: 401, error: 'gateway_auth_expired' };
+  }
+  return { ok: true, value: parsed };
+}
+
+function gatewayAuthPath(): string {
+  return process.env.TETHER_AUTH_PATH ?? path.join(os.homedir(), '.tether', 'auth.json');
+}
+
+function parseGatewayAuthState(raw: string): GatewayAuthState | undefined {
+  try {
+    const value = JSON.parse(raw) as Partial<GatewayAuthState>;
+    if (
+      typeof value.serverUrl === 'string' &&
+      typeof value.gatewayId === 'string' &&
+      typeof value.accountId === 'string' &&
+      typeof value.workspaceId === 'string' &&
+      typeof value.accessToken === 'string' &&
+      typeof value.refreshToken === 'string' &&
+      typeof value.expiresAt === 'number'
+    ) {
+      return value as GatewayAuthState;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+async function validateAccessToken(serverUrl: string, token: string): Promise<AuthenticatedActor | undefined> {
+  const response = await fetch(`${serverUrl}/api/token/validate`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token })
+  }).catch(() => undefined);
+  if (!response?.ok) {
+    return undefined;
+  }
+  const payload = (await response.json().catch(() => undefined)) as Partial<AuthenticatedActor> | undefined;
+  if (
+    payload &&
+    typeof payload.accountId === 'string' &&
+    typeof payload.workspaceId === 'string' &&
+    typeof payload.tokenClass === 'string' &&
+    typeof payload.expiresAt === 'number' &&
+    typeof payload.jti === 'string'
+  ) {
+    return payload as AuthenticatedActor;
+  }
+  return undefined;
+}
+
+function issueWsTicket(payload: WsTicketPayload, secret: string): string {
+  const encodedHeader = encodeSegment({ alg: 'HS256', typ: 'JWT' });
+  const encodedPayload = encodeSegment(payload);
+  const signature = signValue(`${encodedHeader}.${encodedPayload}`, secret);
+  return `${encodedHeader}.${encodedPayload}.${signature}`;
+}
+
+function consumeTicket(
+  consumedJtis: Set<string>,
+  ticket: string | null,
+  expectedSessionId: string,
+  expectedMode: SessionAccessMode,
+  secret: string
+): { ok: true; payload: WsTicketPayload } | { ok: false; error: string } {
   if (!ticket) {
+    return { ok: false, error: 'invalid ticket' };
+  }
+  const parts = ticket.split('.');
+  if (parts.length !== 3) {
+    return { ok: false, error: 'invalid ticket' };
+  }
+  const [encodedHeader, encodedPayload, signature] = parts;
+  const expectedSignature = signValue(`${encodedHeader}.${encodedPayload}`, secret);
+  if (!safeEqual(signature, expectedSignature)) {
+    return { ok: false, error: 'invalid ticket' };
+  }
+  const payload = decodeSegment<WsTicketPayload>(encodedPayload);
+  if (payload.tokenClass !== 'ws_ticket') {
+    return { ok: false, error: 'invalid ticket' };
+  }
+  if (payload.expiresAt < Date.now()) {
+    return { ok: false, error: 'expired ticket' };
+  }
+  if (payload.sessionId !== expectedSessionId) {
+    return { ok: false, error: 'wrong session ticket' };
+  }
+  if (payload.mode !== expectedMode) {
+    return { ok: false, error: 'wrong mode ticket' };
+  }
+  if (consumedJtis.has(payload.jti)) {
+    return { ok: false, error: 'reused ticket' };
+  }
+  consumedJtis.add(payload.jti);
+  return { ok: true, payload };
+}
+
+function encodeSegment(payload: object): string {
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+}
+
+function decodeSegment<T>(value: string): T {
+  return JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as T;
+}
+
+function signValue(value: string, secret: string): string {
+  return createHmac('sha256', secret).update(value).digest('base64url');
+}
+
+function safeEqual(left: string, right: string): boolean {
+  if (left.length !== right.length) {
     return false;
   }
-  const expiresAt = tickets.get(ticket);
-  tickets.delete(ticket);
-  return typeof expiresAt === 'number' && expiresAt >= Date.now();
+  return timingSafeEqual(Buffer.from(left), Buffer.from(right));
 }
 
 function stripAnsi(value: string): string {
