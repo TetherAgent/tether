@@ -1,4 +1,8 @@
+import fs from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { Command } from 'commander';
 import WebSocket from 'ws';
 import type { RawData } from 'ws';
@@ -42,6 +46,13 @@ import { runningSessionIds } from './session-stop.js';
 
 const program = new Command();
 
+process.stdout.on('error', (error: NodeJS.ErrnoException) => {
+  if (error.code === 'EPIPE') {
+    process.exit(0);
+  }
+  throw error;
+});
+
 program
   .name('tether')
   .description('Agent console for sharing one CLI agent session across devices')
@@ -68,6 +79,10 @@ type GatewayStatus = {
   relay?: {
     configured?: unknown;
     state?: unknown;
+  };
+  environment?: {
+    pathHasHomebrewBin?: unknown;
+    pathHasUsrLocalBin?: unknown;
   };
 };
 
@@ -118,7 +133,8 @@ const gatewayCommand = program
       store,
       ptySessions,
       allowApiSessionCreate: gateway.allowApiSessionCreate,
-      relay: relayConfig(options, file)
+      relay: relayConfig(options, file),
+      config: file
     });
     console.log(`Tether Gateway: ${daemon.url}`);
     console.log('Gateway is running. Press Ctrl-C to stop.');
@@ -133,12 +149,24 @@ gatewayCommand
   .option('--port <port>', 'Gateway port', parsePort)
   .option('--relay-url <url>', 'Relay URL')
   .option('--relay-secret <secret>', 'Relay shared secret')
+  .option('--codex-command <path>', 'Codex provider command path')
+  .option('--claude-command <path>', 'Claude provider command path')
+  .option('--opencode-command <path>', 'OpenCode provider command path')
+  .option('--clear-codex-command', 'clear Codex provider command path')
+  .option('--clear-claude-command', 'clear Claude provider command path')
+  .option('--clear-opencode-command', 'clear OpenCode provider command path')
   .option('--allow-api-session-create', '允许 Gateway API 创建白名单 provider session')
   .action(async (options: {
     host?: string;
     port?: number;
     relayUrl?: string;
     relaySecret?: string;
+    codexCommand?: string;
+    claudeCommand?: string;
+    opencodeCommand?: string;
+    clearCodexCommand?: boolean;
+    clearClaudeCommand?: boolean;
+    clearOpencodeCommand?: boolean;
     allowApiSessionCreate?: boolean;
   }, command: Command) => {
     const gatewayOptions = command.parent?.opts<{
@@ -155,7 +183,8 @@ gatewayCommand
     const next: TetherConfig = {
       ...existing,
       gateway: { ...existing.gateway },
-      relay: { ...existing.relay }
+      relay: { ...existing.relay },
+      providers: { ...existing.providers }
     };
     if (host !== undefined) {
       next.gateway = { ...next.gateway, host };
@@ -172,11 +201,32 @@ gatewayCommand
     if (relaySecret !== undefined) {
       next.relay = { ...next.relay, secret: relaySecret };
     }
+    for (const [provider, commandPath] of Object.entries({
+      codex: options.codexCommand,
+      claude: options.claudeCommand,
+      opencode: options.opencodeCommand
+    }) as Array<[keyof NonNullable<TetherConfig['providers']>, string | undefined]>) {
+      if (commandPath !== undefined) {
+        next.providers = { ...next.providers, [provider]: { command: path.resolve(commandPath) } };
+      }
+    }
+    for (const [provider, clear] of Object.entries({
+      codex: options.clearCodexCommand,
+      claude: options.clearClaudeCommand,
+      opencode: options.clearOpencodeCommand
+    }) as Array<[keyof NonNullable<TetherConfig['providers']>, boolean | undefined]>) {
+      if (clear === true && next.providers) {
+        delete next.providers[provider];
+      }
+    }
     if (next.gateway && Object.keys(next.gateway).length === 0) {
       delete next.gateway;
     }
     if (next.relay && Object.keys(next.relay).length === 0) {
       delete next.relay;
+    }
+    if (next.providers && Object.keys(next.providers).length === 0) {
+      delete next.providers;
     }
     await writeTetherConfig(next);
     console.log(`Gateway 配置已写入：${configPath()}`);
@@ -230,6 +280,43 @@ gatewayCommand
     await printGatewayStatus();
   });
 
+gatewayCommand
+  .command('providers')
+  .description('list configured provider commands')
+  .action(() => {
+    const config = readTetherConfig();
+    for (const provider of Object.values(PROVIDERS)) {
+      const command = config.providers?.[provider.name]?.command ?? provider.command;
+      const source = config.providers?.[provider.name]?.command ? '配置' : 'PATH';
+      console.log(`${provider.name}\t${source}\t${command}`);
+    }
+  });
+
+gatewayCommand
+  .command('logs')
+  .description('show Gateway launchd logs')
+  .option('-f, --follow', 'follow logs')
+  .option('--stderr', 'show stderr log only')
+  .option('--stdout', 'show stdout log only')
+  .action(async (options: { follow?: boolean; stderr?: boolean; stdout?: boolean }) => {
+    await showGatewayLogs(options);
+  });
+
+gatewayCommand
+  .command('doctor')
+  .description('diagnose Gateway background runtime')
+  .action(async () => {
+    await runGatewayDoctor();
+  });
+
+gatewayCommand
+  .command('verify')
+  .description('create and stop a short Gateway-managed session')
+  .option('--provider <provider>', 'provider to verify', 'codex')
+  .action(async (options: { provider: string }) => {
+    await verifyGatewaySession(options.provider);
+  });
+
 program
   .command('run')
   .argument('<provider>')
@@ -251,6 +338,7 @@ program
   });
 
 async function startProviderSession(provider: ProviderDefinition, options: StartOptions): Promise<void> {
+  const providerCommand = configuredProviderCommand(provider);
   if (options.inline !== true) {
     const gatewayUrl = await findPersistentGateway(options);
     if (gatewayUrl) {
@@ -294,7 +382,7 @@ async function startProviderSession(provider: ProviderDefinition, options: Start
   const name = sessionName(id);
   const now = Date.now();
 
-  await createAgentSession(name, projectPath, provider.command);
+  await createAgentSession(name, projectPath, providerCommand);
   store.insertSession({
     id,
     provider: provider.name,
@@ -303,7 +391,7 @@ async function startProviderSession(provider: ProviderDefinition, options: Start
     status: 'running',
     attachState: options.attach ? 'attached' : 'detached',
     tmuxSessionName: name,
-    command: provider.command,
+    command: providerCommand,
     transport: 'tmux',
     createdAt: now,
     updatedAt: now,
@@ -330,6 +418,7 @@ async function startProviderSession(provider: ProviderDefinition, options: Start
 }
 
 async function startPtyProviderSession(provider: ProviderDefinition, options: StartOptions): Promise<void> {
+  const providerCommand = configuredProviderCommand(provider);
   const projectPath = path.resolve(options.project);
   const store = new Store();
   const ptySessions = new PtySessionManager(store);
@@ -339,7 +428,7 @@ async function startPtyProviderSession(provider: ProviderDefinition, options: St
   ptySessions.create({
     id,
     provider: provider.name,
-    command: provider.command,
+    command: providerCommand,
     projectPath,
     cols,
     rows
@@ -370,6 +459,11 @@ async function startPtyProviderSession(provider: ProviderDefinition, options: St
       console.error(`Detached. Gateway is still serving ${remoteUrl}`);
     }
   }
+}
+
+function configuredProviderCommand(provider: ProviderDefinition): string {
+  const command = readTetherConfig().providers?.[provider.name]?.command;
+  return command && command.length > 0 ? command : provider.command;
 }
 
 async function findPersistentGateway(options: Pick<StartOptions, 'host' | 'port'>): Promise<string | undefined> {
@@ -644,7 +738,146 @@ async function printGatewayStatus(): Promise<void> {
   console.log(`Port: ${port}`);
   console.log(`Relay 配置: ${relayConfigured ? '已配置' : '未配置'}`);
   console.log(`Relay 连接: ${relayState ?? '未确认'}`);
+  console.log(`后台 PATH: ${formatGatewayPathStatus(api)}`);
+  console.log(`Provider 命令: ${formatProviderCommands(file)}`);
   console.log(`LaunchAgent: ${formatLaunchAgentStatus(launchd)}`);
+}
+
+function formatGatewayPathStatus(api: GatewayStatus | undefined): string {
+  if (!api) {
+    return '未确认';
+  }
+  const hasHomebrew = booleanValue(api.environment?.pathHasHomebrewBin);
+  const hasUsrLocal = booleanValue(api.environment?.pathHasUsrLocalBin);
+  if (hasHomebrew || hasUsrLocal) {
+    return [
+      hasHomebrew ? '包含 /opt/homebrew/bin' : undefined,
+      hasUsrLocal ? '包含 /usr/local/bin' : undefined
+    ].filter(Boolean).join('，');
+  }
+  return '未包含常见用户 bin 目录';
+}
+
+function formatProviderCommands(config: TetherConfig): string {
+  const configured = Object.entries(config.providers ?? {})
+    .filter((entry): entry is [string, { command: string }] => typeof entry[1]?.command === 'string' && entry[1].command.length > 0)
+    .map(([provider, value]) => `${provider}=${value.command}`);
+  return configured.length > 0 ? configured.join('，') : '未配置，使用 PATH 查找';
+}
+
+async function showGatewayLogs(options: { follow?: boolean; stderr?: boolean; stdout?: boolean }): Promise<void> {
+  const paths = gatewayLogPaths(options);
+  if (options.follow) {
+    const child = spawn('tail', ['-f', ...paths], { stdio: 'inherit' });
+    await new Promise<void>((resolve, reject) => {
+      child.on('error', reject);
+      child.on('close', () => resolve());
+    });
+    return;
+  }
+  for (const filePath of paths) {
+    console.log(`==> ${filePath} <==`);
+    const text = await readFile(filePath, 'utf8').catch((error: unknown) => {
+      if (isNodeError(error) && error.code === 'ENOENT') {
+        return '';
+      }
+      throw error;
+    });
+    const lines = text.trimEnd().split('\n').filter(Boolean).slice(-80);
+    console.log(lines.length > 0 ? lines.join('\n') : '(暂无日志)');
+  }
+}
+
+function gatewayLogPaths(options: { stderr?: boolean; stdout?: boolean }): string[] {
+  const logsDir = path.join(os.homedir(), '.tether', 'logs');
+  if (options.stderr) {
+    return [path.join(logsDir, 'gateway.err.log')];
+  }
+  if (options.stdout) {
+    return [path.join(logsDir, 'gateway.out.log')];
+  }
+  return [path.join(logsDir, 'gateway.out.log'), path.join(logsDir, 'gateway.err.log')];
+}
+
+async function runGatewayDoctor(): Promise<void> {
+  const file = readTetherConfig();
+  const gateway = resolveGatewayConfig({ file });
+  const relay = resolveRelayConfig({ file });
+  const launchd = await getLaunchAgentStatus();
+  const api = await fetchFirstGatewayStatus([`http://${gateway.host}:${gateway.port}`]);
+  const checks: Array<{ name: string; status: 'ok' | 'warn' | 'fail'; detail: string }> = [];
+  const pushCheck = (name: string, ok: boolean, detail: string) => {
+    checks.push({ name, status: ok ? 'ok' : 'fail', detail });
+  };
+  pushCheck('配置文件', fs.existsSync(configPath()), configPath());
+  pushCheck('LaunchAgent 已安装', launchd.installed, launchd.path);
+  pushCheck('LaunchAgent 已加载', launchd.loaded, launchd.error ?? `PID ${launchd.pid ?? '-'}`);
+  pushCheck('Gateway API 可连接', Boolean(api), `http://${gateway.host}:${gateway.port}`);
+  pushCheck('API session creation', gateway.allowApiSessionCreate, gateway.allowApiSessionCreate ? '已开启' : '未开启');
+  pushCheck('Relay 配置', Boolean(relay), relay ? relay.url : '未配置');
+  pushCheck('Relay 连接', stringValue(api?.relay?.state) === 'connected', stringValue(api?.relay?.state) ?? '未确认');
+  for (const provider of Object.values(PROVIDERS)) {
+    const configuredCommand = file.providers?.[provider.name]?.command;
+    const command = configuredCommand ?? provider.command;
+    const available = commandAvailable(command);
+    checks.push({
+      name: `${provider.name} 命令`,
+      status: available ? 'ok' : configuredCommand ? 'fail' : 'warn',
+      detail: command
+    });
+  }
+  pushCheck('后台 PATH', formatGatewayPathStatus(api) !== '未包含常见用户 bin 目录', formatGatewayPathStatus(api));
+
+  let failed = 0;
+  for (const check of checks) {
+    if (check.status === 'fail') failed += 1;
+    const label = check.status === 'ok' ? 'OK  ' : check.status === 'warn' ? 'WARN' : 'FAIL';
+    console.log(`${label} ${check.name}: ${check.detail}`);
+  }
+  if (failed > 0) {
+    process.exitCode = 1;
+  }
+}
+
+async function verifyGatewaySession(providerName: string): Promise<void> {
+  if (!isProviderName(providerName)) {
+    throw new Error(`unknown provider: ${providerName}`);
+  }
+  const gateway = resolveGatewayConfig();
+  const gatewayUrl = `http://${gateway.host}:${gateway.port}`;
+  const session = await createSessionViaGateway(PROVIDERS[providerName], { project: process.cwd() }, gatewayUrl);
+  if (!session) {
+    throw new Error('无法通过 Gateway 创建 session，请先开启 allowApiSessionCreate 并重启 Gateway');
+  }
+  console.log(`已创建验证 session：${session.id}`);
+  const response = await fetch(`${gatewayUrl}/api/sessions/${encodeURIComponent(session.id)}/stop`, { method: 'POST' });
+  if (!response.ok) {
+    throw new Error(`验证 session 停止失败：HTTP ${response.status}`);
+  }
+  console.log(`已停止验证 session：${session.id}`);
+}
+
+function commandAvailable(command: string): boolean {
+  if (path.isAbsolute(command)) {
+    try {
+      fs.accessSync(command, fs.constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return (process.env.PATH ?? '').split(path.delimiter).some((dir) => {
+    try {
+      fs.accessSync(path.join(dir, command), fs.constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error;
 }
 
 async function getLaunchAgentStatus(): Promise<LaunchAgentStatus> {

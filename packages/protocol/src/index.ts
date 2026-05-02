@@ -34,6 +34,7 @@ export type RelayServerToGatewayFrame =
   | { type: 'client.subscribe'; clientId: string; sessionId: string; after?: number; mode: RelayClientMode }
   | { type: 'client.input'; clientId: string; sessionId: string; data: string }
   | { type: 'client.resize'; clientId: string; sessionId: string; cols: number; rows: number }
+  | { type: 'client.stop'; clientId: string; sessionId: string }
   | { type: 'client.detach'; clientId: string; sessionId: string };
 
 export type RelayClientToServerFrame =
@@ -42,6 +43,7 @@ export type RelayClientToServerFrame =
   | { type: 'client.subscribe'; sessionId: string; after?: number; mode: RelayClientMode }
   | { type: 'client.input'; sessionId: string; data: string }
   | { type: 'client.resize'; sessionId: string; cols: number; rows: number }
+  | { type: 'client.stop'; sessionId: string }
   | { type: 'client.detach'; sessionId: string };
 
 export type RelayServerToClientFrame =

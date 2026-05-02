@@ -248,6 +248,18 @@ p {
   background: #171a1f;
 }
 
+.session-card a {
+  display: grid;
+  gap: 5px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.session-card .secondary-button {
+  justify-self: start;
+  margin-top: 4px;
+}
+
 .session-card:active,
 .session-card:hover {
   border-color: #8fd0ff;

@@ -92,6 +92,14 @@ test('relay forwards subscribed input and resize to gateway', async () => {
       cols: 100,
       rows: 30
     });
+
+    client.send(JSON.stringify({ type: 'client.stop', sessionId: 'tth_input_test' }));
+    const stop = await waitForJson(gateway, (message) => message.type === 'client.stop');
+    assert.deepEqual(stop, {
+      type: 'client.stop',
+      clientId,
+      sessionId: 'tth_input_test'
+    });
   } finally {
     gateway.close();
     client.close();

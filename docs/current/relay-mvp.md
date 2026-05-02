@@ -1,6 +1,7 @@
 # Personal Relay MVP 部署说明
 
-本文记录 Phase 1 Personal Relay MVP 的当前部署方式。目标拓扑是：
+本文记录 Phase 1 Personal Relay MVP 的当前部署方式。该方案已经完成，但现在只作为
+多账户认证落地前的本地/自托管 bootstrap，不是最终生产认证模型。目标拓扑是：
 
 ```text
 本机 Tether Gateway -> 自托管 apps/relay Node 服务 -> nginx serve 的 apps/web
@@ -11,6 +12,16 @@
 - `apps/web` 是浏览器客户端。生产环境先运行 `pnpm web:build` 生成静态产物，再由 nginx serve。
 - `apps/relay` 只运行 Node relay 服务，负责认证后的 WebSocket frame 转发。它不 serve `apps/web` 静态文件，不启动 agent，不执行命令，也不持久化终端明文。
 - Gateway 是本机 session owner，负责已有 session、PTY 输入输出、事件 replay 和 resize。
+
+## 当前认证状态
+
+Phase 1 使用 `TETHER_RELAY_SECRET` 打通 Gateway outbound WSS 和 remote Web attach。
+这只是临时 bootstrap：后续 v0.3 目标是多账户认证，外部端登录远程 auth/control-plane，
+Gateway 启动时认证并绑定 account/workspace，Relay 的 `/gateway` 和 `/client` WebSocket
+都必须使用 token 认证并按 account/workspace/Gateway/session scope 路由。
+
+生产目标不再依赖浏览器手填 relay secret。Relay 仍只转发认证后的协议 frame，不执行命令、
+不接受 provider command/args/env、不持久化终端明文。
 
 ## 本地最简单启动
 
@@ -45,7 +56,7 @@
 
 ## Relay 服务
 
-Relay 服务读取共享 secret：
+Relay 服务当前读取共享 secret：
 
 ```bash
 TETHER_RELAY_SECRET=<personal-secret> pnpm relay
@@ -71,7 +82,7 @@ relay frame 转发职责保持分离。
 
 ## Gateway 连接 Relay
 
-Gateway 使用 relay URL 和 secret 主动连到 relay：
+Gateway 当前使用 relay URL 和 secret 主动连到 relay：
 
 ```bash
 pnpm tether gateway config \
@@ -101,7 +112,7 @@ Gateway；环境变量更适合一次性前台验证。`pnpm tether run codex --
 2. 在页头的 Connection 设置里选择 `Relay`。
 3. 输入 relay URL，例如 `wss://relay.example.com`。Web 客户端会连接该地址下的 `/client`。
 4. 在 password input 中输入 relay secret。secret 只保存在浏览器 localStorage，并通过
-   `client.auth` frame 发送，不进入 URL query/template。
+   `client.auth` frame 发送，不进入 URL query/template。该交互会被后续多账户登录替换。
 5. 列表页通过 `client.list` 获取 session；进入 session 后通过 `client.subscribe`
    attach，通过 `client.input` 发送输入，通过 `client.resize` 同步终端尺寸。
 
@@ -254,9 +265,9 @@ wss://relay.example.com
 ## 安全边界
 
 Phase 1 的 `TETHER_RELAY_SECRET` 是个人 MVP 共享 secret，只适合自托管、个人使用和可信
-部署环境。完整 owner device-token pairing、设备授权、撤销和更细粒度的写权限校验属于
-Phase 4；多用户账号、Hosted Relay tenancy、Gateway/session ownership、角色和分享模型
-属于后续 Multi-user / Hosted Relay / Ownership Model。
+部署环境。v0.3 后续目标已经升级为多账户认证：外部端登录、Gateway 启动认证、Relay
+Gateway/Client WS 认证、Gateway/session ownership、角色授权、撤销和审计都属于 Phase
+4/5；shared secret 不作为生产认证模型。
 
 在 Phase 1 中：
 

@@ -242,6 +242,20 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           rows: frame.rows
         });
         break;
+      case 'client.stop':
+        if (subscriptions.get(frame.sessionId) !== 'control') {
+          sendToClient(clientId, {
+            type: 'error',
+            sessionId: frame.sessionId,
+            code: subscriptions.has(frame.sessionId) ? 'observe_only' : 'not_subscribed',
+            message: subscriptions.has(frame.sessionId)
+              ? 'observer clients cannot stop sessions'
+              : 'client is not subscribed to this session'
+          });
+          break;
+        }
+        forwardToGateway({ type: 'client.stop', clientId, sessionId: frame.sessionId });
+        break;
       case 'client.detach':
         subscriptions.delete(frame.sessionId);
         forwardToGateway({ type: 'client.detach', clientId, sessionId: frame.sessionId });
@@ -369,6 +383,8 @@ function isClientFrame(frame: Record<string, unknown>): frame is RelayClientToSe
       return typeof frame.sessionId === 'string' && typeof frame.data === 'string';
     case 'client.resize':
       return typeof frame.sessionId === 'string' && isValidTerminalSize(frame.cols, frame.rows);
+    case 'client.stop':
+      return typeof frame.sessionId === 'string';
     case 'client.detach':
       return typeof frame.sessionId === 'string';
     default:
