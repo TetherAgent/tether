@@ -161,6 +161,7 @@ pnpm tether attach <session-id> --control
 pnpm tether attach <session-id> --observe
 pnpm tether clients <session-id>
 pnpm tether stop <session-id>
+pnpm tether stop --all
 pnpm tether codex --transport tmux   # migration fallback
 ```
 

@@ -67,6 +67,8 @@ pnpm tether codex
 ```bash
 pnpm tether gateway status    # 看后台 Gateway 有没有跑、PID、端口、Relay 状态
 pnpm tether ls                # 看当前 sessions
+pnpm tether stop <id>         # 关闭单个 session
+pnpm tether stop --all        # 关闭所有 running session
 pnpm tether gateway stop      # 停掉后台 Gateway
 pnpm tether gateway uninstall # 删除登录启动
 ```
@@ -91,6 +93,9 @@ tether gateway status
 tether gateway uninstall
 tether codex
 tether codex --inline
+tether ls
+tether stop <id>
+tether stop --all
 ```
 
 - `tether gateway`：前台运行 Gateway，适合开发、观察日志和手动验证。
@@ -104,6 +109,10 @@ tether codex --inline
 - `tether gateway uninstall`：停止后台 Gateway 并移除 LaunchAgent。
 - `tether codex`：优先探测常驻 Gateway；可用时由常驻 Gateway 创建并持有 session。
 - `tether codex --inline`：强制使用 inline 模式，适合排查 Gateway 转发问题。
+- `tether ls`：列出已知 session。常见状态包括 `running`、`stopped`、`completed`、
+  `failed`、`lost`。
+- `tether stop <id>`：关闭指定 session。
+- `tether stop --all`：关闭所有 `running` session，不删除历史记录。
 
 仓库内开发时等价命令使用 `pnpm tether ...`，例如：
 
@@ -185,6 +194,35 @@ pnpm tether ls
 pnpm tether codex --inline --no-attach
 ```
 
+远程 Relay 验证：
+
+```bash
+pnpm tether gateway config \
+  --relay-url wss://relay.example.com \
+  --relay-secret <personal-secret> \
+  --allow-api-session-create
+
+# 终端 1
+pnpm tether gateway
+
+# 终端 2
+pnpm tether codex --no-attach
+pnpm tether gateway status
+pnpm tether ls
+```
+
+`gateway status` 里看到 `Relay 连接: connected`，`tether ls` 里看到最新 session 是
+`running`，说明本机 Gateway 已经连上 Relay。打开 Web 时填：
+
+```text
+Connection: Relay
+Relay URL: wss://relay.example.com
+Secret: <personal-secret>
+```
+
+如果页面是 HTTPS，Relay URL 必须是 `wss://`。填 `ws://` 会被浏览器直接拦截，不会
+发出 `/client` 请求。
+
 后台 launchd 生命周期：
 
 ```bash
@@ -210,6 +248,18 @@ pnpm tether gateway uninstall
   里的 Relay 连接状态；Relay 断开不应阻止本地 session 创建。
 - launchd 状态异常：运行 `tether gateway stop` 后再 `tether gateway start`；如果需要
   重建 plist，运行 `tether gateway uninstall` 再 `tether gateway install`。
+- `tether codex --no-attach` 打印 session 后立刻回到 shell：这是正常行为。它只创建
+  session，不 attach 当前终端。用 `tether ls` 看状态，用 `tether attach <id> --control`
+  接回本地控制，用 Web 远程控制。
+- Web 页面看不到 session，但本机 `gateway status` 是 `Relay 连接: connected`：优先检查
+  Web 页面是否填了 `wss://...`，Secret 是否一致，Connection 是否选 `Relay`。
+- Web 页面报 `An insecure WebSocket connection may not be initiated from a page loaded over HTTPS`：
+  把 Relay URL 从 `ws://...` 改成 `wss://...`。
+- WebSocket curl 普通访问 `/gateway` 或 `/client` 返回 `404`：普通 HTTP 访问是正常 404，
+  这两个路径必须带 WebSocket upgrade 头。真正验证要看是否返回
+  `101 Switching Protocols`。
+- 页面能打开但 `/gateway` 或 `/client` 公网返回 404：检查 nginx location 和 CDN/全球
+  加速 WebSocket 支持。代理层必须把 `/gateway` 和 `/client` 转发到 Relay Node 服务。
 
 ## Verification
 

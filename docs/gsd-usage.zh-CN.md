@@ -50,7 +50,7 @@ GSD（Get Shit Done）是一套帮你把"想法 → 落地"过程结构化的命
 - `/web-design-guidelines` — 按 Web Interface Guidelines 复核 UI 代码
 
 典型搭配：`/gsd-ui-phase N` → `/gsd-execute-phase N` → `/gsd-ui-review N`。
-比纯写代码或纯 OpenSpec 更适合前端页面开发。
+比纯写代码更适合前端页面开发。
 
 ### 轻量任务（不想走完整流程）
 

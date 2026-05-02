@@ -7,8 +7,7 @@
 - 根目录 `AGENTS.md`、`CLAUDE.md`、`PROJECT.md`、`AI_CONTEXT.md`
 - `docs/current/` 下与任务直接相关的文档
 - `docs/working/` 下相关草稿（仅当任务对应未立项的探索阶段）
-- `openspec/specs/` 下与任务直接相关的规格
-- `openspec/changes/<name>/` 下单个与任务直接相关的活跃变更（仅当它存在时）
+- `.planning/` 下与当前 GSD 阶段直接相关的计划、状态和验收记录
 - 实际将被修改的源码文件
 
 默认不要扫描依赖、构建产物、缓存、测试输出或大型归档目录。
@@ -20,7 +19,6 @@
 - `.tether/`（运行时数据目录）
 - `coverage`
 - `logs`
-- `openspec/changes/archive`
 
 只有在定位问题、追踪调用链或确认影响面时，才允许扩大搜索范围。扩大范围时
 应说明原因。
@@ -45,7 +43,7 @@
 - API、数据模型、共享类型、跨模块改动：必须跑相关测试和类型检查。
 - 终端 / 子进程交互改动：在本地实际起 Gateway + PTY event stream 验证一次端到端，
   不能仅依赖单元测试。
-- OpenSpec change 实现：按 `tasks.md` 的验收项逐项验证。
+- GSD 阶段执行：按对应 `PLAN.md`、验收项和用户确认逐项验证。
 - 如果无法运行验证，必须明确说明：没跑什么、为什么没跑、残余风险是什么。
 
 ## 安全门槛（项目专属）
@@ -66,16 +64,16 @@ Tether 直接控制本机命令行，安全是底线，必须始终遵守：
 文档按生命周期分层，每层只承担一个职责：
 
 ```text
-docs/working/ → openspec/changes/<name>/ → openspec/specs/<capability>/ → 根目录长期文档
-   (起草)         (施工)                     (长期能力契约)              (AGENTS.md / AI_CONTEXT.md / PROJECT.md)
+docs/working/ → .planning/ → docs/current/ → 根目录长期文档
+   (起草)        (GSD 计划/执行/验收) (当前事实)   (AGENTS.md / AI_CONTEXT.md / PROJECT.md)
 ```
 
 新增长期有效事实时，必须同步更新长期文档：
 
 - AI 协作规则、通用命令、仓库结构、架构约定：更新 `AGENTS.md` 和 `AI_CONTEXT.md`。
 - 项目专属规则和约束：更新 `PROJECT.md`。
-- 长期能力契约：更新 `openspec/specs/`。
-- 当前施工过程、临时决策、阶段性任务：写入对应 `openspec/changes/<change-id>/`，
+- 当前功能说明、部署方式和已确认设计：更新 `docs/current/`。
+- 当前施工过程、临时决策、阶段性任务：写入 `.planning/` 对应阶段产物，
   不要污染长期文档。
 - 当前实现和既有文档不一致时，不能只改代码；必须同步修正文档，或明确指出
   冲突并等待确认。
@@ -107,6 +105,7 @@ pnpm tether attach <id> --control
 pnpm tether attach <id> --observe
 pnpm tether clients <id>
 pnpm tether stop <id>
+pnpm tether stop --all
 pnpm tether codex --host 0.0.0.0
 pnpm tether codex --transport tmux
 ```

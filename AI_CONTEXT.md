@@ -119,9 +119,7 @@ HarmonyOS / Flutter / iOS / Android 都视为 client surface，只消费 Gateway
 │   ├── README.md                                        # 文档治理
 │   ├── current/                                         # 长期事实
 │   └── working/                                         # 立项前草稿
-└── openspec/
-    ├── specs/                                           # 长期能力契约
-    └── changes/                                         # 活跃变更
+└── .planning/                                           # GSD 阶段计划、执行状态和验收记录
 ```
 
 ## 数据模型（当前）
