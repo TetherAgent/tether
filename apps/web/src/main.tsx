@@ -57,6 +57,11 @@ type RelayServerToClientFrame =
   | { type: 'replay.done'; sessionId: string; latestEventId: number }
   | { type: 'error'; sessionId?: string; code: string; message: string };
 
+type RelayClientToServerFrame =
+  | { type: 'client.list' }
+  | { type: 'client.subscribe'; sessionId: string; after?: number; mode: ClientMode }
+  | { type: 'client.stop'; sessionId: string };
+
 const WEB_TRANSPORT_KEY = 'tether:webTransportMode';
 const WEB_CLIENT_MODE_KEY = 'tether:webClientMode';
 const CONNECTION_MODE_KEY = 'tether:connectionMode';
@@ -125,6 +130,10 @@ function parseWsFrame(data: unknown): Record<string, unknown> | undefined {
     return undefined;
   }
   return undefined;
+}
+
+function sendRelayFrame(ws: WebSocket, frame: RelayClientToServerFrame): void {
+  ws.send(JSON.stringify(frame));
 }
 
 function sessionStatusLabel(status: string): string {
@@ -258,6 +267,7 @@ function SessionList({
   const [gateways, setGateways] = React.useState<Gateway[]>([]);
   const [webTransportMode, setWebTransportMode] = React.useState<WebTransportMode>(readWebTransportMode);
   const [status, setStatus] = React.useState('加载中');
+  const listSocket = React.useRef<WebSocket | undefined>(undefined);
 
   const changeWebTransportMode = React.useCallback((mode: WebTransportMode) => {
     window.localStorage.setItem(WEB_TRANSPORT_KEY, mode);
@@ -326,6 +336,7 @@ function SessionList({
     };
     ws.addEventListener('open', () => {
       if (disposed) return;
+      listSocket.current = ws;
       setStatus('正在验证 Relay');
       ws?.send(JSON.stringify({ type: 'client.auth', secret: connectionSettings.relaySecret }));
     });
@@ -376,8 +387,39 @@ function SessionList({
         window.clearInterval(timer);
       }
       ws?.close();
+      if (listSocket.current === ws) {
+        listSocket.current = undefined;
+      }
     };
   }, [connectionSettings.connectionMode, connectionSettings.relaySecret, connectionSettings.relayUrl]);
+
+  const stopSession = React.useCallback(async (sessionId: string) => {
+    setStatus('正在停止');
+    if (connectionSettings.connectionMode === 'relay') {
+      const ws = listSocket.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        setStatus('Relay 未连接');
+        return;
+      }
+      sendRelayFrame(ws, { type: 'client.subscribe', sessionId, mode: 'control' });
+      sendRelayFrame(ws, { type: 'client.stop', sessionId });
+      setSessions((current) => current.filter((session) => session.id !== sessionId));
+      setStatus('已发送停止请求');
+      return;
+    }
+    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/stop`, { method: 'POST' });
+    if (!response.ok) {
+      setStatus(`停止失败：HTTP ${response.status}`);
+      return;
+    }
+    await refreshDirect();
+  }, [connectionSettings.connectionMode, refreshDirect]);
+
+  const stopAllSessions = React.useCallback(async () => {
+    for (const session of sessions) {
+      await stopSession(session.id);
+    }
+  }, [sessions, stopSession]);
 
   return (
     <>
@@ -385,6 +427,9 @@ function SessionList({
         <h1>Tether</h1>
         <div className="header-actions">
           <ConnectionSettingsControl settings={connectionSettings} onChange={onConnectionSettingsChange} />
+          {sessions.length > 0 ? (
+            <button className="secondary-button" type="button" onClick={() => void stopAllSessions()}>全部停止</button>
+          ) : null}
           {connectionSettings.connectionMode === 'direct' ? (
             <label className="mode-select">
               传输
@@ -417,7 +462,7 @@ function SessionList({
           <section className="session-section" aria-label="活跃 session">
             <div className="section-heading">活跃</div>
             {sessions.map((session) => (
-              <SessionCard session={session} key={session.id} />
+              <SessionCard session={session} key={session.id} onStop={stopSession} />
             ))}
           </section>
         )}
@@ -434,17 +479,22 @@ function SessionList({
   );
 }
 
-function SessionCard({ session }: { session: Session }) {
+function SessionCard({ session, onStop }: { session: Session; onStop?: (sessionId: string) => void }) {
   return (
-    <a className="session-card" href={`/remote/session/${encodeURIComponent(session.id)}`}>
-      <span className="session-card-title">{session.title || session.provider}</span>
-      <span className="session-card-meta">
-        {session.provider} · {sessionStatusLabel(session.status)} · {session.transport ?? 'tmux'} ·{' '}
-        {new Date(session.lastActiveAt).toLocaleTimeString()}
-      </span>
-      <span className="session-card-id">{session.id}</span>
-      <span className="session-card-path">{session.projectPath}</span>
-    </a>
+    <div className="session-card">
+      <a href={`/remote/session/${encodeURIComponent(session.id)}`}>
+        <span className="session-card-title">{session.title || session.provider}</span>
+        <span className="session-card-meta">
+          {session.provider} · {sessionStatusLabel(session.status)} · {session.transport ?? 'tmux'} ·{' '}
+          {new Date(session.lastActiveAt).toLocaleTimeString()}
+        </span>
+        <span className="session-card-id">{session.id}</span>
+        <span className="session-card-path">{session.projectPath}</span>
+      </a>
+      {onStop ? (
+        <button className="secondary-button" type="button" onClick={() => onStop(session.id)}>停止</button>
+      ) : null}
+    </div>
   );
 }
 
@@ -945,7 +995,14 @@ function PtySessionView({
 
   async function stopSession(): Promise<void> {
     if (connectionSettings.connectionMode === 'relay') {
-      setStatus('Relay 模式暂不支持从网页停止');
+      const ws = socket.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        setStatus('Relay 未连接');
+        return;
+      }
+      sendRelayFrame(ws, { type: 'client.subscribe', sessionId, mode: 'control' });
+      sendRelayFrame(ws, { type: 'client.stop', sessionId });
+      setStatus('已发送停止请求');
       return;
     }
     setStatus('正在停止');
@@ -966,9 +1023,7 @@ function PtySessionView({
               <option value="observe">观察</option>
             </select>
           </label>
-          {connectionSettings.connectionMode === 'direct' ? (
-            <button className="secondary-button" type="button" onClick={() => stopSession()}>停止</button>
-          ) : null}
+          <button className="secondary-button" type="button" onClick={() => stopSession()}>停止</button>
           <div className="status">{status}</div>
         </div>
       </header>

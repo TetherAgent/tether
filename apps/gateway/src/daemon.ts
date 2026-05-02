@@ -8,7 +8,9 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import type { ServerType } from '@hono/node-server';
 import { WebSocketServer } from 'ws';
+import { readTetherConfig, type TetherConfig } from '@tether/config';
 import { isProviderName, PROVIDERS } from '@tether/core';
+import type { ProviderName } from '@tether/core';
 import { createSessionId } from './ids.js';
 import { maskSensitiveOutput } from './mask.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
@@ -24,6 +26,7 @@ export type DaemonOptions = {
   ptySessions?: PtySessionManager;
   relay?: { url: string; secret: string; gatewayId?: string };
   allowApiSessionCreate?: boolean;
+  config?: TetherConfig;
 };
 
 export type RunningDaemon = {
@@ -68,6 +71,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       port: options.port,
       allowApiSessionCreate: Boolean(options.allowApiSessionCreate),
       relay: relayClient ? relayClient.status() : { configured: false },
+      environment: {
+        pathHasHomebrewBin: pathListIncludes(process.env.PATH, '/opt/homebrew/bin'),
+        pathHasUsrLocalBin: pathListIncludes(process.env.PATH, '/usr/local/bin')
+      },
       liveSessionIds: options.ptySessions?.liveSessionIds() ?? []
     });
   });
@@ -120,7 +127,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       return c.json({ error: 'provider is required' }, 400);
     }
     const provider = request.provider;
-    const command = PROVIDERS[provider].command;
+    const command = providerCommand(provider, options.config);
 
     if (request.projectPath !== undefined && typeof request.projectPath !== 'string') {
       return c.json({ error: 'projectPath must be a string' }, 400);
@@ -484,6 +491,15 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       }).finally(() => unregisterGateway(gatewayId).catch(() => undefined));
     }
   };
+}
+
+function providerCommand(provider: ProviderName, config = readTetherConfig()): string {
+  const command = config.providers?.[provider]?.command;
+  return command && command.length > 0 ? command : PROVIDERS[provider].command;
+}
+
+function pathListIncludes(value: string | undefined, needle: string): boolean {
+  return (value ?? '').split(path.delimiter).includes(needle);
 }
 
 function parseIntegerQuery(value: string | undefined, fallback: number): number {

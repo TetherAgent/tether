@@ -116,7 +116,7 @@ test('session creation accepts whitelisted provider when enabled', async () => {
   chmodSync(fakeCodex, 0o755);
   process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ''}`;
   const ptySessions = new PtySessionManager(store);
-  const daemon = await startDaemon({ host: '127.0.0.1', port: 4901, store, ptySessions, allowApiSessionCreate: true });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4901, store, ptySessions, allowApiSessionCreate: true, config: {} });
 
   try {
     const response = await fetch('http://127.0.0.1:4901/api/sessions', {
@@ -138,6 +138,43 @@ test('session creation accepts whitelisted provider when enabled', async () => {
     ptySessions.stop(createdId);
   } finally {
     process.env.PATH = originalPath;
+    await daemon.close();
+    cleanup();
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test('session creation uses configured provider command path', async () => {
+  const { store, cleanup } = tempStore();
+  const binDir = mkdtempSync(path.join(tmpdir(), 'tether-daemon-provider-bin-'));
+  const fakeCodex = path.join(binDir, 'codex-custom');
+  writeFileSync(fakeCodex, '#!/bin/sh\nsleep 2\n', 'utf8');
+  chmodSync(fakeCodex, 0o755);
+  const ptySessions = new PtySessionManager(store);
+  const daemon = await startDaemon({
+    host: '127.0.0.1',
+    port: 4908,
+    store,
+    ptySessions,
+    allowApiSessionCreate: true,
+    config: { providers: { codex: { command: fakeCodex } } }
+  });
+
+  try {
+    const response = await fetch('http://127.0.0.1:4908/api/sessions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'codex', projectPath: binDir, cols: 100, rows: 30 })
+    });
+    assert.equal(response.status, 201);
+    const body = (await response.json()) as { session?: { id?: string; command?: string } };
+    assert.equal(body.session?.command, fakeCodex);
+    const createdId = body.session?.id;
+    assert.equal(typeof createdId, 'string');
+    if (createdId) {
+      ptySessions.stop(createdId);
+    }
+  } finally {
     await daemon.close();
     cleanup();
     rmSync(binDir, { recursive: true, force: true });

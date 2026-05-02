@@ -138,6 +138,9 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       case 'client.resize':
         resizePty(frame.clientId, frame.sessionId, frame.cols, frame.rows);
         return;
+      case 'client.stop':
+        stopPty(frame.clientId, frame.sessionId);
+        return;
       case 'client.detach':
         removeSubscription(frame.clientId, frame.sessionId);
         return;
@@ -194,6 +197,23 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     }
     const ok = options.ptySessions?.resize(sessionId, clientId, cols, rows) ?? false;
     if (!ok) {
+      sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
+    }
+  };
+
+  const stopPty = (clientId: string, sessionId: string) => {
+    const subscription = subscriptions.get(subscriptionKey(clientId, sessionId));
+    if (!subscription) {
+      sendError(clientId, sessionId, 'not_subscribed', 'client is not subscribed to this session');
+      return;
+    }
+    if (subscription.mode !== 'control') {
+      sendError(clientId, sessionId, 'observe_only', 'observer clients cannot stop sessions');
+      return;
+    }
+    const ok = options.ptySessions?.stop(sessionId) ?? false;
+    if (!ok) {
+      options.store.updateSessionStatus(sessionId, 'lost');
       sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
     }
   };

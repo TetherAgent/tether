@@ -58,6 +58,9 @@ importers:
       '@hono/node-server':
         specifier: ^1.14.4
         version: 1.19.14(hono@4.12.16)
+      '@tether/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@tether/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -141,6 +144,10 @@ importers:
         version: 19.2.3(@types/react@19.2.14)
 
   packages/config:
+    dependencies:
+      '@tether/core':
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       '@types/node':
         specifier: ^22.15.29

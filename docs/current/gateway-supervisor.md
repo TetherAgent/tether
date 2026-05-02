@@ -62,10 +62,26 @@ pnpm tether gateway start
 pnpm tether codex
 ```
 
+如果后台 Gateway 找不到 `codex`、`claude` 或 `opencode`，可以把 provider 命令写成
+绝对路径：
+
+```bash
+pnpm tether gateway config --codex-command "$(command -v codex)"
+pnpm tether gateway restart
+pnpm tether gateway status
+```
+
+`gateway install/start/restart` 写入 launchd plist 时会记录当前 `HOME` 和 `PATH`，让后台
+Gateway 继承常见用户命令目录。绝对路径配置优先级更高，适合长期稳定使用。
+
 常用检查和清理：
 
 ```bash
 pnpm tether gateway status    # 看后台 Gateway 有没有跑、PID、端口、Relay 状态
+pnpm tether gateway providers # 看 codex/claude/opencode 实际用哪个命令启动
+pnpm tether gateway logs      # 看后台 Gateway 的 launchd 日志
+pnpm tether gateway doctor    # 一次性诊断后台 Gateway、Relay、provider 命令
+pnpm tether gateway verify --provider codex # 创建并停止一个验证 session
 pnpm tether ls                # 看当前 sessions
 pnpm tether stop <id>         # 关闭单个 session
 pnpm tether stop --all        # 关闭所有 running session
@@ -80,6 +96,51 @@ pnpm tether gateway uninstall # 删除登录启动
 - `pnpm tether codex --inline`：强制旧模式，只适合调试。
 - `pnpm tether gateway status`：看现在到底跑没跑。
 
+## 你现在该敲哪个命令
+
+按场景选，不需要每次都全跑：
+
+```bash
+# 第一次在这台 Mac 上长期使用
+pnpm tether gateway config --host 127.0.0.1 --port 4789 --allow-api-session-create
+pnpm tether gateway config --relay-url wss://tether.earntools.me --relay-secret <secret>
+pnpm tether gateway config --codex-command "$(command -v codex)"
+pnpm tether gateway start
+pnpm tether gateway doctor
+
+# 平时开一个远程可见的 Codex
+pnpm tether codex
+
+# 只创建 session，不占住当前终端
+pnpm tether codex --no-attach
+
+# 看当前有哪些 session
+pnpm tether ls
+
+# 关闭一个 session
+pnpm tether stop <session-id>
+
+# 全部关闭 running session
+pnpm tether stop --all
+
+# 看后台 Gateway 是否健康
+pnpm tether gateway status
+pnpm tether gateway doctor
+
+# 看后台日志
+pnpm tether gateway logs --stderr
+
+# 代码更新后让后台 Gateway 重新加载
+pnpm tether gateway restart
+```
+
+`gateway doctor` 是最推荐的总检查命令。它会把常见问题分成 `OK`、`WARN`、`FAIL`：
+
+- `OK`：这一项正常。
+- `WARN`：提醒项，不一定阻塞。例如你没装 `opencode`，但也没打算用它。
+- `FAIL`：需要处理。例如 Relay 没连上、API session creation 没开、配置过的 codex
+  绝对路径找不到。
+
 ## 日常命令
 
 ```bash
@@ -90,6 +151,10 @@ tether gateway start
 tether gateway stop
 tether gateway restart
 tether gateway status
+tether gateway providers
+tether gateway logs
+tether gateway doctor
+tether gateway verify --provider codex
 tether gateway uninstall
 tether codex
 tether codex --inline
@@ -105,7 +170,16 @@ tether stop --all
 - `tether gateway stop`：通过 launchd 停止后台 Gateway。
 - `tether gateway restart`：通过 launchd 重启后台 Gateway。
 - `tether gateway status`：输出中文状态，包含运行状态、PID、URL、配置路径、Host、
-  Port、Relay 配置、Relay 连接和 LaunchAgent 状态。
+  Port、Relay 配置、Relay 连接、后台 PATH、Provider 命令和 LaunchAgent 状态。
+- `tether gateway providers`：列出 `codex`、`claude`、`opencode` 的命令来源和实际命令；
+  来源是 `配置` 表示来自 `~/.tether/config.json`，来源是 `PATH` 表示启动时再查 PATH。
+- `tether gateway logs`：查看后台 Gateway 的 launchd stdout/stderr 日志。可加
+  `--stderr`、`--stdout` 或 `-f` 持续跟随。
+- `tether gateway doctor`：诊断配置文件、LaunchAgent、Gateway API、Relay、provider
+  命令和后台 PATH。未配置且未安装的可选 provider 会显示 `WARN`，不会让诊断失败；
+  已显式配置但找不到的 provider 会显示 `FAIL`。
+- `tether gateway verify --provider codex`：通过常驻 Gateway 创建一个短 session，再立即
+  停止，用来验证 API session creation、provider 命令和 stop 链路。
 - `tether gateway uninstall`：停止后台 Gateway 并移除 LaunchAgent。
 - `tether codex`：优先探测常驻 Gateway；可用时由常驻 Gateway 创建并持有 session。
 - `tether codex --inline`：强制使用 inline 模式，适合排查 Gateway 转发问题。
@@ -134,6 +208,7 @@ Gateway 配置文件是 JSON：
 ```bash
 tether gateway config --host 127.0.0.1 --port 4789 --allow-api-session-create
 tether gateway config --relay-url wss://relay.example.com --relay-secret <personal-secret>
+tether gateway config --codex-command /opt/homebrew/bin/codex
 ```
 
 配置解析优先级是：CLI flags > 环境变量 > `~/.tether/config.json` > 默认值。
@@ -141,6 +216,33 @@ tether gateway config --relay-url wss://relay.example.com --relay-secret <person
 `allowApiSessionCreate` 默认是 `false`。它关闭时，`POST /api/sessions` 会拒绝远程/API
 创建 session；它开启后也仍然只允许 provider 白名单里的 `codex`、`claude` 和
 `opencode`，不能接受任意 command/args/env，也不是完整远程执行接口。
+
+Provider 命令可选配置在：
+
+```json
+{
+  "providers": {
+    "codex": {
+      "command": "/opt/homebrew/bin/codex"
+    }
+  }
+}
+```
+
+推荐用 CLI 写入，不手改 JSON：
+
+```bash
+pnpm tether gateway config --codex-command "$(command -v codex)"
+pnpm tether gateway config --claude-command "$(command -v claude)"
+pnpm tether gateway config --opencode-command "$(command -v opencode)"
+```
+
+清除某个 provider 的绝对路径配置，让它重新回到 PATH 查找：
+
+```bash
+pnpm tether gateway config --clear-codex-command
+pnpm tether gateway restart
+```
 
 ## 后台运行
 
@@ -167,7 +269,8 @@ tether gateway uninstall
 
 `install` 只注册登录启动；如果要马上运行，继续执行 `start`。plist 的
 `ProgramArguments` 使用安装时解析出的绝对 Node、tsx loader 和 CLI 入口路径，不依赖
-当前工作目录里的 `pnpm tether`。
+当前工作目录里的 `pnpm tether`。plist 也会写入 `EnvironmentVariables`，包含 `HOME`
+和安装/启动时的 `PATH`，避免 launchd 的极简环境找不到用户安装的 provider CLI。
 
 ## Session 创建安全边界
 
@@ -178,8 +281,9 @@ tether gateway uninstall
 - request body 只接受 `provider`、`projectPath`、`cols`、`rows`。
 - 不能接受任意 command/args/env、`shell`、`argv` 或 `providerCommand`。
 - Gateway 默认绑定 `127.0.0.1`；暴露到局域网必须显式设置 `--host 0.0.0.0`。
-- Phase 4 的完整 owner device-token pairing/auth 仍未在本阶段实现。
-- Phase 5 的 retention、WAL checkpoint 和 event storage cleanup 仍未在本阶段实现。
+- Phase 4/5 的多账户模型、Gateway startup auth、Relay WS auth、role authorization
+  仍未在本阶段实现。
+- Phase 6 的 retention、WAL checkpoint 和 event storage cleanup 仍未在本阶段实现。
 
 ## 本地验证
 
@@ -223,6 +327,19 @@ Secret: <personal-secret>
 如果页面是 HTTPS，Relay URL 必须是 `wss://`。填 `ws://` 会被浏览器直接拦截，不会
 发出 `/client` 请求。
 
+## 代码更新后怎么重启
+
+仓库内开发或服务器代码更新后，本机后台 Gateway 不会自动加载新代码。更新依赖或代码后
+执行：
+
+```bash
+pnpm install
+pnpm tether gateway restart
+pnpm tether gateway doctor
+```
+
+如果只是改了 Web 前端，还要重新 build 并让 nginx serve 新的 `apps/web/dist`。
+
 后台 launchd 生命周期：
 
 ```bash
@@ -248,6 +365,11 @@ pnpm tether gateway uninstall
   里的 Relay 连接状态；Relay 断开不应阻止本地 session 创建。
 - launchd 状态异常：运行 `tether gateway stop` 后再 `tether gateway start`；如果需要
   重建 plist，运行 `tether gateway uninstall` 再 `tether gateway install`。
+- 后台 Gateway 能启动，但 `tether codex --no-attach` 创建后马上失败：先运行
+  `tether gateway status` 看 `后台 PATH` 和 `Provider 命令`。如果 PATH 不包含
+  `/opt/homebrew/bin` 或 `/usr/local/bin`，运行 `tether gateway restart` 让 plist 重写
+  当前 PATH；更稳妥的方式是运行
+  `tether gateway config --codex-command "$(command -v codex)"` 后重启 Gateway。
 - `tether codex --no-attach` 打印 session 后立刻回到 shell：这是正常行为。它只创建
   session，不 attach 当前终端。用 `tether ls` 看状态，用 `tether attach <id> --control`
   接回本地控制，用 Web 远程控制。

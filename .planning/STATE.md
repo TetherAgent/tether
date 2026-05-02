@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.3
 milestone_name: milestone
-status: ready
+status: executing
 stopped_at: Phase 6 complete
-last_updated: "2026-05-02T00:00:00Z"
-last_activity: 2026-05-02 -- Phase 6 complete
+last_updated: "2026-05-02T10:06:32.982Z"
+last_activity: 2026-05-02 -- Phase 3 planning complete
 progress:
-  total_phases: 7
+  total_phases: 8
   completed_phases: 2
-  total_plans: 9
+  total_plans: 13
   completed_plans: 9
-  percent: 100
+  percent: 69
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-01)
 
 **Core value:** 在 agent session 场景里，本地体验对齐 tmux，并在历史回放、多端接管、审计、手机/Web/App 接入上超越 tmux。
-**Current focus:** Phase 2 — Experience Hardening
+**Current focus:** Phase 3 — Cleanup
 
 ## Current Position
 
-Phase: 2 of 7 (Experience Hardening)
-Plan: 0 of TBD in current phase
-Status: Phase 6 complete; ready to resume normal roadmap order at Phase 2
-Last activity: 2026-05-02 -- Phase 6 complete
+Phase: 3 (Cleanup) — EXECUTING
+Plan: 1 of 4
+Status: Ready to execute
+Last activity: 2026-05-02 -- Phase 3 planning complete
 
-Progress: [██████████] 100%
+Progress: [██░░░░░░░░] 25%
 
 ## Performance Metrics
 
@@ -61,15 +61,15 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
 - Phase 2 shipped: PTY-backed event stream (TRANSPORT-01..04, CLI-01/02, MULTI-01, WEB-01, REPLAY-01, SAFE-01..03, STATE-01, STRUCT-01) — all validated
-- v0.3 scope: personal Relay-first remote access; macOS Gateway owner; avoid broad multi-user/product relay scope
-- Relay MVP is Phase 1: self-hosted Relay, Gateway outbound WSS, owner link secret, one Gateway + remote Web client; Relay forwards frames only and never executes commands or persists terminal plaintext
-- Phase 6 is pulled forward before Phase 2-5 for solo-use priority: make Gateway a persistent service and separate it from `tether run` / provider command wrappers first; Phase 2-5 remain planned hardening work
-- Multi-user is not part of v0.3. Phase 4 is owner device authentication only; future Multi-user / Hosted Relay / Ownership Model must define accounts, tenancy, Gateway/session ownership, roles, sharing, revoke, and audit.
+- v0.3 scope has changed to Multi-account Relay Access: account login, Gateway startup auth, Relay Gateway/Client WS auth, ownership, roles, revoke, and audit are now in scope
+- Relay MVP is Phase 1: self-hosted Relay, Gateway outbound WSS, owner link secret, one Gateway + remote Web client; this remains a bootstrap path only, not the target auth model
+- Phase 7 was pulled forward and completed as the former Phase 6 for Gateway persistence; normal roadmap now resumes at Phase 2, then cleanup, account/auth contract, multi-user auth implementation, retention, and security/isolation tests
+- Phase 4 is a short no-code contract gate: it must define account/workspace/Gateway/session ownership, user/device identity, roles, token classes, sharing/control semantics, revoke, and audit before Phase 5 implementation starts
 - Detach hotkey: `Ctrl-]` (0x1D, ASCII GS) — CLI-side intercept only, not Gateway-side
 - PTY write chunking: 512 bytes per write with `setImmediate` between chunks (macOS PTY 1024-byte buffer bug)
 - node-pty must upgrade to ≥ 1.2.0-beta.12 before Phase 5 (GW-01) begins — closes fd-leak issue #907
-- Auth pattern: one-time WS ticket stays; device token gates `POST /api/ws-ticket` itself
-- Token storage: SHA-256 hash only in SQLite; raw token returned once at pairing and never stored
+- Auth pattern: browser WS still uses HTTP token auth to obtain a short-lived one-time WS ticket; token checks must include account/workspace/Gateway/session scope and role
+- Token model: client access token, refresh token, Gateway token, device identity, and WS ticket are separate classes; raw long-lived secrets must not be stored in session events or Relay logs
 - Retention: DELETE WHERE ts < cutoff every 15 min; WAL checkpoint (RESTART) on 5-min cadence; no auto-VACUUM
 - launchd plist: absolute node path snapshotted at install time via `process.execPath`; `$HOME` not expanded — all paths must be literal strings
 - CLEAN-02 decision: retain `transport` column as extension point; remove `'tmux'` from active write types only; keep `'tmux'` in `fromRow` for historical reads
@@ -80,8 +80,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- GW-01 probe fallback behavior when Gateway is mid-restart (launchd race) is underspecified in research — recommend a brief design pass before Phase 5 planning. Suggested: retry loop with 3 attempts / 500ms spacing before falling back to in-process.
-- node-pty upgrade to beta.12 is a prerequisite for GW-01 (Phase 5) and should be done at the start of that phase.
+- GW-01 probe fallback behavior when Gateway is mid-restart (launchd race) is underspecified in research — recommend a brief design pass before future Gateway hardening. Suggested: retry loop with 3 attempts / 500ms spacing before falling back to in-process.
 
 ## Deferred Items
 
@@ -90,7 +89,7 @@ Items acknowledged and carried forward from previous milestone close:
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
 | Phase 1.5 | Cloudflare Tunnel / Tailscale tooling | Deferred to v0.4+ | v0.3 scoping |
-| Relay hardening | Hosted Relay service, multi-user accounts, ownership model, E2EE relay envelopes | Deferred after personal MVP | v0.3 reorder |
+| Relay hardening | Hosted SaaS operations and E2EE relay envelopes | Deferred after multi-account auth boundary | v0.3 reorder |
 | Phase 3a | Provider abstraction (ACP / JSON-RPC) + multi-agent | Deferred | v0.3 scoping |
 | Phase 3b | Multi-machine federation | Deferred | v0.3 scoping |
 | Phase 3c | Push notifications + encrypted relay | Deferred | v0.3 scoping |

@@ -13,6 +13,7 @@ export type GatewayPlistOptions = {
   cliMainPath?: string;
   stdoutPath?: string;
   stderrPath?: string;
+  env?: NodeJS.ProcessEnv;
 };
 
 export type LaunchAgentStatus = {
@@ -42,6 +43,7 @@ export function buildGatewayPlist(options: GatewayPlistOptions = {}): string {
   const args = gatewayProgramArguments(options);
   const stdoutPath = options.stdoutPath ?? path.join(os.homedir(), '.tether', 'logs', 'gateway.out.log');
   const stderrPath = options.stderrPath ?? path.join(os.homedir(), '.tether', 'logs', 'gateway.err.log');
+  const environment = launchdEnvironment(options.env);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -56,6 +58,10 @@ ${args.map((arg) => `    <string>${escapePlist(arg)}</string>`).join('\n')}
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <key>EnvironmentVariables</key>
+  <dict>
+${Object.entries(environment).map(([key, value]) => `    <key>${escapePlist(key)}</key>\n    <string>${escapePlist(value)}</string>`).join('\n')}
+  </dict>
   <key>StandardOutPath</key>
   <string>${escapePlist(stdoutPath)}</string>
   <key>StandardErrorPath</key>
@@ -144,6 +150,16 @@ function gatewayProgramArguments(options: GatewayPlistOptions): string[] {
   const tsxLoaderPath = path.resolve(options.tsxLoaderPath ?? path.join(__dirname, '../../../node_modules/tsx/dist/loader.mjs'));
   const cliMainPath = path.resolve(options.cliMainPath ?? path.join(__dirname, 'main.ts'));
   return [nodePath, '--import', tsxLoaderPath, cliMainPath, 'gateway'];
+}
+
+function launchdEnvironment(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const pathValue = env.PATH && env.PATH.length > 0
+    ? env.PATH
+    : '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
+  return {
+    HOME: os.homedir(),
+    PATH: pathValue
+  };
 }
 
 function runLaunchctl(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {

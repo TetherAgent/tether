@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import type { ProviderName } from '@tether/core';
 
 export const DEFAULT_GATEWAY_PORT = 4789;
 export const DEFAULT_GATEWAY_HOST = '127.0.0.1';
@@ -16,6 +17,9 @@ export type TetherConfig = {
     url?: string;
     secret?: string;
   };
+  providers?: Partial<Record<ProviderName, {
+    command?: string;
+  }>>;
 };
 
 export type GatewayConfigInput = {

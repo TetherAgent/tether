@@ -1,19 +1,21 @@
-# Requirements: Tether v0.3 — Personal Relay Access
+# Requirements: Tether v0.3 — Multi-account Relay Access
 
 **Defined:** 2026-05-01
 **Core Value:** 在 agent session 场景里，本地体验对齐 tmux，并在历史回放、多端接管、审计、手机/Web/App 接入上超越 tmux。
 
 ## Milestone Scope
 
-This is a **personal remote-access milestone** — Phase 2 PTY-backed event stream main path is shipped (see `.planning/PROJECT.md` Validated section), and the next priority is making it usable by the owner from outside the LAN through a minimal self-hosted Relay. The v0.3 requirements below cover the unchecked Phase 2 hardening items plus one new Relay MVP requirement. Multi-user accounts, hosted relay tenancy, organization/team permissions, and cross-owner session ownership are explicitly deferred beyond v0.3.
+This is a **multi-account remote-access milestone** — Phase 2 PTY-backed event stream main path is shipped (see `.planning/PROJECT.md` Validated section), and the next priority is making it usable through an authenticated Relay path that supports multiple accounts, multiple external clients, Gateway ownership, session ownership, and role-based control.
 
-**Milestone exit:** A solo user can reach a Mac Gateway through a self-hosted Relay, then the remaining P0+P1 requirements pass: direct/relay writes are authenticated, local terminal experience does not regress vs tmux, event storage is bounded, and security/integration tests cover the relay and Gateway safety boundaries.
+The already-shipped Personal Relay MVP remains useful as a development bootstrap, but its shared-secret model is not the target auth model. Production-facing direct/relay writes must be account-token authenticated.
+
+**Milestone exit:** Multiple logged-in users can use external clients against the Relay without crossing account/workspace boundaries. A Gateway authenticates at startup, sessions are scoped to their owning account/workspace/Gateway, direct/relay writes are authorized by role, local terminal experience does not regress vs tmux, event storage is bounded, and security/integration tests cover account isolation, Relay auth, Gateway auth, and audit boundaries.
 
 ## v1 Requirements
 
 ### Personal Relay MVP (P0 — remote access for a solo owner)
 
-- [x] **RELAY-01**: Gateway can connect outbound to a self-hosted Relay over WSS using an owner-configured relay link secret. A remote Web client can authenticate to that Relay, list/attach to existing Gateway sessions, and exchange terminal output/input/resize/control frames. Relay only forwards authenticated protocol frames, never executes commands, never accepts provider command/args/env, and does not persist terminal plaintext. Multi-user accounts, billing, federation, push, and full E2EE relay envelopes are out of scope for this requirement.
+- [x] **RELAY-01**: Gateway can connect outbound to a self-hosted Relay over WSS using an owner-configured relay link secret. A remote Web client can authenticate to that Relay, list/attach to existing Gateway sessions, and exchange terminal output/input/resize/control frames. Relay only forwards authenticated protocol frames, never executes commands, never accepts provider command/args/env, and does not persist terminal plaintext. This is a completed bootstrap requirement; production multi-account auth is covered by `ACCOUNT-*`, `AUTH-*`, `RELAY-AUTH-*`, and `AUDIT-*`.
 
 ### Experience Hardening (P0 — local terminal experience must not regress vs tmux)
 
@@ -28,10 +30,33 @@ This is a **personal remote-access milestone** — Phase 2 PTY-backed event stre
 - [ ] **CLEAN-01**: tmux fallback transport (`--transport tmux`) is removed from production paths. Historical `transport='tmux'` rows in SQLite remain readable but no new tmux sessions can be created.
 - [ ] **CLEAN-02**: `transport` column / TypeScript `SessionTransport` type is either removed or explicitly retained as a future extension point with a documented migration path (decision recorded).
 
-### Owner Device Authentication (P1 — hardens direct and relay-routed writes for the solo owner)
+### Account & Auth Contract (P0 — short no-code gate before Phase 5)
 
-- [ ] **AUTH-02**: The owner can run `tether pair`, receive a one-time pairing code (or QR), enter it from a phone/Web client, and receive a device token. Token hash (SHA-256) is stored in SQLite `device_tokens` table; raw token only ever exists in memory and the response payload. This is owner/device pairing, not multi-user account login.
-- [ ] **AUTH-01**: All write endpoints (input / resize / stop / claim-control / release-control / `POST /api/sessions` / `POST /api/ws-ticket`) reject requests without a valid `Authorization: Bearer <device-token>` header. Device names appear in `client.attached` events. Relay-routed writes use the same device-token checks once this requirement lands. This does not define per-user roles, organizations, shared workspaces, or session ownership transfer.
+- [ ] **ACCOUNT-01**: Define the canonical ownership graph in a Phase 4 contract document: `account -> workspace -> gateway -> session`, plus `user` and `device` identities. Every Gateway and session must resolve to exactly one account/workspace boundary before it can be exposed through Relay.
+- [ ] **ACCOUNT-02**: Define roles and permissions for multi-user use in the same contract. Minimum roles are `owner`, `admin`, `controller`, and `observer`; list/read/subscribe/input/resize/claim-control/release-control/stop/session-create/Gateway-admin permissions are explicitly mapped.
+- [ ] **ACCOUNT-03**: Define token classes and trust boundaries in the contract: client access token, client refresh token, device identity, Gateway token, and short-lived WS ticket. Token payloads must carry enough identity to authorize account/workspace/Gateway/session access without trusting client-supplied query fields.
+- [ ] **ACCOUNT-04**: Define where auth state lives and how Phase 5 consumes the contract. The remote auth/control-plane is source of truth for accounts, users, devices, Gateway registrations, session visibility policy, token issuance, refresh, logout, and revoke. Local Gateway stores only the minimum cached identity/session metadata needed for offline-safe operation and audit continuity.
+- [ ] **ACCOUNT-05**: Phase 4 is no-code by default. It must not change runtime code, database schema, API handlers, Relay behavior, or Web UI; it only produces the contract that Phase 5 implements. Any exception must be explicitly called out and approved before execution.
+
+### Multi-user Authentication & Access Control (P1 — replaces single-owner device auth)
+
+- [ ] **AUTH-01**: External Web/native clients must log in to the remote auth/control-plane and receive a short-lived access token plus refresh token. Relay and Gateway APIs must reject unauthenticated clients; relay secret is development/bootstrap only and not accepted as production client auth.
+- [ ] **AUTH-02**: Gateway startup must authenticate to the remote auth/control-plane, bind to an account/workspace, receive or refresh a Gateway token, and use that token when connecting outbound to Relay. A Gateway without a valid token cannot publish sessions through Relay.
+- [ ] **AUTH-03**: All write endpoints (input / resize / stop / claim-control / release-control / `POST /api/sessions` / `POST /api/ws-ticket`) reject requests without a valid token and a role that permits the action. Direct Gateway mode and Relay-routed mode must use the same authorization rules.
+- [ ] **AUTH-04**: Browser WebSocket connections use HTTP token auth to obtain a short-lived, single-use WS ticket; the ticket is scoped to account/workspace/Gateway/session/mode and cannot be reused for another session or role.
+- [ ] **AUTH-05**: Token revoke, device revoke, logout, and Gateway unlink are enforced. Revoked clients cannot obtain new WS tickets or perform HTTP writes; existing WS connections are closed or downgraded on the next server-side authorization check.
+- [ ] **AUTH-06**: Multi-user concurrent attach is supported. Multiple users may observe the same session; only authorized controllers can input/resize/claim-control. Control arbitration is deterministic and records the winning user/device.
+
+### Relay Authentication & Routing (P1 — upgrades Personal Relay MVP)
+
+- [ ] **RELAY-AUTH-01**: Relay Gateway WS (`/gateway`) and Client WS (`/client`) both require valid tokens. Relay validates token class and account/workspace/Gateway/session scope before accepting registration, list, subscribe, input, resize, or control frames.
+- [ ] **RELAY-AUTH-02**: Relay routes frames only within the same authorized account/workspace/Gateway/session boundary. A client from account A cannot list, subscribe to, or control account B sessions, even if it guesses IDs.
+- [ ] **RELAY-AUTH-03**: Relay remains non-executing infrastructure. It never accepts provider command/args/env, never starts sessions by arbitrary command, never persists terminal plaintext, and never becomes the source of truth for session ownership.
+
+### Audit & Identity Events (P1 — required for multi-user accountability)
+
+- [ ] **AUDIT-01**: `client.attached`, `client.detached`, `control.claimed`, `control.released`, `user.input`, `resize`, `session.created`, `session.stopped`, and Relay auth failures record `accountId`, `workspaceId`, `userId`, `deviceId`, `gatewayId`, and `role` where applicable.
+- [ ] **AUDIT-02**: Stored and streamed events continue to mask secrets/API keys, and identity metadata must not include raw tokens, refresh tokens, or relay secrets.
 
 ### Retention & Storage Health (P1 — required before multi-hour Gateway uptimes)
 
@@ -44,19 +69,18 @@ This is a **personal remote-access milestone** — Phase 2 PTY-backed event stre
 
 ### Tests (P1 — milestone exit gate)
 
-- [ ] **TEST-01**: Integration tests cover: Relay rejects unauthenticated connections and cannot spawn arbitrary providers; write endpoints reject unauthenticated requests; provider whitelist rejects non-listed providers; secret mask redacts known tokens in `terminal.output` and `user.input` events; legacy snapshot/send endpoints still respond correctly through the event store; retention job deletes correct rows under both time-based and size-based triggers.
+- [ ] **TEST-01**: Integration tests cover: Relay rejects unauthenticated Gateway/client connections; Gateway startup without a valid Gateway token cannot publish sessions; write endpoints reject unauthenticated or under-authorized requests; account A cannot list/subscribe/control account B sessions; observer cannot input/resize/stop; provider whitelist rejects non-listed providers; revoked tokens fail; secret mask redacts known tokens in `terminal.output` and `user.input` events; legacy snapshot/send endpoints still respond correctly through the event store; retention job deletes correct rows under both time-based and size-based triggers.
 
 ### Structured Event Cleanup (P2 — minor)
 
-- [ ] **CLEAN-03**: ROADMAP/Phase docs note that Phase 4 owns the full diff/approval UI; `approval.requested` / `diff.detected` / `agent.handoff` event types have an exhaustive-switch parser test that fails when new event types are added without handling.
+- [ ] **CLEAN-03**: ROADMAP/Phase docs note that future review UI owns the full diff/approval surface; `approval.requested` / `diff.detected` / `agent.handoff` event types have an exhaustive-switch parser test that fails when new event types are added without handling.
 
 ## v2 Requirements (deferred — not in v0.3 roadmap)
 
 ### Remote Access (full)
 
 - **TUNNEL-01**: First-class Cloudflare Tunnel / Tailscale documentation and `--public-url` flag end-to-end.
-- **RELAY-02**: Production-grade Relay hardening: multi-user accounts, hosted control plane, end-to-end encrypted relay envelopes, advanced reconnect/session migration, and operational observability.
-- **MULTIUSER-01**: Multi-user / Hosted Relay / Ownership Model: define user accounts, tenant/workspace boundaries, Gateway ownership, session ownership, invite/share semantics, roles, revocation, audit model, and how hosted Relay enforces those boundaries.
+- **RELAY-02**: Production-grade Relay hardening beyond v0.3: hosted operations, end-to-end encrypted relay envelopes, advanced reconnect/session migration, and operational observability.
 - **PUSH-01**: APNs / FCM push notifications.
 
 ### Phase 3a — Provider Abstraction
@@ -76,7 +100,7 @@ This is a **personal remote-access milestone** — Phase 2 PTY-backed event stre
 | Feature | Reason |
 |---------|--------|
 | Cloudflare Tunnel / Tailscale tooling | v0.3 focuses on self-hosted Relay MVP first; tunnel-specific UX waits |
-| Hosted Relay service / multi-user accounts / ownership model | Personal-use MVP only; production SaaS/control plane waits for MULTIUSER-01 |
+| Hosted SaaS billing / organization administration | v0.3 defines and implements the minimum multi-account auth boundary, but not a full commercial SaaS control plane |
 | End-to-end encrypted relay envelopes | Production hardening after frame routing proves useful |
 | Provider abstraction layer | Phase 3a — adds complexity without changing v0.3 finishing surface |
 | Multi-machine federation | Phase 3b — orthogonal, separate milestone |
@@ -99,19 +123,33 @@ This is a **personal remote-access milestone** — Phase 2 PTY-backed event stre
 | EXP-05 | Phase 2 | Pending |
 | CLEAN-01 | Phase 3 | Pending |
 | CLEAN-02 | Phase 3 | Pending |
-| AUTH-02 | Phase 4 | Pending |
-| AUTH-01 | Phase 4 | Pending |
-| RETAIN-01 | Phase 5 | Pending |
-| GW-01 | Phase 6 | Complete |
-| GW-02 | Phase 6 | Complete |
-| TEST-01 | Phase 7 | Pending |
-| CLEAN-03 | Phase 7 | Pending |
+| ACCOUNT-01 | Phase 4 | Pending |
+| ACCOUNT-02 | Phase 4 | Pending |
+| ACCOUNT-03 | Phase 4 | Pending |
+| ACCOUNT-04 | Phase 4 | Pending |
+| ACCOUNT-05 | Phase 4 | Pending |
+| AUTH-01 | Phase 5 | Pending |
+| AUTH-02 | Phase 5 | Pending |
+| AUTH-03 | Phase 5 | Pending |
+| AUTH-04 | Phase 5 | Pending |
+| AUTH-05 | Phase 5 | Pending |
+| AUTH-06 | Phase 5 | Pending |
+| RELAY-AUTH-01 | Phase 5 | Pending |
+| RELAY-AUTH-02 | Phase 5 | Pending |
+| RELAY-AUTH-03 | Phase 5 | Pending |
+| AUDIT-01 | Phase 5 | Pending |
+| AUDIT-02 | Phase 5 | Pending |
+| RETAIN-01 | Phase 6 | Pending |
+| GW-01 | Phase 7 | Complete |
+| GW-02 | Phase 7 | Complete |
+| TEST-01 | Phase 8 | Pending |
+| CLEAN-03 | Phase 8 | Pending |
 
 **Coverage:**
-- v1 requirements: 15 total
-- Mapped to phases: 15
+- v1 requirements: 29 total
+- Mapped to phases: 29
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-01*
-*Last updated: 2026-05-01 — personal Relay MVP promoted into v0.3*
+*Last updated: 2026-05-02 — multi-account auth promoted into v0.3 and single-owner auth replaced*
