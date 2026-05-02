@@ -89,28 +89,50 @@ TETHER_RELAY_SECRET=<your-secret> pnpm relay
 Tether Relay: http://127.0.0.1:4889
 ```
 
-生产环境建议用 systemd 或你自己的进程管理器常驻。最小 systemd 示例：
-
-```ini
-[Unit]
-Description=Tether Relay
-After=network.target
-
-[Service]
-WorkingDirectory=/opt/tether
-Environment=TETHER_RELAY_SECRET=<your-secret>
-ExecStart=/usr/bin/pnpm relay
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-```
-
-如果 `pnpm` 不在 `/usr/bin/pnpm`，用下面命令查真实路径：
+生产环境推荐用 PM2 常驻。先确认服务器已经有 PM2：
 
 ```bash
-which pnpm
+npm install -g pm2
+```
+
+在仓库目录启动 Relay：
+
+```bash
+cd /opt/tether
+TETHER_RELAY_SECRET=<your-secret> pm2 start pnpm --name tether-relay -- relay
+pm2 save
+pm2 startup
+```
+
+`pm2 startup` 会打印一条需要 sudo 执行的命令，复制执行一次即可。之后服务器重启后，
+PM2 会自动恢复 `tether-relay`。
+
+常用 PM2 命令：
+
+```bash
+pm2 status
+pm2 logs tether-relay
+pm2 restart tether-relay
+pm2 stop tether-relay
+pm2 delete tether-relay
+```
+
+更新代码后重启：
+
+```bash
+cd /opt/tether
+git pull
+pnpm install
+pnpm web:build
+pm2 restart tether-relay --update-env
+```
+
+如果要修改 relay secret：
+
+```bash
+pm2 delete tether-relay
+TETHER_RELAY_SECRET=<new-secret> pm2 start pnpm --name tether-relay -- relay
+pm2 save
 ```
 
 ### 3. nginx 配置
@@ -234,7 +256,8 @@ pnpm tether gateway uninstall
 
 ```bash
 curl http://127.0.0.1:4889/healthz
-systemctl status tether-relay
+pm2 status
+pm2 logs tether-relay
 nginx -t
 ```
 
@@ -252,10 +275,11 @@ nginx -t
 
 ```text
 1. 云服务器：pnpm install && pnpm web:build
-2. 云服务器：TETHER_RELAY_SECRET=<secret> pnpm relay
-3. 云服务器：nginx serve apps/web/dist，并代理 /gateway /client 到 127.0.0.1:4889
-4. Mac：pnpm tether gateway config --relay-url wss://你的域名 --relay-secret <secret> --allow-api-session-create
-5. Mac：pnpm tether gateway start
-6. Mac：pnpm tether codex
-7. 浏览器：https://你的域名，Relay URL 填 wss://你的域名，Secret 填同一个 secret
+2. 云服务器：TETHER_RELAY_SECRET=<secret> pm2 start pnpm --name tether-relay -- relay
+3. 云服务器：pm2 save && pm2 startup
+4. 云服务器：nginx serve apps/web/dist，并代理 /gateway /client 到 127.0.0.1:4889
+5. Mac：pnpm tether gateway config --relay-url wss://你的域名 --relay-secret <secret> --allow-api-session-create
+6. Mac：pnpm tether gateway start
+7. Mac：pnpm tether codex
+8. 浏览器：https://你的域名，Relay URL 填 wss://你的域名，Secret 填同一个 secret
 ```
