@@ -4,7 +4,7 @@
 
 **核心治理原则**：
 
-1. 用 `docs` 管当前知识，用 `openspec` 管变更流程。
+1. 用 `docs` 管当前知识，用 `.planning` 管 GSD 计划、执行和验收状态。
 2. 一个模块在任一时刻最多只允许有一份"当前有效说明"。
 3. 团队/AI 默认使用中文。
 
@@ -14,8 +14,7 @@
 | --- | --- | --- |
 | **[current/](current/)** | 当前事实来源 | 已确认、现行有效的设计与规格。这是主干。 |
 | **[working/](working/)** | 工作草稿 | 还在讨论中、未正式立项的过程方案。文件名 `YYYY-MM-DD-<slug>.md`。 |
-| **[../openspec/specs/](../openspec/specs/)** | 长期能力契约 | 跨阶段稳定的 contract。 |
-| **[../openspec/changes/](../openspec/changes/)** | 活跃变更 | 已立项、施工中的 OpenSpec 任务包。 |
+| **[../.planning/](../.planning/)** | GSD 工作区 | 阶段计划、执行状态、验收记录和项目进度。 |
 
 ## 当前知识库导览 (`current/`)
 
@@ -44,12 +43,11 @@
 ## 工作流（Ideas → Code）
 
 1. **想法 / 问题阶段**：在 `docs/working/` 写草稿。
-2. **确认要立项开发**：启动 OpenSpec 流程（`openspec/changes/<name>/` 下生成
-   proposal、design、tasks）。
-3. **开始写代码**：开发期间只认 OpenSpec 里的 tasks，不认其他地方的描述。
-4. **开发完成**：归档该 OpenSpec change 至 `openspec/changes/archive/`。
-5. **知识沉淀**：长期有效规则回写到根目录长期文档 / `openspec/specs/`，常驻
-   说明回写到 `docs/current/`。
+2. **确认要立项开发**：用 GSD 生成或更新 `.planning/` 中的阶段计划。
+3. **开始写代码**：开发期间以对应阶段的 `PLAN.md`、验收项和用户最新确认作为执行依据。
+4. **开发完成**：更新 GSD 状态，并把长期有效事实沉淀到 `docs/current/`。
+5. **知识沉淀**：通用规则和架构约定回写到根目录长期文档，常驻说明回写到
+   `docs/current/`。
 
-理解为：**`docs/working/`（起草） → `openspec/changes/`（施工） → 归档 →
+理解为：**`docs/working/`（起草） → `.planning/`（计划/施工/验收） →
 `docs/current/` 与根目录长期文档（地图更新）**。

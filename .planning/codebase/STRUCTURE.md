@@ -66,14 +66,11 @@ tether/
 │   └── harmony/                    # Empty placeholder
 ├── docs/
 │   ├── README.md                   # Doc governance
-│   ├── current/                    # Long-lived facts (currently empty)
-│   ├── working/                    # Drafts before openspec promotion
+│   ├── current/                    # Long-lived facts
+│   ├── working/                    # Working drafts before GSD planning
 │   │   ├── 2026-05-01-tether-agent-console.md
 │   │   └── 2026-05-01-phase-2-pty-event-stream.md
 │   └── gsd-usage.zh-CN.md
-├── openspec/
-│   ├── specs/                      # Long-lived capability contracts (currently empty)
-│   └── changes/                    # Active OpenSpec changes (currently empty)
 ├── .planning/
 │   └── codebase/                   # GSD codebase maps (this directory)
 └── ~/.tether/                      # Runtime data (NOT in repo)
@@ -124,11 +121,8 @@ tether/
 - Key files: `native/README.md` (rules of engagement).
 
 **`docs/`:**
-- Purpose: Project documentation. `current/` holds long-lived facts; `working/` holds drafts before they graduate to OpenSpec; root-level files in `docs/` cover topical guides.
+- Purpose: Project documentation. `current/` holds long-lived facts; `working/` holds drafts before they become GSD phase plans; root-level files in `docs/` cover topical guides.
 - Key files: `docs/README.md`, `docs/working/2026-05-01-tether-agent-console.md`, `docs/working/2026-05-01-phase-2-pty-event-stream.md`.
-
-**`openspec/specs/` and `openspec/changes/`:**
-- Purpose: Long-lived capability contracts and in-flight change proposals. Currently empty in this checkout but referenced by `AGENTS.md` and `PROJECT.md`.
 
 **`.planning/codebase/`:**
 - Purpose: Auto-generated codebase maps for GSD agents (this file lives here).
@@ -243,9 +237,8 @@ tether/
 
 **Documentation:**
 - Drafts before commitment: `docs/working/YYYY-MM-DD-<slug>.md`.
-- Promoted long-lived facts: update `AGENTS.md`, `PROJECT.md`, `AI_CONTEXT.md`.
-- Capability contracts: `openspec/specs/<capability>/`.
-- In-flight changes: `openspec/changes/<change-id>/`.
+- GSD planning and execution state: `.planning/`.
+- Promoted long-lived facts: update `docs/current/`, `AGENTS.md`, `PROJECT.md`, `AI_CONTEXT.md`.
 
 **Native client work:**
 - Read `native/README.md` first. Do not duplicate Gateway logic. Generate or hand-write SDKs against `packages/protocol` only.
@@ -270,11 +263,6 @@ tether/
 **`apps/gateway/src/ui/`:**
 - Purpose: Reserved subdirectory for future Gateway-side UI helpers.
 - Currently empty. Do not place arbitrary modules here without a reason.
-
-**`openspec/changes/archive/`:**
-- Purpose: Archived OpenSpec changes per `AGENTS.md`. Frozen — read only when the user explicitly asks for history.
-- Generated: Manual (when changes ship).
-- Committed: Yes (when present).
 
 ---
 

@@ -8,8 +8,8 @@
 2. 然后阅读 `CLAUDE.md`（编码原则）和 `PROJECT.md`（项目规则）。
 3. 然后阅读 `AI_CONTEXT.md`（项目架构与上下文）。
 4. 然后阅读 [docs/README.md](docs/README.md)，定位相关模块级文档。
-5. 如果任务涉及 OpenSpec，再读相关 change 和 `openspec/specs/README.md`。
-6. 之后再进入当前任务相关的源码、规格或变更目录。
+5. 如果任务涉及 GSD 阶段计划，再读 `.planning/` 中对应阶段产物。
+6. 之后再进入当前任务相关的源码、规格或文档。
 
 ## 规则优先级
 
@@ -18,8 +18,8 @@
 1. `CLAUDE.md` — 编码原则，优先于一切其他规则
 2. `PROJECT.md` — 项目专属规则、命令和约束
 3. `AI_CONTEXT.md` — 架构背景，提供事实参考，不定义规则
-4. `openspec/specs/` — 长期能力契约
-5. `openspec/changes/<active-change>/` — 进行中的正式变更
+4. `docs/current/` — 当前有效的功能说明、部署说明和长期事实
+5. `.planning/` — GSD 阶段计划、执行状态和验收记录
 
 ## 工作规则
 
@@ -35,5 +35,4 @@
 
 以下内容**不作为当前事实来源**，仅当用户明确要求查看历史背景时才读取：
 
-- `openspec/changes/archive/` — 已归档变更
 - 标记为 historical-draft 或 Frozen 的文档

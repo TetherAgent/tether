@@ -101,7 +101,6 @@ packages/
   core/ protocol/ config/ ui/
 native/           # 原生客户端预留
 docs/             # working/ + current/
-openspec/         # 长期能力契约
 .planning/        # 本目录，GSD 流程
 ```
 
@@ -113,8 +112,8 @@ openspec/         # 长期能力契约
 本里程碑的 Active 项就是它们里面 `[ ]` 未勾选的硬指标。两份文档继续作为参考，
 不再迭代。
 
-**OpenSpec**：`openspec/specs/` 已建，但 Phase 2 主体没经过完整 OpenSpec change
-立项流程；本 milestone 的产出（PLAN/SUMMARY）后续再考虑回填到 OpenSpec spec。
+**规划流程**：本项目当前使用 GSD 维护阶段计划、执行状态和验收记录；长期有效事实
+沉淀到 `docs/current/`、`AI_CONTEXT.md`、`PROJECT.md` 和 `AGENTS.md`。
 
 **单人开发**：业余时间推进，迭代节奏按"硬指标 → 测试 → 文档"，不追求大批量并行。
 

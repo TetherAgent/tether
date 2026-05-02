@@ -236,22 +236,22 @@ GSD 生成计划和执行代码时，必须遵守本仓库规则：
 4. Gateway 默认只监听 `127.0.0.1`，不要把未完成认证的服务暴露到公网。
 5. 终端输出外发到客户端前要做基础敏感信息掩码。
 6. 客户端只能控制既有 agent session，不能让 Gateway 执行任意命令。
-7. 涉及长期事实时，同步回写 `docs/current/`、根目录长期文档或 `openspec/specs/`。
+7. 涉及长期事实时，同步回写 `docs/current/` 或根目录长期文档。
 
-## 与 OpenSpec 的关系
+## 与项目文档的关系
 
-Tether 的文档治理顺序是：
+Tether 当前以 GSD 作为计划、执行和验收的工作流；`docs` 是当前事实来源。
 
 ```text
-docs/working/ → openspec/changes/<name>/ → openspec/specs/<capability>/ → 根目录长期文档
+docs/working/ → .planning/ → docs/current/ → 根目录长期文档
 ```
 
 建议这样配合：
 
 1. 还在想方向：先写 `docs/working/YYYY-MM-DD-<topic>.md`，必要时用 GSD 帮忙梳理。
-2. 确认要开发：用 OpenSpec change 承载 proposal、design、tasks。
-3. 进入执行：GSD 的 `PLAN.md` 应对齐 OpenSpec 的 `tasks.md`，不能两套任务各说各话。
-4. 做完归档：OpenSpec 归档后，把长期有效事实沉淀到 `docs/current/`、`AI_CONTEXT.md` 或 `PROJECT.md`。
+2. 确认要开发：用 GSD 生成 `.planning/` 里的阶段计划和验收项。
+3. 进入执行：以 GSD 的 `PLAN.md`、用户最新确认和代码现状为准。
+4. 做完后：把长期有效事实沉淀到 `docs/current/`、`AI_CONTEXT.md` 或 `PROJECT.md`。
 
 ## 日常新需求推荐流程
 
