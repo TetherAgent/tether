@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
@@ -16,6 +16,133 @@ function tempStore(): { store: Store; cleanup: () => void } {
     cleanup: () => rmSync(dir, { recursive: true, force: true })
   };
 }
+
+test('status reports gateway runtime details', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const sessionId = createSessionId();
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24
+  });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4898, store, ptySessions, allowApiSessionCreate: true });
+
+  try {
+    const response = await fetch('http://127.0.0.1:4898/api/status');
+    assert.equal(response.ok, true);
+    const body = (await response.json()) as {
+      ok?: unknown;
+      pid?: unknown;
+      url?: unknown;
+      host?: unknown;
+      port?: unknown;
+      allowApiSessionCreate?: unknown;
+      relay?: { configured?: unknown };
+      liveSessionIds?: unknown[];
+    };
+    assert.equal(body.ok, true);
+    assert.equal(body.pid, process.pid);
+    assert.equal(body.url, 'http://127.0.0.1:4898');
+    assert.equal(body.host, '127.0.0.1');
+    assert.equal(body.port, 4898);
+    assert.equal(body.allowApiSessionCreate, true);
+    assert.deepEqual(body.relay, { configured: false });
+    assert.deepEqual(body.liveSessionIds, [sessionId]);
+  } finally {
+    ptySessions.stop(sessionId);
+    await daemon.close();
+    cleanup();
+  }
+});
+
+test('session creation is disabled by default', async () => {
+  const { store, cleanup } = tempStore();
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4899, store, ptySessions: new PtySessionManager(store) });
+
+  try {
+    const response = await fetch('http://127.0.0.1:4899/api/sessions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'codex' })
+    });
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), { error: 'session creation is disabled' });
+  } finally {
+    await daemon.close();
+    cleanup();
+  }
+});
+
+test('session creation rejects command-shaped payloads', async () => {
+  const { store, cleanup } = tempStore();
+  const daemon = await startDaemon({
+    host: '127.0.0.1',
+    port: 4900,
+    store,
+    ptySessions: new PtySessionManager(store),
+    allowApiSessionCreate: true
+  });
+
+  try {
+    const response = await fetch('http://127.0.0.1:4900/api/sessions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        provider: 'codex',
+        projectPath: process.cwd(),
+        cols: 120,
+        rows: 40,
+        nested: { env: { SECRET: 'blocked' } }
+      })
+    });
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: 'command-shaped session creation is not allowed' });
+  } finally {
+    await daemon.close();
+    cleanup();
+  }
+});
+
+test('session creation accepts whitelisted provider when enabled', async () => {
+  const { store, cleanup } = tempStore();
+  const binDir = mkdtempSync(path.join(tmpdir(), 'tether-daemon-bin-'));
+  const originalPath = process.env.PATH;
+  const fakeCodex = path.join(binDir, 'codex');
+  writeFileSync(fakeCodex, '#!/bin/sh\nsleep 2\n', 'utf8');
+  chmodSync(fakeCodex, 0o755);
+  process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ''}`;
+  const ptySessions = new PtySessionManager(store);
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4901, store, ptySessions, allowApiSessionCreate: true });
+
+  try {
+    const response = await fetch('http://127.0.0.1:4901/api/sessions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider: 'codex', projectPath: binDir, cols: 100, rows: 30 })
+    });
+    assert.equal(response.status, 201);
+    const body = (await response.json()) as { session?: { id?: string; provider?: string; command?: string; projectPath?: string } };
+    assert.equal(body.session?.provider, 'codex');
+    assert.equal(body.session?.command, 'codex');
+    assert.equal(body.session?.projectPath, path.resolve(binDir));
+    const createdId = body.session?.id;
+    assert.equal(typeof createdId, 'string');
+    if (!createdId) {
+      throw new Error('created session id missing');
+    }
+    assert.equal(ptySessions.hasLiveSession(createdId), true);
+    ptySessions.stop(createdId);
+  } finally {
+    process.env.PATH = originalPath;
+    await daemon.close();
+    cleanup();
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
 
 test('daemon marks running pty sessions lost when no live handle exists', async () => {
   const { store, cleanup } = tempStore();

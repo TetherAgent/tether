@@ -18,6 +18,14 @@ export type RelayClientOptions = {
 
 export type RunningRelayClient = {
   close: () => Promise<void>;
+  status: () => RelayConnectionStatus;
+};
+
+export type RelayConnectionStatus = {
+  configured: true;
+  state: 'connecting' | 'connected' | 'disconnected' | 'auth_failed';
+  url: string;
+  lastChangedAt: number;
 };
 
 type RelaySubscription = {
@@ -35,12 +43,23 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   let reconnectDelayMs = MIN_RECONNECT_DELAY_MS;
   let reconnectTimer: NodeJS.Timeout | undefined;
   const subscriptions = new Map<string, RelaySubscription>();
+  let connectionState: RelayConnectionStatus['state'] = 'connecting';
+  let lastChangedAt = Date.now();
+
+  const setConnectionState = (state: RelayConnectionStatus['state']) => {
+    if (connectionState === state) {
+      return;
+    }
+    connectionState = state;
+    lastChangedAt = Date.now();
+  };
 
   const connect = () => {
     if (closed) {
       return;
     }
 
+    setConnectionState('connecting');
     socket = new WebSocket(relayGatewayUrl(options.url));
 
     socket.on('open', () => {
@@ -60,6 +79,9 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     socket.on('close', () => {
       socket = undefined;
       clearSubscriptions();
+      if (connectionState !== 'auth_failed') {
+        setConnectionState('disconnected');
+      }
       scheduleReconnect();
     });
 
@@ -98,8 +120,10 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   const handleFrame = (frame: RelayServerToGatewayFrame) => {
     switch (frame.type) {
       case 'gateway.auth.ok':
+        setConnectionState('connected');
         return;
       case 'gateway.auth.failed':
+        setConnectionState('auth_failed');
         socket?.close();
         return;
       case 'client.list':
@@ -211,7 +235,13 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         closingSocket.once('close', () => resolve());
         closingSocket.close();
       });
-    }
+    },
+    status: () => ({
+      configured: true,
+      state: connectionState,
+      url: options.url,
+      lastChangedAt
+    })
   };
 }
 

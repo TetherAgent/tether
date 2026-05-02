@@ -8,6 +8,8 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import type { ServerType } from '@hono/node-server';
 import { WebSocketServer } from 'ws';
+import { isProviderName, PROVIDERS } from '@tether/core';
+import { createSessionId } from './ids.js';
 import { maskSensitiveOutput } from './mask.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import { listGateways, registerGateway, touchGateway, unregisterGateway } from './registry.js';
@@ -21,6 +23,7 @@ export type DaemonOptions = {
   store: Store;
   ptySessions?: PtySessionManager;
   relay?: { url: string; secret: string; gatewayId?: string };
+  allowApiSessionCreate?: boolean;
 };
 
 export type RunningDaemon = {
@@ -49,10 +52,24 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   const tickets = new Map<string, number>();
   const clients = new Map<string, Map<string, ClientInfo>>();
   const controllers = new Map<string, string>();
+  let relayClient: RunningRelayClient | undefined;
   app.post('/api/ws-ticket', (c) => {
     const ticket = randomUUID();
     tickets.set(ticket, Date.now() + 60_000);
     return c.json({ ticket, expiresInMs: 60_000 });
+  });
+
+  app.get('/api/status', (c) => {
+    return c.json({
+      ok: true,
+      pid: process.pid,
+      url,
+      host: options.host,
+      port: options.port,
+      allowApiSessionCreate: Boolean(options.allowApiSessionCreate),
+      relay: relayClient ? relayClient.status() : { configured: false },
+      liveSessionIds: options.ptySessions?.liveSessionIds() ?? []
+    });
   });
 
   app.get('/api/sessions', async (c) => {
@@ -77,6 +94,53 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       }
     }
     return c.json({ sessions: liveSessions });
+  });
+
+  app.post('/api/sessions', async (c) => {
+    if (options.allowApiSessionCreate !== true) {
+      return c.json({ error: 'session creation is disabled' }, 403);
+    }
+
+    const body = await c.req.json<unknown>().catch(() => undefined);
+    if (!body || typeof body !== 'object') {
+      return c.json({ error: 'invalid JSON body' }, 400);
+    }
+
+    if (containsForbiddenSessionCreateKey(body)) {
+      return c.json({ error: 'command-shaped session creation is not allowed' }, 400);
+    }
+
+    const request = body as Record<string, unknown>;
+    const unsupportedKey = Object.keys(request).find((key) => !SESSION_CREATE_ALLOWED_KEYS.has(key));
+    if (unsupportedKey) {
+      return c.json({ error: 'unsupported session creation field' }, 400);
+    }
+
+    if (typeof request.provider !== 'string' || !isProviderName(request.provider)) {
+      return c.json({ error: 'provider is required' }, 400);
+    }
+    const provider = request.provider;
+    const command = PROVIDERS[provider].command;
+
+    if (request.projectPath !== undefined && typeof request.projectPath !== 'string') {
+      return c.json({ error: 'projectPath must be a string' }, 400);
+    }
+    const projectPath = path.resolve(request.projectPath ?? process.cwd());
+
+    const cols = request.cols ?? 120;
+    const rows = request.rows ?? 40;
+    if (!isValidTerminalSize(cols, rows)) {
+      return c.json({ error: 'invalid terminal size' }, 400);
+    }
+    const terminalRows = rows as number;
+
+    if (!options.ptySessions) {
+      return c.json({ error: 'pty session manager unavailable' }, 503);
+    }
+
+    const id = createSessionId();
+    const session = options.ptySessions.create({ id, provider, command, projectPath, cols, rows: terminalRows });
+    return c.json({ session }, 201);
   });
 
   app.get('/api/gateways', async (c) => {
@@ -393,7 +457,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   }, 10_000);
   heartbeat.unref();
 
-  let relayClient: RunningRelayClient | undefined;
   if (options.relay) {
     relayClient = startRelayClient({
       url: options.relay.url,
@@ -450,6 +513,24 @@ type ClientInfo = {
   attachedAt: number;
   lastSeenAt: number;
 };
+
+const SESSION_CREATE_ALLOWED_KEYS = new Set(['provider', 'projectPath', 'cols', 'rows']);
+const SESSION_CREATE_FORBIDDEN_KEYS = new Set(['command', 'args', 'argv', 'env', 'shell', 'providerCommand']);
+
+function containsForbiddenSessionCreateKey(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some(containsForbiddenSessionCreateKey);
+  }
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  for (const [key, nested] of Object.entries(value)) {
+    if (SESSION_CREATE_FORBIDDEN_KEYS.has(key) || containsForbiddenSessionCreateKey(nested)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function consumeTicket(tickets: Map<string, number>, ticket: string | null): boolean {
   if (!ticket) {
