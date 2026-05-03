@@ -394,7 +394,7 @@
     "cluster": {
       "listen": {
         "path": "",
-        "port": 4800,
+        "port": 4802,
         "hostname": "127.0.0.1"
       }
     },
