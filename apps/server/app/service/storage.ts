@@ -718,3 +718,138 @@ export async function countActiveDevicesByUserId(userId: string): Promise<number
 export async function deleteAdminUserById(id: string): Promise<void> {
   await execute('DELETE FROM admin_users WHERE id = ?', [id]);
 }
+
+// --- Phase 6 Admin: Devices ---
+
+export async function loadAllDevices(limit = 20, offset = 0): Promise<Array<DeviceRecord & { revokedAt: number | null; userEmail: string | null }>> {
+  const [rows] = await execute(
+    `SELECT d.*, u.email AS user_email
+     FROM devices d
+     LEFT JOIN users u ON d.user_id = u.id
+     WHERE d.token_class = 'normal_client_access'
+     ORDER BY d.created_at DESC
+     LIMIT ? OFFSET ?`,
+    [limit, offset]
+  );
+  return (rows as Record<string, unknown>[]).map(row => ({
+    ...deviceFromRow(row),
+    revokedAt: row.revoked_at ? sqlDateToMs(row.revoked_at) : null,
+    userEmail: typeof row.user_email === 'string' ? row.user_email : null
+  }));
+}
+
+export async function countDevices(): Promise<number> {
+  const [rows] = await execute(
+    "SELECT COUNT(*) AS count FROM devices WHERE token_class = 'normal_client_access'"
+  );
+  const row = (rows as Record<string, unknown>[])[0];
+  return Number(row?.count ?? 0);
+}
+
+export async function revokeDeviceById(id: string): Promise<void> {
+  await execute(
+    'UPDATE devices SET revoked_at = NOW(), updated_at = NOW() WHERE id = ?',
+    [id]
+  );
+}
+
+export async function revokeRefreshTokensByDeviceId(deviceId: string): Promise<void> {
+  // 撤销该设备关联的所有 active refresh tokens，防止已吊销设备继续刷新
+  // refresh_tokens 表使用 revoked_at 列（不是布尔 revoked）标记撤销状态
+  await execute(
+    'UPDATE refresh_tokens SET revoked_at = NOW(), updated_at = NOW() WHERE device_id = ? AND revoked_at IS NULL',
+    [deviceId]
+  );
+}
+
+// --- Phase 6 Admin: Gateways ---
+
+export async function loadAllGateways(limit = 20, offset = 0): Promise<GatewayRecord[]> {
+  const [rows] = await execute(
+    'SELECT * FROM gateways ORDER BY created_at DESC LIMIT ? OFFSET ?',
+    [limit, offset]
+  );
+  return (rows as Record<string, unknown>[]).map(gatewayFromRow);
+}
+
+export async function countGateways(): Promise<number> {
+  const [rows] = await execute('SELECT COUNT(*) AS count FROM gateways');
+  const row = (rows as Record<string, unknown>[])[0];
+  return Number(row?.count ?? 0);
+}
+
+export async function deleteGatewayById(id: string): Promise<void> {
+  await execute('DELETE FROM gateways WHERE id = ?', [id]);
+}
+
+// --- Phase 6 Admin: Audit (filtered) ---
+
+export async function loadAuditEventsFiltered(params: {
+  userId?: string;
+  eventType?: string;
+  deviceId?: string;
+  gatewayId?: string;
+  fromMs?: number;
+  toMs?: number;
+  limit: number;
+  offset: number;
+}): Promise<AuditEventRecord[]> {
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+
+  if (params.userId) {
+    conditions.push('user_id = ?');
+    values.push(params.userId);
+  }
+  if (params.eventType) {
+    conditions.push('event_type = ?');
+    values.push(params.eventType);
+  }
+  if (params.deviceId) {
+    conditions.push('device_id = ?');
+    values.push(params.deviceId);
+  }
+  if (params.gatewayId) {
+    conditions.push('gateway_id = ?');
+    values.push(params.gatewayId);
+  }
+  if (params.fromMs) {
+    conditions.push('created_at >= FROM_UNIXTIME(? / 1000)');
+    values.push(params.fromMs);
+  }
+  if (params.toMs) {
+    conditions.push('created_at <= FROM_UNIXTIME(? / 1000)');
+    values.push(params.toMs);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const sql = `SELECT * FROM audit_events ${where} ORDER BY id DESC LIMIT ? OFFSET ?`;
+  values.push(params.limit, params.offset);
+
+  const [rows] = await execute(sql, values);
+  return (rows as Record<string, unknown>[]).map(auditEventFromRow);
+}
+
+export async function countAuditEventsFiltered(params: {
+  userId?: string;
+  eventType?: string;
+  deviceId?: string;
+  gatewayId?: string;
+  fromMs?: number;
+  toMs?: number;
+}): Promise<number> {
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+
+  if (params.userId) { conditions.push('user_id = ?'); values.push(params.userId); }
+  if (params.eventType) { conditions.push('event_type = ?'); values.push(params.eventType); }
+  if (params.deviceId) { conditions.push('device_id = ?'); values.push(params.deviceId); }
+  if (params.gatewayId) { conditions.push('gateway_id = ?'); values.push(params.gatewayId); }
+  if (params.fromMs) { conditions.push('created_at >= FROM_UNIXTIME(? / 1000)'); values.push(params.fromMs); }
+  if (params.toMs) { conditions.push('created_at <= FROM_UNIXTIME(? / 1000)'); values.push(params.toMs); }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const [rows] = await execute(`SELECT COUNT(*) AS count FROM audit_events ${where}`, values);
+  const row = (rows as Record<string, unknown>[])[0];
+  return Number(row?.count ?? 0);
+}
