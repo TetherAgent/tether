@@ -24,7 +24,7 @@ export default (app: Application): void => {
   router.post('/api/gateway/refresh', controller.gateway.refresh);
 
   router.post('/api/token/revoke', requireAnyAccess, controller.token.revoke);
-  router.post('/api/token/validate', requireAnyAccess, controller.token.validate);
+  router.post('/api/token/validate', controller.token.validate);
 
   router.post('/api/audit', controller.audit.create);
   router.get('/api/audit', controller.audit.index);

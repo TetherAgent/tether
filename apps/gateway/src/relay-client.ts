@@ -51,6 +51,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   const subscriptions = new Map<string, RelaySubscription>();
   let connectionState: RelayConnectionStatus['state'] = 'connecting';
   let lastChangedAt = Date.now();
+  let effectiveGatewayId = options.gatewayId;
 
   const setConnectionState = (state: RelayConnectionStatus['state']) => {
     if (connectionState === state) {
@@ -77,6 +78,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
           socket?.close();
           return;
         }
+        effectiveGatewayId = auth.gatewayId;
         reconnectDelayMs = MIN_RECONNECT_DELAY_MS;
         send({ type: 'gateway.auth', gatewayId: auth.gatewayId, token: auth.token, scope: auth.scope, secret: options.secret });
       })();
@@ -126,7 +128,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   const sendSessions = () => {
     send({
       type: 'gateway.sessions',
-      gatewayId: options.gatewayId,
+      gatewayId: effectiveGatewayId,
       sessions: options.store.listSessions().map(toRelaySession)
     });
   };
@@ -171,11 +173,11 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     }
 
     const events = options.store.listEvents(sessionId, after, 5000).map(toRelayEvent);
-    send({ type: 'gateway.replay', gatewayId: options.gatewayId, clientId, sessionId, events });
+    send({ type: 'gateway.replay', gatewayId: effectiveGatewayId, clientId, sessionId, events });
 
     const key = subscriptionKey(clientId, sessionId);
     const unsubscribe = options.ptySessions?.subscribe(sessionId, (event) => {
-      send({ type: 'gateway.event', gatewayId: options.gatewayId, event: toRelayEvent(event) });
+      send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(event) });
     });
     subscriptions.set(key, { mode, unsubscribe });
   };
@@ -234,7 +236,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   };
 
   const sendError = (clientId: string, sessionId: string, code: string, message: string) => {
-    send({ type: 'gateway.error', gatewayId: options.gatewayId, clientId, sessionId, code, message });
+    send({ type: 'gateway.error', gatewayId: effectiveGatewayId, clientId, sessionId, code, message });
   };
 
   const removeSubscription = (clientId: string, sessionId: string) => {

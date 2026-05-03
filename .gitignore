@@ -6,6 +6,7 @@ logs/
 *.log
 .DS_Store
 docs/working/*
+!docs/working/2026-05-03-server-cli-bug-todo.md
 apps/server/run/*_timing_*.json
 apps/server/run/application_config.json
 apps/server/config/config.local.ts

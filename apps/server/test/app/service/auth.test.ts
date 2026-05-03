@@ -104,4 +104,20 @@ describe('test/app/service/auth.test.ts', () => {
       'management_access',
     )
   })
+
+  it('token validate is available for server-to-server introspection without authorization header', async () => {
+    const registered = await ctx.service.auth.registerNormalUser({
+      email: 'owner@example.com',
+      password: 'pw-123456',
+    })
+
+    const response = await app.httpRequest()
+      .post('/api/token/validate')
+      .send({ token: registered.accessToken })
+      .expect(200)
+
+    assert.strictEqual(response.body.code, 200)
+    assert.strictEqual(response.body.data.tokenClass, 'normal_client_access')
+    assert.strictEqual(response.body.data.userId, registered.user.id)
+  })
 })

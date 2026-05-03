@@ -1,4 +1,5 @@
 import { startRelayServer } from './relay.js';
+import type { RelayAuthScope } from '@tether/protocol';
 
 const secret = process.env.TETHER_RELAY_SECRET;
 const allowLegacySecret = process.env.TETHER_RELAY_ALLOW_LEGACY_SECRET === '1';
@@ -34,7 +35,7 @@ const relay = await startRelayServer({
         if (!response?.ok) {
           return undefined;
         }
-        return (await response.json().catch(() => undefined)) as Awaited<ReturnType<NonNullable<Parameters<typeof startRelayServer>[0]['validateToken']>>>;
+        return unwrapServerApiData<RelayAuthScope>(await response.json().catch(() => undefined));
       }
     : undefined
 });
@@ -51,3 +52,14 @@ process.once('SIGINT', () => {
 process.once('SIGTERM', () => {
   void shutdown();
 });
+
+function unwrapServerApiData<T>(body: unknown): T | undefined {
+  if (!body || typeof body !== 'object') {
+    return undefined;
+  }
+  if ('code' in body) {
+    const payload = body as { code?: unknown; data?: unknown };
+    return payload.code === 200 && payload.data ? payload.data as T : undefined;
+  }
+  return body as T;
+}

@@ -178,7 +178,7 @@ gatewayCommand
     if (!response.ok) {
       throw new Error(`Gateway 登录失败：HTTP ${response.status}。请确认账号密码，必要时重新执行 tether gateway login。`);
     }
-    const body = (await response.json()) as {
+    const body = unwrapServerApiData(await response.json()) as {
       gateway?: { id?: unknown };
       accountId?: unknown;
       workspaceId?: unknown;
@@ -923,7 +923,10 @@ async function verifyGatewaySession(providerName: string): Promise<void> {
     throw new Error('无法通过 Gateway 创建 session，请先开启 allowApiSessionCreate 并重启 Gateway');
   }
   console.log(`已创建验证 session：${session.id}`);
-  const response = await fetch(`${gatewayUrl}/api/sessions/${encodeURIComponent(session.id)}/stop`, { method: 'POST' });
+  const response = await fetch(`${gatewayUrl}/api/sessions/${encodeURIComponent(session.id)}/stop`, {
+    method: 'POST',
+    headers: await gatewayAuthHeaders()
+  });
   if (!response.ok) {
     throw new Error(`验证 session 停止失败：HTTP ${response.status}`);
   }
@@ -1052,8 +1055,8 @@ async function attachPtySession(
 ): Promise<'detached' | 'exited'> {
   const mode = options.mode ?? 'control';
   const ticket = await requestWsTicket(options, id, mode);
-  const url = `ws://${options.host}:${options.port}/api/sessions/${encodeURIComponent(id)}/stream?ticket=${encodeURIComponent(ticket)}&surface=cli&mode=${mode}`;
-  const ws = new WebSocket(url);
+  const url = `ws://${options.host}:${options.port}/api/sessions/${encodeURIComponent(id)}/stream?surface=cli&mode=${mode}`;
+  const ws = new WebSocket(url, [`tether-ticket.${ticket}`]);
   let result: 'detached' | 'exited' = 'detached';
 
   const previousRawMode = process.stdin.isRaw;
@@ -1136,6 +1139,19 @@ async function requestWsTicket(
 
 function gatewayAuthPath(): string {
   return process.env.TETHER_AUTH_PATH ?? path.join(os.homedir(), '.tether', 'auth.json');
+}
+
+function unwrapServerApiData(body: unknown): unknown {
+  if (!body || typeof body !== 'object' || !('code' in body)) {
+    return body;
+  }
+  const payload = body as { code?: unknown; msg?: unknown; data?: unknown; stack?: unknown };
+  if (payload.code === 200) {
+    return payload.data;
+  }
+  const message = typeof payload.msg === 'string' ? payload.msg : 'server_error';
+  const stack = typeof payload.stack === 'string' ? `\n${payload.stack}` : '';
+  throw new Error(`${message}${stack}`);
 }
 
 async function gatewayAuthHeaders(): Promise<Record<string, string>> {

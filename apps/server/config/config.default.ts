@@ -172,7 +172,8 @@ export default (appInfo: EggAppInfo) => {
       '/api/admin/auth/login',
       '/api/admin/auth/refresh',
       '/api/gateway/bind',
-      '/api/gateway/refresh'
+      '/api/gateway/refresh',
+      '/api/token/validate'
     ],
     verifyLogin: {
       expected: [ 'normal_client_access', 'management_access', 'gateway_access' ]

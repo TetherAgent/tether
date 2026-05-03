@@ -73,6 +73,21 @@ test('relay rejects unauthenticated sockets', async () => {
   }
 });
 
+test('relay closes sockets that never send auth frame', async () => {
+  const relay = await createRelay();
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+
+  try {
+    await waitForOpen(client);
+    const close = await waitForClose(client, 7000);
+    assert.equal(close.code, 1008);
+    assert.equal(close.reason, 'authentication timeout');
+  } finally {
+    client.close();
+    await relay.close();
+  }
+});
+
 test('relay forwards session list from gateway to client', async () => {
   const relay = await createRelay();
   const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
@@ -363,9 +378,9 @@ async function waitForJson(ws: WebSocket, predicate: (message: Record<string, un
   });
 }
 
-async function waitForClose(ws: WebSocket): Promise<{ code: number; reason: string }> {
+async function waitForClose(ws: WebSocket, timeoutMs = 1000): Promise<{ code: number; reason: string }> {
   return await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('timed out waiting for websocket close')), 1000);
+    const timer = setTimeout(() => reject(new Error('timed out waiting for websocket close')), timeoutMs);
     ws.once('close', (code, reason) => {
       clearTimeout(timer);
       resolve({ code, reason: reason.toString() });

@@ -96,6 +96,49 @@ test('gateway relay client registers sessions', async () => {
   }
 });
 
+test('gateway relay client uses authenticated gateway id for follow-up frames', async () => {
+  const { store, cleanup } = tempStore();
+  const relay = await relayAuthServer();
+  const now = Date.now();
+  store.insertSession({
+    id: 'tth_relay_auth_gateway_id',
+    provider: 'codex',
+    title: 'auth gateway id',
+    projectPath: process.cwd(),
+    status: 'running',
+    attachState: 'detached',
+    tmuxSessionName: '',
+    command: '/bin/cat',
+    transport: 'pty-event-stream',
+    createdAt: now,
+    updatedAt: now,
+    lastActiveAt: now
+  });
+  const relayClient = startRelayClient({
+    url: relay.url,
+    secret: SECRET,
+    gatewayId: 'gw_local_runtime',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_authenticated' },
+    store
+  });
+  await waitForRelayClientConnected(relayClient);
+  const client = await connectRelayClient(relay.url);
+
+  try {
+    client.send(JSON.stringify({ type: 'client.list' }));
+    const sessions = await waitForFrame(client, (frame) => frame.type === 'sessions');
+    assert.equal(sessions.type, 'sessions');
+    assert.equal(sessions.sessions.some((session) => session.id === 'tth_relay_auth_gateway_id'), true);
+  } finally {
+    client.close();
+    await relayClient.close();
+    await relay.close();
+    cleanup();
+  }
+});
+
+
 test('gateway relay client replays and forwards output', async () => {
   const { store, cleanup } = tempStore();
   const ptySessions = new PtySessionManager(store);

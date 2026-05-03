@@ -11,7 +11,7 @@ import type { ServerType } from '@hono/node-server';
 import { WebSocketServer } from 'ws';
 import { readTetherConfig, type TetherConfig } from '@tether/config';
 import { isProviderName, PROVIDERS } from '@tether/core';
-import type { AuthScopePayload, AuthTokenClass, ProviderName, SessionAccessMode } from '@tether/core';
+import { ResponseCode, type AuthScopePayload, type AuthTokenClass, type ProviderName, type SessionAccessMode } from '@tether/core';
 import { createSessionId } from './ids.js';
 import { maskSensitiveOutput } from './mask.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
@@ -46,6 +46,12 @@ type GatewayAuthState = {
 };
 
 type AuthenticatedActor = AuthScopePayload;
+
+type ServerApiResponse<T> = {
+  code: number;
+  msg?: string;
+  data?: T | null;
+};
 
 type WsTicketPayload = AuthScopePayload & {
   tokenClass: 'ws_ticket';
@@ -137,6 +143,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   });
 
   app.get('/api/sessions', async (c) => {
+    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
+    if (!actor.ok) {
+      return c.json({ error: actor.error }, actor.status);
+    }
     const includeStopped = c.req.query('all') === '1';
     const sessions = options.store.listSessions();
     const liveSessions = [];
@@ -154,6 +164,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         session.status = 'running';
       }
       if (alive || includeStopped) {
+        const ownership = authorizeSessionAccess(session, actor.payload);
+        if (!ownership.ok) {
+          continue;
+        }
         liveSessions.push(session);
       }
     }
@@ -226,13 +240,25 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   });
 
   app.get('/api/gateways', async (c) => {
+    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
+    if (!actor.ok) {
+      return c.json({ error: actor.error }, actor.status);
+    }
     return c.json({ gateways: await listGateways() });
   });
 
   app.get('/api/sessions/:id/snapshot', async (c) => {
+    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
+    if (!actor.ok) {
+      return c.json({ error: actor.error }, actor.status);
+    }
     const session = options.store.getSession(c.req.param('id'));
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
+    }
+    const ownership = authorizeSessionAccess(session, actor.payload);
+    if (!ownership.ok) {
+      return c.json({ error: ownership.error }, ownership.status);
     }
 
     if (session.transport === 'pty-event-stream') {
@@ -292,20 +318,36 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     return c.json({ ok: true });
   });
 
-  app.get('/api/sessions/:id/events', (c) => {
+  app.get('/api/sessions/:id/events', async (c) => {
+    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
+    if (!actor.ok) {
+      return c.json({ error: actor.error }, actor.status);
+    }
     const session = options.store.getSession(c.req.param('id'));
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
+    }
+    const ownership = authorizeSessionAccess(session, actor.payload);
+    if (!ownership.ok) {
+      return c.json({ error: ownership.error }, ownership.status);
     }
     const after = parseIntegerQuery(c.req.query('after'), 0);
     const limit = parseIntegerQuery(c.req.query('limit'), 1000);
     return c.json({ events: options.store.listEvents(session.id, after, limit) });
   });
 
-  app.get('/api/sessions/:id/clients', (c) => {
+  app.get('/api/sessions/:id/clients', async (c) => {
+    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
+    if (!actor.ok) {
+      return c.json({ error: actor.error }, actor.status);
+    }
     const session = options.store.getSession(c.req.param('id'));
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
+    }
+    const ownership = authorizeSessionAccess(session, actor.payload);
+    if (!ownership.ok) {
+      return c.json({ error: ownership.error }, ownership.status);
     }
     const sessionClients = [...(clients.get(session.id)?.values() ?? [])];
     return c.json({
@@ -422,7 +464,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       socket.close(1008, 'session not found');
       return;
     }
-    const ticket = parsedUrl.searchParams.get('ticket');
+    const ticket = wsTicketFromRequest(request, parsedUrl);
     const mode = parsedUrl.searchParams.get('mode') === 'observe' ? 'observe' : 'control';
     const authState = await loadGatewayAuthState();
     if (!authState.ok) {
@@ -758,18 +800,45 @@ async function validateAccessToken(serverUrl: string, token: string): Promise<Au
   if (!response?.ok) {
     return undefined;
   }
-  const payload = (await response.json().catch(() => undefined)) as Partial<AuthenticatedActor> | undefined;
-  if (
-    payload &&
+  const body = await response.json().catch(() => undefined);
+  const payload = unwrapServerApiData<Partial<AuthenticatedActor>>(body);
+  if (payload && isAuthenticatedActor(payload)) {
+    return payload;
+  }
+  return undefined;
+}
+
+function unwrapServerApiData<T>(body: unknown): T | undefined {
+  if (!body || typeof body !== 'object') {
+    return undefined;
+  }
+  if ('code' in body) {
+    const payload = body as ServerApiResponse<T>;
+    return payload.code === ResponseCode.SUCCESS && payload.data ? payload.data : undefined;
+  }
+  return body as T;
+}
+
+function isAuthenticatedActor(payload: Partial<AuthenticatedActor>): payload is AuthenticatedActor {
+  return (
     typeof payload.accountId === 'string' &&
     typeof payload.workspaceId === 'string' &&
     typeof payload.tokenClass === 'string' &&
     typeof payload.expiresAt === 'number' &&
     typeof payload.jti === 'string'
-  ) {
-    return payload as AuthenticatedActor;
+  );
+}
+
+function wsTicketFromRequest(request: { headers: { 'sec-websocket-protocol'?: string | string[] | undefined } }, url: URL): string | null {
+  const protocolHeader = request.headers['sec-websocket-protocol'];
+  const protocols = Array.isArray(protocolHeader)
+    ? protocolHeader.flatMap((value) => value.split(','))
+    : (protocolHeader ?? '').split(',');
+  const ticketProtocol = protocols.map((value) => value.trim()).find((value) => value.startsWith('tether-ticket.'));
+  if (ticketProtocol) {
+    return ticketProtocol.slice('tether-ticket.'.length);
   }
-  return undefined;
+  return url.searchParams.get('ticket');
 }
 
 function issueWsTicket(payload: WsTicketPayload, secret: string): string {

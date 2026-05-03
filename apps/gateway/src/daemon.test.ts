@@ -39,58 +39,73 @@ async function withAuthFixture<T>(run: (fixture: {
     if (token === TOKEN_GATEWAY) {
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify({
-        accountId: 'acct_test',
-        workspaceId: 'ws_test',
-        gatewayId: 'gw_test',
-        userId: 'user_test',
-        deviceId: 'device_test',
-        tokenClass: 'gateway_access',
-        expiresAt: Date.now() + 60_000,
-        jti: 'jti_gateway'
+        code: 200,
+        msg: 'success',
+        data: {
+          accountId: 'acct_test',
+          workspaceId: 'ws_test',
+          gatewayId: 'gw_test',
+          userId: 'user_test',
+          deviceId: 'device_test',
+          tokenClass: 'gateway_access',
+          expiresAt: Date.now() + 60_000,
+          jti: 'jti_gateway'
+        }
       }));
       return;
     }
     if (token === TOKEN_NORMAL) {
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify({
-        accountId: 'acct_test',
-        workspaceId: 'ws_test',
-        userId: 'user_test',
-        deviceId: 'device_test',
-        tokenClass: 'normal_client_access',
-        expiresAt: Date.now() + 60_000,
-        jti: 'jti_normal'
+        code: 200,
+        msg: 'success',
+        data: {
+          accountId: 'acct_test',
+          workspaceId: 'ws_test',
+          userId: 'user_test',
+          deviceId: 'device_test',
+          tokenClass: 'normal_client_access',
+          expiresAt: Date.now() + 60_000,
+          jti: 'jti_normal'
+        }
       }));
       return;
     }
     if (token === TOKEN_NORMAL_OTHER) {
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify({
-        accountId: 'acct_test',
-        workspaceId: 'ws_test',
-        userId: 'user_other',
-        deviceId: 'device_other',
-        tokenClass: 'normal_client_access',
-        expiresAt: Date.now() + 60_000,
-        jti: 'jti_normal_other'
+        code: 200,
+        msg: 'success',
+        data: {
+          accountId: 'acct_test',
+          workspaceId: 'ws_test',
+          userId: 'user_other',
+          deviceId: 'device_other',
+          tokenClass: 'normal_client_access',
+          expiresAt: Date.now() + 60_000,
+          jti: 'jti_normal_other'
+        }
       }));
       return;
     }
     if (token === TOKEN_MANAGEMENT) {
       res.setHeader('content-type', 'application/json');
       res.end(JSON.stringify({
-        accountId: 'acct_test',
-        workspaceId: 'ws_test',
-        adminUserId: 'admin_test',
-        tokenClass: 'management_access',
-        expiresAt: Date.now() + 60_000,
-        jti: 'jti_management'
+        code: 200,
+        msg: 'success',
+        data: {
+          accountId: 'acct_test',
+          workspaceId: 'ws_test',
+          adminUserId: 'admin_test',
+          tokenClass: 'management_access',
+          expiresAt: Date.now() + 60_000,
+          jti: 'jti_management'
+        }
       }));
       return;
     }
-    res.statusCode = 401;
     res.setHeader('content-type', 'application/json');
-    res.end(JSON.stringify({ error: 'invalid_token' }));
+    res.end(JSON.stringify({ code: 401, msg: 'invalid_token', data: null }));
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
   const address = server.address();
@@ -133,6 +148,7 @@ async function readRequestBody(req: IncomingMessage): Promise<Record<string, unk
 test('status reports gateway runtime details', async () => {
   const { store, cleanup } = tempStore();
   const ptySessions = new PtySessionManager(store);
+  const port = 5500 + Math.floor(Math.random() * 1000);
   const sessionId = createSessionId();
   ptySessions.create({
     id: sessionId,
@@ -241,6 +257,60 @@ test('session creation rejects missing token', async () => {
     assert.equal(response.status, 401);
     assert.deepEqual(await response.json(), { error: 'missing_token' });
   } finally {
+    await daemon.close();
+    cleanup();
+  }
+});
+
+test('direct read endpoints require auth and enforce session ownership', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const port = 5500 + Math.floor(Math.random() * 1000);
+  const sessionId = createSessionId();
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24,
+    owner: {
+      accountId: 'acct_test',
+      workspaceId: 'ws_test',
+      userId: 'user_test',
+      deviceId: 'device_test'
+    }
+  });
+  const daemon = await startDaemon({ host: '127.0.0.1', port, store, ptySessions });
+
+  try {
+    await withAuthFixture(async ({ authHeaders }) => {
+      const baseUrl = `http://127.0.0.1:${port}`;
+      const missing = await fetch(`${baseUrl}/api/sessions`);
+      assert.equal(missing.status, 401);
+      assert.deepEqual(await missing.json(), { error: 'missing_token' });
+
+      const list = await fetch(`${baseUrl}/api/sessions`, {
+        headers: authHeaders(TOKEN_NORMAL)
+      });
+      assert.equal(list.status, 200);
+      const listBody = (await list.json()) as { sessions?: Array<{ id: string }> };
+      assert.deepEqual(listBody.sessions?.map((session) => session.id), [sessionId]);
+
+      const forbidden = await fetch(`${baseUrl}/api/sessions/${sessionId}/events`, {
+        headers: authHeaders(TOKEN_NORMAL_OTHER)
+      });
+      assert.equal(forbidden.status, 403);
+      assert.deepEqual(await forbidden.json(), { error: 'forbidden_owner' });
+
+      const events = await fetch(`${baseUrl}/api/sessions/${sessionId}/events`, {
+        headers: authHeaders(TOKEN_NORMAL)
+      });
+      assert.equal(events.status, 200);
+      assert.equal(Array.isArray(((await events.json()) as { events?: unknown[] }).events), true);
+    });
+  } finally {
+    ptySessions.stop(sessionId);
     await daemon.close();
     cleanup();
   }
@@ -396,7 +466,7 @@ test('observe websocket clients cannot write input', async () => {
   try {
     await withAuthFixture(async ({ authHeaders }) => {
       const ticket = await requestTicket(4892, sessionId, 'observe', authHeaders());
-      const ws = new WebSocket(`ws://127.0.0.1:4892/api/sessions/${sessionId}/stream?ticket=${ticket}&mode=observe&surface=test`);
+      const ws = new WebSocket(`ws://127.0.0.1:4892/api/sessions/${sessionId}/stream?mode=observe&surface=test`, [`tether-ticket.${ticket}`]);
       const message = await waitForMessage(ws, (text) => text.includes('replay.done'));
       assert.match(message, /replay\.done/);
       ws.send(JSON.stringify({ type: 'input', data: 'blocked\r' }));
@@ -429,7 +499,7 @@ test('observe websocket clients cannot resize pty', async () => {
   try {
     await withAuthFixture(async ({ authHeaders }) => {
       const ticket = await requestTicket(4895, sessionId, 'observe', authHeaders());
-      const ws = new WebSocket(`ws://127.0.0.1:4895/api/sessions/${sessionId}/stream?ticket=${ticket}&mode=observe&surface=test`);
+      const ws = new WebSocket(`ws://127.0.0.1:4895/api/sessions/${sessionId}/stream?mode=observe&surface=test`, [`tether-ticket.${ticket}`]);
       await waitForMessage(ws, (text) => text.includes('replay.done'));
       ws.send(JSON.stringify({ type: 'resize', cols: 100, rows: 30 }));
       const error = await waitForMessage(ws, (text) => text.includes('observe_only'));
@@ -461,7 +531,7 @@ test('direct websocket controller can resize pty', async () => {
   try {
     await withAuthFixture(async ({ authHeaders }) => {
       const ticket = await requestTicket(4896, sessionId, 'control', authHeaders());
-      const ws = new WebSocket(`ws://127.0.0.1:4896/api/sessions/${sessionId}/stream?ticket=${ticket}&mode=control&surface=test`);
+      const ws = new WebSocket(`ws://127.0.0.1:4896/api/sessions/${sessionId}/stream?mode=control&surface=test`, [`tether-ticket.${ticket}`]);
       await waitForMessage(ws, (text) => text.includes('replay.done'));
       ws.send(JSON.stringify({ type: 'resize', cols: 100, rows: 30 }));
       await waitFor(
@@ -532,7 +602,7 @@ test('direct websocket rejects invalid resize dimensions', async () => {
   try {
     await withAuthFixture(async ({ authHeaders }) => {
       const ticket = await requestTicket(4897, sessionId, 'control', authHeaders());
-      const ws = new WebSocket(`ws://127.0.0.1:4897/api/sessions/${sessionId}/stream?ticket=${ticket}&mode=control&surface=test`);
+      const ws = new WebSocket(`ws://127.0.0.1:4897/api/sessions/${sessionId}/stream?mode=control&surface=test`, [`tether-ticket.${ticket}`]);
       await waitForMessage(ws, (text) => text.includes('replay.done'));
       ws.send(JSON.stringify({ type: 'resize', cols: 0, rows: 0 }));
       const error = await waitForMessage(ws, (text) => text.includes('bad_resize'));
@@ -564,11 +634,11 @@ test('previous direct controller cannot write after control is claimed', async (
   try {
     await withAuthFixture(async ({ authHeaders }) => {
       const firstTicket = await requestTicket(4894, sessionId, 'control', authHeaders());
-      const first = new WebSocket(`ws://127.0.0.1:4894/api/sessions/${sessionId}/stream?ticket=${firstTicket}&mode=control&surface=test`);
+      const first = new WebSocket(`ws://127.0.0.1:4894/api/sessions/${sessionId}/stream?mode=control&surface=test`, [`tether-ticket.${firstTicket}`]);
       await waitForMessage(first, (text) => text.includes('replay.done'));
 
       const secondTicket = await requestTicket(4894, sessionId, 'control', authHeaders());
-      const second = new WebSocket(`ws://127.0.0.1:4894/api/sessions/${sessionId}/stream?ticket=${secondTicket}&mode=control&surface=test`);
+      const second = new WebSocket(`ws://127.0.0.1:4894/api/sessions/${sessionId}/stream?mode=control&surface=test`, [`tether-ticket.${secondTicket}`]);
       await waitForMessage(second, (text) => text.includes('replay.done'));
 
       first.send(JSON.stringify({ type: 'input', data: 'stale controller\r' }));

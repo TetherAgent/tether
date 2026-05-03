@@ -149,6 +149,17 @@ function sendRelayFrame(ws: WebSocket, frame: RelayClientToServerFrame): void {
   ws.send(JSON.stringify(frame));
 }
 
+function gatewayRequest(input: RequestInfo | URL, accessToken: string | undefined, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const authHeaders = gatewayAuthHeaders(accessToken);
+  if (authHeaders) {
+    for (const [key, value] of new Headers(authHeaders).entries()) {
+      headers.set(key, value);
+    }
+  }
+  return fetch(input, { ...init, headers });
+}
+
 function sessionStatusLabel(status: string, t: WebMessages): string {
   switch (status) {
     case 'running':
@@ -320,11 +331,15 @@ function SessionList({
 
   const refreshDirect = React.useCallback(async () => {
     try {
+      const token = normalAuth?.accessToken;
       const [sessionsResponse, historyResponse, gatewaysResponse] = await Promise.all([
-        fetch('/api/sessions'),
-        fetch('/api/sessions?all=1'),
-        fetch('/api/gateways')
+        gatewayRequest('/api/sessions', token),
+        gatewayRequest('/api/sessions?all=1', token),
+        gatewayRequest('/api/gateways', token)
       ]);
+      if (sessionsResponse.status === 401 || historyResponse.status === 401 || gatewaysResponse.status === 401) {
+        logoutNormal();
+      }
       if (!sessionsResponse.ok) {
         throw new Error(`sessions HTTP ${sessionsResponse.status}`);
       }
@@ -346,7 +361,7 @@ function SessionList({
     } catch (error) {
       setStatus(error instanceof Error ? error.message : t.statusDisconnected);
     }
-  }, [t.statusDisconnected]);
+  }, [logoutNormal, normalAuth?.accessToken, t.statusDisconnected]);
 
   React.useEffect(() => {
     if (connectionSettings.connectionMode !== 'direct') {
@@ -583,7 +598,10 @@ function SessionView({
       const wasNearBottom = scrollport
         ? scrollport.scrollTop + scrollport.clientHeight >= scrollport.scrollHeight - 48
         : true;
-      const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/snapshot`);
+      const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/snapshot`, normalAuth?.accessToken);
+      if (response.status === 401) {
+        logoutNormal();
+      }
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -599,7 +617,7 @@ function SessionView({
     } catch (error) {
       setStatus(error instanceof Error ? error.message : t.statusDisconnected);
     }
-  }, [connectionSettings.connectionMode, sessionId, t]);
+  }, [connectionSettings.connectionMode, logoutNormal, normalAuth?.accessToken, sessionId, t]);
 
   React.useEffect(() => {
     refresh();
@@ -713,14 +731,17 @@ function PtySessionView({
     if (connectionSettings.connectionMode === 'relay') {
       return;
     }
-    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/clients`);
+    const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/clients`, normalAuth?.accessToken);
+    if (response.status === 401) {
+      logoutNormal();
+    }
     if (!response.ok) {
       return;
     }
     const data = (await response.json()) as { controllerClientId: string | null; clients: ClientInfo[] };
     setControllerClientId(data.controllerClientId);
     setClients(data.clients);
-  }, [connectionSettings.connectionMode, sessionId]);
+  }, [connectionSettings.connectionMode, logoutNormal, normalAuth?.accessToken, sessionId]);
 
   const changeClientMode = React.useCallback((mode: ClientMode) => {
     window.localStorage.setItem(WEB_CLIENT_MODE_KEY, mode);
@@ -890,7 +911,10 @@ function PtySessionView({
         return;
       }
       setStatus(t.statusReplaying);
-      const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/events?after=0&limit=5000`);
+      const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/events?after=0&limit=5000`, normalAuth?.accessToken);
+      if (response.status === 401) {
+        logoutNormal();
+      }
       if (!response.ok) {
         throw new Error(`events HTTP ${response.status}`);
       }
@@ -908,7 +932,10 @@ function PtySessionView({
         return;
       }
       try {
-        const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/events?after=${after}&limit=1000`);
+        const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/events?after=${after}&limit=1000`, normalAuth?.accessToken);
+        if (response.status === 401) {
+          logoutNormal();
+        }
         if (!response.ok) {
           return;
         }
@@ -1040,7 +1067,8 @@ function PtySessionView({
       });
       const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
       return new WebSocket(
-        `${scheme}://${window.location.host}/api/sessions/${encodeURIComponent(sessionId)}/stream?after=${after}&ticket=${encodeURIComponent(ticket)}&surface=web&mode=${clientMode}`
+        `${scheme}://${window.location.host}/api/sessions/${encodeURIComponent(sessionId)}/stream?after=${after}&surface=web&mode=${clientMode}`,
+        [`tether-ticket.${ticket}`]
       );
     };
     connectStream().catch((error: unknown) => {

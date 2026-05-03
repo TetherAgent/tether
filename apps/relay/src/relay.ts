@@ -29,6 +29,7 @@ export const TETHER_RELAY_ALLOW_LEGACY_SECRET = 'TETHER_RELAY_ALLOW_LEGACY_SECRE
 const FORBIDDEN_KEYS = new Set(['command', 'args', 'argv', 'env', 'providerCommand']);
 const MAX_TERMINAL_COLS = 500;
 const MAX_TERMINAL_ROWS = 200;
+const AUTH_TIMEOUT_MS = 5000;
 
 type GatewayState = {
   gatewayId: string;
@@ -98,6 +99,12 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     let authenticated = false;
     let gatewayId = '';
     let gatewayScope: RelayAuthScope | undefined;
+    const authTimer = setTimeout(() => {
+      if (!authenticated && socket.readyState === WebSocket.OPEN) {
+        socket.close(POLICY_VIOLATION, 'authentication timeout');
+      }
+    }, AUTH_TIMEOUT_MS);
+    authTimer.unref();
 
     socket.on('message', (data) => {
       void (async () => {
@@ -125,6 +132,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           gatewayScope = auth.scope;
           gateway = { gatewayId, scope: auth.scope, socket };
           authenticated = true;
+          clearTimeout(authTimer);
           sendToSocket<RelayServerToGatewayFrame>(socket, { type: 'gateway.auth.ok', gatewayId });
           return;
         }
@@ -144,6 +152,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     });
 
     socket.on('close', () => {
+      clearTimeout(authTimer);
       if (gateway?.socket === socket) {
         gateway = undefined;
       }
@@ -183,6 +192,12 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     const subscriptions = new Map<string, RelayClientMode>();
     let authenticated = false;
     let clientScope: RelayAuthScope | undefined;
+    const authTimer = setTimeout(() => {
+      if (!authenticated && socket.readyState === WebSocket.OPEN) {
+        socket.close(POLICY_VIOLATION, 'authentication timeout');
+      }
+    }, AUTH_TIMEOUT_MS);
+    authTimer.unref();
 
     socket.on('message', (data) => {
       void (async () => {
@@ -204,6 +219,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             return;
           }
           authenticated = true;
+          clearTimeout(authTimer);
           clientScope = auth.scope;
           clients.set(clientId, { clientId, scope: auth.scope, socket, subscriptions });
           sendToSocket<RelayServerToClientFrame>(socket, { type: 'client.auth.ok', clientId });
@@ -230,6 +246,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     });
 
     socket.on('close', () => {
+      clearTimeout(authTimer);
       clients.delete(clientId);
     });
   }
