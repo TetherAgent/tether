@@ -4,6 +4,10 @@ set -e
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
+# 加载环境变量
+# shellcheck source=/dev/null
+[ -f /etc/profile.d/tether.sh ] && source /etc/profile.d/tether.sh
+
 log() { echo "[deploy] $*"; }
 
 # 1. 拉代码
