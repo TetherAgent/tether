@@ -14,6 +14,8 @@
     "build:web": "pnpm --filter @tether/web build",
     "build:admin": "pnpm --filter @tether/admin-web build",
     "build:server": "pnpm --filter @tether/server build",
+    "start:server": "pnpm --filter @tether/server start",
+    "stop:server": "pnpm --filter @tether/server stop",
     "dev:codex": "tsx apps/cli/src/main.ts codex --host 0.0.0.0",
     "dev:relay": "tsx apps/relay/src/main.ts",
     "test": "pnpm -r --if-present run test",
