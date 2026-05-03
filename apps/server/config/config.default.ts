@@ -134,6 +134,14 @@ export default (appInfo: EggAppInfo): PowerPartial<AppConfig> => {
         password: readEnv('TETHER_SERVER_REDIS_PASSWORD'),
         db: 0
       }
+    },
+    // TODO: 上线稳定后关闭，避免暴露错误详情
+    onerror: {
+      all(err: Error & { status?: number }, ctx: any) {
+        ctx.set('Content-Type', 'application/json');
+        ctx.body = JSON.stringify({ error: err.message, stack: err.stack });
+        ctx.status = err.status || 500;
+      }
     }
   };
 };
