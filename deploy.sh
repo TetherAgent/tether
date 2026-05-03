@@ -4,6 +4,8 @@ set -e
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
+BRANCH="${1:-main}"
+
 # 加载环境变量
 # shellcheck source=/dev/null
 [ -f /data/env/tether.sh ] && source /data/env/tether.sh
@@ -11,8 +13,9 @@ cd "$ROOT_DIR"
 log() { echo "[deploy] $*"; }
 
 # 1. 拉代码
-log "拉取最新代码..."
-git pull origin main
+log "拉取最新代码（分支：$BRANCH）..."
+git fetch origin
+git reset --hard "origin/$BRANCH"
 
 # 2. 安装依赖
 log "安装依赖..."
