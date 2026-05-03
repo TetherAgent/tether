@@ -135,7 +135,7 @@ occupies an active roadmap phase number.
 **Depends on**: Phase 5
 **Requirements**: WEBUI-01, MGMT-01, MGMT-02, MGMT-03, MGMT-04, MGMT-05, MGMT-06
 **Success Criteria** (what must be TRUE):
-  1. The management console is built inside `apps/web` using shadcn components and consistent layout primitives
+  1. The management console is built inside `apps/admin-web` using shadcn components and consistent layout primitives
   2. The management console has its own login and registration flow; the first registered management user is `super_admin`, and later management users are `admin` unless promoted by `super_admin`
   3. A logged-in management user can view the current account/workspace context and see their management permissions
   4. `super_admin` can manage management users and system/security settings; `admin` can manage normal users, normal user devices, Gateway unlinking, and audit viewing but cannot manage management users or system/security settings
@@ -143,7 +143,16 @@ occupies an active roadmap phase number.
   6. Authorized management users can view registered Gateways, see last-seen/auth state, and unlink a Gateway so it can no longer publish sessions through Relay
   7. Authorized management users can inspect identity-bearing audit events filtered by account/workspace/user/device/Gateway/session/action without exposing raw tokens or secrets
   8. Authorized management users can see per-user login analytics: successful login count, failed login count, last login time, active/revoked devices, and recent auth/security events
-**Plans**: TBD
+**Plans**: 5 plans
+Plans:
+  - **Wave 1** (parallel):
+    - [ ] `06-01-PLAN.md` — apps/admin-web 包脚手架、auth context、AdminLayout、admin-api.ts
+    - [ ] `06-02-PLAN.md` — apps/server admin-auth 中间件、用户/管理用户 API、dashboard 统计
+  - **Wave 2** *(blocked on Plan 02)*:
+    - [ ] `06-03-PLAN.md` — apps/server 设备/Gateway/审计管理 API *(depends on Plan 02)*
+  - **Wave 3** *(blocked on Plans 01 + 02/03)*:
+    - [ ] `06-04-PLAN.md` — Dashboard 页和 Users 页 *(depends on Plans 01, 02)*
+    - [ ] `06-05-PLAN.md` — Devices、Gateways、Audit 页 *(depends on Plans 01, 03)*
 
 ### Phase 7: Retention
 **Goal**: The `session_events` table is bounded; the SQLite WAL file cannot grow unbounded during long Gateway uptimes
@@ -207,7 +216,7 @@ occupies an active roadmap phase number.
 | 3. Cleanup | 4/4 | Complete    | 2026-05-02 |
 | 4. Account & Auth Contract | 1/1 | Complete    | 2026-05-02 |
 | 5. Web-first Account Setup & Server Auth Runtime | 7/7 | In verification | - |
-| 6. Account Management Console | 0/TBD | Not started | - |
+| 6. Account Management Console | 0/5 | Not started | - |
 | 7. Retention | 0/TBD | Not started | - |
 | 8. Security, Isolation Tests & Final Cleanup | 0/TBD | Not started | - |
 | 9. Flutter Client App | 0/TBD | Not started | - |
