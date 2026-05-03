@@ -221,6 +221,9 @@ importers:
         specifier: ^3.22.3
         version: 3.22.3(@types/node@22.19.17)
     devDependencies:
+      '@eggjs/tsconfig':
+        specifier: ^2.0.0
+        version: 2.0.0
       '@types/node':
         specifier: ^22.15.29
         version: 22.19.17
@@ -736,6 +739,10 @@ packages:
   '@eggjs/router@2.2.0':
     resolution: {integrity: sha512-EKnOrZ/pHMFQ1gAj3z0Yn1UnGYH/wSsc2jk06H6RrZp6ty9H6RWyP782e7FT8WL3pAevRY+SAQoH7aPh1SDSVA==}
     engines: {node: '>= 8.5.0'}
+
+  '@eggjs/tsconfig@2.0.0':
+    resolution: {integrity: sha512-Isxjjkjyoo2EM2iO2oT60fXEyhSQFkGlFZ05FuNjR+6LVHmhs3fbul8y3zW7ymiZWyzGClN11R0nGEFgB1pSgg==}
+    engines: {node: '>=18.19.0'}
 
   '@eggjs/utils@4.4.1':
     resolution: {integrity: sha512-/bu4ORRNSLSjrQQ4KDBgtyF92EmgmtdgjoXBIhBexxEqoV5Tg6kX4xdcG42cw+Cq3WBnUq/PzSthEPHbSlkQgg==}
@@ -5999,6 +6006,8 @@ snapshots:
       path-to-regexp: 1.9.0
       urijs: 1.19.11
       utility: 1.18.0
+
+  '@eggjs/tsconfig@2.0.0': {}
 
   '@eggjs/utils@4.4.1': {}
 

@@ -5,11 +5,14 @@
   "type": "commonjs",
   "scripts": {
     "dev": "egg-bin dev --ts",
+    "debug": "egg-bin debug --ts",
     "build": "tsc -p tsconfig.json",
-    "start": "egg-scripts start --daemon --workers=1 --port=4800 --title=egg-server-tether-api",
-    "stop": "egg-scripts stop",
+    "tsc": "tsc -p tsconfig.json --noEmit",
+    "start": "pnpm tsc && pnpm stop && egg-scripts start --daemon --workers=1 --port=4800 --title=egg-server-tether-api",
+    "stop": "egg-scripts stop --title=egg-server-tether-api",
+    "clean": "tsc -b --clean && rm -rf dist",
     "test": "tsx --test test/**/*.test.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "pnpm tsc"
   },
   "dependencies": {
     "@tether/core": "workspace:*",
@@ -24,6 +27,7 @@
     "mysql2": "^3.22.3"
   },
   "devDependencies": {
+    "@eggjs/tsconfig": "^2.0.0",
     "@types/node": "^22.15.29",
     "egg-bin": "^6.6.0",
     "egg-scripts": "^3.1.0",
