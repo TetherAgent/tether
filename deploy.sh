@@ -6,7 +6,7 @@ cd "$ROOT_DIR"
 
 # 加载环境变量
 # shellcheck source=/dev/null
-[ -f /etc/profile.d/tether.sh ] && source /etc/profile.d/tether.sh
+[ -f /data/tether/.env ] && source /data/tether/.env
 
 log() { echo "[deploy] $*"; }
 
