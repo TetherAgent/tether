@@ -40,7 +40,7 @@ export async function bindGateway(input: {
   gateway.lastSeenAt = createdAt;
   gateway.updatedAt = createdAt;
   if (mysqlModeEnabled()) {
-    await saveGateway(gateway);
+    gateway.id = await saveGateway(gateway);
   } else {
     runtimeStore().gateways.set(gateway.id, gateway);
   }

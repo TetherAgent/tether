@@ -4,14 +4,12 @@ import { useForm } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 
-import { Button } from '../components/ui/button.js';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from '../components/ui/card.js';
+import { Button, Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle, Input } from '@tether/design';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../components/ui/form.js';
-import { Input } from '../components/ui/input.js';
 import { useAuth } from '../hooks/use-auth.js';
 
 const schema = z.object({
-  email: z.email('请输入有效邮箱地址'),
+  email: z.string().min(1, '请输入账户名'),
   password: z.string().min(8, '密码至少 8 位')
 });
 
@@ -56,7 +54,7 @@ export function LoginPage() {
                   <FormItem className="auth-form-field">
                     <FormLabel>Email</FormLabel>
                     <FormControl>
-                      <Input placeholder="name@example.com" type="email" {...field} />
+                      <Input placeholder="name@example.com" type="text" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

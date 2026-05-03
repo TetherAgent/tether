@@ -1,0 +1,14 @@
+@import "@tether/theme/globals.css";
+
+body {
+  margin: 0;
+  width: 100%;
+  min-height: 100dvh;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+#root {
+  width: 100%;
+  min-height: 100dvh;
+}

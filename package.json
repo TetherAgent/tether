@@ -9,8 +9,11 @@
   "scripts": {
     "typecheck": "pnpm -r --if-present run typecheck",
     "dev:web": "pnpm --filter @tether/web dev",
+    "dev:admin": "pnpm --filter @tether/admin-web dev",
     "dev:server": "EGG_SERVER_ENV=local pnpm --filter @tether/server dev",
     "build:web": "pnpm --filter @tether/web build",
+    "build:admin": "pnpm --filter @tether/admin-web build",
+    "build:server": "pnpm --filter @tether/server build",
     "dev:codex": "tsx apps/cli/src/main.ts codex --host 0.0.0.0",
     "dev:relay": "tsx apps/relay/src/main.ts",
     "test": "pnpm -r --if-present run test",

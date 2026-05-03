@@ -1,39 +1,14 @@
-@import "tailwindcss";
-
-:root {
-  color-scheme: dark;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #101214;
-  color: #e8ecef;
-  --background: 210 10% 8%;
-  --foreground: 210 12% 92%;
-  --card: 215 12% 11%;
-  --card-foreground: 210 12% 92%;
-  --popover: 215 12% 11%;
-  --popover-foreground: 210 12% 92%;
-  --primary: 205 100% 78%;
-  --primary-foreground: 210 10% 6%;
-  --secondary: 215 12% 16%;
-  --secondary-foreground: 210 12% 92%;
-  --muted: 215 10% 18%;
-  --muted-foreground: 210 8% 62%;
-  --accent: 205 100% 78%;
-  --accent-foreground: 210 10% 6%;
-  --destructive: 0 72% 60%;
-  --destructive-foreground: 0 0% 98%;
-  --border: 215 12% 23%;
-  --input: 215 12% 27%;
-  --ring: 215 12% 40%;
-  --radius: 0.375rem;
-}
+@import "@tether/theme/globals.css";
 
 body {
   margin: 0;
-  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--background);
+  color: var(--foreground);
 }
 
 #root {
-  height: 100vh;
+  height: 100dvh;
   display: grid;
   grid-template-rows: auto 1fr auto;
   overflow: hidden;
@@ -43,17 +18,17 @@ a {
   color: inherit;
 }
 
-header {
+.session-header {
   padding: 12px 14px;
-  border-bottom: 1px solid #2b3137;
-  background: #171a1f;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card) 92%, transparent);
   display: flex;
   justify-content: space-between;
   gap: 12px;
   align-items: center;
 }
 
-h1 {
+.session-header h1 {
   font-size: 15px;
   margin: 0;
   font-weight: 650;
@@ -95,12 +70,12 @@ h1 {
   font-size: 12px;
 }
 
-select,
-input {
+.connection-settings select,
+.relay-field input {
   color: #e8ecef;
-  background: #0c0e10;
-  border: 1px solid #3a424b;
-  border-radius: 6px;
+  background: color-mix(in srgb, var(--input) 80%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   padding: 4px 8px;
 }
 
@@ -111,14 +86,14 @@ input {
 .scrollport {
   min-height: 0;
   overflow: auto;
-  background: #0c0e10;
+  background: color-mix(in srgb, var(--canvas) 92%, transparent);
 }
 
 .terminal-shell {
   position: relative;
   min-height: 0;
   overflow: auto;
-  background: #0c0e10;
+  background: color-mix(in srgb, var(--canvas) 92%, transparent);
 }
 
 .terminal-host {
@@ -146,9 +121,9 @@ input {
 
 .client-strip span {
   padding: 3px 6px;
-  border: 1px solid #2b3137;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: rgb(16 20 25 / 86%);
+  background: color-mix(in srgb, var(--background) 86%, transparent);
 }
 
 pre {
@@ -158,52 +133,37 @@ pre {
   padding: 14px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font: 13px/1.45 var(--font-family-mono), SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 }
 
-form {
+.composer-form {
   padding: 10px;
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 8px;
-  border-top: 1px solid #2b3137;
-  background: #171a1f;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card) 92%, transparent);
 }
 
-textarea {
+.composer-input {
   min-width: 0;
   resize: none;
   font: inherit;
-  color: #f5f7f9;
-  background: #0c0e10;
-  border: 1px solid #3a424b;
-  border-radius: 6px;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--input) 80%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   padding: 11px 12px;
 }
 
-button {
-  font: inherit;
-  font-weight: 650;
-  color: #0c0e10;
-  background: #8fd0ff;
-  border: 0;
-  border-radius: 6px;
-  padding: 0 16px;
-}
-
-.secondary-button {
-  color: #e8ecef;
-  background: #242a31;
-  border: 1px solid #3a424b;
-  padding: 6px 10px;
-}
-
-h2 {
+.empty h2 {
   font-size: 18px;
   margin: 0 0 8px;
 }
 
-p {
+.empty p,
+.auth-footer-copy,
+.auth-meta-note {
   margin: 0;
   color: #9aa4af;
 }
@@ -231,9 +191,9 @@ p {
   padding: 8px 10px;
   color: #9aa4af;
   font-size: 12px;
-  border: 1px solid #2b3137;
-  border-radius: 6px;
-  background: #101419;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--card) 92%, transparent);
 }
 
 .session-section {
@@ -287,14 +247,14 @@ p {
 }
 
 .auth-shell {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 32px 16px;
   background:
-    radial-gradient(circle at top, rgb(143 208 255 / 10%), transparent 32%),
-    linear-gradient(180deg, #101214 0%, #0c0e10 100%);
+    radial-gradient(circle at top, color-mix(in srgb, var(--brand) 18%, transparent), transparent 32%),
+    linear-gradient(180deg, var(--background) 0%, var(--canvas) 100%);
 }
 
 .auth-card {
@@ -319,7 +279,6 @@ p {
 
 .auth-footer-copy {
   font-size: 14px;
-  color: #9aa4af;
 }
 
 .auth-error {
@@ -329,20 +288,19 @@ p {
 }
 
 .auth-footer-link {
-  color: #e8ecef;
+  color: var(--foreground);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
 .auth-meta-note {
   font-size: 14px;
-  color: #9aa4af;
   line-height: 1.5;
 }
 
 .session-card:active,
 .session-card:hover {
-  border-color: #8fd0ff;
+  border-color: var(--brand);
 }
 
 .session-card-title {
@@ -395,18 +353,14 @@ p {
     padding: 6px;
   }
 
-  form {
+  .composer-form {
     padding: 8px;
     grid-template-columns: 1fr 72px;
   }
 
-  textarea {
+  .composer-input {
     padding: 10px;
     font-size: 16px;
-  }
-
-  button {
-    padding: 0 10px;
   }
 
   .client-strip {

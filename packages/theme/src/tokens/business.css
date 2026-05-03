@@ -1,0 +1,25 @@
+:root,
+[data-theme="light"] {
+  --exchange-bybit: #f7a600;
+  --exchange-binance: #fcd535;
+  --exchange-mexc: #326ad5;
+  --exchange-okex: #25a750;
+  --exchange-gate: #91caff;
+  --exchange-bitget: #1da2b4;
+  --exchange-kucoin: #01bc8d;
+  --exchange-hyperliquid: #97fce4;
+  --exchange-lbank: #ffdb00;
+}
+
+.dark,
+[data-theme="dark"] {
+  --exchange-bybit: #f7a600;
+  --exchange-binance: #fcd535;
+  --exchange-mexc: #326ad5;
+  --exchange-okex: #25a750;
+  --exchange-gate: #91caff;
+  --exchange-bitget: #1da2b4;
+  --exchange-kucoin: #01bc8d;
+  --exchange-hyperliquid: #97fce4;
+  --exchange-lbank: #ffdb00;
+}

@@ -82,6 +82,11 @@ function nullableString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+function nullableId(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  return String(value);
+}
+
 function actorTypeOf(input: AuditInsert): string {
   if (input.adminUserId) {
     return 'admin_user';
@@ -133,7 +138,7 @@ async function ensureSchema(): Promise<void> {
 
 async function execute(sql: string, values: any[] = []) {
   await ensureSchema();
-  return await mysqlPool().execute(sql, values);
+  return await mysqlPool().query(sql, values);
 }
 
 async function transaction<T>(run: (connection: mysql.PoolConnection) => Promise<T>): Promise<T> {
@@ -207,8 +212,8 @@ function deviceFromRow(row: Record<string, unknown>): DeviceRecord {
     id: String(row.id),
     accountId: String(row.account_id),
     workspaceId: String(row.workspace_id),
-    userId: nullableString(row.user_id),
-    adminUserId: nullableString(row.admin_user_id),
+    userId: nullableId(row.user_id),
+    adminUserId: nullableId(row.admin_user_id),
     name: String(row.name),
     platform: String(row.platform),
     createdAt: sqlDateToMs(row.created_at),
@@ -237,10 +242,10 @@ function refreshTokenFromRow(row: Record<string, unknown>): RefreshTokenRecord {
     tokenClass: String(row.token_class),
     accountId: String(row.account_id),
     workspaceId: String(row.workspace_id),
-    userId: nullableString(row.user_id),
-    adminUserId: nullableString(row.admin_user_id),
-    deviceId: nullableString(row.device_id),
-    gatewayId: nullableString(row.gateway_id),
+    userId: nullableId(row.user_id),
+    adminUserId: nullableId(row.admin_user_id),
+    deviceId: nullableId(row.device_id),
+    gatewayId: nullableId(row.gateway_id),
     expiresAt: sqlDateToMs(row.expires_at),
     revokedAt: row.revoked_at ? sqlDateToMs(row.revoked_at) : undefined,
     createdAt: sqlDateToMs(row.created_at)
@@ -254,11 +259,11 @@ function auditEventFromRow(row: Record<string, unknown>): AuditEventRecord {
   return {
     id: Number(row.id),
     accountId: String(row.account_id),
-    workspaceId: nullableString(row.workspace_id),
-    userId: nullableString(row.user_id),
-    adminUserId: nullableString(row.admin_user_id),
-    deviceId: nullableString(row.device_id),
-    gatewayId: nullableString(row.gateway_id),
+    workspaceId: nullableId(row.workspace_id),
+    userId: nullableId(row.user_id),
+    adminUserId: nullableId(row.admin_user_id),
+    deviceId: nullableId(row.device_id),
+    gatewayId: nullableId(row.gateway_id),
     sessionId: nullableString(row.session_id),
     action: String(row.event_type),
     tokenClass: nullableString(row.token_class),
@@ -318,18 +323,54 @@ export async function loadDeviceById(id: string): Promise<DeviceRecord | undefin
   return row ? deviceFromRow(row) : undefined;
 }
 
+export async function bootstrapAccountAndWorkspace(input: {
+  account: AccountRecord & { passwordHash?: string };
+  workspace: WorkspaceRecord;
+}): Promise<{ accountId: string; workspaceId: string }> {
+  let accountId = '', workspaceId = '';
+  await transaction(async (connection) => {
+    const [r1] = await connection.execute(
+      `INSERT INTO accounts (email, display_name, password_hash, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
+      [
+        input.account.email,
+        input.account.displayName,
+        input.account.passwordHash ?? '',
+        input.account.status,
+        input.account.createdAt,
+        input.account.updatedAt
+      ]
+    );
+    accountId = String((r1 as { insertId: number }).insertId);
+    const [r2] = await connection.execute(
+      `INSERT INTO workspaces (account_id, slug, name, is_default, created_at, updated_at)
+       VALUES (?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
+      [
+        accountId,
+        input.workspace.slug,
+        input.workspace.name,
+        input.workspace.isDefault ? 1 : 0,
+        input.workspace.createdAt,
+        input.workspace.updatedAt
+      ]
+    );
+    workspaceId = String((r2 as { insertId: number }).insertId);
+  });
+  return { accountId, workspaceId };
+}
+
 export async function createAccountOwnerUser(input: {
   account: AccountRecord & { passwordHash: string };
   workspace: WorkspaceRecord;
   user: UserRecord;
   device: DeviceRecord;
-}): Promise<void> {
+}): Promise<{ accountId: string; workspaceId: string; userId: string; deviceId: string }> {
+  let accountId = '', workspaceId = '', userId = '', deviceId = '';
   await transaction(async (connection) => {
-    await connection.execute(
-      `INSERT INTO accounts (id, email, display_name, password_hash, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
+    const [r1] = await connection.execute(
+      `INSERT INTO accounts (email, display_name, password_hash, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
       [
-        input.account.id,
         input.account.email,
         input.account.displayName,
         input.account.passwordHash,
@@ -338,12 +379,13 @@ export async function createAccountOwnerUser(input: {
         input.account.updatedAt
       ]
     );
-    await connection.execute(
-      `INSERT INTO workspaces (id, account_id, slug, name, is_default, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
+    accountId = String((r1 as { insertId: number }).insertId);
+
+    const [r2] = await connection.execute(
+      `INSERT INTO workspaces (account_id, slug, name, is_default, created_at, updated_at)
+       VALUES (?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
       [
-        input.workspace.id,
-        input.workspace.accountId,
+        accountId,
         input.workspace.slug,
         input.workspace.name,
         input.workspace.isDefault ? 1 : 0,
@@ -351,13 +393,14 @@ export async function createAccountOwnerUser(input: {
         input.workspace.updatedAt
       ]
     );
-    await connection.execute(
-      `INSERT INTO users (id, account_id, workspace_id, email, password_hash, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
+    workspaceId = String((r2 as { insertId: number }).insertId);
+
+    const [r3] = await connection.execute(
+      `INSERT INTO users (account_id, workspace_id, email, password_hash, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
       [
-        input.user.id,
-        input.user.accountId,
-        input.user.workspaceId,
+        accountId,
+        workspaceId,
         input.user.email,
         input.user.passwordHash,
         input.user.status,
@@ -365,20 +408,28 @@ export async function createAccountOwnerUser(input: {
         input.user.updatedAt
       ]
     );
-    await insertDeviceWithConnection(connection, input.device);
+    userId = String((r3 as { insertId: number }).insertId);
+
+    deviceId = await insertDeviceWithConnection(connection, {
+      ...input.device,
+      accountId,
+      workspaceId,
+      userId
+    });
   });
+  return { accountId, workspaceId, userId, deviceId };
 }
 
 export async function createNormalUser(input: {
   user: UserRecord;
   device: DeviceRecord;
-}): Promise<void> {
+}): Promise<{ userId: string; deviceId: string }> {
+  let userId = '', deviceId = '';
   await transaction(async (connection) => {
-    await connection.execute(
-      `INSERT INTO users (id, account_id, workspace_id, email, password_hash, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
+    const [r] = await connection.execute(
+      `INSERT INTO users (account_id, workspace_id, email, password_hash, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
       [
-        input.user.id,
         input.user.accountId,
         input.user.workspaceId,
         input.user.email,
@@ -388,20 +439,22 @@ export async function createNormalUser(input: {
         input.user.updatedAt
       ]
     );
-    await insertDeviceWithConnection(connection, input.device);
+    userId = String((r as { insertId: number }).insertId);
+    deviceId = await insertDeviceWithConnection(connection, { ...input.device, userId });
   });
+  return { userId, deviceId };
 }
 
 export async function createAdminUser(input: {
   adminUser: AdminUserRecord;
   device: DeviceRecord;
-}): Promise<void> {
+}): Promise<{ adminId: string; deviceId: string }> {
+  let adminId = '', deviceId = '';
   await transaction(async (connection) => {
-    await connection.execute(
-      `INSERT INTO admin_users (id, account_id, workspace_id, email, password_hash, role, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
+    const [result] = await connection.execute(
+      `INSERT INTO admin_users (account_id, workspace_id, email, password_hash, role, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
       [
-        input.adminUser.id,
         input.adminUser.accountId,
         input.adminUser.workspaceId,
         input.adminUser.email,
@@ -412,23 +465,27 @@ export async function createAdminUser(input: {
         input.adminUser.updatedAt
       ]
     );
-    await insertDeviceWithConnection(connection, input.device);
+    adminId = String((result as { insertId: number }).insertId);
+    input.device.adminUserId = adminId;
+    deviceId = await insertDeviceWithConnection(connection, input.device);
   });
+  return { adminId, deviceId };
 }
 
-export async function saveDevice(device: DeviceRecord): Promise<void> {
+export async function saveDevice(device: DeviceRecord): Promise<string> {
+  let deviceId = '';
   await transaction(async (connection) => {
-    await insertDeviceWithConnection(connection, device);
+    deviceId = await insertDeviceWithConnection(connection, device);
   });
+  return deviceId;
 }
 
-async function insertDeviceWithConnection(connection: mysql.PoolConnection, device: DeviceRecord): Promise<void> {
-  await connection.execute(
+async function insertDeviceWithConnection(connection: mysql.PoolConnection, device: DeviceRecord): Promise<string> {
+  const [result] = await connection.execute(
     `INSERT INTO devices (
-      id, account_id, workspace_id, user_id, admin_user_id, name, platform, token_class, jti, expires_at, revoked_at, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
+      account_id, workspace_id, user_id, admin_user_id, name, platform, token_class, jti, expires_at, revoked_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
     [
-      device.id,
       device.accountId,
       device.workspaceId,
       device.userId ?? null,
@@ -441,14 +498,15 @@ async function insertDeviceWithConnection(connection: mysql.PoolConnection, devi
       device.updatedAt
     ]
   );
+  return String((result as { insertId: number }).insertId);
 }
 
 export async function saveRefreshToken(record: RefreshTokenRecord): Promise<void> {
   if (record.gatewayId) {
     await execute(
       `INSERT INTO gateway_refresh_tokens (
-        id, account_id, workspace_id, gateway_id, device_id, session_id, token_class, jti, expires_at, revoked_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, FROM_UNIXTIME(? / 1000), ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))
+        account_id, workspace_id, gateway_id, device_id, session_id, token_class, jti, expires_at, revoked_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, NULL, ?, ?, FROM_UNIXTIME(? / 1000), ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))
       ON DUPLICATE KEY UPDATE
         device_id = VALUES(device_id),
         token_class = VALUES(token_class),
@@ -456,7 +514,6 @@ export async function saveRefreshToken(record: RefreshTokenRecord): Promise<void
         revoked_at = VALUES(revoked_at),
         updated_at = VALUES(updated_at)`,
       [
-        record.id,
         record.accountId,
         record.workspaceId,
         record.gatewayId,
@@ -474,8 +531,8 @@ export async function saveRefreshToken(record: RefreshTokenRecord): Promise<void
 
   await execute(
     `INSERT INTO refresh_tokens (
-      id, account_id, workspace_id, user_id, admin_user_id, device_id, session_id, token_class, jti, expires_at, revoked_at, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, FROM_UNIXTIME(? / 1000), ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))
+      account_id, workspace_id, user_id, admin_user_id, device_id, session_id, token_class, jti, expires_at, revoked_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, FROM_UNIXTIME(? / 1000), ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))
     ON DUPLICATE KEY UPDATE
       user_id = VALUES(user_id),
       admin_user_id = VALUES(admin_user_id),
@@ -485,7 +542,6 @@ export async function saveRefreshToken(record: RefreshTokenRecord): Promise<void
       revoked_at = VALUES(revoked_at),
       updated_at = VALUES(updated_at)`,
     [
-      record.id,
       record.accountId,
       record.workspaceId,
       record.userId ?? null,
@@ -551,18 +607,18 @@ export async function isTokenRevoked(jti: string): Promise<boolean> {
   return Boolean((rows as Record<string, unknown>[])[0]?.found);
 }
 
-export async function saveGateway(gateway: GatewayRecord): Promise<void> {
-  await execute(
+export async function saveGateway(gateway: GatewayRecord): Promise<string> {
+  const [result] = await execute(
     `INSERT INTO gateways (
-      id, account_id, workspace_id, device_id, user_id, admin_user_id, name, status, last_seen_at, created_at, updated_at
-    ) VALUES (?, ?, ?, NULL, ?, NULL, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))
+      account_id, workspace_id, device_id, user_id, admin_user_id, name, status, last_seen_at, created_at, updated_at
+    ) VALUES (?, ?, NULL, ?, NULL, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))
     ON DUPLICATE KEY UPDATE
+      id = LAST_INSERT_ID(id),
       name = VALUES(name),
       status = VALUES(status),
       last_seen_at = VALUES(last_seen_at),
       updated_at = VALUES(updated_at)`,
     [
-      gateway.id,
       gateway.accountId,
       gateway.workspaceId,
       gateway.userId,
@@ -573,6 +629,7 @@ export async function saveGateway(gateway: GatewayRecord): Promise<void> {
       gateway.updatedAt
     ]
   );
+  return String((result as { insertId: number }).insertId);
 }
 
 export async function loadGatewayByUserId(userId: string): Promise<GatewayRecord | undefined> {
@@ -634,4 +691,222 @@ export async function insertAuditEvent(input: AuditInsert): Promise<AuditEventRe
 export async function loadAuditEvents(): Promise<AuditEventRecord[]> {
   const [rows] = await execute('SELECT * FROM audit_events ORDER BY id ASC');
   return (rows as Record<string, unknown>[]).map(auditEventFromRow);
+}
+
+// --- Phase 6 Admin Management Queries ---
+
+export async function loadAllUsers(limit = 20, offset = 0): Promise<UserRecord[]> {
+  const [rows] = await execute(
+    'SELECT * FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?',
+    [limit, offset]
+  );
+  return (rows as Record<string, unknown>[]).map(userFromRow);
+}
+
+export async function countUsers(): Promise<number> {
+  const [rows] = await execute('SELECT COUNT(*) AS count FROM users');
+  const row = (rows as Record<string, unknown>[])[0];
+  return Number(row?.count ?? 0);
+}
+
+export async function loadAllAdminUsers(limit = 100, offset = 0): Promise<AdminUserRecord[]> {
+  const [rows] = await execute(
+    'SELECT * FROM admin_users ORDER BY created_at ASC LIMIT ? OFFSET ?',
+    [limit, offset]
+  );
+  return (rows as Record<string, unknown>[]).map(adminUserFromRow);
+}
+
+export async function countActiveDevices(): Promise<number> {
+  const [rows] = await execute(
+    "SELECT COUNT(*) AS count FROM devices WHERE revoked_at IS NULL AND token_class = 'normal_client_access'"
+  );
+  const row = (rows as Record<string, unknown>[])[0];
+  return Number(row?.count ?? 0);
+}
+
+export async function countRegisteredGateways(): Promise<number> {
+  const [rows] = await execute('SELECT COUNT(*) AS count FROM gateways');
+  const row = (rows as Record<string, unknown>[])[0];
+  return Number(row?.count ?? 0);
+}
+
+export async function countAuditEventsLast7Days(): Promise<number> {
+  const [rows] = await execute(
+    'SELECT COUNT(*) AS count FROM audit_events WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)'
+  );
+  const row = (rows as Record<string, unknown>[])[0];
+  return Number(row?.count ?? 0);
+}
+
+export async function loadUserLoginStats(userId: string): Promise<{
+  loginCount: number;
+  failedLoginCount: number;
+  lastLoginAt: number | null;
+}> {
+  const [loginRows] = await execute(
+    "SELECT COUNT(*) AS count FROM audit_events WHERE user_id = ? AND event_type = 'auth.login.succeeded'",
+    [userId]
+  );
+  const [failRows] = await execute(
+    "SELECT COUNT(*) AS count FROM audit_events WHERE user_id = ? AND event_type = 'auth.login.failed'",
+    [userId]
+  );
+  const [lastRows] = await execute(
+    "SELECT created_at FROM audit_events WHERE user_id = ? AND event_type = 'auth.login.succeeded' ORDER BY created_at DESC LIMIT 1",
+    [userId]
+  );
+  const loginCount = Number((loginRows as Record<string, unknown>[])[0]?.count ?? 0);
+  const failedLoginCount = Number((failRows as Record<string, unknown>[])[0]?.count ?? 0);
+  const lastRow = (lastRows as Record<string, unknown>[])[0];
+  const lastLoginAt = lastRow?.created_at ? sqlDateToMs(lastRow.created_at) : null;
+  return { loginCount, failedLoginCount, lastLoginAt };
+}
+
+export async function countActiveDevicesByUserId(userId: string): Promise<number> {
+  const [rows] = await execute(
+    'SELECT COUNT(*) AS count FROM devices WHERE user_id = ? AND revoked_at IS NULL',
+    [userId]
+  );
+  const row = (rows as Record<string, unknown>[])[0];
+  return Number(row?.count ?? 0);
+}
+
+export async function deleteAdminUserById(id: string): Promise<void> {
+  await execute('DELETE FROM admin_users WHERE id = ?', [id]);
+}
+
+// --- Phase 6 Admin: Devices ---
+
+export async function loadAllDevices(limit = 20, offset = 0): Promise<Array<DeviceRecord & { revokedAt: number | null; userEmail: string | null }>> {
+  const [rows] = await execute(
+    `SELECT d.*, u.email AS user_email
+     FROM devices d
+     LEFT JOIN users u ON d.user_id = u.id
+     WHERE d.token_class = 'normal_client_access'
+     ORDER BY d.created_at DESC
+     LIMIT ? OFFSET ?`,
+    [limit, offset]
+  );
+  return (rows as Record<string, unknown>[]).map(row => ({
+    ...deviceFromRow(row),
+    revokedAt: row.revoked_at ? sqlDateToMs(row.revoked_at) : null,
+    userEmail: typeof row.user_email === 'string' ? row.user_email : null
+  }));
+}
+
+export async function countDevices(): Promise<number> {
+  const [rows] = await execute(
+    "SELECT COUNT(*) AS count FROM devices WHERE token_class = 'normal_client_access'"
+  );
+  const row = (rows as Record<string, unknown>[])[0];
+  return Number(row?.count ?? 0);
+}
+
+export async function revokeDeviceById(id: string): Promise<void> {
+  await execute(
+    'UPDATE devices SET revoked_at = NOW(), updated_at = NOW() WHERE id = ?',
+    [id]
+  );
+}
+
+export async function revokeRefreshTokensByDeviceId(deviceId: string): Promise<void> {
+  // 撤销该设备关联的所有 active refresh tokens，防止已吊销设备继续刷新
+  // refresh_tokens 表使用 revoked_at 列（不是布尔 revoked）标记撤销状态
+  await execute(
+    'UPDATE refresh_tokens SET revoked_at = NOW(), updated_at = NOW() WHERE device_id = ? AND revoked_at IS NULL',
+    [deviceId]
+  );
+}
+
+// --- Phase 6 Admin: Gateways ---
+
+export async function loadAllGateways(limit = 20, offset = 0): Promise<GatewayRecord[]> {
+  const [rows] = await execute(
+    'SELECT * FROM gateways ORDER BY created_at DESC LIMIT ? OFFSET ?',
+    [limit, offset]
+  );
+  return (rows as Record<string, unknown>[]).map(gatewayFromRow);
+}
+
+export async function countGateways(): Promise<number> {
+  const [rows] = await execute('SELECT COUNT(*) AS count FROM gateways');
+  const row = (rows as Record<string, unknown>[])[0];
+  return Number(row?.count ?? 0);
+}
+
+export async function deleteGatewayById(id: string): Promise<void> {
+  await execute('DELETE FROM gateways WHERE id = ?', [id]);
+}
+
+// --- Phase 6 Admin: Audit (filtered) ---
+
+export async function loadAuditEventsFiltered(params: {
+  userId?: string;
+  eventType?: string;
+  deviceId?: string;
+  gatewayId?: string;
+  fromMs?: number;
+  toMs?: number;
+  limit: number;
+  offset: number;
+}): Promise<AuditEventRecord[]> {
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+
+  if (params.userId) {
+    conditions.push('user_id = ?');
+    values.push(params.userId);
+  }
+  if (params.eventType) {
+    conditions.push('event_type = ?');
+    values.push(params.eventType);
+  }
+  if (params.deviceId) {
+    conditions.push('device_id = ?');
+    values.push(params.deviceId);
+  }
+  if (params.gatewayId) {
+    conditions.push('gateway_id = ?');
+    values.push(params.gatewayId);
+  }
+  if (params.fromMs) {
+    conditions.push('created_at >= FROM_UNIXTIME(? / 1000)');
+    values.push(params.fromMs);
+  }
+  if (params.toMs) {
+    conditions.push('created_at <= FROM_UNIXTIME(? / 1000)');
+    values.push(params.toMs);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const sql = `SELECT * FROM audit_events ${where} ORDER BY id DESC LIMIT ? OFFSET ?`;
+  values.push(params.limit, params.offset);
+
+  const [rows] = await execute(sql, values);
+  return (rows as Record<string, unknown>[]).map(auditEventFromRow);
+}
+
+export async function countAuditEventsFiltered(params: {
+  userId?: string;
+  eventType?: string;
+  deviceId?: string;
+  gatewayId?: string;
+  fromMs?: number;
+  toMs?: number;
+}): Promise<number> {
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+
+  if (params.userId) { conditions.push('user_id = ?'); values.push(params.userId); }
+  if (params.eventType) { conditions.push('event_type = ?'); values.push(params.eventType); }
+  if (params.deviceId) { conditions.push('device_id = ?'); values.push(params.deviceId); }
+  if (params.gatewayId) { conditions.push('gateway_id = ?'); values.push(params.gatewayId); }
+  if (params.fromMs) { conditions.push('created_at >= FROM_UNIXTIME(? / 1000)'); values.push(params.fromMs); }
+  if (params.toMs) { conditions.push('created_at <= FROM_UNIXTIME(? / 1000)'); values.push(params.toMs); }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const [rows] = await execute(`SELECT COUNT(*) AS count FROM audit_events ${where}`, values);
+  const row = (rows as Record<string, unknown>[])[0];
+  return Number(row?.count ?? 0);
 }

@@ -4,9 +4,8 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, Navigate, Route, Routes, matchPath, useLocation } from 'react-router-dom';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
+import { Button, Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@tether/design';
 import '@xterm/xterm/css/xterm.css';
-import { Button } from './components/ui/button.js';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './components/ui/card.js';
 import { AuthProvider } from './contexts/auth-context.js';
 import { useAuth } from './hooks/use-auth.js';
 import { gatewayAuthHeaders, requestGatewayWsTicket } from './lib/api.js';
@@ -534,13 +533,13 @@ function SessionList({
 
   return (
     <>
-      <header>
+      <header className="session-header">
         <h1>Tether</h1>
         <div className="header-actions">
           <ConnectionSettingsControl settings={connectionSettings} onChange={onConnectionSettingsChange} />
-          <button className="secondary-button" type="button" onClick={logoutNormal}>退出登录</button>
+          <Button variant="outline" size="sm" type="button" onClick={logoutNormal}>退出登录</Button>
           {sessions.length > 0 ? (
-            <button className="secondary-button" type="button" onClick={() => void stopAllSessions()}>全部停止</button>
+            <Button variant="outline" size="sm" type="button" onClick={() => void stopAllSessions()}>全部停止</Button>
           ) : null}
           {connectionSettings.connectionMode === 'direct' ? (
             <label className="mode-select">
@@ -604,7 +603,7 @@ function SessionCard({ session, onStop }: { session: Session; onStop?: (sessionI
         <span className="session-card-path">{session.projectPath}</span>
       </a>
       {onStop ? (
-        <button className="secondary-button" type="button" onClick={() => onStop(session.id)}>停止</button>
+        <Button className="justify-self-start" variant="outline" size="sm" type="button" onClick={() => onStop(session.id)}>停止</Button>
       ) : null}
     </div>
   );
@@ -702,22 +701,23 @@ function SessionView({
 
   return (
     <>
-      <header>
+      <header className="session-header">
         <h1>Tether</h1>
         <div className="status">{status}</div>
       </header>
       <main ref={scrollRef} className="scrollport">
         <pre>{snapshot.text}</pre>
       </main>
-      <form onSubmit={send}>
+      <form className="composer-form" onSubmit={send}>
         <textarea
+          className="composer-input"
           rows={1}
           autoComplete="off"
           placeholder="发送给 Agent"
           value={text}
           onChange={(event) => setText(event.target.value)}
         />
-        <button type="submit">发送</button>
+        <Button type="submit">发送</Button>
       </form>
     </>
   );
@@ -1151,7 +1151,7 @@ function PtySessionView({
 
   return (
     <>
-      <header>
+      <header className="session-header">
         <h1>Tether</h1>
         <div className="header-actions">
           <ConnectionSettingsControl settings={connectionSettings} onChange={onConnectionSettingsChange} />
@@ -1162,7 +1162,7 @@ function PtySessionView({
               <option value="observe">观察</option>
             </select>
           </label>
-          <button className="secondary-button" type="button" onClick={() => stopSession()}>停止</button>
+          <Button variant="outline" size="sm" type="button" onClick={() => stopSession()}>停止</Button>
           <div className="status">{status}</div>
         </div>
       </header>
@@ -1181,8 +1181,9 @@ function PtySessionView({
           </aside>
         ) : null}
       </main>
-      <form onSubmit={sendLine}>
+      <form className="composer-form" onSubmit={sendLine}>
         <textarea
+          className="composer-input"
           rows={1}
           autoComplete="off"
           placeholder="发送给 Agent"
@@ -1195,7 +1196,7 @@ function PtySessionView({
             }
           }}
         />
-        <button type="submit">发送</button>
+        <Button type="submit">发送</Button>
       </form>
     </>
   );
