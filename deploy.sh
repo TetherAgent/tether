@@ -34,10 +34,6 @@ pnpm start:server
 
 # 5. 重启 relay（pm2）
 log "重启 relay..."
-if pm2 list | grep -q "tether-relay"; then
-  pnpm reload:relay
-else
-  pnpm start:relay
-fi
+pm2 reload ecosystem.config.cjs --update-env || pm2 start ecosystem.config.cjs
 
 log "部署完成 ✓"
