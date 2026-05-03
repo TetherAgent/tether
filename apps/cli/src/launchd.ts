@@ -156,10 +156,23 @@ function launchdEnvironment(env: NodeJS.ProcessEnv = process.env): Record<string
   const pathValue = env.PATH && env.PATH.length > 0
     ? env.PATH
     : '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
-  return {
+  const result: Record<string, string> = {
     HOME: os.homedir(),
     PATH: pathValue
   };
+  for (const key of [
+    'TETHER_GATEWAY_PROFILE',
+    'TETHER_SERVER_URL',
+    'TETHER_RELAY_URL',
+    'TETHER_RELAY_SECRET',
+    'TETHER_AUTH_PATH'
+  ]) {
+    const value = env[key];
+    if (value) {
+      result[key] = value;
+    }
+  }
+  return result;
 }
 
 function runLaunchctl(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {

@@ -10,9 +10,15 @@ import WebSocket from 'ws';
 import type { RawData } from 'ws';
 import {
   configPath,
+  defaultTetherConfig,
+  isGatewayProfileName,
   readTetherConfig,
   resolveGatewayConfig,
+  resolveGatewayProfileConfig,
   resolveRelayConfig,
+  resolveServerUrl,
+  writeTetherConfig,
+  type GatewayProfileName,
   type TetherConfig
 } from '@tether/config';
 import {
@@ -131,30 +137,52 @@ for (const provider of Object.values(PROVIDERS)) {
 const gatewayCommand = program
   .command('gateway')
   .description('启动常驻 Tether Gateway，不创建新的 session')
-  .option('--host <host>', 'Gateway 监听地址')
-  .option('--port <port>', 'Gateway 端口', parsePort)
-  .option('--relay-url <url>', 'Relay 服务地址；默认读取 TETHER_RELAY_URL')
-  .option('--relay-secret <secret>', 'Relay 共享密钥；默认读取 TETHER_RELAY_SECRET')
   .helpOption('-h, --help', '显示帮助')
   .addHelpCommand('help [command]', '显示指定 Gateway 命令的帮助')
-  .action(async (options: { host?: string; port?: number; relayUrl?: string; relaySecret?: string }, command: Command) => {
-    const file = readTetherConfig();
-    const gateway = resolveGatewayConfig({ cli: gatewayCliConfig(options, command), file });
-    const store = new Store();
-    const ptySessions = new PtySessionManager(store);
-    const daemon = await startDaemon({
-      host: gateway.host,
-      port: gateway.port,
-      store,
-      ptySessions,
-      allowApiSessionCreate: gateway.allowApiSessionCreate,
-      relay: relayConfig(options, file),
-      config: file
-    });
-    console.log(`Tether Gateway: ${daemon.url}`);
-    console.log('Gateway is running. Press Ctrl-C to stop.');
-    await waitForShutdown();
-    await daemon.close();
+  .action(async () => {
+    await startGatewayForeground();
+  });
+
+gatewayCommand
+  .command('init')
+  .description('初始化 Gateway 配置，选择 local/direct/relay 默认模式')
+  .action(async () => {
+    const profile = await promptGatewayProfile('请选择默认启动模式');
+    const existing = readTetherConfig();
+    const next: TetherConfig = {
+      ...defaultTetherConfig(profile),
+      providers: existing.providers
+    };
+    await writeTetherConfig(next);
+    console.log(`Gateway 配置已初始化：${configPath()}`);
+    console.log(`默认模式: ${profile}`);
+    console.log(`Server: ${resolveServerUrl({ file: next, profile })}`);
+    const resolved = resolveGatewayProfileConfig({ file: next, profile });
+    console.log(`Gateway: ${resolved.gateway.host}:${resolved.gateway.port}`);
+    if (resolved.relay) {
+      console.log(`Relay: ${resolved.relay.url}`);
+    }
+  });
+
+gatewayCommand
+  .command('local')
+  .description('以前台方式启动 local 模式 Gateway（开发人员本机调试）')
+  .action(async () => {
+    await startGatewayForeground('local');
+  });
+
+gatewayCommand
+  .command('direct')
+  .description('以前台方式启动 direct 模式 Gateway（局域网直连，不走 Relay）')
+  .action(async () => {
+    await startGatewayForeground('direct');
+  });
+
+gatewayCommand
+  .command('relay')
+  .description('以前台方式启动 relay 模式 Gateway（公网远程，经 Relay 转发）')
+  .action(async () => {
+    await startGatewayForeground('relay');
   });
 
 gatewayCommand
@@ -164,9 +192,9 @@ gatewayCommand
   .option('--email <email>', '账号邮箱')
   .option('--password <password>', '账号密码')
   .action(async (options: { serverUrl?: string; email?: string; password?: string }) => {
-    const serverUrl = normalizeServerUrl(options.serverUrl ?? process.env.TETHER_SERVER_URL);
+    const serverUrl = normalizeServerUrl(options.serverUrl ?? resolveServerUrl({ file: readTetherConfig() }));
     if (!serverUrl) {
-      throw new Error('缺少 Server URL。请传 --server-url 或设置 TETHER_SERVER_URL');
+      throw new Error('缺少 Server URL。请先执行 tether gateway init，或传 --server-url');
     }
     const email = options.email ?? await promptLine('邮箱: ');
     const password = options.password ?? await promptLine('密码: ');
@@ -224,13 +252,15 @@ gatewayCommand
 
 gatewayCommand
   .command('start')
-  .description('通过 launchd 启动 Gateway')
+  .description('选择 local/direct/relay 模式，并通过 launchd 启动 Gateway')
   .action(async () => {
+    const profile = await promptGatewayProfile('请选择本次后台启动模式');
     const before = await launchAgentStatus();
-    const status = await startLaunchAgent();
+    const status = await startLaunchAgent({ env: { ...process.env, TETHER_GATEWAY_PROFILE: profile } });
     if (!before.installed) {
       console.log(`LaunchAgent 未安装，已自动安装：${status.path}`);
     }
+    console.log(`启动模式: ${profile}`);
     console.log(`Gateway 已通过 launchd 启动：${status.path}`);
   });
 
@@ -383,7 +413,7 @@ async function startProviderSession(provider: ProviderDefinition, options: Start
     lastActiveAt: now
   });
 
-  const daemon = await startDaemon({ host: options.host, port: options.port, store, relay: relayConfig(options) });
+  const daemon = await startDaemon({ host: options.host, port: options.port, store, relay: relayConfigFromOptions(options) });
   const remoteUrl = `${daemon.url}/remote/session/${id}`;
   console.log(`Tether session: ${id}`);
   console.log(`Remote URL: ${remoteUrl}`);
@@ -424,7 +454,7 @@ async function startPtyProviderSession(provider: ProviderDefinition, options: St
     port: options.port,
     store,
     ptySessions,
-    relay: relayConfig(options)
+    relay: relayConfigFromOptions(options)
   });
   const remoteUrl = `${daemon.url}/remote/session/${id}`;
   console.log(`Tether session: ${id}`);
@@ -672,44 +702,77 @@ function parseTransport(value: string): 'tmux' | 'pty' {
   throw new Error(`invalid transport: ${value}`);
 }
 
-function gatewayCliConfig(
-  options: { host?: string; port?: number; allowApiSessionCreate?: boolean },
-  command: Command
-): { host?: string; port?: number; allowApiSessionCreate?: boolean } {
-  return {
-    host: command.getOptionValueSource('host') === 'cli' ? options.host : undefined,
-    port: command.getOptionValueSource('port') === 'cli' ? options.port : undefined,
-    allowApiSessionCreate:
-      command.getOptionValueSource('allowApiSessionCreate') === 'cli'
-        ? options.allowApiSessionCreate
-        : undefined
-  };
+async function startGatewayForeground(profile?: GatewayProfileName): Promise<void> {
+  const file = readTetherConfig();
+  const resolved = resolveGatewayProfileConfig({
+    file,
+    profile
+  });
+  const store = new Store();
+  const ptySessions = new PtySessionManager(store);
+  const daemon = await startDaemon({
+    host: resolved.gateway.host,
+    port: resolved.gateway.port,
+    store,
+    ptySessions,
+    allowApiSessionCreate: resolved.gateway.allowApiSessionCreate,
+    relay: relayConfig(file, resolved.profile),
+    config: file
+  });
+  console.log(`Gateway 模式: ${resolved.profile}`);
+  console.log(`Tether Gateway: ${daemon.url}`);
+  if (resolved.profile === 'direct') {
+    console.log(`Web 直连地址: http://${localLanAddress() ?? '你的Mac局域网IP'}:${resolved.gateway.port}`);
+  }
+  if (resolved.relay) {
+    console.log(`Relay: ${resolved.relay.url}`);
+  } else {
+    console.log('Relay: 未启用');
+  }
+  console.log('Gateway 正在运行。按 Ctrl-C 停止。');
+  await waitForShutdown();
+  await daemon.close();
 }
 
-function relayConfig(options: { relayUrl?: string; relaySecret?: string }, file?: TetherConfig):
+function relayConfig(file?: TetherConfig, profile?: GatewayProfileName):
   | { url: string; secret: string }
   | undefined {
   const config = file ?? readTetherConfig();
-  const url = options.relayUrl ?? process.env.TETHER_RELAY_URL ?? config.relay?.url;
-  const secret = options.relaySecret ?? process.env.TETHER_RELAY_SECRET ?? config.relay?.secret;
-  if (!url && !secret) {
+  const relay = resolveRelayConfig({
+    file: config,
+    profile
+  });
+  if (!relay) {
     return undefined;
   }
-  if (!url || !secret) {
-    throw new Error('relay requires both --relay-url and --relay-secret, or TETHER_RELAY_URL and TETHER_RELAY_SECRET');
-  }
-  return { url, secret };
+  return relay;
+}
+
+function relayConfigFromOptions(options: { relayUrl?: string; relaySecret?: string }, file?: TetherConfig):
+  | { url: string; secret: string }
+  | undefined {
+  const config = file ?? readTetherConfig();
+  const relay = resolveRelayConfig({
+    cli: {
+      relayUrl: options.relayUrl,
+      relaySecret: options.relaySecret
+    },
+    file: config
+  });
+  return relay;
 }
 
 async function printGatewayStatus(): Promise<void> {
   const file = readTetherConfig();
-  const gatewayConfig = resolveGatewayConfig({ file });
-  const relay = resolveRelayConfig({ file });
+  const resolved = resolveGatewayProfileConfig({ file });
+  const gatewayConfig = resolved.gateway;
+  const relay = resolved.relay;
   const launchd = await getLaunchAgentStatus();
   const registryRecords = await listGateways();
+  const gatewayProbeUrl = gatewayApiUrl(gatewayConfig.host, gatewayConfig.port);
   const api = await fetchFirstGatewayStatus([
     ...registryRecords.map((record) => record.url),
-    `http://${gatewayConfig.host}:${gatewayConfig.port}`
+    gatewayProbeUrl
   ]);
   const registry = registryRecords[0];
   const url = stringValue(api?.url) ?? registry?.url ?? `http://${gatewayConfig.host}:${gatewayConfig.port}`;
@@ -720,10 +783,12 @@ async function printGatewayStatus(): Promise<void> {
   const relayState = stringValue(api?.relay?.state);
 
   console.log('Gateway 状态');
+  console.log(`默认模式: ${resolved.profile}`);
   console.log(`运行状态: ${api ? '运行中' : '已停止或不可连接'}`);
   console.log(`PID: ${pid ?? '-'}`);
   console.log(`URL: ${url}`);
   console.log(`配置文件: ${configPath()}`);
+  console.log(`Server: ${resolved.serverUrl}`);
   console.log(`Host: ${host}`);
   console.log(`Port: ${port}`);
   console.log(`Relay 配置: ${relayConfigured ? '已配置' : '未配置'}`);
@@ -794,7 +859,8 @@ async function runGatewayDoctor(): Promise<void> {
   const gateway = resolveGatewayConfig({ file });
   const relay = resolveRelayConfig({ file });
   const launchd = await getLaunchAgentStatus();
-  const api = await fetchFirstGatewayStatus([`http://${gateway.host}:${gateway.port}`]);
+  const gatewayUrl = gatewayApiUrl(gateway.host, gateway.port);
+  const api = await fetchFirstGatewayStatus([gatewayUrl]);
   const checks: Array<{ name: string; status: 'ok' | 'warn' | 'fail'; detail: string }> = [];
   const pushCheck = (name: string, ok: boolean, detail: string) => {
     checks.push({ name, status: ok ? 'ok' : 'fail', detail });
@@ -802,7 +868,7 @@ async function runGatewayDoctor(): Promise<void> {
   pushCheck('配置文件', fs.existsSync(configPath()), configPath());
   pushCheck('LaunchAgent 已安装', launchd.installed, launchd.path);
   pushCheck('LaunchAgent 已加载', launchd.loaded, launchd.error ?? `PID ${launchd.pid ?? '-'}`);
-  pushCheck('Gateway API 可连接', Boolean(api), `http://${gateway.host}:${gateway.port}`);
+  pushCheck('Gateway API 可连接', Boolean(api), gatewayUrl);
   pushCheck('API session creation', gateway.allowApiSessionCreate, gateway.allowApiSessionCreate ? '已开启' : '未开启');
   pushCheck('Relay 配置', Boolean(relay), relay ? relay.url : '未配置');
   pushCheck('Relay 连接', stringValue(api?.relay?.state) === 'connected', stringValue(api?.relay?.state) ?? '未确认');
@@ -834,7 +900,7 @@ async function verifyGatewaySession(providerName: string): Promise<void> {
     throw new Error(`unknown provider: ${providerName}`);
   }
   const gateway = resolveGatewayConfig();
-  const gatewayUrl = `http://${gateway.host}:${gateway.port}`;
+  const gatewayUrl = gatewayApiUrl(gateway.host, gateway.port);
   const session = await createSessionViaGateway(PROVIDERS[providerName], { project: process.cwd() }, gatewayUrl);
   if (!session) {
     throw new Error('无法通过 Gateway 创建 session，请先开启 allowApiSessionCreate 并重启 Gateway');
@@ -867,6 +933,11 @@ function commandAvailable(command: string): boolean {
       return false;
     }
   });
+}
+
+function gatewayApiUrl(host: string, port: number): string {
+  const connectHost = host === '0.0.0.0' ? '127.0.0.1' : host;
+  return `http://${connectHost}:${port}`;
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
@@ -1130,6 +1201,30 @@ async function promptLine(prompt: string): Promise<string> {
   } finally {
     rl.close();
   }
+}
+
+async function promptGatewayProfile(title: string): Promise<GatewayProfileName> {
+  console.log(title);
+  console.log('1. tether gateway local  - 开发人员本机调试：只监听 127.0.0.1，不给局域网访问');
+  console.log('2. tether gateway direct - 局域网直连：监听 0.0.0.0，浏览器直接连本机 Gateway，不走 Relay');
+  console.log('3. tether gateway relay  - 公网远程：本机 Gateway 主动连接 Relay，适合不在同一局域网时使用');
+  const answer = await promptLine('输入 1/2/3 或 local/direct/relay（默认 direct）: ');
+  if (!answer) {
+    return 'direct';
+  }
+  if (answer === '1' || answer === 'local') {
+    return 'local';
+  }
+  if (answer === '2' || answer === 'direct') {
+    return 'direct';
+  }
+  if (answer === '3' || answer === 'relay') {
+    return 'relay';
+  }
+  if (isGatewayProfileName(answer)) {
+    return answer;
+  }
+  throw new Error(`未知 Gateway 启动模式：${answer}`);
 }
 
 async function waitForShutdown(): Promise<void> {
