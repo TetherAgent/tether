@@ -1,4 +1,5 @@
 import { Controller } from 'egg';
+import { ResponseCode } from '../types/response';
 
 import {
   currentUserFromToken,
@@ -21,11 +22,15 @@ export default class AuthController extends Controller {
         ip: this.ctx.ip,
         userAgent: this.ctx.get('user-agent')
       }, this.app.config);
-      this.ctx.status = 201;
-      this.ctx.body = result;
+      this.ctx.success(result);
     } catch (error) {
-      this.ctx.status = error instanceof Error && error.message === 'email_already_registered' ? 409 : 400;
-      this.ctx.body = { error: error instanceof Error ? error.message : 'register_failed' };
+      this.ctx.error({
+        code: error instanceof Error && error.message === 'email_already_registered'
+          ? ResponseCode.CONFLICT
+          : ResponseCode.BAD_REQUEST,
+        msg: error instanceof Error ? error.message : 'register_failed',
+        stack: error instanceof Error ? error.stack : undefined
+      });
     }
   }
 
@@ -40,20 +45,28 @@ export default class AuthController extends Controller {
         ip: this.ctx.ip,
         userAgent: this.ctx.get('user-agent')
       }, this.app.config);
-      this.ctx.body = result;
+      this.ctx.success(result);
     } catch (error) {
-      this.ctx.status = error instanceof Error && error.message === 'invalid_credentials' ? 401 : 400;
-      this.ctx.body = { error: error instanceof Error ? error.message : 'login_failed' };
+      this.ctx.error({
+        code: error instanceof Error && error.message === 'invalid_credentials'
+          ? ResponseCode.UNAUTHORIZED
+          : ResponseCode.BAD_REQUEST,
+        msg: error instanceof Error ? error.message : 'login_failed',
+        stack: error instanceof Error ? error.stack : undefined
+      });
     }
   }
 
   public async refresh(): Promise<void> {
     try {
       const body = this.ctx.request.body as Record<string, string | undefined>;
-      this.ctx.body = await refreshFromToken(body.refreshToken ?? '', this.app.config);
+      this.ctx.success(await refreshFromToken(body.refreshToken ?? '', this.app.config));
     } catch (error) {
-      this.ctx.status = 401;
-      this.ctx.body = { error: error instanceof Error ? error.message : 'refresh_failed' };
+      this.ctx.error({
+        code: ResponseCode.UNAUTHORIZED,
+        msg: error instanceof Error ? error.message : 'refresh_failed',
+        stack: error instanceof Error ? error.stack : undefined
+      });
     }
   }
 
@@ -61,20 +74,26 @@ export default class AuthController extends Controller {
     try {
       const body = this.ctx.request.body as Record<string, string | undefined>;
       await logoutToken(body.token ?? body.refreshToken ?? '', this.app.config);
-      this.ctx.body = { ok: true };
+      this.ctx.success({ ok: true });
     } catch (error) {
-      this.ctx.status = 401;
-      this.ctx.body = { error: error instanceof Error ? error.message : 'logout_failed' };
+      this.ctx.error({
+        code: ResponseCode.UNAUTHORIZED,
+        msg: error instanceof Error ? error.message : 'logout_failed',
+        stack: error instanceof Error ? error.stack : undefined
+      });
     }
   }
 
   public async me(): Promise<void> {
     try {
       const payload = await currentUserFromToken(this.ctx.get('authorization'), this.app.config);
-      this.ctx.body = payload;
+      this.ctx.success(payload);
     } catch (error) {
-      this.ctx.status = 401;
-      this.ctx.body = { error: error instanceof Error ? error.message : 'me_failed' };
+      this.ctx.error({
+        code: ResponseCode.UNAUTHORIZED,
+        msg: error instanceof Error ? error.message : 'me_failed',
+        stack: error instanceof Error ? error.stack : undefined
+      });
     }
   }
 }

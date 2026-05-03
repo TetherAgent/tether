@@ -70,6 +70,7 @@
     "path": "/api/auth/me",
     "regexp": "/^\\/api\\/auth\\/me(?:\\/(?=$))?$/",
     "stack": [
+      "anonymous",
       "wrappedController"
     ]
   },
@@ -154,6 +155,7 @@
     "path": "/api/token/revoke",
     "regexp": "/^\\/api\\/token\\/revoke(?:\\/(?=$))?$/",
     "stack": [
+      "anonymous",
       "wrappedController"
     ]
   },
@@ -166,6 +168,7 @@
     "path": "/api/token/validate",
     "regexp": "/^\\/api\\/token\\/validate(?:\\/(?=$))?$/",
     "stack": [
+      "anonymous",
       "wrappedController"
     ]
   },
@@ -204,6 +207,7 @@
     "path": "/admin/api/dashboard/stats",
     "regexp": "/^\\/admin\\/api\\/dashboard\\/stats(?:\\/(?=$))?$/",
     "stack": [
+      "anonymous",
       "wrappedController"
     ]
   },
@@ -217,6 +221,7 @@
     "path": "/admin/api/users",
     "regexp": "/^\\/admin\\/api\\/users(?:\\/(?=$))?$/",
     "stack": [
+      "anonymous",
       "wrappedController"
     ]
   },
@@ -230,6 +235,7 @@
     "path": "/admin/api/admins",
     "regexp": "/^\\/admin\\/api\\/admins(?:\\/(?=$))?$/",
     "stack": [
+      "anonymous",
       "wrappedController"
     ]
   },
@@ -242,6 +248,7 @@
     "path": "/admin/api/admins",
     "regexp": "/^\\/admin\\/api\\/admins(?:\\/(?=$))?$/",
     "stack": [
+      "anonymous",
       "wrappedController"
     ]
   },
@@ -265,6 +272,7 @@
     "path": "/admin/api/admins/:id",
     "regexp": "/^\\/admin\\/api\\/admins\\/((?:[^\\/]+?))(?:\\/(?=$))?$/",
     "stack": [
+      "anonymous",
       "wrappedController"
     ]
   },
@@ -278,6 +286,7 @@
     "path": "/admin/api/devices",
     "regexp": "/^\\/admin\\/api\\/devices(?:\\/(?=$))?$/",
     "stack": [
+      "anonymous",
       "wrappedController"
     ]
   },
@@ -301,6 +310,7 @@
     "path": "/admin/api/devices/:id/revoke",
     "regexp": "/^\\/admin\\/api\\/devices\\/((?:[^\\/]+?))\\/revoke(?:\\/(?=$))?$/",
     "stack": [
+      "anonymous",
       "wrappedController"
     ]
   },
@@ -314,6 +324,7 @@
     "path": "/admin/api/gateways",
     "regexp": "/^\\/admin\\/api\\/gateways(?:\\/(?=$))?$/",
     "stack": [
+      "anonymous",
       "wrappedController"
     ]
   },
@@ -337,6 +348,7 @@
     "path": "/admin/api/gateways/:id/unlink",
     "regexp": "/^\\/admin\\/api\\/gateways\\/((?:[^\\/]+?))\\/unlink(?:\\/(?=$))?$/",
     "stack": [
+      "anonymous",
       "wrappedController"
     ]
   },
@@ -350,6 +362,7 @@
     "path": "/admin/api/audit",
     "regexp": "/^\\/admin\\/api\\/audit(?:\\/(?=$))?$/",
     "stack": [
+      "anonymous",
       "wrappedController"
     ]
   }

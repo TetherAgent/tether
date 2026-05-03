@@ -472,16 +472,18 @@ export async function loginNormalUser(input: LoginInput, config: AuthConfig) {
   const user = await normalUserByEmail(input.email);
 
   if (!user || !verifyPassword(input.password, user.passwordHash)) {
-    await recordAuditEvent({
-      accountId: user?.accountId ?? 'unknown',
-      workspaceId: user?.workspaceId,
-      userId: user?.id,
-      action: 'auth.login.failed',
-      failureReason: 'invalid_credentials',
-      ip: input.ip,
-      userAgent: input.userAgent,
-      payload: { email: input.email }
-    });
+    if (user) {
+      await recordAuditEvent({
+        accountId: user.accountId,
+        workspaceId: user.workspaceId,
+        userId: user.id,
+        action: 'auth.login.failed',
+        failureReason: 'invalid_credentials',
+        ip: input.ip,
+        userAgent: input.userAgent,
+        payload: { email: input.email }
+      });
+    }
     throw new Error('invalid_credentials');
   }
 
@@ -614,16 +616,18 @@ export async function registerManagementUser(input: RegisterInput, config: AuthC
 export async function loginManagementUser(input: LoginInput, config: AuthConfig) {
   const adminUser = await managementUserByEmail(input.email);
   if (!adminUser || !verifyPassword(input.password, adminUser.passwordHash)) {
-    await recordAuditEvent({
-      accountId: adminUser?.accountId ?? 'unknown',
-      workspaceId: adminUser?.workspaceId,
-      adminUserId: adminUser?.id,
-      action: 'admin.login.failed',
-      failureReason: 'invalid_credentials',
-      ip: input.ip,
-      userAgent: input.userAgent,
-      payload: { email: input.email }
-    });
+    if (adminUser) {
+      await recordAuditEvent({
+        accountId: adminUser.accountId,
+        workspaceId: adminUser.workspaceId,
+        adminUserId: adminUser.id,
+        action: 'admin.login.failed',
+        failureReason: 'invalid_credentials',
+        ip: input.ip,
+        userAgent: input.userAgent,
+        payload: { email: input.email }
+      });
+    }
     throw new Error('invalid_credentials');
   }
   const device = await createDevice({

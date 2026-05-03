@@ -1,3 +1,5 @@
+import { ApiRequestError, createHttpClient } from '@tether/http';
+
 export type AdminUser = {
   id: string;
   email: string;
@@ -43,78 +45,115 @@ export type AdminAuditEvent = {
   payload: Record<string, unknown>;
 };
 
-type RequestOptions = RequestInit & { token?: string };
+const http = createHttpClient();
 
-async function requestJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const headers = new Headers(options.headers);
-  if (!headers.has('content-type') && options.body) {
-    headers.set('content-type', 'application/json');
+function normalizeRequestError(error: unknown): Error {
+  if (error instanceof ApiRequestError) {
+    const detail = error.stackDetail ? `${error.message}\n\n${error.stackDetail}` : error.message;
+    return new Error(detail);
   }
-  if (options.token) {
-    headers.set('Authorization', `Bearer ${options.token}`);
-  }
-  const response = await fetch(path, { ...options, headers });
-  const body = await response.json().catch(() => undefined) as { error?: string } | T | undefined;
-  if (!response.ok) {
-    const message = body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
-      ? body.error
-      : `request_failed_${response.status}`;
-    throw new Error(message);
-  }
-  return body as T;
+  return error instanceof Error ? error : new Error('network_error');
 }
 
 export async function listUsers(token: string, page = 1) {
-  return requestJson<{ users: AdminUser[]; total: number }>(
-    `/admin/api/users?page=${page}&limit=20`, { token });
+  try {
+    return await http.get<{ users: AdminUser[]; total: number }>(
+      '/admin/api/users',
+      { page, limit: 20 },
+      { token }
+    );
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
 }
 
 export async function listAdmins(token: string) {
-  return requestJson<{ admins: AdminUserItem[] }>('/admin/api/admins', { token });
+  try {
+    return await http.get<{ admins: AdminUserItem[] }>('/admin/api/admins', undefined, { token });
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
 }
 
 export async function listDevices(token: string, page = 1) {
-  return requestJson<{ devices: AdminDevice[]; total: number }>(
-    `/admin/api/devices?page=${page}&limit=20`, { token });
+  try {
+    return await http.get<{ devices: AdminDevice[]; total: number }>(
+      '/admin/api/devices',
+      { page, limit: 20 },
+      { token }
+    );
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
 }
 
 export async function revokeDevice(token: string, deviceId: string) {
-  return requestJson<{ ok: true }>(
-    `/admin/api/devices/${encodeURIComponent(deviceId)}/revoke`,
-    { method: 'POST', token });
+  try {
+    return await http.post<{ ok: true }>(
+      `/admin/api/devices/${encodeURIComponent(deviceId)}/revoke`,
+      undefined,
+      { token }
+    );
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
 }
 
 export async function listGateways(token: string, page = 1) {
-  return requestJson<{ gateways: AdminGateway[]; total: number }>(
-    `/admin/api/gateways?page=${page}&limit=20`, { token });
+  try {
+    return await http.get<{ gateways: AdminGateway[]; total: number }>(
+      '/admin/api/gateways',
+      { page, limit: 20 },
+      { token }
+    );
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
 }
 
 export async function unlinkGateway(token: string, gatewayId: string) {
-  return requestJson<{ ok: true }>(
-    `/admin/api/gateways/${encodeURIComponent(gatewayId)}/unlink`,
-    { method: 'DELETE', token });
+  try {
+    return await http.delete<{ ok: true }>(
+      `/admin/api/gateways/${encodeURIComponent(gatewayId)}/unlink`,
+      undefined,
+      { token }
+    );
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
 }
 
 export async function listAuditEvents(token: string, params: {
   page?: number; limit?: number; userId?: string; action?: string;
   from?: string; to?: string;
 } = {}) {
-  const qs = new URLSearchParams();
-  qs.set('page', String(params.page ?? 1));
-  qs.set('limit', String(params.limit ?? 50));
-  if (params.userId) qs.set('userId', params.userId);
-  if (params.action) qs.set('action', params.action);
-  if (params.from) qs.set('from', params.from);
-  if (params.to) qs.set('to', params.to);
-  return requestJson<{ events: AdminAuditEvent[]; total: number }>(
-    `/admin/api/audit?${qs.toString()}`, { token });
+  try {
+    return await http.get<{ events: AdminAuditEvent[]; total: number }>(
+      '/admin/api/audit',
+      {
+        page: params.page ?? 1,
+        limit: params.limit ?? 50,
+        userId: params.userId,
+        action: params.action,
+        from: params.from,
+        to: params.to
+      },
+      { token }
+    );
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
 }
 
 export async function getDashboardStats(token: string) {
-  return requestJson<{
-    totalUsers: number; activeDevices: number;
-    registeredGateways: number; auditEventsLast7Days: number;
-  }>('/admin/api/dashboard/stats', { token });
+  try {
+    return await http.get<{
+      totalUsers: number; activeDevices: number;
+      registeredGateways: number; auditEventsLast7Days: number;
+    }>('/admin/api/dashboard/stats', undefined, { token });
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
 }
 
 export async function createAdmin(token: string, data: {
@@ -122,18 +161,19 @@ export async function createAdmin(token: string, data: {
   password: string;
   displayName?: string;
 }) {
-  return requestJson<{ accessToken: string; refreshToken: string }>(
-    '/admin/api/admins',
-    {
-      method: 'POST',
-      token,
-      body: JSON.stringify({
+  try {
+    return await http.post<{ accessToken: string; refreshToken: string }>(
+      '/admin/api/admins',
+      {
         email: data.email,
         password: data.password,
         displayName: data.displayName,
         deviceName: 'admin-web',
         platform: 'web'
-      })
-    }
-  );
+      },
+      { token }
+    );
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
 }

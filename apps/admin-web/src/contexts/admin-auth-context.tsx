@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { ApiRequestError, createHttpClient } from '@tether/http';
 
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
@@ -32,6 +33,7 @@ type AuthStorageRecord<TIdentity> = {
 };
 
 const MANAGEMENT_STORAGE_KEY = 'tether:web:managementAuth';
+const http = createHttpClient();
 
 function readStorage<T>(key: string): AuthStorageRecord<T> | null {
   const raw = window.localStorage.getItem(key);
@@ -70,22 +72,25 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const loginManagement = React.useCallback(async (input: { email: string; password: string }) => {
-    const response = await fetch('/api/admin/auth/login', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(input)
-    });
-    const body = await response.json().catch(() => undefined) as { accessToken?: string; refreshToken?: string; error?: string } | undefined;
-    if (!response.ok) {
-      const message = body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
-        ? body.error
-        : `request_failed_${response.status}`;
-      throw new Error(message);
+    let payload: {
+      accessToken: string;
+      refreshToken: string;
+    };
+    try {
+      payload = await http.post('/api/admin/auth/login', input, {
+        suppressGlobalError: true
+      });
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        const detail = error.stackDetail ? `${error.message}\n\n${error.stackDetail}` : error.message;
+        throw new Error(detail);
+      }
+      throw (error instanceof Error ? error : new Error('network_error'));
     }
-    if (!body || typeof body.accessToken !== 'string' || typeof body.refreshToken !== 'string') {
+    if (typeof payload.accessToken !== 'string' || typeof payload.refreshToken !== 'string') {
       throw new Error('invalid_response');
     }
-    const jwtPayload = decodeJwtPayload(body.accessToken);
+    const jwtPayload = decodeJwtPayload(payload.accessToken);
     const identity: ManagementIdentity | undefined = jwtPayload && typeof jwtPayload.adminUserId === 'string'
       ? {
           adminUserId: jwtPayload.adminUserId as string,
@@ -98,8 +103,8 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
         }
       : undefined;
     const record: AuthStorageRecord<ManagementIdentity> = {
-      accessToken: body.accessToken,
-      refreshToken: body.refreshToken,
+      accessToken: payload.accessToken,
+      refreshToken: payload.refreshToken,
       identity
     };
     writeStorage(MANAGEMENT_STORAGE_KEY, record);

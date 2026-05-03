@@ -1,0 +1,19 @@
+{
+  "name": "@tether/http",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@tether/core": "workspace:*",
+    "alova": "^3.5.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

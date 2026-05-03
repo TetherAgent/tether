@@ -1,12 +1,17 @@
 import { Controller } from 'egg';
+import { ResponseCode } from '../types/response';
 
 import { auditEvents, recordAuditEvent } from '../service/audit';
 
 export default class AuditController extends Controller {
   public async create(): Promise<void> {
     const body = this.ctx.request.body as Record<string, unknown>;
+    if (!body.accountId) {
+      this.ctx.error({ code: ResponseCode.BAD_REQUEST, msg: 'accountId 必填' });
+      return;
+    }
     const event = await recordAuditEvent({
-      accountId: String(body.accountId ?? 'unknown'),
+      accountId: String(body.accountId),
       workspaceId: body.workspaceId ? String(body.workspaceId) : undefined,
       userId: body.userId ? String(body.userId) : undefined,
       adminUserId: body.adminUserId ? String(body.adminUserId) : undefined,
@@ -20,13 +25,12 @@ export default class AuditController extends Controller {
       userAgent: this.ctx.get('user-agent'),
       payload: typeof body.payload === 'object' && body.payload ? body.payload as Record<string, unknown> : {}
     });
-    this.ctx.status = 201;
-    this.ctx.body = event;
+    this.ctx.success(event);
   }
 
   public async index(): Promise<void> {
-    this.ctx.body = {
+    this.ctx.success({
       events: await auditEvents()
-    };
+    });
   }
 }

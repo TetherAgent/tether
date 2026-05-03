@@ -68,6 +68,7 @@
       "checkAddress": "/Users/dream/code/tether/node_modules/.pnpm/egg-security@3.7.0/node_modules/egg-security/config/config.default.js"
     }
   },
+  "middleware": "/Users/dream/code/tether/apps/server/config/config.default.ts",
   "cors": {
     "credentials": "/Users/dream/code/tether/apps/server/config/config.default.ts",
     "origin": "/Users/dream/code/tether/apps/server/config/config.default.ts",
@@ -77,6 +78,7 @@
     "secret": "/Users/dream/code/tether/apps/server/config/config.default.ts",
     "enable": "/Users/dream/code/tether/node_modules/.pnpm/egg-jwt@3.1.7/node_modules/egg-jwt/config/config.default.js"
   },
+  "verifyLoginWhitelist": "/Users/dream/code/tether/apps/server/config/config.default.ts",
   "logger": {
     "consoleLevel": "/Users/dream/code/tether/apps/server/config/config.default.ts",
     "disableConsoleAfterReady": "/Users/dream/code/tether/apps/server/config/config.default.ts",
@@ -127,12 +129,6 @@
       "db": "/Users/dream/code/tether/apps/server/config/config.default.ts"
     }
   },
-  "onerror": {
-    "all": "/Users/dream/code/tether/apps/server/config/config.default.ts",
-    "errorPageUrl": "/Users/dream/code/tether/node_modules/.pnpm/egg-onerror@2.4.0/node_modules/egg-onerror/config/config.default.js",
-    "appErrorFilter": "/Users/dream/code/tether/node_modules/.pnpm/egg-onerror@2.4.0/node_modules/egg-onerror/config/config.default.js",
-    "templatePath": "/Users/dream/code/tether/node_modules/.pnpm/egg-onerror@2.4.0/node_modules/egg-onerror/config/config.default.js"
-  },
   "session": {
     "maxAge": "/Users/dream/code/tether/node_modules/.pnpm/egg-session@3.3.0/node_modules/egg-session/config/config.default.js",
     "key": "/Users/dream/code/tether/node_modules/.pnpm/egg-session@3.3.0/node_modules/egg-session/config/config.default.js",
@@ -147,6 +143,11 @@
     "limit": "/Users/dream/code/tether/node_modules/.pnpm/egg-jsonp@2.0.0/node_modules/egg-jsonp/config/config.default.js",
     "callback": "/Users/dream/code/tether/node_modules/.pnpm/egg-jsonp@2.0.0/node_modules/egg-jsonp/config/config.default.js",
     "csrf": "/Users/dream/code/tether/node_modules/.pnpm/egg-jsonp@2.0.0/node_modules/egg-jsonp/config/config.default.js"
+  },
+  "onerror": {
+    "errorPageUrl": "/Users/dream/code/tether/node_modules/.pnpm/egg-onerror@2.4.0/node_modules/egg-onerror/config/config.default.js",
+    "appErrorFilter": "/Users/dream/code/tether/node_modules/.pnpm/egg-onerror@2.4.0/node_modules/egg-onerror/config/config.default.js",
+    "templatePath": "/Users/dream/code/tether/node_modules/.pnpm/egg-onerror@2.4.0/node_modules/egg-onerror/config/config.default.js"
   },
   "i18n": {
     "defaultLocale": "/Users/dream/code/tether/node_modules/.pnpm/egg-i18n@2.1.1/node_modules/egg-i18n/config/config.default.js",

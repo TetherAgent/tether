@@ -8,6 +8,7 @@ type AppConfig = EggAppConfig & {
   jwt: {
     secret: string;
   };
+  verifyLoginWhitelist: string[];
   logger: {
     consoleLevel: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'NONE';
     disableConsoleAfterReady: boolean;
@@ -134,6 +135,7 @@ export default (appInfo: EggAppInfo): PowerPartial<AppConfig> => {
         enable: false
       }
     },
+    middleware: [ 'error' ],
     cors: {
       credentials: true,
       origin: (ctx: CtxLike) => {
@@ -149,6 +151,17 @@ export default (appInfo: EggAppInfo): PowerPartial<AppConfig> => {
     jwt: {
       secret: jwtSecret
     },
+    verifyLoginWhitelist: [
+      '/healthz',
+      '/api/auth/register',
+      '/api/auth/login',
+      '/api/auth/refresh',
+      '/api/admin/auth/register',
+      '/api/admin/auth/login',
+      '/api/admin/auth/refresh',
+      '/api/gateway/bind',
+      '/api/gateway/refresh'
+    ],
     logger: {
       // 避免本地 dev 进程在父终端断开后继续向 console 写日志，触发 EPIPE 自刷屏。
       consoleLevel: env === 'local' ? 'NONE' : 'INFO',
@@ -176,14 +189,6 @@ export default (appInfo: EggAppInfo): PowerPartial<AppConfig> => {
         port: readPort('TETHER_SERVER_REDIS_PORT', 6379),
         password: readEnv('TETHER_SERVER_REDIS_PASSWORD'),
         db: 0
-      }
-    },
-    // TODO: 上线稳定后关闭，避免暴露错误详情
-    onerror: {
-      all(err: Error & { status?: number }, ctx: any) {
-        ctx.set('Content-Type', 'application/json');
-        ctx.body = JSON.stringify({ error: err.message, stack: err.stack });
-        ctx.status = err.status || 500;
       }
     }
   };

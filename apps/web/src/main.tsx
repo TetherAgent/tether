@@ -4,7 +4,8 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link, Navigate, Route, Routes, matchPath, useLocation } from 'react-router-dom';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
-import { Button, Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@tether/design';
+import { Button, Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle, Toaster, toast } from '@tether/design';
+import { eventBus } from '@tether/http';
 import '@xterm/xterm/css/xterm.css';
 import { AuthProvider } from './contexts/auth-context.js';
 import { useAuth } from './hooks/use-auth.js';
@@ -186,6 +187,16 @@ function displayMessage(message: string): string {
 function App() {
   const [connectionSettings, setConnectionSettings] = React.useState<ConnectionSettings>(readConnectionSettings);
 
+  React.useEffect(() => {
+    const onApiError = (message: string) => {
+      toast.error(message);
+    };
+    eventBus.on('apiError', onApiError);
+    return () => {
+      eventBus.off('apiError', onApiError);
+    };
+  }, []);
+
   const updateConnectionSettings = React.useCallback((next: ConnectionSettings) => {
     window.localStorage.setItem(CONNECTION_MODE_KEY, next.connectionMode);
     window.localStorage.setItem(RELAY_URL_KEY, next.relayUrl);
@@ -195,30 +206,33 @@ function App() {
 
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/admin/register" element={<AdminRegisterPage />} />
-          <Route path="/admin/login" element={<AdminLoginPage />} />
-          <Route
-            path="/admin"
-            element={
-              <RequireAdminAuth>
-                <AdminShellPlaceholder />
-              </RequireAdminAuth>
-            }
-          />
-          <Route
-            path="*"
-            element={
-              <RequireUserAuth>
-                <SessionSurface connectionSettings={connectionSettings} onConnectionSettingsChange={updateConnectionSettings} />
-              </RequireUserAuth>
-            }
-          />
-        </Routes>
-      </BrowserRouter>
+      <>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/admin/register" element={<AdminRegisterPage />} />
+            <Route path="/admin/login" element={<AdminLoginPage />} />
+            <Route
+              path="/admin"
+              element={
+                <RequireAdminAuth>
+                  <AdminShellPlaceholder />
+                </RequireAdminAuth>
+              }
+            />
+            <Route
+              path="*"
+              element={
+                <RequireUserAuth>
+                  <SessionSurface connectionSettings={connectionSettings} onConnectionSettingsChange={updateConnectionSettings} />
+                </RequireUserAuth>
+              }
+            />
+          </Routes>
+        </BrowserRouter>
+        <Toaster />
+      </>
     </AuthProvider>
   );
 }

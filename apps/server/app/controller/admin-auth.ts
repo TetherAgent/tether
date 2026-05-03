@@ -1,4 +1,5 @@
 import { Controller } from 'egg';
+import { ResponseCode } from '../types/response';
 
 import {
   loginManagementUser,
@@ -20,38 +21,50 @@ export default class AdminAuthController extends Controller {
         ip: this.ctx.ip,
         userAgent: this.ctx.get('user-agent')
       }, this.app.config);
-      this.ctx.status = 201;
-      this.ctx.body = result;
+      this.ctx.success(result);
     } catch (error) {
-      this.ctx.status = error instanceof Error && error.message === 'email_already_registered' ? 409 : 400;
-      this.ctx.body = { error: error instanceof Error ? error.message : 'admin_register_failed' };
+      this.ctx.error({
+        code: error instanceof Error && error.message === 'email_already_registered'
+          ? ResponseCode.CONFLICT
+          : ResponseCode.BAD_REQUEST,
+        msg: error instanceof Error ? error.message : 'admin_register_failed',
+        stack: error instanceof Error ? error.stack : undefined
+      });
     }
   }
 
   public async login(): Promise<void> {
     try {
       const body = this.ctx.request.body as Record<string, string | undefined>;
-      this.ctx.body = await loginManagementUser({
+      this.ctx.success(await loginManagementUser({
         email: body.email ?? '',
         password: body.password ?? '',
         deviceName: body.deviceName,
         platform: body.platform,
         ip: this.ctx.ip,
         userAgent: this.ctx.get('user-agent')
-      }, this.app.config);
+      }, this.app.config));
     } catch (error) {
-      this.ctx.status = error instanceof Error && error.message === 'invalid_credentials' ? 401 : 400;
-      this.ctx.body = { error: error instanceof Error ? error.message : 'admin_login_failed' };
+      this.ctx.error({
+        code: error instanceof Error && error.message === 'invalid_credentials'
+          ? ResponseCode.UNAUTHORIZED
+          : ResponseCode.BAD_REQUEST,
+        msg: error instanceof Error ? error.message : 'admin_login_failed',
+        stack: error instanceof Error ? error.stack : undefined
+      });
     }
   }
 
   public async refresh(): Promise<void> {
     try {
       const body = this.ctx.request.body as Record<string, string | undefined>;
-      this.ctx.body = await refreshFromToken(body.refreshToken ?? '', this.app.config);
+      this.ctx.success(await refreshFromToken(body.refreshToken ?? '', this.app.config));
     } catch (error) {
-      this.ctx.status = 401;
-      this.ctx.body = { error: error instanceof Error ? error.message : 'admin_refresh_failed' };
+      this.ctx.error({
+        code: ResponseCode.UNAUTHORIZED,
+        msg: error instanceof Error ? error.message : 'admin_refresh_failed',
+        stack: error instanceof Error ? error.stack : undefined
+      });
     }
   }
 
@@ -59,10 +72,13 @@ export default class AdminAuthController extends Controller {
     try {
       const body = this.ctx.request.body as Record<string, string | undefined>;
       await logoutToken(body.token ?? body.refreshToken ?? '', this.app.config);
-      this.ctx.body = { ok: true };
+      this.ctx.success({ ok: true });
     } catch (error) {
-      this.ctx.status = 401;
-      this.ctx.body = { error: error instanceof Error ? error.message : 'admin_logout_failed' };
+      this.ctx.error({
+        code: ResponseCode.UNAUTHORIZED,
+        msg: error instanceof Error ? error.message : 'admin_logout_failed',
+        stack: error instanceof Error ? error.stack : undefined
+      });
     }
   }
 }

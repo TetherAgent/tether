@@ -2,14 +2,15 @@ import type { Application } from 'egg';
 import adminRouter from './router/admin';
 
 export default (app: Application): void => {
-  const { router, controller } = app;
+  const { router, controller, middleware } = app;
+  const verifyNormalLogin = middleware.verifyLogin({ expected: [ 'normal_client_access' ] });
 
   router.get('/healthz', controller.health.index);
   router.post('/api/auth/register', controller.auth.register);
   router.post('/api/auth/login', controller.auth.login);
   router.post('/api/auth/refresh', controller.auth.refresh);
   router.post('/api/auth/logout', controller.auth.logout);
-  router.get('/api/auth/me', controller.auth.me);
+  router.get('/api/auth/me', verifyNormalLogin, controller.auth.me);
 
   router.post('/api/admin/auth/register', controller.adminAuth.register);
   router.post('/api/admin/auth/login', controller.adminAuth.login);
@@ -19,8 +20,8 @@ export default (app: Application): void => {
   router.post('/api/gateway/bind', controller.gateway.bind);
   router.post('/api/gateway/refresh', controller.gateway.refresh);
 
-  router.post('/api/token/revoke', controller.token.revoke);
-  router.post('/api/token/validate', controller.token.validate);
+  router.post('/api/token/revoke', middleware.verifyLogin({ expected: [ 'management_access', 'normal_client_access', 'gateway_access' ] }), controller.token.revoke);
+  router.post('/api/token/validate', middleware.verifyLogin({ expected: [ 'management_access', 'normal_client_access', 'gateway_access' ] }), controller.token.validate);
 
   router.post('/api/audit', controller.audit.create);
   router.get('/api/audit', controller.audit.index);

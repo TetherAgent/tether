@@ -1,22 +1,23 @@
 import { Controller } from 'egg';
-import { requireManagementToken } from '../../middleware/admin-auth';
 import { listAdminManagers, deleteAdminManager } from '../../service/admin/admins';
 import { registerManagementUser } from '../../service/auth';
+import { ResponseCode } from '../../types/response';
 
 export default class AdminAdminsController extends Controller {
   public async index(): Promise<void> {
     try {
-      requireManagementToken(this.ctx.get('authorization'), this.app.config);
-      this.ctx.body = await listAdminManagers(this.app.config);
+      this.ctx.success(await listAdminManagers(this.app.config));
     } catch (error) {
-      this.ctx.status = error instanceof Error && (error.message === 'missing_token' || error.message === 'wrong_token_class') ? 401 : 400;
-      this.ctx.body = { error: error instanceof Error ? error.message : 'list_admins_failed' };
+      this.ctx.error({
+        code: ResponseCode.BAD_REQUEST,
+        msg: error instanceof Error ? error.message : 'list_admins_failed',
+        stack: error instanceof Error ? error.stack : undefined
+      });
     }
   }
 
   public async create(): Promise<void> {
     try {
-      requireManagementToken(this.ctx.get('authorization'), this.app.config);
       const body = this.ctx.request.body as Record<string, string | undefined>;
       const result = await registerManagementUser({
         email: body.email ?? '',
@@ -27,27 +28,30 @@ export default class AdminAdminsController extends Controller {
         ip: this.ctx.ip,
         userAgent: this.ctx.get('user-agent')
       }, this.app.config);
-      this.ctx.status = 201;
-      this.ctx.body = result;
+      this.ctx.success(result);
     } catch (error) {
-      this.ctx.status = error instanceof Error && error.message === 'email_already_registered' ? 409
-        : error instanceof Error && (error.message === 'missing_token' || error.message === 'wrong_token_class') ? 401
-        : 400;
-      this.ctx.body = { error: error instanceof Error ? error.message : 'create_admin_failed' };
+      this.ctx.error({
+        code: error instanceof Error && error.message === 'email_already_registered'
+          ? ResponseCode.CONFLICT
+          : ResponseCode.BAD_REQUEST,
+        msg: error instanceof Error ? error.message : 'create_admin_failed',
+        stack: error instanceof Error ? error.stack : undefined
+      });
     }
   }
 
   public async destroy(): Promise<void> {
     try {
-      const identity = requireManagementToken(this.ctx.get('authorization'), this.app.config);
+      const identity = this.ctx.state.auth as { adminUserId?: string; accountId: string; workspaceId: string };
       const { id } = this.ctx.params as Record<string, string>;
       await deleteAdminManager(id, identity.adminUserId ?? '', identity.accountId, identity.workspaceId);
-      this.ctx.body = { ok: true };
+      this.ctx.success({ ok: true });
     } catch (error) {
-      this.ctx.status = error instanceof Error && error.message === 'not_found' ? 404
-        : error instanceof Error && (error.message === 'missing_token' || error.message === 'wrong_token_class') ? 401
-        : 400;
-      this.ctx.body = { error: error instanceof Error ? error.message : 'delete_admin_failed' };
+      this.ctx.error({
+        code: error instanceof Error && error.message === 'not_found' ? ResponseCode.NOT_FOUND : ResponseCode.BAD_REQUEST,
+        msg: error instanceof Error ? error.message : 'delete_admin_failed',
+        stack: error instanceof Error ? error.stack : undefined
+      });
     }
   }
 }

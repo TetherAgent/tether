@@ -94,8 +94,7 @@
     "onerror": {
       "errorPageUrl": "",
       "appErrorFilter": null,
-      "templatePath": "/Users/dream/code/tether/node_modules/.pnpm/egg-onerror@2.4.0/node_modules/egg-onerror/lib/onerror_page.mustache",
-      "all": "<Function all>"
+      "templatePath": "/Users/dream/code/tether/node_modules/.pnpm/egg-onerror@2.4.0/node_modules/egg-onerror/lib/onerror_page.mustache"
     },
     "i18n": {
       "defaultLocale": "en_US",
@@ -367,6 +366,20 @@
       "responseTimeout": 60000
     },
     "onClientError": null,
+    "middleware": [
+      "error"
+    ],
+    "verifyLoginWhitelist": [
+      "/healthz",
+      "/api/auth/register",
+      "/api/auth/login",
+      "/api/auth/refresh",
+      "/api/admin/auth/register",
+      "/api/admin/auth/login",
+      "/api/admin/auth/refresh",
+      "/api/gateway/bind",
+      "/api/gateway/refresh"
+    ],
     "redis": {
       "client": {
         "host": "127.0.0.1",
@@ -375,8 +388,8 @@
       }
     },
     "coreMiddlewares": "~config~coreMiddleware",
-    "appMiddlewares": [],
-    "appMiddleware": "~config~appMiddlewares"
+    "appMiddlewares": "~config~middleware",
+    "appMiddleware": "~config~middleware"
   },
   "plugins": {
     "onerror": {
