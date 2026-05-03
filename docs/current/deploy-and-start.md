@@ -123,9 +123,8 @@ pnpm tether gateway
 
 先说结论：
 
-`pnpm dev:server` 现在走标准 Egg `local` 环境启动。`apps/server/config/config.local.ts`
-会作为本地 MySQL 配置覆盖层自动生效；`config.default.ts` 会在 `local` 环境下补一个本地
-JWT secret，所以不需要再手动包一层脚本去读 `config.local.ts`。
+`pnpm dev:server` 会优先读取仓库根目录 `env.sh`。当前仓库没有可提交的
+`apps/server/config/config.local.ts` 本地库配置层，MySQL / JWT / CORS 都以环境变量为准。
 
 直接运行：
 
@@ -137,6 +136,21 @@ pnpm dev:server
 
 ```bash
 curl http://127.0.0.1:4800/healthz
+```
+
+如果启动时直接报：
+
+```text
+TETHER_SERVER_MYSQL_PASSWORD is required when MySQL is enabled
+```
+
+说明环境文件里已经填了 MySQL host/user，但密码还是空的。先补这几个键，再重启：
+
+```bash
+TETHER_SERVER_MYSQL_HOST=...
+TETHER_SERVER_MYSQL_USER=tether_prod
+TETHER_SERVER_MYSQL_PASSWORD=...
+TETHER_SERVER_MYSQL_DATABASE=tether_prd
 ```
 
 ### 现在怎么验
@@ -205,6 +219,14 @@ git clone <your-repo-url> tether
 cd tether
 pnpm install
 pnpm build:web
+```
+
+如果服务器把环境文件放在 `/data/env/tether.sh`，`pnpm start:server` 会优先读取它。也可以手动先确认：
+
+```bash
+cd /opt/tether
+. /data/env/tether.sh
+env | grep '^TETHER_SERVER_'
 ```
 
 ### 2. 启动 Relay

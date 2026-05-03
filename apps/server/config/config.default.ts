@@ -8,6 +8,14 @@ type AppConfig = EggAppConfig & {
   jwt: {
     secret: string;
   };
+  logger: {
+    consoleLevel: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'NONE';
+    disableConsoleAfterReady: boolean;
+    concentrateError: 'duplicate' | 'redirect' | 'ignore';
+  };
+  console: {
+    consoleLevel: 'debug' | 'info' | 'warn' | 'error';
+  };
   cors: {
     credentials: boolean;
     origin: (ctx: CtxLike) => string;
@@ -82,10 +90,35 @@ function assertJwtSecret(env: string): string {
   throw new Error('TETHER_SERVER_JWT_SECRET is required outside test mode');
 }
 
+function mysqlEnabled(env: string): boolean {
+  if (env === 'local') {
+    return true;
+  }
+
+  const value = process.env.TETHER_SERVER_ENABLE_MYSQL?.trim().toLowerCase();
+  return value === '1' || value === 'true';
+}
+
+function assertMysqlPassword(env: string): void {
+  if (!mysqlEnabled(env)) {
+    return;
+  }
+
+  const host = readEnv('TETHER_SERVER_MYSQL_HOST');
+  const user = readEnv('TETHER_SERVER_MYSQL_USER');
+  const rawPassword = process.env.TETHER_SERVER_MYSQL_PASSWORD;
+  const password = rawPassword?.trim();
+
+  if ((host || user) && !password) {
+    throw new Error('TETHER_SERVER_MYSQL_PASSWORD is required when MySQL is enabled');
+  }
+}
+
 export default (appInfo: EggAppInfo): PowerPartial<AppConfig> => {
   const env = process.env.EGG_SERVER_ENV ?? process.env.NODE_ENV ?? 'development';
   const webOrigins = readOrigins();
   const jwtSecret = assertJwtSecret(env);
+  assertMysqlPassword(env);
   const defaultWebOrigin = webOrigins[0] ?? '';
 
   return {
@@ -115,6 +148,16 @@ export default (appInfo: EggAppInfo): PowerPartial<AppConfig> => {
     },
     jwt: {
       secret: jwtSecret
+    },
+    logger: {
+      // 避免本地 dev 进程在父终端断开后继续向 console 写日志，触发 EPIPE 自刷屏。
+      consoleLevel: env === 'local' ? 'NONE' : 'INFO',
+      disableConsoleAfterReady: true,
+      concentrateError: 'redirect'
+    },
+    console: {
+      // egg-console 不支持 logger.consoleLevel = NONE，单独给它一个合法级别。
+      consoleLevel: 'info'
     },
     mysql: {
       client: {

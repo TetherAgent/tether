@@ -94,7 +94,8 @@
     "onerror": {
       "errorPageUrl": "",
       "appErrorFilter": null,
-      "templatePath": "/Users/dream/code/tether/node_modules/.pnpm/egg-onerror@2.4.0/node_modules/egg-onerror/lib/onerror_page.mustache"
+      "templatePath": "/Users/dream/code/tether/node_modules/.pnpm/egg-onerror@2.4.0/node_modules/egg-onerror/lib/onerror_page.mustache",
+      "all": "<Function all>"
     },
     "i18n": {
       "defaultLocale": "en_US",
@@ -177,7 +178,7 @@
       "allowMethods": "GET,HEAD,PUT,POST,DELETE,PATCH,OPTIONS"
     },
     "jwt": {
-      "secret": "<String len: 23>",
+      "secret": "<String len: 64>",
       "enable": false
     },
     "io": {
@@ -211,15 +212,16 @@
       "ignore": "/favicon.ico",
       "success": "green",
       "error": "red",
-      "debug": "gray"
+      "debug": "gray",
+      "consoleLevel": "info"
     },
     "logger": {
       "level": "INFO",
-      "consoleLevel": "INFO",
+      "consoleLevel": "NONE",
       "dir": "/Users/dream/code/tether/apps/server/logs/@tether/server",
       "encoding": "utf8",
       "env": "local",
-      "disableConsoleAfterReady": false,
+      "disableConsoleAfterReady": true,
       "outputJSON": false,
       "buffer": true,
       "appLogName": "@tether/server-web.log",
@@ -232,12 +234,13 @@
       "allowDebugAtProd": false,
       "enablePerformanceTimer": false,
       "enableFastContextLogger": false,
+      "concentrateError": "redirect",
       "type": "agent",
       "localStorage": "<AsyncLocalStorage>"
     },
     "env": "local",
     "name": "@tether/server",
-    "keys": "<String len: 38>",
+    "keys": "<String len: 79>",
     "cookies": {},
     "proxy": false,
     "maxIpsCount": 0,
@@ -252,6 +255,9 @@
       "type": "commonjs",
       "scripts": {
         "dev": "egg-bin dev --ts",
+        "build": "tsc -p tsconfig.json",
+        "start": "egg-scripts start --daemon --workers=1 --port=4800 --title=egg-server-tether-api",
+        "stop": "egg-scripts stop",
         "test": "tsx --test test/**/*.test.ts",
         "typecheck": "tsc -p tsconfig.json --noEmit"
       },
@@ -270,8 +276,12 @@
       "devDependencies": {
         "@types/node": "^22.15.29",
         "egg-bin": "^6.6.0",
+        "egg-scripts": "^3.1.0",
         "tsx": "^4.19.4",
         "typescript": "^5.8.3"
+      },
+      "egg": {
+        "typescript": true
       }
     },
     "baseDir": "/Users/dream/code/tether/apps/server",
@@ -619,6 +629,9 @@
       "type": "commonjs",
       "scripts": {
         "dev": "egg-bin dev --ts",
+        "build": "tsc -p tsconfig.json",
+        "start": "egg-scripts start --daemon --workers=1 --port=4800 --title=egg-server-tether-api",
+        "stop": "egg-scripts stop",
         "test": "tsx --test test/**/*.test.ts",
         "typecheck": "tsc -p tsconfig.json --noEmit"
       },
@@ -637,8 +650,12 @@
       "devDependencies": {
         "@types/node": "^22.15.29",
         "egg-bin": "^6.6.0",
+        "egg-scripts": "^3.1.0",
         "tsx": "^4.19.4",
         "typescript": "^5.8.3"
+      },
+      "egg": {
+        "typescript": true
       }
     },
     "root": "/Users/dream/code/tether/apps/server"
