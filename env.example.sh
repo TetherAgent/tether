@@ -1,9 +1,9 @@
 # 复制为 env.sh 并填入真实值：
-#   cp apps/server/env.example.sh apps/server/env.sh
-#   nano apps/server/env.sh
+#   cp env.example.sh env.sh
+#   nano env.sh
 #
-# 本地使用：source apps/server/env.sh
-# 服务器部署：cp apps/server/env.sh /data/env/tether.sh
+# 本地使用：dev 脚本会自动加载，无需手动 source
+# 服务器部署：cp env.sh /data/env/tether.sh
 
 # ── 服务器基础配置 ────────────────────────────────────
 # 运行环境，生产环境固定填 prod
@@ -19,7 +19,7 @@ export TETHER_SERVER_JWT_SECRET=
 export TETHER_SERVER_WEB_ORIGIN=https://tether.earntools.me
 
 # ── 数据库配置 ────────────────────────────────────────
-export TETHER_SERVER_MYSQL_HOST=rm-j6c5939hk4w250v5xxo.mysql.rds.aliyuncs.com
+export TETHER_SERVER_MYSQL_HOST=
 export TETHER_SERVER_MYSQL_PORT=3306
 export TETHER_SERVER_MYSQL_USER=tether_prod
 # 数据库密码，必填
