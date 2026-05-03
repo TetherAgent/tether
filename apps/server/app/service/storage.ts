@@ -635,3 +635,86 @@ export async function loadAuditEvents(): Promise<AuditEventRecord[]> {
   const [rows] = await execute('SELECT * FROM audit_events ORDER BY id ASC');
   return (rows as Record<string, unknown>[]).map(auditEventFromRow);
 }
+
+// --- Phase 6 Admin Management Queries ---
+
+export async function loadAllUsers(limit = 20, offset = 0): Promise<UserRecord[]> {
+  const [rows] = await execute(
+    'SELECT * FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?',
+    [limit, offset]
+  );
+  return (rows as Record<string, unknown>[]).map(userFromRow);
+}
+
+export async function countUsers(): Promise<number> {
+  const [rows] = await execute('SELECT COUNT(*) AS count FROM users');
+  const row = (rows as Record<string, unknown>[])[0];
+  return Number(row?.count ?? 0);
+}
+
+export async function loadAllAdminUsers(limit = 100, offset = 0): Promise<AdminUserRecord[]> {
+  const [rows] = await execute(
+    'SELECT * FROM admin_users ORDER BY created_at ASC LIMIT ? OFFSET ?',
+    [limit, offset]
+  );
+  return (rows as Record<string, unknown>[]).map(adminUserFromRow);
+}
+
+export async function countActiveDevices(): Promise<number> {
+  const [rows] = await execute(
+    "SELECT COUNT(*) AS count FROM devices WHERE revoked_at IS NULL AND token_class = 'normal_client_access'"
+  );
+  const row = (rows as Record<string, unknown>[])[0];
+  return Number(row?.count ?? 0);
+}
+
+export async function countRegisteredGateways(): Promise<number> {
+  const [rows] = await execute('SELECT COUNT(*) AS count FROM gateways');
+  const row = (rows as Record<string, unknown>[])[0];
+  return Number(row?.count ?? 0);
+}
+
+export async function countAuditEventsLast7Days(): Promise<number> {
+  const [rows] = await execute(
+    'SELECT COUNT(*) AS count FROM audit_events WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)'
+  );
+  const row = (rows as Record<string, unknown>[])[0];
+  return Number(row?.count ?? 0);
+}
+
+export async function loadUserLoginStats(userId: string): Promise<{
+  loginCount: number;
+  failedLoginCount: number;
+  lastLoginAt: number | null;
+}> {
+  const [loginRows] = await execute(
+    "SELECT COUNT(*) AS count FROM audit_events WHERE user_id = ? AND event_type = 'auth.login.succeeded'",
+    [userId]
+  );
+  const [failRows] = await execute(
+    "SELECT COUNT(*) AS count FROM audit_events WHERE user_id = ? AND event_type = 'auth.login.failed'",
+    [userId]
+  );
+  const [lastRows] = await execute(
+    "SELECT created_at FROM audit_events WHERE user_id = ? AND event_type = 'auth.login.succeeded' ORDER BY created_at DESC LIMIT 1",
+    [userId]
+  );
+  const loginCount = Number((loginRows as Record<string, unknown>[])[0]?.count ?? 0);
+  const failedLoginCount = Number((failRows as Record<string, unknown>[])[0]?.count ?? 0);
+  const lastRow = (lastRows as Record<string, unknown>[])[0];
+  const lastLoginAt = lastRow?.created_at ? sqlDateToMs(lastRow.created_at) : null;
+  return { loginCount, failedLoginCount, lastLoginAt };
+}
+
+export async function countActiveDevicesByUserId(userId: string): Promise<number> {
+  const [rows] = await execute(
+    'SELECT COUNT(*) AS count FROM devices WHERE user_id = ? AND revoked_at IS NULL',
+    [userId]
+  );
+  const row = (rows as Record<string, unknown>[])[0];
+  return Number(row?.count ?? 0);
+}
+
+export async function deleteAdminUserById(id: string): Promise<void> {
+  await execute('DELETE FROM admin_users WHERE id = ?', [id]);
+}
