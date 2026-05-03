@@ -19,6 +19,7 @@ export default class AdminDevicesController extends Controller {
   public async revoke(): Promise<void> {
     try {
       const identity = requireManagementToken(this.ctx.get('authorization'), this.app.config);
+      if (!identity.adminUserId) throw new Error('missing_admin_user_id');
       const { id } = this.ctx.params as Record<string, string>;
       await revokeAdminDevice(id, identity.adminUserId, identity.accountId, identity.workspaceId);
       this.ctx.body = { ok: true };

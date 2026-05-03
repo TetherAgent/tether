@@ -19,6 +19,7 @@ export default class AdminGatewaysController extends Controller {
   public async unlink(): Promise<void> {
     try {
       const identity = requireManagementToken(this.ctx.get('authorization'), this.app.config);
+      if (!identity.adminUserId) throw new Error('missing_admin_user_id');
       const { id } = this.ctx.params as Record<string, string>;
       await unlinkAdminGateway(id, identity.adminUserId, identity.accountId, identity.workspaceId);
       this.ctx.body = { ok: true };
