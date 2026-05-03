@@ -12,7 +12,7 @@ git pull origin main
 
 # 2. 安装依赖
 log "安装依赖..."
-pnpm install --frozen-lockfile
+pnpm install
 
 # 3. 构建
 log "构建 web..."
