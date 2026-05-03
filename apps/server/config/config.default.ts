@@ -1,4 +1,5 @@
-import type { EggAppConfig, EggAppInfo, PowerPartial } from 'egg';
+import type { EggAppConfig, EggAppInfo } from 'egg';
+import type { AuthTokenClass } from '@tether/core';
 
 type CtxLike = {
   get(name: string): string;
@@ -9,6 +10,9 @@ type AppConfig = EggAppConfig & {
     secret: string;
   };
   verifyLoginWhitelist: string[];
+  verifyLogin: {
+    expected: AuthTokenClass[];
+  };
   logger: {
     consoleLevel: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'NONE';
     disableConsoleAfterReady: boolean;
@@ -23,12 +27,17 @@ type AppConfig = EggAppConfig & {
     allowMethods: string;
   };
   mysql: {
-    client: {
-      host: string;
-      port: number;
-      user: string;
-      password: string;
-      database: string;
+    clients: {
+      tether: {
+        host: string;
+        port: string;
+        user: string;
+        password: string;
+        database: string;
+      };
+    };
+    default: {
+      multipleStatements: boolean;
     };
     app: boolean;
     agent: boolean;
@@ -40,6 +49,9 @@ type AppConfig = EggAppConfig & {
       password?: string;
       db: number;
     };
+  };
+  bcrypt: {
+    saltRounds: number;
   };
 };
 
@@ -115,7 +127,7 @@ function assertMysqlPassword(env: string): void {
   }
 }
 
-export default (appInfo: EggAppInfo): PowerPartial<AppConfig> => {
+export default (appInfo: EggAppInfo) => {
   const env = process.env.EGG_SERVER_ENV ?? process.env.NODE_ENV ?? 'development';
   const webOrigins = readOrigins();
   const jwtSecret = assertJwtSecret(env);
@@ -135,7 +147,7 @@ export default (appInfo: EggAppInfo): PowerPartial<AppConfig> => {
         enable: false
       }
     },
-    middleware: [ 'error' ],
+    middleware: [ 'error', 'verifyLogin' ],
     cors: {
       credentials: true,
       origin: (ctx: CtxLike) => {
@@ -162,6 +174,9 @@ export default (appInfo: EggAppInfo): PowerPartial<AppConfig> => {
       '/api/gateway/bind',
       '/api/gateway/refresh'
     ],
+    verifyLogin: {
+      expected: [ 'normal_client_access', 'management_access', 'gateway_access' ]
+    },
     logger: {
       // 避免本地 dev 进程在父终端断开后继续向 console 写日志，触发 EPIPE 自刷屏。
       consoleLevel: env === 'local' ? 'NONE' : 'INFO',
@@ -173,12 +188,17 @@ export default (appInfo: EggAppInfo): PowerPartial<AppConfig> => {
       consoleLevel: 'info'
     },
     mysql: {
-      client: {
-        host: readEnv('TETHER_SERVER_MYSQL_HOST') ?? '127.0.0.1',
-        port: readPort('TETHER_SERVER_MYSQL_PORT', 3306),
-        user: readEnv('TETHER_SERVER_MYSQL_USER') ?? 'root',
-        password: readEnv('TETHER_SERVER_MYSQL_PASSWORD') ?? '',
-        database: readEnv('TETHER_SERVER_MYSQL_DATABASE') ?? 'tether'
+      clients: {
+        tether: {
+          host: readEnv('TETHER_SERVER_MYSQL_HOST') ?? '127.0.0.1',
+          port: String(readPort('TETHER_SERVER_MYSQL_PORT', 3306)),
+          user: readEnv('TETHER_SERVER_MYSQL_USER') ?? 'root',
+          password: readEnv('TETHER_SERVER_MYSQL_PASSWORD') ?? '',
+          database: readEnv('TETHER_SERVER_MYSQL_DATABASE') ?? 'tether'
+        }
+      },
+      default: {
+        multipleStatements: true
       },
       app: true,
       agent: false
@@ -190,6 +210,9 @@ export default (appInfo: EggAppInfo): PowerPartial<AppConfig> => {
         password: readEnv('TETHER_SERVER_REDIS_PASSWORD'),
         db: 0
       }
+    },
+    bcrypt: {
+      saltRounds: 10
     }
   };
 };

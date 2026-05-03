@@ -92,13 +92,47 @@ HarmonyOS / Flutter / iOS / Android 都视为 client surface，只消费 Gateway
 |---|---|
 | 运行时 | Node.js 20+ LTS |
 | 语言 | TypeScript（`tsx` 直跑，不打包） |
-| HTTP | Hono |
+| Gateway/CLI HTTP | Hono |
+| Server API | Egg.js + TypeScript |
 | CLI 参数 | commander |
 | SQLite | better-sqlite3 |
 | 子进程 | 原生 `node:child_process`（**绝不** `shell:true`） |
 | 前端 | `apps/web` + `apps/admin-web` React/Vite，消费 `packages/design` / `packages/theme` |
 | 包管理 | pnpm |
 | Gateway 单例 | `~/.tether/daemon.pid` + lockfile（当前实现仍沿用 daemon 命名） |
+
+## 前端应用边界与规范
+
+前端有两个独立 app：
+
+- `apps/web`：普通用户会话控制台，只承载 `/login`、`/register` 和 session surface。
+  不承载 `/admin/*`。
+- `apps/admin-web`：唯一管理后台入口，承载 `/admin/login`、`/admin/register`、
+  `/admin/dashboard`、`/admin/users`、`/admin/devices`、`/admin/gateways`、
+  `/admin/audit`。
+
+模块级前端规范：
+
+- `apps/web/CLAUDE.md`
+- `apps/admin-web/CLAUDE.md`
+
+前端工程约束：
+
+- 路由事实源必须是各 app 的 `src/routes.tsx`；不要继续把业务路由堆在 `main.tsx`。
+- 前端新增文件统一使用 kebab-case；React 组件导出继续使用 PascalCase。
+  当前 `apps/web` 与 `apps/admin-web` 前端源码文件名应保持 kebab-case。
+- 可见文案必须走 i18n 文案目录和 hook；不要在页面里散落硬编码文案或自建
+  `copy` map。`apps/web` 使用 `src/i18n/messages.ts` + `useI18n()`；
+  `apps/admin-web` 使用 `src/i18n/messages.ts` + `useAdminI18n()`。
+- 所有前端页面默认必须支持中文 / English；表单校验、toast、空态、错误兜底、状态栏和
+  终端/表格辅助文案都属于 i18n 范围。新增单语言页面视为规范违规。
+- 所有前端页面默认必须支持 light / dark；页面 shell、登录注册页、列表页、终端面板、
+  表格和弹窗都要在两种主题下可读，并提供主题切换入口。
+- 两个 app 都消费 `@tether/design` 和 `@tether/theme`；基础组件优先上移到
+  `packages/design/src`，主题 token 只维护在 `packages/theme`。
+- `apps/web` 的 Auth Shell、Session List、Terminal Surface 和 `apps/admin-web`
+  的 Auth Shell、Admin Layout、Data Management Page 布局规则分别记录在对应
+  app 的 `CLAUDE.md`。
 
 ## 仓库结构（当前）
 
@@ -113,7 +147,7 @@ HarmonyOS / Flutter / iOS / Android 都视为 client surface，只消费 Gateway
 │   ├── gateway/                                         # Hono server + PTY event stream + tmux fallback
 │   ├── web/                                             # React/Vite Web 客户端
 │   ├── admin-web/                                       # 管理控制台 Web 客户端
-│   ├── server/                                          # 认证 / 管理 API
+│   ├── server/                                          # Egg 认证 / 管理 API
 │   └── relay/                                           # Relay 服务
 ├── packages/
 │   ├── core/                                            # 核心类型
@@ -127,6 +161,37 @@ HarmonyOS / Flutter / iOS / Android 都视为 client surface，只消费 Gateway
 │   ├── current/                                         # 长期事实
 │   └── working/                                         # 立项前草稿
 └── .planning/                                           # GSD 阶段计划、执行状态和验收记录
+```
+
+## Server API 约定（apps/server）
+
+`apps/server` 是远程 auth/control-plane 的 Egg 服务端，负责普通用户、管理后台、
+Gateway token、设备、审计、MySQL/Redis 接入和统一响应协议。
+
+分层规则：
+
+- Controller 只做参数读取、最小归一化、调用 `ctx.service`、`ctx.success(data)`。
+- Controller 不写业务 `try/catch`，不直接 `ctx.error()`，不直接访问 MySQL / Redis。
+- Service 必须 `import { Service } from 'egg'` 并 `extends Service`。
+- Service 方法内优先 `const { app, ctx } = this` 或 `const { ctx } = this`，跨 service 调用走 `ctx.service`。
+- Service 不导出业务函数；对外业务入口只能是 Service 方法。
+- `config.middleware` 全局挂载 `error`、`verifyLogin`；公开接口必须写入 `config.verifyLoginWhitelist`。
+- `verifyLogin` 负责校验登录态并写入 `ctx.state.auth`，路由级 `requireTokenClass` 负责接口权限。
+- 可预期业务错误在 Service 或 Koa middleware 中用 `ctx.throw(status, msg)` 抛出。
+- `app/middleware/error.ts` 统一捕获异常，HTTP 状态保持 `200`，响应体用数字 `code` 区分业务状态。
+- 数据库基础能力收口到 `ctx.service.db`，领域数据访问收口到 `authRepository` / `gatewayRepository` / `auditRepository` 等 repository；业务 Service 不判断 MySQL / runtime，也不直接写 SQL。
+- Redis 能力收口到 `ctx.service.redis`。
+- 密码注册/校验统一走 `ctx.genHash` / `ctx.compare`，与 `egg-bcrypt` 保持一致。
+
+响应结构：
+
+```ts
+type ApiResponse<T> = {
+  code: number
+  msg: string
+  data: T | null
+  stack?: string
+}
 ```
 
 ## 数据模型（当前）

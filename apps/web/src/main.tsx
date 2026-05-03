@@ -1,19 +1,20 @@
 import * as React from 'react';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Link, Navigate, Route, Routes, matchPath, useLocation } from 'react-router-dom';
+import { BrowserRouter } from 'react-router-dom';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
-import { Button, Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle, Toaster, toast } from '@tether/design';
+import { Button, Toaster, toast } from '@tether/design';
 import { eventBus } from '@tether/http';
 import '@xterm/xterm/css/xterm.css';
 import { AuthProvider } from './contexts/auth-context.js';
+import { UiPreferencesProvider } from './contexts/ui-preferences-context.js';
 import { useAuth } from './hooks/use-auth.js';
+import { useI18n } from './hooks/use-i18n.js';
+import { useUiPreferences } from './hooks/use-ui-preferences.js';
 import { gatewayAuthHeaders, requestGatewayWsTicket } from './lib/api.js';
-import { AdminLoginPage } from './pages/admin-login-page.js';
-import { AdminRegisterPage } from './pages/admin-register-page.js';
-import { LoginPage } from './pages/login-page.js';
-import { RegisterPage } from './pages/register-page.js';
+import { WebChromeControls } from './components/console/web-chrome-controls.js';
+import { WebRoutes } from './routes.js';
 import './styles.css';
 
 type Snapshot = {
@@ -107,10 +108,12 @@ function splitActiveSessions(allSessions: Session[]): { active: Session[]; histo
   };
 }
 
-function buildRelayClientUrl(relayUrl: string): string {
+type WebMessages = ReturnType<typeof useI18n>['t'];
+
+function buildRelayClientUrl(relayUrl: string, t: WebMessages): string {
   const value = relayUrl.trim();
   if (!value) {
-    throw new Error('请填写 Relay 地址');
+    throw new Error(t.fillRelayUrl);
   }
   const url = new URL(value);
   if (url.protocol === 'http:') {
@@ -119,7 +122,7 @@ function buildRelayClientUrl(relayUrl: string): string {
     url.protocol = 'wss:';
   }
   if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
-    throw new Error('Relay 地址必须使用 ws、wss、http 或 https');
+    throw new Error(t.relayProtocolInvalid);
   }
   url.pathname = `${url.pathname.replace(/\/$/, '')}/client`;
   url.search = '';
@@ -146,42 +149,56 @@ function sendRelayFrame(ws: WebSocket, frame: RelayClientToServerFrame): void {
   ws.send(JSON.stringify(frame));
 }
 
-function sessionStatusLabel(status: string): string {
+function sessionStatusLabel(status: string, t: WebMessages): string {
   switch (status) {
     case 'running':
-      return '运行中';
+      return t.sessionRunning;
     case 'stopped':
-      return '已停止';
+      return t.sessionStopped;
     case 'completed':
-      return '已完成';
+      return t.sessionCompleted;
     case 'failed':
-      return '失败';
+      return t.sessionFailed;
     case 'lost':
-      return '失联';
+      return t.sessionLost;
     default:
       return status;
   }
 }
 
-function clientModeLabel(mode: ClientMode): string {
-  return mode === 'observe' ? '观察' : '控制';
+function clientModeLabel(mode: ClientMode, t: WebMessages): string {
+  return mode === 'observe' ? t.observe : t.control;
 }
 
-function displayMessage(message: string): string {
+function displayMessage(message: string, t: WebMessages): string {
   switch (message) {
     case 'authentication failed':
-      return '认证失败';
+      return t.authFailed;
     case 'gateway is not connected':
-      return 'Gateway 未连接';
+      return t.gatewayNotConnected;
     case 'client is not subscribed to this session':
-      return '客户端尚未订阅该 session';
+      return t.sessionNotSubscribed;
     case 'observer clients cannot send input':
-      return '观察模式不能输入';
+      return t.observeCannotSend;
     case 'observer clients cannot resize':
-      return '观察模式不能调整终端尺寸';
+      return t.observeCannotResize;
     default:
       return message;
   }
+}
+
+function WebHeaderPreferences() {
+  const { isDark, toggleTheme } = useUiPreferences();
+  const { locale, setLocale } = useI18n();
+
+  return (
+    <WebChromeControls
+      locale={locale}
+      onLocaleChange={setLocale}
+      isDark={isDark}
+      onThemeToggle={toggleTheme}
+    />
+  );
 }
 
 function App() {
@@ -205,117 +222,29 @@ function App() {
   }, []);
 
   return (
-    <AuthProvider>
-      <>
+    <UiPreferencesProvider>
+      <AuthProvider>
         <BrowserRouter>
-          <Routes>
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/admin/register" element={<AdminRegisterPage />} />
-            <Route path="/admin/login" element={<AdminLoginPage />} />
-            <Route
-              path="/admin"
-              element={
-                <RequireAdminAuth>
-                  <AdminShellPlaceholder />
-                </RequireAdminAuth>
-              }
-            />
-            <Route
-              path="*"
-              element={
-                <RequireUserAuth>
-                  <SessionSurface connectionSettings={connectionSettings} onConnectionSettingsChange={updateConnectionSettings} />
-                </RequireUserAuth>
-              }
-            />
-          </Routes>
+          <WebRoutes
+            sessionListSurface={(
+              <SessionList
+                connectionSettings={connectionSettings}
+                onConnectionSettingsChange={updateConnectionSettings}
+              />
+            )}
+            renderSessionView={(sessionId) => (
+              <SessionView
+                sessionId={sessionId}
+                connectionSettings={connectionSettings}
+                onConnectionSettingsChange={updateConnectionSettings}
+              />
+            )}
+          />
         </BrowserRouter>
         <Toaster />
-      </>
-    </AuthProvider>
+      </AuthProvider>
+    </UiPreferencesProvider>
   );
-}
-
-function RequireUserAuth({ children }: { children: React.ReactNode }) {
-  const location = useLocation();
-  const { authReady, normalAuth } = useAuth();
-
-  if (!authReady) {
-    return null;
-  }
-
-  if (!normalAuth) {
-    return <Navigate replace to="/login" state={{ from: location.pathname }} />;
-  }
-
-  return <>{children}</>;
-}
-
-function RequireAdminAuth({ children }: { children: React.ReactNode }) {
-  const location = useLocation();
-  const { authReady, managementAuth } = useAuth();
-
-  if (!authReady) {
-    return null;
-  }
-
-  if (!managementAuth) {
-    return <Navigate replace to="/admin/login" state={{ from: location.pathname }} />;
-  }
-
-  return <>{children}</>;
-}
-
-function AdminShellPlaceholder() {
-  const { logoutManagement } = useAuth();
-
-  return (
-    <main className="auth-shell">
-      <Card className="auth-card">
-        <CardHeader>
-          <CardTitle>Management shell placeholder</CardTitle>
-          <CardDescription>Phase 5 先保留管理域入口，真正的管理台属于 Phase 6。</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="auth-meta-note">
-            当前只验证 auth route shell、realm 隔离和后续 `/admin` 入口占位，不把管理 token 接到 terminal control。
-          </p>
-        </CardContent>
-        <CardFooter>
-          <Button onClick={logoutManagement} type="button" variant="secondary">
-            Sign out
-          </Button>
-          <Button asChild variant="secondary">
-            <Link to="/">Back to session shell</Link>
-          </Button>
-        </CardFooter>
-      </Card>
-    </main>
-  );
-}
-
-function SessionSurface({
-  connectionSettings,
-  onConnectionSettingsChange
-}: {
-  connectionSettings: ConnectionSettings;
-  onConnectionSettingsChange: (settings: ConnectionSettings) => void;
-}) {
-  const location = useLocation();
-  const matchedSession = matchPath('/remote/session/:sessionId', location.pathname);
-
-  if (matchedSession?.params.sessionId) {
-    return (
-      <SessionView
-        sessionId={matchedSession.params.sessionId}
-        connectionSettings={connectionSettings}
-        onConnectionSettingsChange={onConnectionSettingsChange}
-      />
-    );
-  }
-
-  return <SessionList connectionSettings={connectionSettings} onConnectionSettingsChange={onConnectionSettingsChange} />;
 }
 
 function ConnectionSettingsControl({
@@ -325,38 +254,39 @@ function ConnectionSettingsControl({
   settings: ConnectionSettings;
   onChange: (settings: ConnectionSettings) => void;
 }) {
+  const { t } = useI18n();
   const update = React.useCallback((patch: Partial<ConnectionSettings>) => {
     onChange({ ...settings, ...patch });
   }, [onChange, settings]);
 
   return (
-    <div className="connection-settings" aria-label="连接设置">
+    <div className="connection-settings" aria-label={t.connectionSettingsLabel}>
       <label className="mode-select">
-        连接
+        {t.connection}
         <select value={settings.connectionMode} onChange={(event) => update({ connectionMode: event.target.value as ConnectionMode })}>
-          <option value="direct">直连</option>
-          <option value="relay">Relay</option>
+          <option value="direct">{t.direct}</option>
+          <option value="relay">{t.relay}</option>
         </select>
       </label>
       {settings.connectionMode === 'relay' ? (
         <>
           <label className="relay-field">
-            Relay 地址
+            {t.relayUrl}
             <input
               type="url"
               inputMode="url"
               autoComplete="url"
-              placeholder="wss://relay.example.com"
+              placeholder={t.relayUrlExample}
               value={settings.relayUrl}
               onChange={(event) => update({ relayUrl: event.target.value })}
             />
           </label>
           <label className="relay-field">
-            密钥
+            {t.relaySecret}
             <input
               type="password"
               autoComplete="current-password"
-              placeholder="Relay 密钥"
+              placeholder={t.relaySecretPlaceholder}
               value={settings.relaySecret}
               onChange={(event) => update({ relaySecret: event.target.value })}
             />
@@ -375,11 +305,12 @@ function SessionList({
   onConnectionSettingsChange: (settings: ConnectionSettings) => void;
 }) {
   const { logoutNormal, normalAuth } = useAuth();
+  const { t } = useI18n();
   const [sessions, setSessions] = React.useState<Session[]>([]);
   const [history, setHistory] = React.useState<Session[]>([]);
   const [gateways, setGateways] = React.useState<Gateway[]>([]);
   const [webTransportMode, setWebTransportMode] = React.useState<WebTransportMode>(readWebTransportMode);
-  const [status, setStatus] = React.useState('加载中');
+  const [status, setStatus] = React.useState<string>(t.statusLoading);
   const listSocket = React.useRef<WebSocket | undefined>(undefined);
 
   const changeWebTransportMode = React.useCallback((mode: WebTransportMode) => {
@@ -413,9 +344,9 @@ function SessionList({
       setGateways(gatewaysData.gateways);
       setStatus(new Date().toLocaleTimeString());
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : '已断开');
+      setStatus(error instanceof Error ? error.message : t.statusDisconnected);
     }
-  }, []);
+  }, [t.statusDisconnected]);
 
   React.useEffect(() => {
     if (connectionSettings.connectionMode !== 'direct') {
@@ -437,9 +368,9 @@ function SessionList({
     setHistory([]);
     setGateways([]);
     try {
-      ws = new WebSocket(buildRelayClientUrl(connectionSettings.relayUrl));
+      ws = new WebSocket(buildRelayClientUrl(connectionSettings.relayUrl, t));
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Relay 地址无效');
+      setStatus(error instanceof Error ? error.message : t.statusRelayInvalid);
       return undefined;
     }
     const sendList = () => {
@@ -450,7 +381,7 @@ function SessionList({
     ws.addEventListener('open', () => {
       if (disposed) return;
       listSocket.current = ws;
-      setStatus('正在验证 Relay');
+      setStatus(t.statusRelayAuth);
       ws?.send(JSON.stringify(
         normalAuth?.accessToken
           ? { type: 'client.auth', token: normalAuth.accessToken }
@@ -461,20 +392,20 @@ function SessionList({
       if (disposed) return;
       const parsedFrame = parseWsFrame(message.data);
       if (!parsedFrame || typeof parsedFrame.type !== 'string') {
-        setStatus('Relay 数据格式错误');
+        setStatus(t.statusRelayBadFrame);
         ws?.close();
         return;
       }
       const frame = parsedFrame as RelayServerToClientFrame;
       if (frame.type === 'client.auth.ok') {
-        setStatus(`Relay · ${frame.clientId.slice(0, 8)}`);
+        setStatus(`${t.relayClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
         sendList();
         timer = window.setInterval(sendList, 3000);
         return;
       }
       if (frame.type === 'client.auth.failed') {
         logoutNormal();
-        setStatus(displayMessage(frame.message));
+        setStatus(displayMessage(frame.message, t));
         ws?.close();
         return;
       }
@@ -486,17 +417,17 @@ function SessionList({
         return;
       }
       if (frame.type === 'error') {
-        setStatus(displayMessage(frame.message));
+        setStatus(displayMessage(frame.message, t));
       }
     });
     ws.addEventListener('close', () => {
       if (!disposed) {
-        setStatus('Relay 已断开');
+        setStatus(t.statusRelayClosed);
       }
     });
     ws.addEventListener('error', () => {
       if (!disposed) {
-        setStatus('Relay 连接错误');
+        setStatus(t.statusRelayError);
       }
     });
     return () => {
@@ -509,20 +440,20 @@ function SessionList({
         listSocket.current = undefined;
       }
     };
-  }, [connectionSettings.connectionMode, connectionSettings.relaySecret, connectionSettings.relayUrl, logoutNormal, normalAuth?.accessToken]);
+  }, [connectionSettings.connectionMode, connectionSettings.relaySecret, connectionSettings.relayUrl, logoutNormal, normalAuth?.accessToken, t]);
 
   const stopSession = React.useCallback(async (sessionId: string) => {
-    setStatus('正在停止');
+    setStatus(t.statusStopping);
     if (connectionSettings.connectionMode === 'relay') {
       const ws = listSocket.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        setStatus('Relay 未连接');
+        setStatus(t.statusRelayUnavailable);
         return;
       }
       sendRelayFrame(ws, { type: 'client.subscribe', sessionId, mode: 'control' });
       sendRelayFrame(ws, { type: 'client.stop', sessionId });
       setSessions((current) => current.filter((session) => session.id !== sessionId));
-      setStatus('已发送停止请求');
+      setStatus(t.statusStopRequested);
       return;
     }
     const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/stop`, {
@@ -533,11 +464,11 @@ function SessionList({
       if (response.status === 401) {
         logoutNormal();
       }
-      setStatus(`停止失败：HTTP ${response.status}`);
+      setStatus(`${t.stopFailedPrefix}: ${t.httpStatusPrefix} ${response.status}`);
       return;
     }
     await refreshDirect();
-  }, [connectionSettings.connectionMode, logoutNormal, normalAuth?.accessToken, refreshDirect]);
+  }, [connectionSettings.connectionMode, logoutNormal, normalAuth?.accessToken, refreshDirect, t]);
 
   const stopAllSessions = React.useCallback(async () => {
     for (const session of sessions) {
@@ -548,19 +479,20 @@ function SessionList({
   return (
     <>
       <header className="session-header">
-        <h1>Tether</h1>
+        <h1>{t.appTitle}</h1>
         <div className="header-actions">
+          <WebHeaderPreferences />
           <ConnectionSettingsControl settings={connectionSettings} onChange={onConnectionSettingsChange} />
-          <Button variant="outline" size="sm" type="button" onClick={logoutNormal}>退出登录</Button>
+          <Button variant="outline" size="sm" type="button" onClick={logoutNormal}>{t.signOut}</Button>
           {sessions.length > 0 ? (
-            <Button variant="outline" size="sm" type="button" onClick={() => void stopAllSessions()}>全部停止</Button>
+            <Button variant="outline" size="sm" type="button" onClick={() => void stopAllSessions()}>{t.stopAll}</Button>
           ) : null}
           {connectionSettings.connectionMode === 'direct' ? (
             <label className="mode-select">
-              传输
+              {t.transport}
               <select value={webTransportMode} onChange={(event) => changeWebTransportMode(event.target.value as WebTransportMode)}>
                 <option value="ws">WS</option>
-                <option value="http">HTTP 兜底</option>
+                <option value="http">{t.httpFallback}</option>
               </select>
             </label>
           ) : null}
@@ -569,33 +501,33 @@ function SessionList({
       </header>
       <main className="session-list">
         {gateways.length > 0 ? (
-          <section className="gateway-list" aria-label="Gateway 列表">
+          <section className="gateway-list" aria-label={t.gatewayList}>
             {gateways.map((gateway) => (
               <div className="gateway-row" key={gateway.id}>
                 <span>{gateway.url}</span>
-                <span>PID {gateway.pid}</span>
+                <span>{t.pidLabel} {gateway.pid}</span>
               </div>
             ))}
           </section>
         ) : null}
         {sessions.length === 0 ? (
           <div className="empty">
-            <h2>暂无 session</h2>
-            <p>先用 CLI 启动一个 session，然后刷新本页。</p>
+            <h2>{t.noSessions}</h2>
+            <p>{t.noSessionsDescription}</p>
           </div>
         ) : (
-          <section className="session-section" aria-label="活跃 session">
-            <div className="section-heading">活跃</div>
+          <section className="session-section" aria-label={t.activeSessions}>
+            <div className="section-heading">{t.activeSessions}</div>
             {sessions.map((session) => (
-              <SessionCard session={session} key={session.id} onStop={stopSession} />
+              <SessionCard session={session} key={session.id} onStop={stopSession} t={t} />
             ))}
           </section>
         )}
         {history.length > 0 ? (
           <details className="session-section history-section">
-            <summary>历史</summary>
+            <summary>{t.history}</summary>
             {history.map((session) => (
-              <SessionCard session={session} key={session.id} />
+              <SessionCard session={session} key={session.id} t={t} />
             ))}
           </details>
         ) : null}
@@ -604,20 +536,20 @@ function SessionList({
   );
 }
 
-function SessionCard({ session, onStop }: { session: Session; onStop?: (sessionId: string) => void }) {
+function SessionCard({ session, onStop, t }: { session: Session; onStop?: (sessionId: string) => void; t: WebMessages }) {
   return (
     <div className="session-card">
       <a href={`/remote/session/${encodeURIComponent(session.id)}`}>
         <span className="session-card-title">{session.title || session.provider}</span>
         <span className="session-card-meta">
-          {session.provider} · {sessionStatusLabel(session.status)} · {session.transport ?? 'tmux'} ·{' '}
+          {session.provider} · {sessionStatusLabel(session.status, t)} · {session.transport ?? t.fallbackTmuxTransport} ·{' '}
           {new Date(session.lastActiveAt).toLocaleTimeString()}
         </span>
         <span className="session-card-id">{session.id}</span>
         <span className="session-card-path">{session.projectPath}</span>
       </a>
       {onStop ? (
-        <Button className="justify-self-start" variant="outline" size="sm" type="button" onClick={() => onStop(session.id)}>停止</Button>
+        <Button className="justify-self-start" variant="outline" size="sm" type="button" onClick={() => onStop(session.id)}>{t.stop}</Button>
       ) : null}
     </div>
   );
@@ -633,8 +565,9 @@ function SessionView({
   onConnectionSettingsChange: (settings: ConnectionSettings) => void;
 }) {
   const { logoutNormal, normalAuth } = useAuth();
+  const { t } = useI18n();
   const [snapshot, setSnapshot] = React.useState<Snapshot>({ text: '', capturedAt: Date.now() });
-  const [status, setStatus] = React.useState('连接中');
+  const [status, setStatus] = React.useState<string>(t.statusConnecting);
   const [text, setText] = React.useState('');
   const [transport, setTransport] = React.useState<string>();
   const scrollRef = React.useRef<HTMLElement>(null);
@@ -642,7 +575,7 @@ function SessionView({
   const refresh = React.useCallback(async () => {
     if (connectionSettings.connectionMode === 'relay') {
       setTransport('pty-event-stream');
-      setStatus('Relay');
+      setStatus(t.relay);
       return;
     }
     try {
@@ -664,9 +597,9 @@ function SessionView({
         }
       });
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : '已断开');
+      setStatus(error instanceof Error ? error.message : t.statusDisconnected);
     }
-  }, [connectionSettings.connectionMode, sessionId]);
+  }, [connectionSettings.connectionMode, sessionId, t]);
 
   React.useEffect(() => {
     refresh();
@@ -693,7 +626,7 @@ function SessionView({
     const value = text.trim();
     if (!value) return;
     setText('');
-    setStatus('正在发送');
+    setStatus(t.statusSending);
     const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/send`, {
       method: 'POST',
       headers: {
@@ -706,7 +639,7 @@ function SessionView({
       if (response.status === 401) {
         logoutNormal();
       }
-      setStatus(`发送失败：HTTP ${response.status}`);
+      setStatus(`${t.sendFailedPrefix}: ${t.httpStatusPrefix} ${response.status}`);
       setText(value);
       return;
     }
@@ -716,7 +649,10 @@ function SessionView({
   return (
     <>
       <header className="session-header">
-        <h1>Tether</h1>
+        <h1>{t.appTitle}</h1>
+        <div className="header-actions">
+          <WebHeaderPreferences />
+        </div>
         <div className="status">{status}</div>
       </header>
       <main ref={scrollRef} className="scrollport">
@@ -727,11 +663,11 @@ function SessionView({
           className="composer-input"
           rows={1}
           autoComplete="off"
-          placeholder="发送给 Agent"
+          placeholder={t.sendToAgent}
           value={text}
           onChange={(event) => setText(event.target.value)}
         />
-        <Button type="submit">发送</Button>
+        <Button type="submit">{t.send}</Button>
       </form>
     </>
   );
@@ -761,6 +697,8 @@ function PtySessionView({
   onConnectionSettingsChange: (settings: ConnectionSettings) => void;
 }) {
   const { logoutNormal, normalAuth } = useAuth();
+  const { t } = useI18n();
+  const { isDark } = useUiPreferences();
   const terminalRef = React.useRef<HTMLDivElement>(null);
   const terminal = React.useRef<Terminal | undefined>(undefined);
   const socket = React.useRef<WebSocket | undefined>(undefined);
@@ -794,7 +732,7 @@ function PtySessionView({
       return false;
     }
     if (clientMode === 'observe') {
-      setStatus('观察模式不能输入');
+      setStatus(t.statusObserveCannotInput);
       return false;
     }
     const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/input`, {
@@ -809,20 +747,20 @@ function PtySessionView({
       if (response.status === 401) {
         logoutNormal();
       }
-      setStatus(`输入失败：HTTP ${response.status}`);
+      setStatus(`${t.inputFailedPrefix}: ${t.httpStatusPrefix} ${response.status}`);
       return false;
     }
     return true;
-  }, [clientMode, connectionSettings.connectionMode, logoutNormal, normalAuth?.accessToken, sessionId]);
+  }, [clientMode, connectionSettings.connectionMode, logoutNormal, normalAuth?.accessToken, sessionId, t]);
 
   const sendWsInput = React.useCallback((data: string): boolean => {
     if (clientMode === 'observe') {
-      setStatus('观察模式不能输入');
+      setStatus(t.statusObserveCannotInput);
       return false;
     }
     const ws = socket.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      setStatus('WS 不可用');
+      setStatus(t.statusWsUnavailable);
       return false;
     }
     ws.send(JSON.stringify(
@@ -831,15 +769,15 @@ function PtySessionView({
         : { type: 'input', data }
     ));
     return true;
-  }, [clientMode, connectionSettings.connectionMode, sessionId]);
+  }, [clientMode, connectionSettings.connectionMode, sessionId, t]);
 
   const sendTerminalInput = React.useCallback((data: string): void => {
     if (connectionSettings.connectionMode === 'direct' && transportMode === 'http') {
-      sendHttpInput(data).catch(() => setStatus('输入失败'));
+      sendHttpInput(data).catch(() => setStatus(t.statusInputFailed));
       return;
     }
     sendWsInput(data);
-  }, [connectionSettings.connectionMode, sendHttpInput, sendWsInput, transportMode]);
+  }, [connectionSettings.connectionMode, sendHttpInput, sendWsInput, t.statusInputFailed, transportMode]);
 
   const sendLine = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -847,7 +785,7 @@ function PtySessionView({
     if (!value) {
       return;
     }
-    setStatus('正在发送');
+    setStatus(t.statusSending);
     const send = connectionSettings.connectionMode === 'direct' && transportMode === 'http'
       ? sendHttpInput(`${value}\r`)
       : Promise.resolve(sendWsInput(`${value}\r`));
@@ -855,11 +793,11 @@ function PtySessionView({
       .then((ok) => {
         if (!ok) return;
         setText('');
-        setStatus(connectionSettings.connectionMode === 'relay' ? '已发送 · Relay' : transportMode === 'http' ? '已发送 · HTTP' : '已发送 · WS');
+        setStatus(connectionSettings.connectionMode === 'relay' ? t.statusRelaySent : transportMode === 'http' ? t.statusHttpSent : t.statusWsSent);
         terminal.current?.focus();
       })
-      .catch(() => setStatus('输入失败'));
-  }, [connectionSettings.connectionMode, sendHttpInput, sendWsInput, text, transportMode]);
+      .catch(() => setStatus(t.statusInputFailed));
+  }, [connectionSettings.connectionMode, sendHttpInput, sendWsInput, t, text, transportMode]);
 
   React.useEffect(() => {
     const root = terminalRef.current;
@@ -873,11 +811,17 @@ function PtySessionView({
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
       fontSize: 13,
       lineHeight: 1.25,
-      theme: {
-        background: '#0c0e10',
-        foreground: '#e8ecef',
-        cursor: '#8fd0ff'
-      }
+      theme: isDark
+        ? {
+            background: '#0c0e10',
+            foreground: '#e8ecef',
+            cursor: '#8fd0ff'
+          }
+        : {
+            background: '#f8faf9',
+            foreground: '#111817',
+            cursor: '#047857'
+          }
     });
     const fitAddon = new FitAddon();
     let lastSize = { cols: 0, rows: 0 };
@@ -936,7 +880,7 @@ function PtySessionView({
         return;
       }
       if (event.type === 'session.exited') {
-        setStatus('已退出');
+        setStatus(t.statusExited);
       }
     };
 
@@ -945,7 +889,7 @@ function PtySessionView({
         replayComplete = false;
         return;
       }
-      setStatus('正在回放');
+      setStatus(t.statusReplaying);
       const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/events?after=0&limit=5000`);
       if (!response.ok) {
         throw new Error(`events HTTP ${response.status}`);
@@ -981,7 +925,7 @@ function PtySessionView({
       await replayEvents();
       if (connectionSettings.connectionMode === 'direct' && transportMode === 'http') {
         tailTimer = window.setInterval(pollTail, 500);
-        setStatus('正在同步 · HTTP 兜底');
+        setStatus(t.statusSyncingHttp);
         return;
       }
       const nextWs = await openStreamWebSocket();
@@ -993,7 +937,7 @@ function PtySessionView({
           return;
         }
         if (connectionSettings.connectionMode === 'relay') {
-          setStatus('正在验证 Relay');
+          setStatus(t.statusRelayAuth);
           nextWs.send(JSON.stringify(
             normalAuth?.accessToken
               ? { type: 'client.auth', token: normalAuth.accessToken }
@@ -1001,7 +945,7 @@ function PtySessionView({
           ));
           return;
         }
-        setStatus('正在同步 · WS');
+        setStatus(t.statusSyncingWs);
         sendResize();
       });
       nextWs.addEventListener('message', (message) => {
@@ -1010,29 +954,29 @@ function PtySessionView({
         }
         const parsedFrame = parseWsFrame(message.data);
         if (!parsedFrame || typeof parsedFrame.type !== 'string') {
-          setStatus('数据流格式错误');
+          setStatus(t.statusStreamBadFrame);
           nextWs.close();
           return;
         }
         if (connectionSettings.connectionMode === 'relay') {
           const frame = parsedFrame as RelayServerToClientFrame;
           if (frame.type === 'client.auth.ok') {
-            setStatus(`Relay · ${frame.clientId.slice(0, 8)}`);
+            setStatus(`${t.relayClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
             nextWs.send(JSON.stringify({ type: 'client.subscribe', sessionId, after, mode: clientMode }));
             return;
           }
           if (frame.type === 'client.auth.failed') {
             logoutNormal();
-            setStatus(displayMessage(frame.message));
+            setStatus(displayMessage(frame.message, t));
             nextWs.close();
             return;
           }
           if (frame.type === 'hello') {
-            setStatus(`Relay · ${frame.clientId.slice(0, 8)}`);
+            setStatus(`${t.relayClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
             return;
           }
           if (frame.type === 'error') {
-            setStatus(displayMessage(frame.message));
+            setStatus(displayMessage(frame.message, t));
             return;
           }
           if (frame.type === 'replay.done') {
@@ -1050,11 +994,11 @@ function PtySessionView({
         const frame = parsedFrame as StreamFrame;
         if (frame.type === 'hello') {
           refreshClients().catch(() => undefined);
-          setStatus(`正在同步 · ${frame.clientId.slice(0, 8)}`);
+          setStatus(`${t.streamClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
           return;
         }
         if (frame.type === 'error') {
-          setStatus(displayMessage(frame.message));
+          setStatus(displayMessage(frame.message, t));
           return;
         }
         if (frame.type === 'replay.done') {
@@ -1065,7 +1009,7 @@ function PtySessionView({
         }
         writeEvent(frame.event);
         if (frame.event.type === 'session.exited') {
-          setStatus('已退出');
+          setStatus(t.statusExited);
           nextWs.close();
         }
         if (frame.event.type === 'client.attached' || frame.event.type === 'client.detached' || frame.event.type === 'client.control_changed') {
@@ -1076,18 +1020,18 @@ function PtySessionView({
         if (disposed || socket.current !== ws) {
           return;
         }
-        setStatus((current) => (current === '已退出' ? current : '已断开'));
+        setStatus((current) => (current === t.statusExited ? current : t.statusDisconnected));
       });
       nextWs.addEventListener('error', () => {
         if (disposed || socket.current !== ws) {
           return;
         }
-        setStatus('数据流错误');
+        setStatus(t.statusStreamError);
       });
     };
     const openStreamWebSocket = async (): Promise<WebSocket> => {
       if (connectionSettings.connectionMode === 'relay') {
-        return new WebSocket(buildRelayClientUrl(connectionSettings.relayUrl));
+        return new WebSocket(buildRelayClientUrl(connectionSettings.relayUrl, t));
       }
       const { ticket } = await requestGatewayWsTicket({
         sessionId,
@@ -1101,7 +1045,7 @@ function PtySessionView({
     };
     connectStream().catch((error: unknown) => {
       if (!disposed) {
-        setStatus(error instanceof Error ? error.message : '数据流不可用');
+        setStatus(error instanceof Error ? error.message : t.statusStreamUnavailable);
       }
     });
     const observer = new ResizeObserver(fitAndResize);
@@ -1132,11 +1076,13 @@ function PtySessionView({
     connectionSettings.connectionMode,
     connectionSettings.relaySecret,
     connectionSettings.relayUrl,
+    isDark,
     logoutNormal,
     normalAuth?.accessToken,
     refreshClients,
     sendTerminalInput,
     sessionId,
+    t,
     transportMode
   ]);
 
@@ -1144,15 +1090,15 @@ function PtySessionView({
     if (connectionSettings.connectionMode === 'relay') {
       const ws = socket.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        setStatus('Relay 未连接');
+        setStatus(t.statusRelayUnavailable);
         return;
       }
       sendRelayFrame(ws, { type: 'client.subscribe', sessionId, mode: 'control' });
       sendRelayFrame(ws, { type: 'client.stop', sessionId });
-      setStatus('已发送停止请求');
+      setStatus(t.statusStopRequested);
       return;
     }
-    setStatus('正在停止');
+    setStatus(t.statusStopping);
     const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/stop`, {
       method: 'POST',
       headers: gatewayAuthHeaders(normalAuth?.accessToken)
@@ -1160,23 +1106,24 @@ function PtySessionView({
     if (response.status === 401) {
       logoutNormal();
     }
-    setStatus(response.ok ? '已停止' : `停止失败：HTTP ${response.status}`);
+    setStatus(response.ok ? t.sessionStopped : `${t.stopFailedPrefix}: ${t.httpStatusPrefix} ${response.status}`);
   }
 
   return (
     <>
       <header className="session-header">
-        <h1>Tether</h1>
+        <h1>{t.appTitle}</h1>
         <div className="header-actions">
+          <WebHeaderPreferences />
           <ConnectionSettingsControl settings={connectionSettings} onChange={onConnectionSettingsChange} />
           <label className="mode-select">
-            模式
+            {t.mode}
             <select value={clientMode} onChange={(event) => changeClientMode(event.target.value as ClientMode)}>
-              <option value="control">控制</option>
-              <option value="observe">观察</option>
+              <option value="control">{t.control}</option>
+              <option value="observe">{t.observe}</option>
             </select>
           </label>
-          <Button variant="outline" size="sm" type="button" onClick={() => stopSession()}>停止</Button>
+          <Button variant="outline" size="sm" type="button" onClick={() => stopSession()}>{t.stop}</Button>
           <div className="status">{status}</div>
         </div>
       </header>
@@ -1184,14 +1131,14 @@ function PtySessionView({
         <div ref={terminalRef} className="terminal-host" />
         {clients.length > 0 ? (
           <aside className="client-strip">
-            <span>控制端 {controllerClientId ? controllerClientId.slice(0, 8) : '-'}</span>
-            <span>{clients.length} 个客户端</span>
+            <span>{t.controllerLabel} {controllerClientId ? controllerClientId.slice(0, 8) : '-'}</span>
+            <span>{clients.length} {t.clients}</span>
             <span>{transportMode.toUpperCase()}</span>
           </aside>
         ) : connectionSettings.connectionMode === 'relay' ? (
           <aside className="client-strip">
-            <span>Relay</span>
-            <span>{clientModeLabel(clientMode)}</span>
+            <span>{t.relay}</span>
+            <span>{clientModeLabel(clientMode, t)}</span>
           </aside>
         ) : null}
       </main>
@@ -1200,7 +1147,7 @@ function PtySessionView({
           className="composer-input"
           rows={1}
           autoComplete="off"
-          placeholder="发送给 Agent"
+          placeholder={t.sendToAgent}
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
@@ -1210,7 +1157,7 @@ function PtySessionView({
             }
           }}
         />
-        <Button type="submit">发送</Button>
+        <Button type="submit">{t.send}</Button>
       </form>
     </>
   );

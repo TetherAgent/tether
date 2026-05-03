@@ -1,24 +1,15 @@
-import type { AuthConfig } from '../auth';
-import { runtimeStore } from '../runtime';
-import {
-  mysqlModeEnabled,
-  loadAllUsers,
-  countUsers,
-  loadUserLoginStats,
-  countActiveDevicesByUserId,
-  countActiveDevices,
-  countRegisteredGateways,
-  countAuditEventsLast7Days
-} from '../storage';
+import { Service } from 'egg';
 
-export async function listAdminUsers(_config: AuthConfig, page: number, limit: number) {
-  if (mysqlModeEnabled()) {
+export default class AdminUsersService extends Service {
+  public async listAdminUsers(page: number, limit: number) {
+    const { ctx } = this;
+
     const offset = (page - 1) * limit;
-    const users = await loadAllUsers(limit, offset);
-    const total = await countUsers();
+    const users = await ctx.service.authRepository.loadAllUsers(limit, offset);
+    const total = await ctx.service.authRepository.countUsers();
     const items = await Promise.all(users.map(async (u) => {
-      const stats = await loadUserLoginStats(u.id);
-      const activeDeviceCount = await countActiveDevicesByUserId(u.id);
+      const stats = await ctx.service.authRepository.loadUserLoginStats(u.id);
+      const activeDeviceCount = await ctx.service.authRepository.countActiveDevicesByUserId(u.id);
       return {
         id: u.id,
         email: u.email,
@@ -31,34 +22,16 @@ export async function listAdminUsers(_config: AuthConfig, page: number, limit: n
     }));
     return { users: items, total };
   }
-  const store = runtimeStore();
-  const all = [...store.users.values()];
-  const total = all.length;
-  const paginated = all.slice((page - 1) * limit, page * limit);
-  return {
-    users: paginated.map(u => ({
-      id: u.id, email: u.email, createdAt: u.createdAt,
-      loginCount: 0, failedLoginCount: 0, lastLoginAt: null, activeDeviceCount: 0
-    })),
-    total
-  };
-}
 
-export async function getDashboardStats(_config: AuthConfig) {
-  if (mysqlModeEnabled()) {
+  public async getDashboardStats() {
+    const { ctx } = this;
+
     const [totalUsers, activeDevices, registeredGateways, auditEventsLast7Days] = await Promise.all([
-      countUsers(),
-      countActiveDevices(),
-      countRegisteredGateways(),
-      countAuditEventsLast7Days()
+      ctx.service.authRepository.countUsers(),
+      ctx.service.authRepository.countActiveDevices(),
+      ctx.service.gatewayRepository.countGateways(),
+      ctx.service.auditRepository.countAuditEventsLast7Days()
     ]);
     return { totalUsers, activeDevices, registeredGateways, auditEventsLast7Days };
   }
-  const store = runtimeStore();
-  return {
-    totalUsers: store.users.size,
-    activeDevices: store.devices.size,
-    registeredGateways: store.gateways.size,
-    auditEventsLast7Days: 0
-  };
 }

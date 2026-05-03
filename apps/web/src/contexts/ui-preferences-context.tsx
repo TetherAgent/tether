@@ -1,6 +1,6 @@
 import * as React from 'react';
 
-import { WEB_LOCALE_STORAGE_KEY, WEB_THEME_STORAGE_KEY, type WebLocale } from '../lib/ui-copy.js';
+import { WEB_LOCALE_STORAGE_KEY, WEB_THEME_STORAGE_KEY, type WebLocale } from '../i18n/messages.js';
 
 type WebTheme = 'light' | 'dark';
 

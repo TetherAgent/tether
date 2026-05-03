@@ -5,26 +5,27 @@ import { Link, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 
 import { Button, InfoBlock, Input } from '@tether/design';
-import { WebAuthShell } from '../components/console/WebAuthShell.js';
+import { WebAuthShell } from '../components/console/web-auth-shell.js';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../components/ui/form.js';
-import { useUiPreferences } from '../hooks/use-ui-preferences.js';
 import { useAuth } from '../hooks/use-auth.js';
-import { getWebCopy } from '../lib/ui-copy.js';
+import { useI18n } from '../hooks/use-i18n.js';
 
-const schema = z.object({
-  displayName: z.string().trim().min(2, '请输入至少 2 个字符的名称'),
-  email: z.string().min(1, '请输入账户名'),
-  password: z.string().min(8, '密码至少 8 位')
-});
-
-type FormValues = z.infer<typeof schema>;
+type FormValues = {
+  displayName: string;
+  email: string;
+  password: string;
+};
 
 export function RegisterPage() {
   const navigate = useNavigate();
   const { registerNormal } = useAuth();
-  const { locale } = useUiPreferences();
-  const copy = getWebCopy(locale);
+  const { t } = useI18n();
   const [error, setError] = React.useState<string | null>(null);
+  const schema = React.useMemo(() => z.object({
+    displayName: z.string().trim().min(2, t.displayNameMinLength),
+    email: z.string().min(1, t.emailRequired),
+    password: z.string().min(8, t.passwordMinLength)
+  }), [t.displayNameMinLength, t.emailRequired, t.passwordMinLength]);
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -40,26 +41,24 @@ export function RegisterPage() {
       await registerNormal(values);
       navigate('/');
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : 'register_failed');
+      setError(submitError instanceof Error ? submitError.message : t.registerFailed);
     }
   });
 
   return (
     <WebAuthShell
-      realm="normal"
-      title={copy.normalRegisterTitle}
-      description={copy.normalRegisterDescription}
+      title={t.normalRegisterTitle}
+      description={t.normalRegisterDescription}
       footer={(
-        <InfoBlock
-          variant="info"
-          title={copy.authSurface}
-          description={copy.sessionShellDescription}
-          action={(
-            <Link className="auth-footer-link" to="/login">
-              {copy.alreadyHaveAccount}
-            </Link>
-          )}
-        />
+        <div className="auth-footer-panel">
+          <div className="auth-footer-text">
+            <div className="auth-footer-title">{t.authSurface}</div>
+            <p>{t.sessionShellDescription}</p>
+          </div>
+          <Link className="auth-footer-link" to="/login">
+            {t.alreadyHaveAccount}
+          </Link>
+        </div>
       )}
     >
       <Form {...form}>
@@ -69,9 +68,9 @@ export function RegisterPage() {
             name="displayName"
             render={({ field }) => (
               <FormItem className="auth-form-field">
-                <FormLabel>{copy.displayNameLabel}</FormLabel>
+                <FormLabel>{t.displayNameLabel}</FormLabel>
                 <FormControl>
-                  <Input placeholder={copy.displayNamePlaceholder} {...field} />
+                  <Input placeholder={t.displayNamePlaceholder} {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -82,9 +81,9 @@ export function RegisterPage() {
             name="email"
             render={({ field }) => (
               <FormItem className="auth-form-field">
-                <FormLabel>{copy.emailLabel}</FormLabel>
+                <FormLabel>{t.emailLabel}</FormLabel>
                 <FormControl>
-                  <Input placeholder={copy.emailPlaceholder} type="text" {...field} />
+                  <Input placeholder={t.emailPlaceholder} type="text" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -95,17 +94,17 @@ export function RegisterPage() {
             name="password"
             render={({ field }) => (
               <FormItem className="auth-form-field">
-                <FormLabel>{copy.passwordLabel}</FormLabel>
+                <FormLabel>{t.passwordLabel}</FormLabel>
                 <FormControl>
-                  <Input placeholder={copy.passwordPlaceholder} type="password" {...field} />
+                  <Input placeholder={t.passwordPlaceholder} type="password" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
-          {error ? <InfoBlock variant="error" title={copy.createAccount} description={error} /> : null}
+          {error ? <InfoBlock variant="error" title={t.createAccount} description={error} /> : null}
           <Button disabled={form.formState.isSubmitting} type="submit" size="lg" className="w-full">
-            {form.formState.isSubmitting ? copy.creatingAccount : copy.createAccount}
+            {form.formState.isSubmitting ? t.creatingAccount : t.createAccount}
           </Button>
         </form>
       </Form>

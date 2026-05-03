@@ -1,70 +1,56 @@
-import type { AuthConfig } from '../auth';
-import { runtimeStore } from '../runtime';
-import { mysqlModeEnabled, loadAuditEventsFiltered, countAuditEventsFiltered } from '../storage';
+import { Service } from 'egg';
 
-export async function listAdminAuditEvents(
-  _config: AuthConfig,
-  params: {
-    page: number;
-    limit: number;
-    userId?: string;
-    action?: string;
-    deviceId?: string;
-    gatewayId?: string;
-    from?: string;  // ISO date string or timestamp ms string
-    to?: string;
+type ListAdminAuditEventsParams = {
+  page: number;
+  limit: number;
+  userId?: string;
+  action?: string;
+  deviceId?: string;
+  gatewayId?: string;
+  from?: string;
+  to?: string;
+};
+
+export default class AdminAuditService extends Service {
+  private parseTime(value: string | undefined): number | undefined {
+    if (!value) return undefined;
+    const parsed = Number(value) || new Date(value).getTime();
+    return Number.isNaN(parsed) ? undefined : parsed;
   }
-) {
-  const fromMs = params.from ? (Number(params.from) || new Date(params.from).getTime() || undefined) : undefined;
-  const toMs = params.to ? (Number(params.to) || new Date(params.to).getTime() || undefined) : undefined;
 
-  if (mysqlModeEnabled()) {
+  public async listAdminAuditEvents(params: ListAdminAuditEventsParams) {
+    const { ctx } = this;
+    const fromMs = this.parseTime(params.from);
+    const toMs = this.parseTime(params.to);
+
     const offset = (params.page - 1) * params.limit;
-    const events = await loadAuditEventsFiltered({
+    const filter = {
       userId: params.userId,
       eventType: params.action,
       deviceId: params.deviceId,
       gatewayId: params.gatewayId,
-      fromMs: fromMs !== undefined && !isNaN(fromMs) ? fromMs : undefined,
-      toMs: toMs !== undefined && !isNaN(toMs) ? toMs : undefined,
+      fromMs,
+      toMs
+    };
+    const events = await ctx.service.auditRepository.loadAuditEventsFiltered({
+      ...filter,
       limit: params.limit,
       offset
     });
-    const total = await countAuditEventsFiltered({
-      userId: params.userId,
-      eventType: params.action,
-      deviceId: params.deviceId,
-      gatewayId: params.gatewayId,
-      fromMs: fromMs !== undefined && !isNaN(fromMs) ? fromMs : undefined,
-      toMs: toMs !== undefined && !isNaN(toMs) ? toMs : undefined
-    });
+    const total = await ctx.service.auditRepository.countAuditEventsFiltered(filter);
+
     return {
       events: events.map(e => ({
-        id: e.id, action: e.action,
-        userId: e.userId ?? null, adminUserId: e.adminUserId ?? null,
-        deviceId: e.deviceId ?? null, gatewayId: e.gatewayId ?? null,
-        createdAt: e.createdAt, payload: e.payload
+        id: e.id,
+        action: e.action,
+        userId: e.userId ?? null,
+        adminUserId: e.adminUserId ?? null,
+        deviceId: e.deviceId ?? null,
+        gatewayId: e.gatewayId ?? null,
+        createdAt: e.createdAt,
+        payload: e.payload
       })),
       total
     };
   }
-  const store = runtimeStore();
-  let all = store.auditEvents;
-  if (params.userId) all = all.filter(e => e.userId === params.userId);
-  if (params.action) all = all.filter(e => e.action === params.action);
-  if (params.deviceId) all = all.filter(e => e.deviceId === params.deviceId);
-  if (params.gatewayId) all = all.filter(e => e.gatewayId === params.gatewayId);
-  if (fromMs !== undefined && !isNaN(fromMs)) all = all.filter(e => e.createdAt >= fromMs);
-  if (toMs !== undefined && !isNaN(toMs)) all = all.filter(e => e.createdAt <= toMs);
-  const total = all.length;
-  const paginated = all.slice((params.page - 1) * params.limit, params.page * params.limit);
-  return {
-    events: paginated.map(e => ({
-      id: e.id, action: e.action,
-      userId: e.userId ?? null, adminUserId: e.adminUserId ?? null,
-      deviceId: e.deviceId ?? null, gatewayId: e.gatewayId ?? null,
-      createdAt: e.createdAt, payload: e.payload
-    })),
-    total
-  };
 }

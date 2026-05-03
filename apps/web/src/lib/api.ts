@@ -24,37 +24,12 @@ export type NormalAuthPayload = {
   };
 };
 
-export type ManagementAuthPayload = {
-  accessToken: string;
-  refreshToken: string;
-  adminUser: {
-    id: string;
-    email: string;
-    role: string;
-  };
-  device: {
-    id: string;
-    name: string;
-    platform: string;
-  };
-};
-
 export type NormalIdentity = {
   accountId: string;
   workspaceId: string;
   userId: string;
   deviceId?: string;
   tokenClass: 'normal_client_access';
-  expiresAt: number;
-  jti: string;
-};
-
-export type ManagementIdentity = {
-  accountId: string;
-  workspaceId: string;
-  adminUserId: string;
-  deviceId?: string;
-  tokenClass: 'management_access';
   expiresAt: number;
   jti: string;
 };
@@ -104,47 +79,12 @@ export async function loginNormal(input: { email: string; password: string }) {
   }
 }
 
-export async function registerManagement(input: { email: string; password: string; displayName?: string }) {
-  try {
-    return await http.post<ManagementAuthPayload>('/api/admin/auth/register', input, {
-      suppressGlobalError: true
-    });
-  } catch (error) {
-    throw normalizeRequestError(error);
-  }
-}
-
-export async function loginManagement(input: { email: string; password: string }) {
-  try {
-    return await http.post<ManagementAuthPayload>('/api/admin/auth/login', input, {
-      suppressGlobalError: true
-    });
-  } catch (error) {
-    throw normalizeRequestError(error);
-  }
-}
-
 export async function validateNormal(accessToken: string) {
   try {
     return await http.get<NormalIdentity>('/api/auth/me', undefined, {
       token: accessToken,
       suppressGlobalError: true
     });
-  } catch (error) {
-    throw normalizeRequestError(error);
-  }
-}
-
-export async function validateManagement(accessToken: string) {
-  try {
-    return await http.post<ManagementIdentity>(
-      '/api/token/validate',
-      { token: accessToken },
-      {
-        token: accessToken,
-        suppressGlobalError: true
-      }
-    );
   } catch (error) {
     throw normalizeRequestError(error);
   }

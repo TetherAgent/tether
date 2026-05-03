@@ -14,6 +14,11 @@ body {
   overflow: hidden;
 }
 
+#root:has(.web-auth-shell) {
+  display: block;
+  overflow: auto;
+}
+
 a {
   color: inherit;
 }
@@ -246,6 +251,312 @@ pre {
   margin-top: 4px;
 }
 
+.web-auth-shell {
+  min-height: 100dvh;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 18% 18%, rgb(0 255 157 / 0.16), transparent 32%),
+    radial-gradient(circle at 78% 28%, rgb(56 189 248 / 0.1), transparent 30%),
+    radial-gradient(circle at 50% 82%, rgb(15 118 110 / 0.12), transparent 34%),
+    linear-gradient(135deg, #07110f 0%, #0b1016 46%, #050708 100%);
+}
+
+.web-auth-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--border) 28%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--border) 20%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(180deg, transparent 0%, black 18%, black 70%, transparent 100%);
+  opacity: 0.18;
+}
+
+.web-auth-shell::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  width: 86vmax;
+  height: 86vmax;
+  left: 50%;
+  top: 50%;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 28% 34%, rgb(0 255 157 / 0.12), transparent 32%),
+    radial-gradient(circle at 70% 46%, rgb(56 189 248 / 0.08), transparent 36%),
+    radial-gradient(circle at 44% 72%, rgb(15 118 110 / 0.1), transparent 38%);
+  filter: blur(50px) saturate(1.05);
+  opacity: 0.66;
+  transform: translate(-50%, -50%);
+  animation: web-auth-gradient-drift 18s ease-in-out infinite alternate;
+}
+
+@keyframes web-auth-gradient-drift {
+  0% {
+    transform: translate(-53%, -48%) scale(0.98);
+    opacity: 0.56;
+  }
+
+  50% {
+    transform: translate(-49%, -52%) scale(1.03);
+    opacity: 0.7;
+  }
+
+  100% {
+    transform: translate(-46%, -47%) scale(1);
+    opacity: 0.62;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .web-auth-shell::after {
+    animation: none;
+  }
+}
+
+.web-auth-toolbar {
+  position: absolute;
+  z-index: 2;
+  top: 24px;
+  right: 28px;
+}
+
+.web-chrome-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.web-locale-switch {
+  border-radius: 10px;
+  padding: 3px;
+  background: color-mix(in srgb, var(--card) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+  box-shadow: 0 10px 30px color-mix(in srgb, black 24%, transparent);
+}
+
+.web-auth-wrap {
+  position: relative;
+  z-index: 1;
+  width: min(1120px, calc(100vw - 48px));
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 88px 0 48px;
+  display: grid;
+  grid-template-columns: minmax(300px, 0.9fr) minmax(360px, 440px);
+  align-items: center;
+  gap: 40px;
+}
+
+.web-auth-panel {
+  display: grid;
+  gap: 22px;
+  color: var(--foreground);
+}
+
+.web-auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.web-auth-brand-mark,
+.web-auth-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--brand-text);
+  background: color-mix(in srgb, var(--brand) 17%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand) 34%, transparent);
+}
+
+.web-auth-brand-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+}
+
+.web-auth-kicker,
+.web-auth-app-name {
+  color: var(--foreground-tertiary);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.web-auth-brand-title {
+  margin-top: 4px;
+  font-size: 30px;
+  line-height: 1.16;
+  font-weight: 760;
+}
+
+.web-auth-status-board {
+  width: min(100%, 520px);
+  display: grid;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--card) 76%, transparent);
+  box-shadow: 0 20px 60px color-mix(in srgb, black 18%, transparent);
+}
+
+.web-auth-status-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  font-size: 13px;
+}
+
+.web-auth-status-row:last-child {
+  border-bottom: 0;
+}
+
+.web-auth-status-row span {
+  color: var(--muted-foreground);
+}
+
+.web-auth-status-row strong {
+  color: var(--foreground);
+  font-weight: 650;
+  text-align: right;
+}
+
+.web-auth-terminal {
+  width: min(100%, 520px);
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: #080a0d;
+  box-shadow: 0 20px 70px color-mix(in srgb, black 28%, transparent);
+}
+
+.web-auth-terminal-bar {
+  height: 34px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border-bottom: 1px solid #1f252b;
+  background: #101419;
+}
+
+.web-auth-terminal-bar span {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #d86262;
+}
+
+.web-auth-terminal-bar span:nth-child(2) {
+  background: #d4a84d;
+}
+
+.web-auth-terminal-bar span:nth-child(3) {
+  background: #57b577;
+}
+
+.web-auth-terminal pre {
+  min-height: auto;
+  padding: 18px;
+  color: #c9d4df;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.web-auth-card {
+  width: 100%;
+  border-radius: 16px;
+  backdrop-filter: blur(18px);
+}
+
+.web-auth-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-bottom: 18px;
+}
+
+.web-auth-card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+}
+
+.web-auth-card-meta {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.web-auth-realm-badge {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.web-auth-title {
+  color: var(--foreground);
+  font-size: 28px;
+  line-height: 1.18;
+  font-weight: 760;
+}
+
+.web-auth-description {
+  margin-top: 8px;
+  color: var(--muted-foreground);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.web-auth-content {
+  display: grid;
+  gap: 22px;
+  padding-top: 22px;
+}
+
+.web-auth-footer {
+  padding-top: 18px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.auth-footer-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--brand) 24%, transparent);
+  border-radius: 12px;
+  color: var(--brand-text);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--brand-muted) 92%, transparent), color-mix(in srgb, var(--brand) 10%, var(--card)));
+}
+
+.auth-footer-text {
+  min-width: 0;
+}
+
+.auth-footer-title {
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 750;
+}
+
+.auth-footer-text p {
+  margin: 5px 0 0;
+  color: color-mix(in srgb, var(--brand-text) 72%, var(--foreground));
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .auth-shell {
   min-height: 100dvh;
   display: flex;
@@ -277,6 +588,10 @@ pre {
   gap: 8px;
 }
 
+.auth-form-stack [data-slot="button"] {
+  margin-top: 4px;
+}
+
 .auth-footer-copy {
   font-size: 14px;
 }
@@ -289,6 +604,8 @@ pre {
 
 .auth-footer-link {
   color: var(--foreground);
+  white-space: nowrap;
+  font-weight: 650;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -325,6 +642,54 @@ pre {
 }
 
 @media (max-width: 720px) {
+  #root:has(.web-auth-shell) {
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  .web-auth-shell {
+    overflow: auto;
+  }
+
+  .web-auth-toolbar {
+    position: static;
+    padding: 16px 16px 0;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .web-auth-wrap {
+    width: min(100% - 32px, 440px);
+    min-height: auto;
+    padding: 22px 0 32px;
+    display: block;
+  }
+
+  .web-auth-panel {
+    display: none;
+  }
+
+  .web-auth-card {
+    border-radius: 14px;
+  }
+
+  .web-auth-card-heading {
+    margin-bottom: 14px;
+  }
+
+  .web-auth-title {
+    font-size: 24px;
+  }
+
+  .auth-footer-panel {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .auth-footer-link {
+    justify-self: start;
+  }
+
   header {
     padding: 10px;
     align-items: flex-start;

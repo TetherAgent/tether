@@ -64,10 +64,11 @@ Secret: dev-secret
 
 ## Phase 5 本地登录验收怎么启动
 
-如果你当前要验的是 Phase 5 的 `/register`、`/login`、`/admin/login`、Gateway bind 和
-MySQL 鉴权链路，最短路径不是先起公网 Relay，而是先把本地 Web、Gateway、Server 起好。
+如果你当前要验的是 Phase 5 的 `/register`、`/login`、Admin Web 的 `/admin/login`、
+Gateway bind 和 MySQL 鉴权链路，最短路径不是先起公网 Relay，而是先把本地 Web、
+Admin Web、Gateway、Server 起好。
 
-推荐分 3 个终端。
+推荐分 4 个终端。
 
 先看最短启动主线：
 
@@ -76,14 +77,17 @@ MySQL 鉴权链路，最短路径不是先起公网 Relay，而是先把本地 W
 pnpm dev:web
 
 # 终端 2
-pnpm tether gateway status
+pnpm dev:admin
 
 # 终端 3
+pnpm tether gateway status
+
+# 终端 4
 pnpm dev:server
 ```
 
 如果 `gateway status` 显示没启动，再按下面的 Gateway 步骤补 `config/start`。
-如果你要走真库模式，再把终端 3 改成后面的 MySQL 启动命令。
+如果你要走真库模式，再把终端 4 改成后面的 MySQL 启动命令。
 
 ### 终端 1：Web
 
@@ -97,7 +101,21 @@ pnpm dev:web
 http://127.0.0.1:4790
 ```
 
-### 终端 2：Gateway
+### 终端 2：Admin Web
+
+`apps/web` 只承载普通用户会话控制台；管理后台入口统一由 `apps/admin-web` 承载。
+
+```bash
+pnpm dev:admin
+```
+
+浏览器打开：
+
+```text
+http://127.0.0.1:4792/admin/login
+```
+
+### 终端 3：Gateway
 
 先确认本机 Gateway 状态：
 
@@ -119,7 +137,7 @@ pnpm tether gateway start
 pnpm tether gateway
 ```
 
-### 终端 3：Server
+### 终端 4：Server
 
 先说结论：
 
@@ -158,14 +176,14 @@ TETHER_SERVER_MYSQL_DATABASE=tether_prd
 先看页面和重定向：
 
 - 打开 `http://127.0.0.1:4790/login`
-- 打开 `http://127.0.0.1:4790/admin/login`
+- 打开 `http://127.0.0.1:4792/admin/login`
 - 未登录访问 `/` 应该跳到 `/login`
-- 未登录访问 `/admin` 应该跳到 `/admin/login`
+- 未登录访问 Admin Web 的 `/admin/dashboard` 应该跳到 `/admin/login`
 
 再看账号登录：
 
 - 普通用户走 `/login`
-- 管理用户走 `/admin/login`
+- 管理用户走 Admin Web 的 `/admin/login`
 
 如果你已经有测试账号，直接登录；如果没有，就先从 `/register` 注册普通用户。
 

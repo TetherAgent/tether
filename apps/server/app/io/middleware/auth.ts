@@ -1,5 +1,4 @@
-import { bearerTokenFromHeader } from '../../middleware/auth';
-import { verifyToken, type AuthConfig } from '../../service/auth';
+import { verifySignedToken, type AuthConfig } from '../../utils/auth-token';
 
 type HandshakeLike = {
   auth?: Record<string, unknown>;
@@ -13,9 +12,16 @@ export function authenticateNotificationHandshake(handshake: HandshakeLike, conf
     : handshake.headers?.authorization;
 
   const token = authToken ?? bearerTokenFromHeader(headerValue);
-  const payload = verifyToken(token, config);
+  const payload = verifySignedToken(token, config, Date.now());
   if (!['normal_client_access', 'management_access'].includes(payload.tokenClass)) {
     throw new Error('wrong_token_class');
   }
   return payload;
+}
+
+function bearerTokenFromHeader(headerValue: string | undefined): string {
+  if (!headerValue || !headerValue.startsWith('Bearer ')) {
+    throw new Error('missing_token');
+  }
+  return headerValue.slice(7).trim();
 }

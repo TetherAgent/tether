@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { Service } from 'egg';
 
 export type AuthRealm = 'normal' | 'management';
 
@@ -151,65 +151,32 @@ declare global {
   var __tetherServerRuntimeStore: RuntimeStore | undefined;
 }
 
-function createStore(): RuntimeStore {
-  return {
-    accounts: new Map(),
-    workspaces: new Map(),
-    users: new Map(),
-    adminUsers: new Map(),
-    devices: new Map(),
-    gateways: new Map(),
-    refreshTokens: new Map(),
-    revokedJtis: new Set(),
-    auditEvents: [],
-    notificationSinks: new Map(),
-    nextAuditId: 1
-  };
-}
-
-export function runtimeStore(): RuntimeStore {
-  if (!globalThis.__tetherServerRuntimeStore) {
-    globalThis.__tetherServerRuntimeStore = createStore();
+export default class RuntimeService extends Service {
+  private createStore(): RuntimeStore {
+    return {
+      accounts: new Map(),
+      workspaces: new Map(),
+      users: new Map(),
+      adminUsers: new Map(),
+      devices: new Map(),
+      gateways: new Map(),
+      refreshTokens: new Map(),
+      revokedJtis: new Set(),
+      auditEvents: [],
+      notificationSinks: new Map(),
+      nextAuditId: 1
+    };
   }
-  return globalThis.__tetherServerRuntimeStore;
-}
 
-export function resetRuntimeStore(): RuntimeStore {
-  globalThis.__tetherServerRuntimeStore = createStore();
-  return globalThis.__tetherServerRuntimeStore;
-}
+  public runtimeStore() {
+    if (!globalThis.__tetherServerRuntimeStore) {
+      globalThis.__tetherServerRuntimeStore = this.createStore();
+    }
+    return globalThis.__tetherServerRuntimeStore;
+  }
 
-export function now(): number {
-  return Date.now();
-}
-
-export function newId(prefix: string): string {
-  return `${prefix}_${randomUUID().replace(/-/g, '')}`;
-}
-
-export function defaultWorkspaceForAccount(accountId: string): WorkspaceRecord | undefined {
-  return [...runtimeStore().workspaces.values()].find((workspace) => workspace.accountId === accountId && workspace.isDefault);
-}
-
-export function primaryAccount(): AccountRecord | undefined {
-  return [...runtimeStore().accounts.values()][0];
-}
-
-export function primaryWorkspace(): WorkspaceRecord | undefined {
-  const account = primaryAccount();
-  return account ? defaultWorkspaceForAccount(account.id) : undefined;
-}
-
-export function registerNotificationSink(sink: Omit<NotificationSink, 'id' | 'events'>): NotificationSink {
-  const registered: NotificationSink = {
-    id: newId('notif'),
-    events: [],
-    ...sink
-  };
-  runtimeStore().notificationSinks.set(registered.id, registered);
-  return registered;
-}
-
-export function notificationEventsForSink(sinkId: string): NotificationEvent[] {
-  return runtimeStore().notificationSinks.get(sinkId)?.events ?? [];
+  public resetRuntimeStore() {
+    globalThis.__tetherServerRuntimeStore = this.createStore();
+    return globalThis.__tetherServerRuntimeStore;
+  }
 }
