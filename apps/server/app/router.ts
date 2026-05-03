@@ -1,4 +1,5 @@
 import type { Application } from 'egg';
+import adminRouter from './router/admin';
 
 export default (app: Application): void => {
   const { router, controller } = app;
@@ -23,4 +24,7 @@ export default (app: Application): void => {
 
   router.post('/api/audit', controller.audit.create);
   router.get('/api/audit', controller.audit.index);
+
+  // Phase 6: Admin Management API
+  adminRouter(app);
 };
