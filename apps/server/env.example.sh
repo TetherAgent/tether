@@ -1,6 +1,9 @@
-# 复制到服务器并填入真实值：
-#   cp apps/server/env.example.sh /data/env/tether.sh
-#   nano /data/env/tether.sh
+# 复制为 env.sh 并填入真实值：
+#   cp apps/server/env.example.sh apps/server/env.sh
+#   nano apps/server/env.sh
+#
+# 本地使用：source apps/server/env.sh
+# 服务器部署：cp apps/server/env.sh /data/env/tether.sh
 
 # ── 服务器基础配置 ────────────────────────────────────
 # 运行环境，生产环境固定填 prod

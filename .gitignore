@@ -9,3 +9,4 @@ docs/working/*
 apps/server/run/*_timing_*.json
 apps/server/run/application_config.json
 apps/server/config/config.local.ts
+apps/server/env.sh
