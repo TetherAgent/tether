@@ -1,5 +1,19 @@
 import * as React from 'react';
 
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = parts[1];
+    // atob 解码 base64url（将 - 换 +，_ 换 /）
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const json = atob(base64);
+    return JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 type ManagementIdentity = {
   accountId: string;
   workspaceId: string;
@@ -70,9 +84,21 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
     if (!body || typeof body.accessToken !== 'string' || typeof body.refreshToken !== 'string') {
       throw new Error('invalid_response');
     }
+    const jwtPayload = decodeJwtPayload(body.accessToken);
+    const identity: ManagementIdentity | undefined = jwtPayload && typeof jwtPayload.adminUserId === 'string'
+      ? {
+          adminUserId: jwtPayload.adminUserId as string,
+          accountId: typeof jwtPayload.accountId === 'string' ? jwtPayload.accountId : '',
+          workspaceId: typeof jwtPayload.workspaceId === 'string' ? jwtPayload.workspaceId : '',
+          tokenClass: 'management_access',
+          expiresAt: typeof jwtPayload.exp === 'number' ? jwtPayload.exp : 0,
+          jti: typeof jwtPayload.jti === 'string' ? jwtPayload.jti : ''
+        }
+      : undefined;
     const record: AuthStorageRecord<ManagementIdentity> = {
       accessToken: body.accessToken,
-      refreshToken: body.refreshToken
+      refreshToken: body.refreshToken,
+      identity
     };
     writeStorage(MANAGEMENT_STORAGE_KEY, record);
     setManagementAuth(record);
