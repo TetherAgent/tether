@@ -6,12 +6,10 @@ import { AdminLayout } from './components/layout/AdminLayout.js';
 import { AdminLoginPage } from './pages/AdminLoginPage.js';
 import { DashboardPage } from './pages/DashboardPage.js';
 import { UsersPage } from './pages/UsersPage.js';
+import { DevicesPage } from './pages/DevicesPage.js';
+import { GatewaysPage } from './pages/GatewaysPage.js';
+import { AuditPage } from './pages/AuditPage.js';
 import './styles.css';
-
-// 页面占位（Plan 05 会替换这些）
-function PlaceholderPage({ title }: { title: string }) {
-  return <div className="text-muted-foreground">{title} 页面（开发中）</div>;
-}
 
 const root = document.getElementById('root')!;
 createRoot(root).render(
@@ -25,9 +23,9 @@ createRoot(root).render(
           <Route element={<AdminLayout />}>
             <Route path="/admin/dashboard" element={<DashboardPage />} />
             <Route path="/admin/users" element={<UsersPage />} />
-            <Route path="/admin/devices" element={<PlaceholderPage title="设备" />} />
-            <Route path="/admin/gateways" element={<PlaceholderPage title="Gateway" />} />
-            <Route path="/admin/audit" element={<PlaceholderPage title="审计" />} />
+            <Route path="/admin/devices" element={<DevicesPage />} />
+            <Route path="/admin/gateways" element={<GatewaysPage />} />
+            <Route path="/admin/audit" element={<AuditPage />} />
           </Route>
           {/* catch-all 重定向到登录页（未登录用户访问任意未知路由 → 登录）*/}
           <Route path="*" element={<Navigate replace to="/admin/login" />} />
