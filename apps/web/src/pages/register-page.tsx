@@ -18,7 +18,7 @@ type FormValues = {
 
 export function RegisterPage() {
   const navigate = useNavigate();
-  const { registerNormal } = useAuth();
+  const { logoutNormal, registerNormal } = useAuth();
   const { t } = useI18n();
   const [error, setError] = React.useState<string | null>(null);
   const schema = React.useMemo(() => z.object({
@@ -39,7 +39,8 @@ export function RegisterPage() {
     setError(null);
     try {
       await registerNormal(values);
-      navigate('/');
+      logoutNormal();
+      navigate('/login', { replace: true });
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : t.registerFailed);
     }

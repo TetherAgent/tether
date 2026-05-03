@@ -1,9 +1,21 @@
 import * as React from 'react';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, Link } from 'react-router-dom';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
+import {
+  Activity,
+  Clock3,
+  LogOut,
+  MonitorDot,
+  Power,
+  Router,
+  Server,
+  TerminalSquare,
+  Wifi,
+  WifiOff
+} from 'lucide-react';
 import { Button, Toaster, toast } from '@tether/design';
 import { eventBus } from '@tether/http';
 import '@xterm/xterm/css/xterm.css';
@@ -149,9 +161,9 @@ function sendRelayFrame(ws: WebSocket, frame: RelayClientToServerFrame): void {
   ws.send(JSON.stringify(frame));
 }
 
-function gatewayRequest(input: RequestInfo | URL, accessToken: string | undefined, init: RequestInit = {}): Promise<Response> {
+function gatewayRequest(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
-  const authHeaders = gatewayAuthHeaders(accessToken);
+  const authHeaders = gatewayAuthHeaders();
   if (authHeaders) {
     for (const [key, value] of new Headers(authHeaders).entries()) {
       headers.set(key, value);
@@ -179,6 +191,29 @@ function sessionStatusLabel(status: string, t: WebMessages): string {
 
 function clientModeLabel(mode: ClientMode, t: WebMessages): string {
   return mode === 'observe' ? t.observe : t.control;
+}
+
+function formatSessionTime(value: number): string {
+  return new Date(value).toLocaleString(undefined, {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function statusTone(status: string): string {
+  switch (status) {
+    case 'running':
+      return 'running';
+    case 'failed':
+    case 'lost':
+      return 'danger';
+    case 'completed':
+      return 'success';
+    default:
+      return 'muted';
+  }
 }
 
 function displayMessage(message: string, t: WebMessages): string {
@@ -331,11 +366,10 @@ function SessionList({
 
   const refreshDirect = React.useCallback(async () => {
     try {
-      const token = normalAuth?.accessToken;
       const [sessionsResponse, historyResponse, gatewaysResponse] = await Promise.all([
-        gatewayRequest('/api/sessions', token),
-        gatewayRequest('/api/sessions?all=1', token),
-        gatewayRequest('/api/gateways', token)
+        gatewayRequest('/api/sessions'),
+        gatewayRequest('/api/sessions?all=1'),
+        gatewayRequest('/api/gateways')
       ]);
       if (sessionsResponse.status === 401 || historyResponse.status === 401 || gatewaysResponse.status === 401) {
         logoutNormal();
@@ -473,7 +507,7 @@ function SessionList({
     }
     const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/stop`, {
       method: 'POST',
-      headers: gatewayAuthHeaders(normalAuth?.accessToken)
+      headers: gatewayAuthHeaders()
     });
     if (!response.ok) {
       if (response.status === 401) {
@@ -491,17 +525,24 @@ function SessionList({
     }
   }, [sessions, stopSession]);
 
+  const activeGateway = gateways[0];
+  const isRelayMode = connectionSettings.connectionMode === 'relay';
+  const statusIcon = status === t.statusDisconnected || status === t.statusRelayClosed || status === t.statusRelayError
+    ? <WifiOff aria-hidden="true" />
+    : <Wifi aria-hidden="true" />;
+
   return (
-    <>
-      <header className="session-header">
-        <h1>{t.appTitle}</h1>
-        <div className="header-actions">
-          <WebHeaderPreferences />
+    <div className="session-list-page">
+      <header className="session-list-topbar">
+        <div className="session-list-brand">
+          <span className="session-list-brand-icon"><TerminalSquare aria-hidden="true" /></span>
+          <div>
+            <h1>{t.sessionConsoleTitle}</h1>
+            <p>{isRelayMode ? t.sessionConsoleRelay : t.sessionConsoleDirect}</p>
+          </div>
+        </div>
+        <div className="session-list-controls">
           <ConnectionSettingsControl settings={connectionSettings} onChange={onConnectionSettingsChange} />
-          <Button variant="outline" size="sm" type="button" onClick={logoutNormal}>{t.signOut}</Button>
-          {sessions.length > 0 ? (
-            <Button variant="outline" size="sm" type="button" onClick={() => void stopAllSessions()}>{t.stopAll}</Button>
-          ) : null}
           {connectionSettings.connectionMode === 'direct' ? (
             <label className="mode-select">
               {t.transport}
@@ -511,60 +552,141 @@ function SessionList({
               </select>
             </label>
           ) : null}
-          <div className="status">{status}</div>
+          <div className="status session-sync-status">
+            {statusIcon}
+            <span>{status}</span>
+          </div>
+          <WebHeaderPreferences />
+          <Button variant="outline" size="sm" type="button" onClick={logoutNormal}>
+            <LogOut aria-hidden="true" />
+            {t.signOut}
+          </Button>
         </div>
       </header>
+
       <main className="session-list">
-        {gateways.length > 0 ? (
-          <section className="gateway-list" aria-label={t.gatewayList}>
-            {gateways.map((gateway) => (
-              <div className="gateway-row" key={gateway.id}>
-                <span>{gateway.url}</span>
-                <span>{t.pidLabel} {gateway.pid}</span>
-              </div>
-            ))}
-          </section>
-        ) : null}
-        {sessions.length === 0 ? (
-          <div className="empty">
-            <h2>{t.noSessions}</h2>
-            <p>{t.noSessionsDescription}</p>
+        <section className="session-overview" aria-label={t.sessionOverview}>
+          <div className="session-overview-main">
+            <span className="session-kicker">{t.sessionShell}</span>
+            <h2>{t.sessionDashboardTitle}</h2>
+            <p>{t.sessionDashboardDescription}</p>
           </div>
-        ) : (
-          <section className="session-section" aria-label={t.activeSessions}>
-            <div className="section-heading">{t.activeSessions}</div>
-            {sessions.map((session) => (
-              <SessionCard session={session} key={session.id} onStop={stopSession} t={t} />
-            ))}
-          </section>
-        )}
+          <div className="session-metrics" aria-label={t.sessionStats}>
+            <div className="session-metric">
+              <Activity aria-hidden="true" />
+              <span>{t.activeSessions}</span>
+              <strong>{sessions.length}</strong>
+            </div>
+            <div className="session-metric">
+              <Clock3 aria-hidden="true" />
+              <span>{t.history}</span>
+              <strong>{history.length}</strong>
+            </div>
+            <div className="session-metric">
+              <Router aria-hidden="true" />
+              <span>{t.gatewayList}</span>
+              <strong>{isRelayMode ? t.relay : gateways.length}</strong>
+            </div>
+          </div>
+        </section>
+
+        <section className="session-panel gateway-list" aria-label={t.gatewayList}>
+          <div className="session-panel-heading">
+            <div>
+              <span>{t.activeGateway}</span>
+              <h2>{isRelayMode ? t.relay : activeGateway?.url ?? t.noGateways}</h2>
+            </div>
+            <span className="session-panel-badge">{connectionSettings.connectionMode}</span>
+          </div>
+          {gateways.length > 0 ? (
+            <div className="gateway-grid">
+              {gateways.map((gateway) => (
+                <div className="gateway-row" key={gateway.id}>
+                  <Server aria-hidden="true" />
+                  <span>{gateway.url}</span>
+                  <span>{t.pidLabel} {gateway.pid}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="session-panel-empty">{isRelayMode ? t.relayGatewayHint : t.noGatewaysDescription}</p>
+          )}
+        </section>
+
+        <section className="session-panel session-section" aria-label={t.activeSessions}>
+          <div className="session-panel-heading">
+            <div>
+              <span>{t.activeSessions}</span>
+              <h2>{t.sessionActiveTitle}</h2>
+            </div>
+            {sessions.length > 0 ? (
+              <Button variant="outline" size="sm" type="button" onClick={() => void stopAllSessions()}>
+                <Power aria-hidden="true" />
+                {t.stopAll}
+              </Button>
+            ) : null}
+          </div>
+          {sessions.length === 0 ? (
+            <div className="empty">
+              <MonitorDot aria-hidden="true" />
+              <h2>{t.noSessions}</h2>
+              <p>{t.noSessionsDescription}</p>
+            </div>
+          ) : (
+            <div className="session-card-grid">
+              {sessions.map((session) => (
+                <SessionCard session={session} key={session.id} onStop={stopSession} t={t} />
+              ))}
+            </div>
+          )}
+        </section>
+
         {history.length > 0 ? (
-          <details className="session-section history-section">
-            <summary>{t.history}</summary>
-            {history.map((session) => (
-              <SessionCard session={session} key={session.id} t={t} />
-            ))}
+          <details className="session-panel session-section history-section">
+            <summary>
+              <span>
+                <Clock3 aria-hidden="true" />
+                {t.history}
+              </span>
+              <strong>{history.length}</strong>
+            </summary>
+            <div className="session-card-grid">
+              {history.map((session) => (
+                <SessionCard session={session} key={session.id} t={t} />
+              ))}
+            </div>
           </details>
         ) : null}
       </main>
-    </>
+    </div>
   );
 }
 
 function SessionCard({ session, onStop, t }: { session: Session; onStop?: (sessionId: string) => void; t: WebMessages }) {
+  const statusLabel = sessionStatusLabel(session.status, t);
+  const transport = session.transport ?? t.fallbackTmuxTransport;
+
   return (
-    <div className="session-card">
-      <a href={`/remote/session/${encodeURIComponent(session.id)}`}>
-        <span className="session-card-title">{session.title || session.provider}</span>
+    <div className={`session-card session-card-${statusTone(session.status)}`}>
+      <Link to={`/remote/session/${encodeURIComponent(session.id)}`} aria-label={`${t.openSession}: ${session.title || session.id}`}>
+        <span className="session-card-icon"><TerminalSquare aria-hidden="true" /></span>
+        <span className="session-card-main">
+          <span className="session-card-title">{session.title || session.provider}</span>
+          <span className="session-card-path">{session.projectPath || t.unknownProjectPath}</span>
+        </span>
+        <span className={`session-status-pill session-status-${statusTone(session.status)}`}>{statusLabel}</span>
         <span className="session-card-meta">
-          {session.provider} · {sessionStatusLabel(session.status, t)} · {session.transport ?? t.fallbackTmuxTransport} ·{' '}
-          {new Date(session.lastActiveAt).toLocaleTimeString()}
+          <span>{session.provider}</span>
+          <span>{transport}</span>
+          <span>{formatSessionTime(session.lastActiveAt)}</span>
         </span>
         <span className="session-card-id">{session.id}</span>
-        <span className="session-card-path">{session.projectPath}</span>
-      </a>
+      </Link>
       {onStop ? (
-        <Button className="justify-self-start" variant="outline" size="sm" type="button" onClick={() => onStop(session.id)}>{t.stop}</Button>
+        <Button className="session-card-stop" variant="outline" size="sm" type="button" onClick={() => onStop(session.id)}>
+          <Power aria-hidden="true" />
+          {t.stop}
+        </Button>
       ) : null}
     </div>
   );
@@ -598,7 +720,7 @@ function SessionView({
       const wasNearBottom = scrollport
         ? scrollport.scrollTop + scrollport.clientHeight >= scrollport.scrollHeight - 48
         : true;
-      const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/snapshot`, normalAuth?.accessToken);
+      const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/snapshot`);
       if (response.status === 401) {
         logoutNormal();
       }
@@ -649,7 +771,7 @@ function SessionView({
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        ...gatewayAuthHeaders(normalAuth?.accessToken)
+        ...gatewayAuthHeaders()
       },
       body: JSON.stringify({ text: value })
     });
@@ -731,7 +853,7 @@ function PtySessionView({
     if (connectionSettings.connectionMode === 'relay') {
       return;
     }
-    const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/clients`, normalAuth?.accessToken);
+    const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/clients`);
     if (response.status === 401) {
       logoutNormal();
     }
@@ -760,7 +882,7 @@ function PtySessionView({
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        ...gatewayAuthHeaders(normalAuth?.accessToken)
+        ...gatewayAuthHeaders()
       },
       body: JSON.stringify({ data })
     });
@@ -911,7 +1033,7 @@ function PtySessionView({
         return;
       }
       setStatus(t.statusReplaying);
-      const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/events?after=0&limit=5000`, normalAuth?.accessToken);
+      const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/events?after=0&limit=5000`);
       if (response.status === 401) {
         logoutNormal();
       }
@@ -932,7 +1054,7 @@ function PtySessionView({
         return;
       }
       try {
-        const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/events?after=${after}&limit=1000`, normalAuth?.accessToken);
+        const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/events?after=${after}&limit=1000`);
         if (response.status === 401) {
           logoutNormal();
         }
@@ -1062,8 +1184,7 @@ function PtySessionView({
       }
       const { ticket } = await requestGatewayWsTicket({
         sessionId,
-        mode: clientMode,
-        accessToken: normalAuth?.accessToken ?? ''
+        mode: clientMode
       });
       const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
       return new WebSocket(
@@ -1129,7 +1250,7 @@ function PtySessionView({
     setStatus(t.statusStopping);
     const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/stop`, {
       method: 'POST',
-      headers: gatewayAuthHeaders(normalAuth?.accessToken)
+      headers: gatewayAuthHeaders()
     });
     if (response.status === 401) {
       logoutNormal();

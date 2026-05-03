@@ -36,7 +36,7 @@ export function LoginPage() {
     setError(null);
     try {
       await loginNormal(values);
-      navigate('/');
+      navigate('/sessions');
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : t.loginFailed);
     }

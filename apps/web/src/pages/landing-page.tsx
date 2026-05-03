@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@tether/design';
 
+import { useAuth } from '../hooks/use-auth.js';
 import { useI18n } from '../hooks/use-i18n.js';
 import { useUiPreferences } from '../hooks/use-ui-preferences.js';
 
@@ -43,8 +44,10 @@ const securityIcons = [Server, FileCode2, LockKeyhole, KeyRound, ShieldCheck] as
 const proofIcons = [Clock3, Server, CloudOff, KeyRound] as const;
 
 export function LandingPage() {
+  const { normalAuth } = useAuth();
   const { t, locale, setLocale } = useI18n();
   const { isDark, toggleTheme } = useUiPreferences();
+  const consolePath = normalAuth?.accessToken ? '/sessions' : '/login';
   const [scrolled, setScrolled] = React.useState(false);
 
   React.useEffect(() => {
@@ -109,7 +112,7 @@ export function LandingPage() {
               </a>
             </nav>
             <Button variant="brand" asChild size="sm">
-              <Link to="/login">{t.landingOpenConsole}</Link>
+              <Link to={consolePath}>{t.landingOpenConsole}</Link>
             </Button>
           </div>
           <div className={`landing-v4-actions ${scrolled ? 'is-scrolled' : ''}`}>
@@ -150,7 +153,7 @@ export function LandingPage() {
               <p>{t.landingHeroSubtitle}</p>
               <div className="landing-v4-cta-row">
                 <Button variant="brand" asChild size="lg">
-                  <Link to="/login">{t.landingPrimaryCta}<ArrowRight size={17} /></Link>
+                  <Link to={consolePath}>{t.landingPrimaryCta}<ArrowRight size={17} /></Link>
                 </Button>
                 <a href="#workflow">{t.landingSecondaryCta}<ChevronRight size={16} /></a>
               </div>
@@ -367,7 +370,7 @@ export function LandingPage() {
             <Fingerprint size={30} />
             <h2>{t.landingCtaTitle}</h2>
             <p>{t.landingCtaBody}</p>
-            <Button variant="brand" asChild size="lg"><Link to="/login">{t.landingCtaButton}<ArrowRight size={17} /></Link></Button>
+            <Button variant="brand" asChild size="lg"><Link to={consolePath}>{t.landingCtaButton}<ArrowRight size={17} /></Link></Button>
           </div>
         </section>
       </main>

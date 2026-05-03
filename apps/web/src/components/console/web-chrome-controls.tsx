@@ -1,4 +1,6 @@
-import { Button, ButtonGroup, ThemeToggle } from '@tether/design';
+import { Languages } from 'lucide-react';
+
+import { Button, ThemeToggle } from '@tether/design';
 
 import { getWebMessages, type WebLocale } from '../../i18n/messages.js';
 
@@ -19,24 +21,17 @@ export function WebChromeControls({
 
   return (
     <div className="web-chrome-controls">
-      <ButtonGroup className="web-locale-switch">
-        <Button
-          type="button"
-          size="sm"
-          variant={locale === 'zh' ? 'default' : 'outline'}
-          onClick={() => onLocaleChange('zh')}
-        >
-          {t.chinese}
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={locale === 'en' ? 'default' : 'outline'}
-          onClick={() => onLocaleChange('en')}
-        >
-          {t.english}
-        </Button>
-      </ButtonGroup>
+      <Button
+        className="web-chrome-button"
+        type="button"
+        size="icon-sm"
+        variant="outline"
+        aria-label={locale === 'zh' ? '切换到英文' : 'Switch to Chinese'}
+        title={locale === 'zh' ? '切换到英文' : 'Switch to Chinese'}
+        onClick={() => onLocaleChange(locale === 'zh' ? 'en' : 'zh')}
+      >
+        <Languages className="size-4" />
+      </Button>
       <ThemeToggle
         isDark={isDark}
         onToggle={onThemeToggle}

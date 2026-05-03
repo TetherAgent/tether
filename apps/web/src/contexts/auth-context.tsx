@@ -1,15 +1,15 @@
 import * as React from 'react';
 
 import {
+  NORMAL_STORAGE_KEY,
   createNotificationSubscription,
   type AuthStorageRecord,
   type NormalIdentity,
   loginNormal,
+  readStoredNormalAuth,
   registerNormal,
   validateNormal
 } from '../lib/api.js';
-
-const NORMAL_STORAGE_KEY = 'tether:web:normalAuth';
 
 type AuthContextValue = {
   normalAuth: AuthStorageRecord<NormalIdentity> | null;
@@ -23,6 +23,9 @@ type AuthContextValue = {
 const AuthContext = React.createContext<AuthContextValue | null>(null);
 
 function readStorage<T>(key: string): AuthStorageRecord<T> | null {
+  if (key === NORMAL_STORAGE_KEY) {
+    return readStoredNormalAuth() as AuthStorageRecord<T> | null;
+  }
   const raw = window.localStorage.getItem(key);
   if (!raw) {
     return null;

@@ -21,6 +21,20 @@ type LoginFormValues = {
   password: string;
 };
 
+function loginErrorMessage(error: unknown, t: ReturnType<typeof useAdminI18n>['t']): string {
+  const message = error instanceof Error ? error.message : '';
+  switch (message) {
+    case 'invalid_credentials':
+      return t.invalidCredentials;
+    case 'network_error':
+      return t.networkError;
+    case 'invalid_response':
+      return t.invalidServerResponse;
+    default:
+      return message || t.signInFailedDescription;
+  }
+}
+
 export function AdminLoginPage() {
   const navigate = useNavigate();
   const { loginManagement, managementAuth, authReady } = useAdminAuth();
@@ -45,7 +59,7 @@ export function AdminLoginPage() {
       await loginManagement(values);
       navigate('/admin/dashboard', { replace: true });
     } catch (err) {
-      setServerError(err instanceof Error ? err.message : t.signInFailed);
+      setServerError(loginErrorMessage(err, t));
     }
   }
 

@@ -40,6 +40,8 @@ export type AuthStorageRecord<TIdentity> = {
   identity?: TIdentity;
 };
 
+export const NORMAL_STORAGE_KEY = 'tether:web:normalAuth';
+
 const http = createHttpClient();
 
 function normalizeRequestError(error: unknown): Error {
@@ -50,12 +52,36 @@ function normalizeRequestError(error: unknown): Error {
   return error instanceof Error ? error : new Error('network_error');
 }
 
-export function gatewayAuthHeaders(token: string | undefined): HeadersInit | undefined {
-  if (!token) {
+export function readStoredNormalAuth(): AuthStorageRecord<NormalIdentity> | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const raw = window.localStorage.getItem(NORMAL_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as AuthStorageRecord<NormalIdentity>;
+    if (typeof parsed.accessToken === 'string' && typeof parsed.refreshToken === 'string') {
+      return parsed;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+export function getStoredNormalAccessToken(): string | undefined {
+  return readStoredNormalAuth()?.accessToken;
+}
+
+export function gatewayAuthHeaders(token?: string): HeadersInit | undefined {
+  const accessToken = token || getStoredNormalAccessToken();
+  if (!accessToken) {
     return undefined;
   }
   return {
-    Authorization: `Bearer ${token}`
+    Authorization: `Bearer ${accessToken}`
   };
 }
 
@@ -93,9 +119,10 @@ export async function validateNormal(accessToken: string) {
 export async function requestGatewayWsTicket(input: {
   sessionId: string;
   mode: 'control' | 'observe';
-  accessToken: string;
+  accessToken?: string;
 }) {
   try {
+    const accessToken = input.accessToken || getStoredNormalAccessToken();
     return await http.post<{ ticket: string; expiresInMs: number }>(
       '/api/ws-ticket',
       {
@@ -103,7 +130,7 @@ export async function requestGatewayWsTicket(input: {
         mode: input.mode
       },
       {
-        token: input.accessToken
+        token: accessToken
       }
     );
   } catch (error) {

@@ -82,8 +82,7 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
       });
     } catch (error) {
       if (error instanceof ApiRequestError) {
-        const detail = error.stackDetail ? `${error.message}\n\n${error.stackDetail}` : error.message;
-        throw new Error(detail);
+        throw new Error(error.message);
       }
       throw (error instanceof Error ? error : new Error('network_error'));
     }
