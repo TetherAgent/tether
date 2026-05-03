@@ -165,27 +165,6 @@ gatewayCommand
   });
 
 gatewayCommand
-  .command('local')
-  .description('以前台方式启动 local 模式 Gateway（开发人员本机调试）')
-  .action(async () => {
-    await startGatewayForeground('local');
-  });
-
-gatewayCommand
-  .command('direct')
-  .description('以前台方式启动 direct 模式 Gateway（局域网直连，不走 Relay）')
-  .action(async () => {
-    await startGatewayForeground('direct');
-  });
-
-gatewayCommand
-  .command('relay')
-  .description('以前台方式启动 relay 模式 Gateway（公网远程，经 Relay 转发）')
-  .action(async () => {
-    await startGatewayForeground('relay');
-  });
-
-gatewayCommand
   .command('login')
   .description('绑定本机 Gateway 到远程 Server，并写入 auth.json')
   .option('--server-url <url>', 'Server 基础地址；默认读取 TETHER_SERVER_URL')
@@ -1205,9 +1184,9 @@ async function promptLine(prompt: string): Promise<string> {
 
 async function promptGatewayProfile(title: string): Promise<GatewayProfileName> {
   console.log(title);
-  console.log('1. tether gateway local  - 开发人员本机调试：只监听 127.0.0.1，不给局域网访问');
-  console.log('2. tether gateway direct - 局域网直连：监听 0.0.0.0，浏览器直接连本机 Gateway，不走 Relay');
-  console.log('3. tether gateway relay  - 公网远程：本机 Gateway 主动连接 Relay，适合不在同一局域网时使用');
+  console.log('1. local  - 开发人员本机调试：只监听 127.0.0.1，不给局域网访问');
+  console.log('2. direct - 局域网直连：监听 0.0.0.0，浏览器直接连本机 Gateway，不走 Relay');
+  console.log('3. relay  - 公网远程：本机 Gateway 主动连接 Relay，适合不在同一局域网时使用');
   const answer = await promptLine('输入 1/2/3 或 local/direct/relay（默认 direct）: ');
   if (!answer) {
     return 'direct';

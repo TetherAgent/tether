@@ -20,6 +20,7 @@
     "start:relay": "pm2 start ecosystem.config.cjs",
     "reload:relay": "pm2 reload tether-relay",
     "stop:relay": "pm2 stop tether-relay",
+    "relay": "node apps/relay/dist/main.js",
     "dev:codex": "tsx apps/cli/src/main.ts codex --host 0.0.0.0",
     "dev:relay": "[ -f env.sh ] && . env.sh; tsx apps/relay/src/main.ts",
     "test": "pnpm -r --if-present run test",

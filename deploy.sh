@@ -54,7 +54,9 @@ deploy_relay() {
   log "构建 relay..."
   pnpm build:relay
   log "重启 relay..."
-  pm2 reload ecosystem.config.cjs --update-env || pm2 start ecosystem.config.cjs
+  pm2 delete tether-relay || true
+  pm2 start ecosystem.config.cjs --update-env
+  pm2 save
 }
 
 case "$TARGET" in
