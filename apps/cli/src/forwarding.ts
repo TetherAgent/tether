@@ -6,17 +6,22 @@ export type CreateSessionPayload = {
   projectPath: string;
   cols: number;
   rows: number;
+  providerArgs?: string[];
 };
 
 export function buildCreateSessionPayload(
   provider: ProviderDefinition,
-  options: { project: string },
+  options: { project: string; providerArgs?: string[] },
   terminal: { columns?: number; rows?: number } = process.stdout
 ): CreateSessionPayload {
-  return {
+  const payload: CreateSessionPayload = {
     provider: provider.name,
     projectPath: path.resolve(options.project),
     cols: terminal.columns || 120,
     rows: terminal.rows || 40
   };
+  if (options.providerArgs && options.providerArgs.length > 0) {
+    payload.providerArgs = options.providerArgs;
+  }
+  return payload;
 }

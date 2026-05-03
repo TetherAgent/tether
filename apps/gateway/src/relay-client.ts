@@ -147,7 +147,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         sendSessions();
         return;
       case 'client.subscribe':
-        subscribeClient(frame.clientId, frame.sessionId, frame.after ?? 0, frame.mode);
+        subscribeClient(frame.clientId, frame.sessionId, frame.after ?? 0, frame.mode, frame.tail);
         return;
       case 'client.input':
         writeInput(frame.clientId, frame.sessionId, frame.data);
@@ -164,7 +164,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     }
   };
 
-  const subscribeClient = (clientId: string, sessionId: string, after: number, mode: 'control' | 'observe') => {
+  const subscribeClient = (clientId: string, sessionId: string, after: number, mode: 'control' | 'observe', tail?: number) => {
     removeSubscription(clientId, sessionId);
     const session = options.store.getSession(sessionId);
     if (!session) {
@@ -172,7 +172,9 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       return;
     }
 
-    const events = options.store.listEvents(sessionId, after, 5000).map(toRelayEvent);
+    const events = tail && tail > 0 && after === 0
+      ? options.store.listRecentEvents(sessionId, tail).map(toRelayEvent)
+      : options.store.listEvents(sessionId, after, 5000).map(toRelayEvent);
     send({ type: 'gateway.replay', gatewayId: effectiveGatewayId, clientId, sessionId, events });
 
     const key = subscriptionKey(clientId, sessionId);

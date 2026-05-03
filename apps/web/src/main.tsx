@@ -55,6 +55,7 @@ type Gateway = {
 type WebTransportMode = 'ws' | 'http';
 type ClientMode = 'control' | 'observe';
 type ConnectionMode = 'direct' | 'relay';
+type ReplayMode = 'recent' | 'all';
 
 type ConnectionSettings = {
   connectionMode: ConnectionMode;
@@ -82,11 +83,13 @@ type RelayServerToClientFrame =
 
 type RelayClientToServerFrame =
   | { type: 'client.list' }
-  | { type: 'client.subscribe'; sessionId: string; after?: number; mode: ClientMode }
+  | { type: 'client.subscribe'; sessionId: string; after?: number; tail?: number; mode: ClientMode }
   | { type: 'client.stop'; sessionId: string };
 
+const RECENT_REPLAY_EVENT_LIMIT = 100;
 const WEB_TRANSPORT_KEY = 'tether:webTransportMode';
 const WEB_CLIENT_MODE_KEY = 'tether:webClientMode';
+const WEB_REPLAY_MODE_KEY = 'tether:webReplayMode';
 const CONNECTION_MODE_KEY = 'tether:connectionMode';
 const RELAY_URL_KEY = 'tether:relayUrl';
 const RELAY_SECRET_KEY = 'tether:relaySecret';
@@ -97,6 +100,10 @@ function readWebTransportMode(): WebTransportMode {
 
 function readClientMode(): ClientMode {
   return window.localStorage.getItem(WEB_CLIENT_MODE_KEY) === 'observe' ? 'observe' : 'control';
+}
+
+function readReplayMode(): ReplayMode {
+  return window.localStorage.getItem(WEB_REPLAY_MODE_KEY) === 'all' ? 'all' : 'recent';
 }
 
 function readConnectionMode(): ConnectionMode {
@@ -844,6 +851,7 @@ function PtySessionView({
   const socket = React.useRef<WebSocket | undefined>(undefined);
   const transportMode = React.useMemo(readWebTransportMode, []);
   const [clientMode, setClientMode] = React.useState<ClientMode>(readClientMode);
+  const [replayMode, setReplayMode] = React.useState<ReplayMode>(readReplayMode);
   const [clients, setClients] = React.useState<ClientInfo[]>([]);
   const [controllerClientId, setControllerClientId] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState(initialStatus);
@@ -868,6 +876,11 @@ function PtySessionView({
   const changeClientMode = React.useCallback((mode: ClientMode) => {
     window.localStorage.setItem(WEB_CLIENT_MODE_KEY, mode);
     setClientMode(mode);
+  }, []);
+
+  const changeReplayMode = React.useCallback((mode: ReplayMode) => {
+    window.localStorage.setItem(WEB_REPLAY_MODE_KEY, mode);
+    setReplayMode(mode);
   }, []);
 
   const sendHttpInput = React.useCallback(async (data: string): Promise<boolean> => {
@@ -1033,7 +1046,10 @@ function PtySessionView({
         return;
       }
       setStatus(t.statusReplaying);
-      const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/events?after=0&limit=5000`);
+      const replayQuery = replayMode === 'recent'
+        ? `after=0&tail=${RECENT_REPLAY_EVENT_LIMIT}`
+        : 'after=0&limit=5000';
+      const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/events?${replayQuery}`);
       if (response.status === 401) {
         logoutNormal();
       }
@@ -1111,7 +1127,13 @@ function PtySessionView({
           const frame = parsedFrame as RelayServerToClientFrame;
           if (frame.type === 'client.auth.ok') {
             setStatus(`${t.relayClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
-            nextWs.send(JSON.stringify({ type: 'client.subscribe', sessionId, after, mode: clientMode }));
+            nextWs.send(JSON.stringify({
+              type: 'client.subscribe',
+              sessionId,
+              after,
+              tail: replayMode === 'recent' && after === 0 ? RECENT_REPLAY_EVENT_LIMIT : undefined,
+              mode: clientMode
+            }));
             return;
           }
           if (frame.type === 'client.auth.failed') {
@@ -1187,8 +1209,9 @@ function PtySessionView({
         mode: clientMode
       });
       const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      const tailQuery = replayMode === 'recent' && after === 0 ? `&tail=${RECENT_REPLAY_EVENT_LIMIT}` : '';
       return new WebSocket(
-        `${scheme}://${window.location.host}/api/sessions/${encodeURIComponent(sessionId)}/stream?after=${after}&surface=web&mode=${clientMode}`,
+        `${scheme}://${window.location.host}/api/sessions/${encodeURIComponent(sessionId)}/stream?after=${after}&surface=web&mode=${clientMode}${tailQuery}`,
         [`tether-ticket.${ticket}`]
       );
     };
@@ -1228,6 +1251,7 @@ function PtySessionView({
     isDark,
     logoutNormal,
     normalAuth?.accessToken,
+    replayMode,
     refreshClients,
     sendTerminalInput,
     sessionId,
@@ -1270,6 +1294,13 @@ function PtySessionView({
             <select value={clientMode} onChange={(event) => changeClientMode(event.target.value as ClientMode)}>
               <option value="control">{t.control}</option>
               <option value="observe">{t.observe}</option>
+            </select>
+          </label>
+          <label className="mode-select">
+            {t.replay}
+            <select value={replayMode} onChange={(event) => changeReplayMode(event.target.value as ReplayMode)}>
+              <option value="recent">{t.replayRecent}</option>
+              <option value="all">{t.replayAll}</option>
             </select>
           </label>
           <Button variant="outline" size="sm" type="button" onClick={() => stopSession()}>{t.stop}</Button>

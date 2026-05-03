@@ -92,9 +92,7 @@ pnpm typecheck
 pnpm test
 pnpm tether --help
 pnpm tether gateway
-pnpm tether gateway config
-pnpm tether gateway config --codex-command "$(command -v codex)"
-pnpm tether gateway config --clear-codex-command
+pnpm tether gateway init
 pnpm tether gateway install
 pnpm tether gateway start
 pnpm tether gateway stop
@@ -112,12 +110,15 @@ pnpm tether attach <id> --observe
 pnpm tether clients <id>
 pnpm tether stop <id>
 pnpm tether stop --all
-pnpm tether codex --host 0.0.0.0
-pnpm tether codex --transport tmux
+pnpm tether codex --project /path/to/project
+pnpm tether codex --no-attach
+pnpm tether codex -- --resume <codex-session-id>
 ```
 
-`--host 0.0.0.0` 仅用于可信局域网调试。当前 WS 有一次性 ticket，但还没有完整
-device token / pairing；不要直接暴露到公网。
+`tether codex` / `tether claude` / `tether opencode` 只解析 Tether 自己的
+`--project` 和 `--no-attach`。其他 provider 原生命令参数放在 `--` 后透传，例如
+`tether codex -- --resume <codex-session-id>`。Gateway 仍只允许 provider 白名单，
+不能接受任意 command/env/shell。
 
 ## 编辑器/AI 工具配套
 

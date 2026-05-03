@@ -210,6 +210,22 @@ export class Store {
     return rows.map(eventFromRow);
   }
 
+  listRecentEvents(sessionId: string, limit = 500): SessionEvent[] {
+    const safeLimit = Math.min(Math.max(limit, 1), 5000);
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM (
+           SELECT * FROM session_events
+           WHERE session_id = ?
+           ORDER BY id DESC
+           LIMIT ?
+         )
+         ORDER BY id ASC`
+      )
+      .all(sessionId, safeLimit) as SessionEventRow[];
+    return rows.map(eventFromRow);
+  }
+
   latestEventId(sessionId: string): number {
     const row = this.db
       .prepare('SELECT id FROM session_events WHERE session_id = ? ORDER BY id DESC LIMIT 1')

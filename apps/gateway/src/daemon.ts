@@ -209,6 +209,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     }
     const projectPath = path.resolve(request.projectPath ?? process.cwd());
 
+    const providerArgs = request.providerArgs ?? [];
+    if (!isValidProviderArgs(providerArgs)) {
+      return c.json({ error: 'providerArgs must be a string array' }, 400);
+    }
+
     const cols = request.cols ?? 120;
     const rows = request.rows ?? 40;
     if (!isValidTerminalSize(cols, rows)) {
@@ -225,6 +230,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       id,
       provider,
       command,
+      providerArgs,
       projectPath,
       cols,
       rows: terminalRows,
@@ -333,7 +339,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     }
     const after = parseIntegerQuery(c.req.query('after'), 0);
     const limit = parseIntegerQuery(c.req.query('limit'), 1000);
-    return c.json({ events: options.store.listEvents(session.id, after, limit) });
+    const tail = parseIntegerQuery(c.req.query('tail'), 0);
+    const events = tail > 0 && after === 0
+      ? options.store.listRecentEvents(session.id, tail)
+      : options.store.listEvents(session.id, after, limit);
+    return c.json({ events });
   });
 
   app.get('/api/sessions/:id/clients', async (c) => {
@@ -504,7 +514,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       latestEventId: options.store.latestEventId(sessionId),
       controllerClientId: controllers.get(session.id) ?? null
     }));
-    for (const event of options.store.listEvents(sessionId, after, 5000)) {
+    const tail = parseIntegerQuery(parsedUrl.searchParams.get('tail') ?? undefined, 0);
+    const replayEvents = tail > 0 && after === 0
+      ? options.store.listRecentEvents(sessionId, tail)
+      : options.store.listEvents(sessionId, after, 5000);
+    for (const event of replayEvents) {
       socket.send(JSON.stringify({ type: 'event', event }));
     }
     socket.send(JSON.stringify({
@@ -677,8 +691,18 @@ type ClientInfo = {
   lastSeenAt: number;
 };
 
-const SESSION_CREATE_ALLOWED_KEYS = new Set(['provider', 'projectPath', 'cols', 'rows']);
+const SESSION_CREATE_ALLOWED_KEYS = new Set(['provider', 'projectPath', 'cols', 'rows', 'providerArgs']);
 const SESSION_CREATE_FORBIDDEN_KEYS = new Set(['command', 'args', 'argv', 'env', 'shell', 'providerCommand']);
+const MAX_PROVIDER_ARGS = 64;
+const MAX_PROVIDER_ARG_LENGTH = 4096;
+
+function isValidProviderArgs(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= MAX_PROVIDER_ARGS &&
+    value.every((item) => typeof item === 'string' && item.length <= MAX_PROVIDER_ARG_LENGTH)
+  );
+}
 
 function containsForbiddenSessionCreateKey(value: unknown): boolean {
   if (Array.isArray(value)) {

@@ -10,6 +10,7 @@ export type CreatePtySessionOptions = {
   id: string;
   provider: ProviderName;
   command: string;
+  providerArgs?: string[];
   projectPath: string;
   cols: number;
   rows: number;
@@ -52,7 +53,8 @@ export class PtySessionManager {
 
   create(options: CreatePtySessionOptions): Session {
     const title = path.basename(options.projectPath);
-    const term = pty.spawn(options.command, [], {
+    const providerArgs = options.providerArgs ?? [];
+    const term = pty.spawn(options.command, providerArgs, {
       name: 'xterm-256color',
       cols: options.cols,
       rows: options.rows,
@@ -87,6 +89,7 @@ export class PtySessionManager {
       this.store.appendEvent(session.id, 'session.started', {
         provider: options.provider,
         command: options.command,
+        providerArgs,
         projectPath: options.projectPath,
         pid: term.pid,
         cols: options.cols,

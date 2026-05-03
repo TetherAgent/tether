@@ -137,6 +137,33 @@ pnpm tether gateway start
 pnpm tether gateway
 ```
 
+Gateway 账号绑定单独由 `gateway login` 完成。默认登录生产远程 Server：
+
+```bash
+pnpm tether gateway login
+```
+
+本地开发才显式切到本地 Server：
+
+```bash
+pnpm tether gateway login --env local
+```
+
+登录 Server 解析优先级是 `--server-url`、`TETHER_SERVER_URL`、`--env local/prod`、
+默认生产远程地址。`local/direct/relay` 是 Gateway 连接模式，不再作为登录环境。
+
+如果要清空本机 session 历史和 Web 回放数据，先停止 Gateway，再删除本地 SQLite
+数据库：
+
+```bash
+pnpm tether gateway stop
+pnpm tether gateway delete-db --yes
+```
+
+Web 打开 PTY session 时，默认只回放最近 100 条事件，避免长历史会话首次进入时把
+全部 `session_events` 一条条重放到终端。需要完整历史时，在 session 页右上角把
+`回放` 从 `最近` 切到 `全部`。
+
 ### 终端 4：Server
 
 先说结论：

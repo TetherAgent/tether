@@ -97,6 +97,18 @@
 
   建议测试：Gateway WS 测试改为 subprotocol 携带 ticket，覆盖 observe/control、resize、重复 controller 等路径。
 
+- [ ] **TODO-018：Relay 控制帧需要按 session scope 做强校验**
+
+  影响：Relay 目前已在连接认证阶段通过 server `/api/token/validate` 拿到 `RelayAuthScope`，并在 `client.list` / `client.subscribe` 时用 `clientCanSeeSession()` 过滤 session。但 `client.input`、`client.resize`、`client.stop` 等控制帧仍主要依赖“先订阅成功”这一状态，`clientCanAccessFrameSession()` 对 `normal_client_access` 没有再次根据 `latestSessions.get(sessionId)` 校验 `accountId/workspaceId/userId/gatewayId`。这能跑，但安全边界不够硬；如果后续出现订阅状态残留、异常 frame 顺序或 legacy/unscoped session，就可能绕过每帧 ownership 校验。
+
+  当前 Gateway 现状：Gateway 已具备支撑强校验的字段链路。`apps/gateway/src/store.ts` 的 `Session` 有 `accountId/workspaceId/userId/deviceId/gatewayId`；`apps/gateway/src/pty.ts` 创建 PTY session 时会写入 `owner`；`apps/gateway/src/daemon.ts` 通过认证 API 创建 session 时传入 actor scope；`apps/gateway/src/relay-client.ts` 的 `toRelaySession()` 会把这些字段转发给 Relay。也就是说，经过 server/Gateway auth 创建的 session 字段是齐的。风险只在旧的本地 CLI / inline / 未经 auth actor 创建的 legacy session，它们可能没有 scope 字段。
+
+  证据：`apps/relay/src/relay.ts:259`、`apps/relay/src/relay.ts:421`、`apps/relay/src/relay.ts:458`、`apps/relay/src/relay.ts:478`、`apps/gateway/src/relay-client.ts:317`、`apps/gateway/src/pty.ts:68`、`apps/gateway/src/daemon.ts:228`
+
+  修复建议：在 Relay 内新增统一函数，例如 `clientCanAccessSession(clientScope, sessionId, gatewayScope)`：先 `latestSessions.get(sessionId)`，不存在直接 forbidden；存在则复用 `clientCanSeeSession(clientScope, session, gatewayScope)`。把 `client.input`、`client.resize`、`client.stop`、`client.detach`、`sendReplay()`、`sendEventToSubscribers()` 都改成基于真实 session scope 判断。保留 `ws_ticket` 的 `sessionId/mode` 限制。token 模式下，缺少 `accountId/workspaceId/gatewayId` 的 session 不应转给普通 Web client；只有显式 legacy secret 模式才允许 unscoped session。
+
+  建议测试：在 `apps/relay/src/relay.test.ts` 补跨 scope 用例：A 用户能 list/subscribe/input 自己的 session；B 用户看不到 A session；B 用户伪造 `client.subscribe/input/resize/stop` 指向 A session 时返回 `forbidden`；`ws_ticket` 只能访问 ticket 内的 `sessionId` 和 `mode`；缺少 scope 的 session 在 token 模式下不可见或不可控。
+
 ## P1：高风险业务问题
 
 - [ ] **TODO-007：MySQL 设备列表/统计查错 token_class**

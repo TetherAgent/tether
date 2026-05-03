@@ -35,11 +35,13 @@ test('stores sessions and cursor-addressed events', () => {
 
     const first = store.appendEvent('tth_test', 'terminal.output', { data: 'one', encoding: 'utf8' });
     const second = store.appendEvent('tth_test', 'terminal.output', { data: 'two', encoding: 'utf8' });
+    const third = store.appendEvent('tth_test', 'terminal.output', { data: 'three', encoding: 'utf8' });
 
     assert.equal(store.getSession('tth_test')?.transport, 'pty-event-stream');
-    assert.equal(store.latestEventId('tth_test'), second.id);
-    assert.deepEqual(store.listEvents('tth_test', first.id).map((event) => event.id), [second.id]);
-    assert.equal(store.transcript('tth_test'), 'onetwo');
+    assert.equal(store.latestEventId('tth_test'), third.id);
+    assert.deepEqual(store.listEvents('tth_test', first.id).map((event) => event.id), [second.id, third.id]);
+    assert.deepEqual(store.listRecentEvents('tth_test', 2).map((event) => event.id), [second.id, third.id]);
+    assert.equal(store.transcript('tth_test'), 'onetwothree');
   } finally {
     cleanup();
   }

@@ -381,6 +381,87 @@ test('session creation accepts whitelisted provider when enabled', async () => {
   }
 });
 
+test('session creation forwards provider arguments to whitelisted provider', async () => {
+  const { store, cleanup } = tempStore();
+  const binDir = mkdtempSync(path.join(tmpdir(), 'tether-daemon-provider-args-'));
+  const fakeCodex = path.join(binDir, 'codex-custom');
+  writeFileSync(fakeCodex, '#!/bin/sh\nsleep 2\n', 'utf8');
+  chmodSync(fakeCodex, 0o755);
+  const ptySessions = new PtySessionManager(store);
+  const port = 5500 + Math.floor(Math.random() * 1000);
+  const daemon = await startDaemon({
+    host: '127.0.0.1',
+    port,
+    store,
+    ptySessions,
+    allowApiSessionCreate: true,
+    config: { providers: { codex: { command: fakeCodex } } }
+  });
+
+  try {
+    await withAuthFixture(async ({ authHeaders }) => {
+      const response = await fetch(`http://127.0.0.1:${port}/api/sessions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({
+          provider: 'codex',
+          projectPath: binDir,
+          cols: 100,
+          rows: 30,
+          providerArgs: ['--resume', '99acd804-8250-43db-9503-884c1e7ca450']
+        })
+      });
+      assert.equal(response.status, 201);
+      const body = (await response.json()) as { session?: { id?: string } };
+      const createdId = body.session?.id;
+      assert.equal(typeof createdId, 'string');
+      if (!createdId) {
+        throw new Error('created session id missing');
+      }
+      const startedEvent = store.listEvents(createdId).find((event) => event.type === 'session.started');
+      assert.deepEqual(startedEvent?.payload.providerArgs, ['--resume', '99acd804-8250-43db-9503-884c1e7ca450']);
+      ptySessions.stop(createdId);
+    });
+  } finally {
+    await daemon.close();
+    cleanup();
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test('session creation rejects invalid provider arguments', async () => {
+  const { store, cleanup } = tempStore();
+  const port = 5500 + Math.floor(Math.random() * 1000);
+  const daemon = await startDaemon({
+    host: '127.0.0.1',
+    port,
+    store,
+    ptySessions: new PtySessionManager(store),
+    allowApiSessionCreate: true
+  });
+
+  try {
+    await withAuthFixture(async ({ authHeaders }) => {
+      const response = await fetch(`http://127.0.0.1:${port}/api/sessions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({
+          provider: 'codex',
+          projectPath: process.cwd(),
+          cols: 100,
+          rows: 30,
+          providerArgs: ['--resume', 123]
+        })
+      });
+      assert.equal(response.status, 400);
+      assert.deepEqual(await response.json(), { error: 'providerArgs must be a string array' });
+    });
+  } finally {
+    await daemon.close();
+    cleanup();
+  }
+});
+
 test('session creation uses configured provider command path', async () => {
   const { store, cleanup } = tempStore();
   const binDir = mkdtempSync(path.join(tmpdir(), 'tether-daemon-provider-bin-'));
