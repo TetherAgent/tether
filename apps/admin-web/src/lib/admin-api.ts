@@ -116,3 +116,24 @@ export async function getDashboardStats(token: string) {
     registeredGateways: number; auditEventsLast7Days: number;
   }>('/admin/api/dashboard/stats', { token });
 }
+
+export async function createAdmin(token: string, data: {
+  email: string;
+  password: string;
+  displayName?: string;
+}) {
+  return requestJson<{ accessToken: string; refreshToken: string }>(
+    '/admin/api/admins',
+    {
+      method: 'POST',
+      token,
+      body: JSON.stringify({
+        email: data.email,
+        password: data.password,
+        displayName: data.displayName,
+        deviceName: 'admin-web',
+        platform: 'web'
+      })
+    }
+  );
+}
