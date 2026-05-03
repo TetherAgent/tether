@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "egg-bin dev --ts",
     "build": "tsc -p tsconfig.json",
-    "start": "egg-scripts start --daemon --workers=2 --port=4800 --title=egg-server-tether-api",
+    "start": "egg-scripts start --daemon --workers=1 --port=4800 --title=egg-server-tether-api",
     "stop": "egg-scripts stop",
     "test": "tsx --test test/**/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
