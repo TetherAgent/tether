@@ -2,39 +2,45 @@ import * as React from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
-  Blocks,
   CheckCircle2,
+  ChevronRight,
+  Clock3,
+  CloudOff,
   Cpu,
-  GitBranch,
+  ExternalLink,
+  FileCode2,
+  Fingerprint,
+  Globe2,
+  Languages,
+  KeyRound,
+  Laptop,
   LockKeyhole,
+  Moon,
   MonitorSmartphone,
-  Network,
   RadioTower,
+  Server,
   ShieldCheck,
   Smartphone,
-  Sparkles,
+  Sun,
   TerminalSquare,
   Waypoints
 } from 'lucide-react';
 import { Button } from '@tether/design';
 
-import { WebChromeControls } from '../components/console/web-chrome-controls.js';
 import { useI18n } from '../hooks/use-i18n.js';
 import { useUiPreferences } from '../hooks/use-ui-preferences.js';
 
-const terminalRows = [
-  { label: 'codex', detail: 'apps/gateway · PLAN.md', state: 'running', accent: 'live' },
-  { label: 'claude', detail: 'packages/protocol · review', state: 'observe', accent: 'watch' },
-  { label: 'opencode', detail: 'native/app · spike', state: 'queued', accent: 'queue' }
+const liveSessions = [
+  { provider: 'codex', task: 'refactor auth flow', state: 'running' },
+  { provider: 'claude', task: 'review protocol diff', state: 'observe' },
+  { provider: 'opencode', task: 'native app spike', state: 'queued' }
 ] as const;
 
-const streamEvents = [
-  'pty.output.append',
-  'client.attach.control',
-  'approval.request',
-  'handoff.ready',
-  'verification.loop'
-] as const;
+const handoffEvents = ['工作站启动', '事件实时同步', '手机审阅', '一键放行'] as const;
+
+const surfaceIcons = [TerminalSquare, Globe2, Smartphone, Laptop, MonitorSmartphone, RadioTower] as const;
+const securityIcons = [Server, FileCode2, LockKeyhole, KeyRound, ShieldCheck] as const;
+const proofIcons = [Clock3, Server, CloudOff, KeyRound] as const;
 
 export function LandingPage() {
   const { t, locale, setLocale } = useI18n();
@@ -49,10 +55,10 @@ export function LandingPage() {
   }, []);
 
   React.useEffect(() => {
-    const root = document.querySelector<HTMLElement>('.landing-page');
+    const root = document.querySelector<HTMLElement>('.landing-v4');
     if (!root) return undefined;
-    let mx = 52;
-    let my = 28;
+    let mx = 48;
+    let my = 26;
     let tx = mx;
     let ty = my;
     let frame = 0;
@@ -63,8 +69,8 @@ export function LandingPage() {
     const loop = () => {
       tx += (mx - tx) * 0.08;
       ty += (my - ty) * 0.08;
-      root.style.setProperty('--landing-mx', `${tx}%`);
-      root.style.setProperty('--landing-my', `${ty}%`);
+      root.style.setProperty('--mx', `${tx}%`);
+      root.style.setProperty('--my', `${ty}%`);
       frame = window.requestAnimationFrame(loop);
     };
     window.addEventListener('mousemove', onMove);
@@ -76,91 +82,176 @@ export function LandingPage() {
   }, []);
 
   return (
-    <div className="landing-page">
-      <div className="landing-grid-bg" />
-      <div className="landing-cursor-light" />
-      <header className="landing-nav" aria-label={t.landingNavLabel}>
-        <div className={`landing-nav-inner ${scrolled ? 'is-scrolled' : ''}`}>
-          <a className="landing-brand" href="#top" aria-label={t.appName}>
-            <span className="landing-brand-mark"><Waypoints size={18} /></span>
-            <span>{t.appName}</span>
-          </a>
-          <nav className="landing-nav-links">
-            <a href="#platform">{t.landingNavPlatform}</a>
-            <a href="#surfaces">{t.landingNavSurfaces}</a>
-            <a href="#workflow">{t.landingNavWorkflow}</a>
-            <a href="#security">{t.landingNavSecurity}</a>
-            <a href="#roadmap">{t.landingNavRoadmap}</a>
-          </nav>
-          <div className="landing-nav-actions">
-            <WebChromeControls locale={locale} onLocaleChange={setLocale} isDark={isDark} onThemeToggle={toggleTheme} />
-            <Button asChild size="sm"><Link to="/login">{t.landingOpenConsole}</Link></Button>
+    <div className="landing-v4">
+      <div className="landing-v4-grid" />
+      <div className="landing-v4-spot" />
+
+      <header className="landing-v4-nav" aria-label={t.landingNavLabel}>
+        <div className="landing-v4-nav-shell">
+          <div className={`landing-v4-nav-inner ${scrolled ? 'is-scrolled' : ''}`}>
+            <a className="landing-v4-brand" href="#top" aria-label={t.appName}>
+              <span><Waypoints size={18} /></span>
+              <strong>{t.appName}</strong>
+            </a>
+            <nav className="landing-v4-links">
+              <a href="#workflow">{t.landingNavWorkflow}</a>
+              <a href="#surfaces">{t.landingNavSurfaces}</a>
+              <a href="#security">{t.landingNavSecurity}</a>
+              <a href="#roadmap">{t.landingNavRoadmap}</a>
+              <a
+                href="https://github.com/dream2672/tether"
+                target="_blank"
+                rel="noreferrer"
+                aria-label={t.landingNavGitHub}
+              >
+                <ExternalLink size={15} />
+                <span>{t.landingNavGitHub}</span>
+              </a>
+            </nav>
+            <Button variant="brand" asChild size="sm">
+              <Link to="/login">{t.landingOpenConsole}</Link>
+            </Button>
+          </div>
+          <div className={`landing-v4-actions ${scrolled ? 'is-scrolled' : ''}`}>
+            <button
+              className="landing-v4-icon-button"
+              type="button"
+              aria-label={locale === 'zh' ? '切换到英文' : 'Switch to Chinese'}
+              title={locale === 'zh' ? '切换到英文' : 'Switch to Chinese'}
+              onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}
+            >
+              <Languages size={17} />
+            </button>
+            <button
+              className="landing-v4-icon-button"
+              type="button"
+              aria-label={`${t.themeLabel}: ${isDark ? t.light : t.dark}`}
+              title={`${t.themeLabel}: ${isDark ? t.light : t.dark}`}
+              onClick={toggleTheme}
+            >
+              {isDark ? <Sun size={17} /> : <Moon size={17} />}
+            </button>
           </div>
         </div>
       </header>
 
       <main id="top">
-        <section className="landing-hero">
-          <div className="landing-container landing-hero-grid">
-            <div className="landing-hero-copy">
-              <div className="landing-eyebrow landing-reveal">
-                <span className="landing-pulse" />
-                <span>{t.landingEyebrow}</span>
+        <section className="landing-v4-hero">
+          <div className="landing-v4-container landing-v4-hero-grid">
+            <div className="landing-v4-hero-copy">
+              <div className="landing-v4-eyebrow">
+                <span />
+                {t.landingEyebrow}
               </div>
-              <h1 className="landing-title landing-reveal d2">
+              <h1>
                 {t.landingHeroTitleA}
                 <span>{t.landingHeroTitleB}</span>
-                {t.landingHeroTitleC}
               </h1>
-              <p className="landing-subtitle landing-reveal d3">{t.landingHeroSubtitle}</p>
-              <div className="landing-hero-actions landing-reveal d4">
-                <Button asChild size="lg"><Link to="/login">{t.landingPrimaryCta}<ArrowRight size={17} /></Link></Button>
-                <a className="landing-secondary-link" href="#platform">{t.landingSecondaryCta}</a>
+              <p>{t.landingHeroSubtitle}</p>
+              <div className="landing-v4-cta-row">
+                <Button variant="brand" asChild size="lg">
+                  <Link to="/login">{t.landingPrimaryCta}<ArrowRight size={17} /></Link>
+                </Button>
+                <a href="#workflow">{t.landingSecondaryCta}<ChevronRight size={16} /></a>
               </div>
-              <div className="landing-proof-row landing-reveal d5">
-                {t.landingProofs.map((proof) => <span key={proof}>{proof}</span>)}
+              <div className="landing-v4-proof">
+                {t.landingProofs.map((proof, index) => {
+                  const Icon = proofIcons[index] ?? ShieldCheck;
+                  return (
+                    <span key={proof}>
+                      <em>{String(index + 1).padStart(2, '0')}</em>
+                      <Icon size={16} />
+                      <strong>{proof}</strong>
+                    </span>
+                  );
+                })}
               </div>
             </div>
 
-            <div className="landing-console landing-reveal d3" aria-label={t.landingConsoleLabel}>
-              <div className="landing-console-bar">
-                <span /><span /><span />
-                <strong>tether gateway</strong>
-                <em>127.0.0.1:4789</em>
+            <div className="landing-v4-stage" aria-label={t.landingConsoleLabel}>
+              <div className="landing-v4-workstation">
+                <div className="landing-v4-window-bar">
+                  <span /><span /><span />
+                  <strong>workstation</strong>
+                  <em>Gateway owner</em>
+                </div>
+                <div className="landing-v4-terminal-line">
+                  <span>$</span>
+                  <strong>tether codex</strong>
+                  <i />
+                </div>
+                <div className="landing-v4-session-list">
+                  {liveSessions.map((session) => (
+                    <div key={session.provider}>
+                      <TerminalSquare size={18} />
+                      <span>
+                        <strong>{session.provider}</strong>
+                        <small>{session.task}</small>
+                      </span>
+                      <em>{session.state}</em>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="landing-command-line">
-                <span>$</span>
-                <strong>tether codex</strong>
-                <i />
+
+              <div className="landing-v4-event-rail">
+                {handoffEvents.map((event) => <span key={event}>{event}</span>)}
               </div>
-              <div className="landing-session-stack">
-                {terminalRows.map((row) => (
-                  <div className={`landing-session-row ${row.accent}`} key={row.label}>
-                    <span className="landing-session-icon"><TerminalSquare size={16} /></span>
-                    <span><strong>{row.label}</strong><small>{row.detail}</small></span>
-                    <em>{row.state}</em>
+
+              <div className="landing-v4-device-panel">
+                <div className="landing-v4-phone">
+                  <div className="landing-v4-phone-notch" />
+                  <div className="landing-v4-approval-card">
+                    <div className="landing-v4-approval-head">
+                      <span>Codex 请求执行</span>
+                      <em>需要确认</em>
+                    </div>
+                    <strong>pnpm test</strong>
+                    <p>来源：apps/web · 当前会话</p>
+                    <div className="landing-v4-approval-meta">
+                      <span>只读测试</span>
+                      <span>本机执行</span>
+                    </div>
+                    <div className="landing-v4-approval-actions">
+                      <button type="button">拒绝</button>
+                      <button className="is-approving" type="button">
+                        允许
+                        <svg className="landing-v4-cursor" viewBox="0 0 28 28" aria-hidden="true">
+                          <path d="M5 3l17 12-8 1.5 4.8 7.6-3.8 2.2-4.6-7.4L5 25V3z" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
-                ))}
-              </div>
-              <div className="landing-stream-panel">
-                {streamEvents.map((event, index) => (
-                  <span key={event} style={{ '--delay': `${index * 0.18}s` } as React.CSSProperties}>{event}</span>
-                ))}
-              </div>
-              <div className="landing-device-ring">
-                <div><Cpu size={18} /><span>Gateway</span></div>
-                <div><MonitorSmartphone size={18} /><span>Web / H5</span></div>
-                <div><Smartphone size={18} /><span>App</span></div>
-                <div><RadioTower size={18} /><span>Relay</span></div>
+                </div>
+                <div className="landing-v4-web-panel">
+                  <div className="landing-v4-editor-top">
+                    <MonitorSmartphone size={16} />
+                    <span>Web / H5 / App</span>
+                    <em>review mode</em>
+                  </div>
+                  <div className="landing-v4-editor-body">
+                    <div className="landing-v4-editor-files">
+                      <span className="active">src/routes.tsx</span>
+                      <span>README.zh-CN.md</span>
+                      <span>PLAN.md</span>
+                    </div>
+                    <div className="landing-v4-editor-code">
+                      <code><b>+</b> &lt;Route path="/" element=&lbrace;&lt;LandingPage /&gt;&rbrace; /&gt;</code>
+                      <code><b>+</b> gateway.attach(sessionId, "observe")</code>
+                      <code><i>~</i> approval required: pnpm test</code>
+                    </div>
+                  </div>
+                  <strong>观察输出 · 接管输入 · 审批动作</strong>
+                </div>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="landing-band landing-stats" aria-label={t.landingStatsLabel}>
-          <div className="landing-container landing-stats-grid">
+        <section className="landing-v4-stats" aria-label={t.landingStatsLabel}>
+          <div className="landing-v4-container">
             {t.landingStats.map((stat) => (
-              <div className="landing-stat" key={stat.label}>
+              <div key={stat.label}>
                 <strong>{stat.value}</strong>
                 <span>{stat.label}</span>
               </div>
@@ -168,115 +259,181 @@ export function LandingPage() {
           </div>
         </section>
 
-        <section className="landing-section" id="platform">
-          <div className="landing-container">
-            <div className="landing-section-heading">
-              <span>{t.landingPlatformKicker}</span>
-              <h2>{t.landingPlatformTitle}</h2>
-              <p>{t.landingPlatformSubtitle}</p>
+        <section className="landing-v4-section landing-v4-workflow-section" id="workflow">
+          <div className="landing-v4-container">
+            <div className="landing-v4-section-head is-center">
+              <span>{t.landingWorkflowKicker}</span>
+              <h2>{t.landingWorkflowTitle}</h2>
+              <p>{t.landingWorkflowSubtitle}</p>
             </div>
-            <div className="landing-feature-grid">
-              {[
-                [TerminalSquare, t.landingFeatureProcessTitle, t.landingFeatureProcessBody],
-                [Network, t.landingFeatureGatewayTitle, t.landingFeatureGatewayBody],
-                [Blocks, t.landingFeatureSurfacesTitle, t.landingFeatureSurfacesBody],
-                [GitBranch, t.landingFeatureOpsTitle, t.landingFeatureOpsBody]
-              ].map(([Icon, title, body]) => (
-                <article className="landing-feature" key={String(title)}>
-                  <Icon size={22} />
-                  <h3>{title as string}</h3>
-                  <p>{body as string}</p>
+            <div className="landing-v4-flow-board">
+              {t.landingWorkflowSteps.map((step, index) => (
+                <article key={step.title}>
+                  <div className="landing-v4-flow-head">
+                    <span>{String(index + 1).padStart(2, '0')}</span>
+                    <em>{['START', 'STREAM', 'CONTROL', 'DECIDE'][index]}</em>
+                  </div>
+                  <h3>{step.title}</h3>
+                  <p>{step.body}</p>
+                  <div className="landing-v4-flow-meta">
+                    {[
+                      ['入口', 'tether codex'],
+                      ['传输', 'event stream'],
+                      ['模式', 'control / observe'],
+                      ['动作', 'approve']
+                    ][index].map((value) => <span key={value}>{value}</span>)}
+                  </div>
+                  {index < t.landingWorkflowSteps.length - 1 ? <ChevronRight className="landing-v4-flow-arrow" size={18} /> : null}
                 </article>
               ))}
             </div>
           </div>
         </section>
 
-        <section className="landing-section landing-surfaces" id="surfaces">
-          <div className="landing-container">
-            <div className="landing-section-heading">
+        <section className="landing-v4-section" id="surfaces">
+          <div className="landing-v4-container">
+            <div className="landing-v4-section-head is-center">
               <span>{t.landingSurfacesKicker}</span>
               <h2>{t.landingSurfacesTitle}</h2>
               <p>{t.landingSurfacesSubtitle}</p>
             </div>
-            <div className="landing-surface-grid">
-              {t.landingSurfaces.map((surface) => (
-                <div className="landing-surface" key={surface.title}>
-                  <strong>{surface.title}</strong>
-                  <span>{surface.body}</span>
+            <div className="landing-v4-surfaces">
+              {t.landingSurfaces.map((surface, index) => {
+                const Icon = surfaceIcons[index] ?? MonitorSmartphone;
+                return (
+                  <article key={surface.title}>
+                    <Icon size={24} />
+                    <small>{String(index + 1).padStart(2, '0')}</small>
+                    <h3>{surface.title}</h3>
+                    <p>{surface.body}</p>
+                    <SurfaceVisual index={index} />
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        <section className="landing-v4-section" id="security">
+          <div className="landing-v4-container landing-v4-security">
+            <div className="landing-v4-section-head">
+              <span>{t.landingSecurityKicker}</span>
+              <h2>{t.landingSecurityTitle}</h2>
+              <p>{t.landingSecuritySubtitle}</p>
+            </div>
+            <div className="landing-v4-boundary">
+              <div className="landing-v4-boundary-core">
+                <Cpu size={26} />
+                <strong>{t.landingSecurityCardTitle}</strong>
+                <p>{t.landingSecurityCardBody}</p>
+                <div className="landing-v4-boundary-tags">
+                  <span>本机 Gateway</span>
+                  <span>127.0.0.1</span>
+                  <span>凭证本地</span>
                 </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="landing-section landing-workflow" id="workflow">
-          <div className="landing-container landing-workflow-grid">
-            <div className="landing-section-heading align-left">
-              <span>{t.landingWorkflowKicker}</span>
-              <h2>{t.landingWorkflowTitle}</h2>
-              <p>{t.landingWorkflowSubtitle}</p>
-            </div>
-            <div className="landing-flow">
-              {t.landingWorkflowSteps.map((step, index) => (
-                <div className="landing-flow-step" key={step.title}>
-                  <span>{String(index + 1).padStart(2, '0')}</span>
-                  <div><h3>{step.title}</h3><p>{step.body}</p></div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="landing-section" id="security">
-          <div className="landing-container landing-security">
-            <div>
-              <div className="landing-section-heading align-left">
-                <span>{t.landingSecurityKicker}</span>
-                <h2>{t.landingSecurityTitle}</h2>
-                <p>{t.landingSecuritySubtitle}</p>
               </div>
-              <div className="landing-security-list">
-                {t.landingSecurityItems.map((item) => <div key={item}><ShieldCheck size={18} />{item}</div>)}
+              <div className="landing-v4-security-list">
+                {t.landingSecurityItems.map((item, index) => {
+                  const Icon = securityIcons[index] ?? ShieldCheck;
+                  return <div key={item}><Icon size={18} /><span>{item}</span></div>;
+                })}
               </div>
             </div>
-            <div className="landing-security-card">
-              <LockKeyhole size={26} />
-              <strong>{t.landingSecurityCardTitle}</strong>
-              <p>{t.landingSecurityCardBody}</p>
-              <div><span>LAN</span><span>Tunnel</span><span>Relay</span></div>
-            </div>
           </div>
         </section>
 
-        <section className="landing-section" id="roadmap">
-          <div className="landing-container">
-            <div className="landing-section-heading">
+        <section className="landing-v4-section" id="roadmap">
+          <div className="landing-v4-container">
+            <div className="landing-v4-section-head is-center">
               <span>{t.landingRoadmapKicker}</span>
               <h2>{t.landingRoadmapTitle}</h2>
               <p>{t.landingRoadmapSubtitle}</p>
             </div>
-            <div className="landing-roadmap">
-              {t.landingRoadmapItems.map((item) => (
-                <div className="landing-roadmap-item" key={item.title}>
+            <div className="landing-v4-roadmap">
+              {t.landingRoadmapItems.map((item, index) => (
+                <article key={item.title}>
                   <CheckCircle2 size={18} />
-                  <strong>{item.title}</strong>
-                  <span>{item.body}</span>
-                </div>
+                  <small>{t.landingRoadmapLabels[index]}</small>
+                  <h3>{item.title}</h3>
+                  <p>{item.body}</p>
+                </article>
               ))}
             </div>
           </div>
         </section>
 
-        <section className="landing-cta">
-          <div className="landing-container landing-cta-inner">
-            <Sparkles size={26} />
+        <section className="landing-v4-final">
+          <div className="landing-v4-container">
+            <Fingerprint size={30} />
             <h2>{t.landingCtaTitle}</h2>
             <p>{t.landingCtaBody}</p>
-            <Button asChild size="lg"><Link to="/login">{t.landingCtaButton}<ArrowRight size={17} /></Link></Button>
+            <Button variant="brand" asChild size="lg"><Link to="/login">{t.landingCtaButton}<ArrowRight size={17} /></Link></Button>
           </div>
         </section>
       </main>
+    </div>
+  );
+}
+
+function SurfaceVisual({ index }: { index: number }) {
+  if (index === 0) {
+    return (
+      <div className="surface-visual cli">
+        <code>$ tether attach --control</code>
+        <code><span>Agent:</span> codex · running</code>
+      </div>
+    );
+  }
+
+  if (index === 1) {
+    return (
+      <div className="surface-visual web">
+        <aside><span /><span /><span /></aside>
+        <main><i /><b /><em /></main>
+      </div>
+    );
+  }
+
+  if (index === 2) {
+    return (
+      <div className="surface-visual h5">
+        <section>
+          <span />
+          <b>approve</b>
+          <em />
+        </section>
+      </div>
+    );
+  }
+
+  if (index === 3) {
+    return (
+      <div className="surface-visual desktop">
+        <section><i /><b /></section>
+        <aside><span /><span /></aside>
+      </div>
+    );
+  }
+
+  if (index === 4) {
+    return (
+      <div className="surface-visual native">
+        <span>iOS</span>
+        <i />
+        <span>Android</span>
+        <i />
+        <span>Harmony</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="surface-visual flutter">
+      <span>Gateway</span>
+      <i />
+      <span>Relay</span>
+      <i />
+      <span>Client</span>
     </div>
   );
 }
