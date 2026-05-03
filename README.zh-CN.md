@@ -323,7 +323,7 @@ server {
     listen 80;
     server_name tether.earntools.me;
 
-    root /Users/dream/code/tether/apps/web/dist;
+    root /data/tether/apps/web/dist;
     index index.html;
 
     # Admin API（比 /admin 更长，优先匹配）
@@ -346,7 +346,7 @@ server {
 
     # Admin Web 静态文件（SPA 兜底）
     location /admin {
-        alias /Users/dream/code/tether/apps/admin-web/dist;
+        alias /data/tether/apps/admin-web/dist;
         try_files $uri $uri/ /admin/index.html;
     }
 
@@ -381,7 +381,7 @@ server {
 
 ```bash
 # 1. 拉代码
-cd /Users/dream/code/tether && git pull
+cd /data/tether && git pull
 
 # 2. 安装依赖
 pnpm install
