@@ -18,6 +18,7 @@ type ManagementIdentity = {
   accountId: string;
   workspaceId: string;
   adminUserId: string;
+  adminEmail: string;
   deviceId?: string;
   tokenClass: 'management_access';
   expiresAt: number;
@@ -88,10 +89,11 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
     const identity: ManagementIdentity | undefined = jwtPayload && typeof jwtPayload.adminUserId === 'string'
       ? {
           adminUserId: jwtPayload.adminUserId as string,
+          adminEmail: typeof jwtPayload.adminEmail === 'string' ? jwtPayload.adminEmail : '',
           accountId: typeof jwtPayload.accountId === 'string' ? jwtPayload.accountId : '',
           workspaceId: typeof jwtPayload.workspaceId === 'string' ? jwtPayload.workspaceId : '',
           tokenClass: 'management_access',
-          expiresAt: typeof jwtPayload.exp === 'number' ? jwtPayload.exp : 0,
+          expiresAt: typeof jwtPayload.expiresAt === 'number' ? jwtPayload.expiresAt : 0,
           jti: typeof jwtPayload.jti === 'string' ? jwtPayload.jti : ''
         }
       : undefined;

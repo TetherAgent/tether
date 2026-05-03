@@ -1,6 +1,6 @@
 import { Controller } from 'egg';
-import { requireManagementToken } from '../../middleware/admin-auth.js';
-import { listAdminAuditEvents } from '../../service/admin/audit.js';
+import { requireManagementToken } from '../../middleware/admin-auth';
+import { listAdminAuditEvents } from '../../service/admin/audit';
 
 export default class AdminAuditController extends Controller {
   public async index(): Promise<void> {

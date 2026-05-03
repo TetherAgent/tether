@@ -42,6 +42,7 @@ export type AuthScopePayload = {
   sessionId?: string;
   userId?: string;
   adminUserId?: string;
+  adminEmail?: string;
   deviceId?: string;
   mode?: SessionAccessMode;
   tokenClass: AuthTokenClass;

@@ -1,6 +1,6 @@
 import { Controller } from 'egg';
-import { requireManagementToken } from '../../middleware/admin-auth.js';
-import { listAdminGateways, unlinkAdminGateway } from '../../service/admin/gateways.js';
+import { requireManagementToken } from '../../middleware/admin-auth';
+import { listAdminGateways, unlinkAdminGateway } from '../../service/admin/gateways';
 
 export default class AdminGatewaysController extends Controller {
   public async index(): Promise<void> {

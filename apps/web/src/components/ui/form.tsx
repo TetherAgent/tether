@@ -8,8 +8,8 @@ import {
   type FieldValues
 } from 'react-hook-form';
 
+import { Label } from '@tether/design';
 import { cn } from '../../lib/utils.js';
-import { Label } from './label.js';
 
 const Form = FormProvider;
 

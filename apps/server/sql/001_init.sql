@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS accounts (
-  id VARCHAR(64) NOT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT,
   email VARCHAR(255) NOT NULL,
   display_name VARCHAR(255) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
@@ -11,12 +11,12 @@ CREATE TABLE IF NOT EXISTS accounts (
 );
 
 CREATE TABLE IF NOT EXISTS workspaces (
-  id VARCHAR(64) NOT NULL,
-  account_id VARCHAR(64) NOT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  account_id BIGINT NOT NULL,
   slug VARCHAR(128) NOT NULL,
   name VARCHAR(255) NOT NULL,
   is_default TINYINT(1) NOT NULL DEFAULT 0,
-  default_workspace_account_id VARCHAR(64)
+  default_workspace_account_id BIGINT
     GENERATED ALWAYS AS (CASE WHEN is_default = 1 THEN account_id ELSE NULL END) STORED,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -29,12 +29,12 @@ CREATE TABLE IF NOT EXISTS workspaces (
 );
 
 CREATE TABLE IF NOT EXISTS users (
-  id VARCHAR(64) NOT NULL,
-  account_id VARCHAR(64) NOT NULL,
-  workspace_id VARCHAR(64) NOT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  account_id BIGINT NOT NULL,
+  workspace_id BIGINT NOT NULL,
   email VARCHAR(255) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
-  device_id VARCHAR(64) DEFAULT NULL,
+  device_id BIGINT DEFAULT NULL,
   status VARCHAR(32) NOT NULL DEFAULT 'active',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -48,9 +48,9 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS admin_users (
-  id VARCHAR(64) NOT NULL,
-  account_id VARCHAR(64) NOT NULL,
-  workspace_id VARCHAR(64) NOT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  account_id BIGINT NOT NULL,
+  workspace_id BIGINT NOT NULL,
   email VARCHAR(255) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
   role VARCHAR(32) NOT NULL,
@@ -67,11 +67,11 @@ CREATE TABLE IF NOT EXISTS admin_users (
 );
 
 CREATE TABLE IF NOT EXISTS devices (
-  id VARCHAR(64) NOT NULL,
-  account_id VARCHAR(64) NOT NULL,
-  workspace_id VARCHAR(64) NOT NULL,
-  user_id VARCHAR(64) DEFAULT NULL,
-  admin_user_id VARCHAR(64) DEFAULT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  account_id BIGINT NOT NULL,
+  workspace_id BIGINT NOT NULL,
+  user_id BIGINT DEFAULT NULL,
+  admin_user_id BIGINT DEFAULT NULL,
   name VARCHAR(255) NOT NULL,
   platform VARCHAR(64) NOT NULL,
   token_class VARCHAR(64) NOT NULL,
@@ -94,18 +94,19 @@ CREATE TABLE IF NOT EXISTS devices (
 );
 
 CREATE TABLE IF NOT EXISTS gateways (
-  id VARCHAR(64) NOT NULL,
-  account_id VARCHAR(64) NOT NULL,
-  workspace_id VARCHAR(64) NOT NULL,
-  device_id VARCHAR(64) DEFAULT NULL,
-  user_id VARCHAR(64) DEFAULT NULL,
-  admin_user_id VARCHAR(64) DEFAULT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  account_id BIGINT NOT NULL,
+  workspace_id BIGINT NOT NULL,
+  device_id BIGINT DEFAULT NULL,
+  user_id BIGINT DEFAULT NULL,
+  admin_user_id BIGINT DEFAULT NULL,
   name VARCHAR(255) NOT NULL,
   status VARCHAR(32) NOT NULL DEFAULT 'offline',
   last_seen_at DATETIME DEFAULT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
+  UNIQUE KEY uq_gateways_account_user (account_id, user_id),
   KEY idx_gateways_account_workspace (account_id, workspace_id),
   CONSTRAINT fk_gateways_account
     FOREIGN KEY (account_id) REFERENCES accounts (id),
@@ -120,12 +121,12 @@ CREATE TABLE IF NOT EXISTS gateways (
 );
 
 CREATE TABLE IF NOT EXISTS refresh_tokens (
-  id VARCHAR(64) NOT NULL,
-  account_id VARCHAR(64) NOT NULL,
-  workspace_id VARCHAR(64) NOT NULL,
-  user_id VARCHAR(64) DEFAULT NULL,
-  admin_user_id VARCHAR(64) DEFAULT NULL,
-  device_id VARCHAR(64) DEFAULT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  account_id BIGINT NOT NULL,
+  workspace_id BIGINT NOT NULL,
+  user_id BIGINT DEFAULT NULL,
+  admin_user_id BIGINT DEFAULT NULL,
+  device_id BIGINT DEFAULT NULL,
   session_id VARCHAR(128) DEFAULT NULL,
   token_class VARCHAR(64) NOT NULL,
   jti VARCHAR(128) NOT NULL,
@@ -149,11 +150,11 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 );
 
 CREATE TABLE IF NOT EXISTS gateway_refresh_tokens (
-  id VARCHAR(64) NOT NULL,
-  account_id VARCHAR(64) NOT NULL,
-  workspace_id VARCHAR(64) NOT NULL,
-  gateway_id VARCHAR(64) NOT NULL,
-  device_id VARCHAR(64) DEFAULT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  account_id BIGINT NOT NULL,
+  workspace_id BIGINT NOT NULL,
+  gateway_id BIGINT NOT NULL,
+  device_id BIGINT DEFAULT NULL,
   session_id VARCHAR(128) DEFAULT NULL,
   token_class VARCHAR(64) NOT NULL,
   jti VARCHAR(128) NOT NULL,
@@ -178,12 +179,12 @@ CREATE TABLE IF NOT EXISTS revoked_tokens (
   id BIGINT NOT NULL AUTO_INCREMENT,
   jti VARCHAR(128) NOT NULL,
   token_class VARCHAR(64) DEFAULT NULL,
-  account_id VARCHAR(64) DEFAULT NULL,
-  workspace_id VARCHAR(64) DEFAULT NULL,
-  user_id VARCHAR(64) DEFAULT NULL,
-  admin_user_id VARCHAR(64) DEFAULT NULL,
-  device_id VARCHAR(64) DEFAULT NULL,
-  gateway_id VARCHAR(64) DEFAULT NULL,
+  account_id BIGINT DEFAULT NULL,
+  workspace_id BIGINT DEFAULT NULL,
+  user_id BIGINT DEFAULT NULL,
+  admin_user_id BIGINT DEFAULT NULL,
+  device_id BIGINT DEFAULT NULL,
+  gateway_id BIGINT DEFAULT NULL,
   expires_at DATETIME DEFAULT NULL,
   revoked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -194,12 +195,12 @@ CREATE TABLE IF NOT EXISTS revoked_tokens (
 
 CREATE TABLE IF NOT EXISTS audit_events (
   id BIGINT NOT NULL AUTO_INCREMENT,
-  account_id VARCHAR(64) NOT NULL,
-  workspace_id VARCHAR(64) DEFAULT NULL,
-  user_id VARCHAR(64) DEFAULT NULL,
-  admin_user_id VARCHAR(64) DEFAULT NULL,
-  device_id VARCHAR(64) DEFAULT NULL,
-  gateway_id VARCHAR(64) DEFAULT NULL,
+  account_id BIGINT NOT NULL,
+  workspace_id BIGINT DEFAULT NULL,
+  user_id BIGINT DEFAULT NULL,
+  admin_user_id BIGINT DEFAULT NULL,
+  device_id BIGINT DEFAULT NULL,
+  gateway_id BIGINT DEFAULT NULL,
   session_id VARCHAR(128) DEFAULT NULL,
   token_class VARCHAR(64) DEFAULT NULL,
   jti VARCHAR(128) DEFAULT NULL,

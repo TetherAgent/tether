@@ -327,11 +327,15 @@ release.
 apps/cli        tether command entry
 apps/gateway    local Gateway, PTY event stream, and tmux fallback
 apps/web        React/Vite web client for session viewing
+apps/admin-web  React/Vite admin console
+apps/server     auth and management API
+apps/relay      relay service
 packages/core   core types and business model
 packages/protocol
                 Gateway / client / relay protocol contracts
 packages/config default config
-packages/ui     shared UI package placeholder
+packages/design shared UI primitives
+packages/theme  shared theme tokens and global styles
 native/         Flutter / HarmonyOS client placeholders
 ```
 

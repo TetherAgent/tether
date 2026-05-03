@@ -1,7 +1,7 @@
-import type { AuthConfig } from '../auth.js';
-import { runtimeStore } from '../runtime.js';
-import { mysqlModeEnabled, loadAllGateways, countGateways, deleteGatewayById, loadGatewayById } from '../storage.js';
-import { recordAuditEvent } from '../audit.js';
+import type { AuthConfig } from '../auth';
+import { runtimeStore } from '../runtime';
+import { mysqlModeEnabled, loadAllGateways, countGateways, deleteGatewayById, loadGatewayById } from '../storage';
+import { recordAuditEvent } from '../audit';
 
 export async function listAdminGateways(_config: AuthConfig, page: number, limit: number) {
   if (mysqlModeEnabled()) {

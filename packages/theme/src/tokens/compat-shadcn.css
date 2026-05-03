@@ -1,0 +1,316 @@
+/* @earntools/theme — 合并后的单源 token 文件
+ *
+ * 命名以 shadcn 标准为准；shadcn 没有的项目语义（金融色、扩展背景层级、
+ * 扩展前景层）作为同风格扁平变量补充。命名规则：
+ *   - 颜色变量不带 `--bg-` / `--text-` / `--border-` 业务前缀
+ *   - 与 shadcn 同名的变量保持 shadcn 语义
+ *   - 项目扩展直接挂在根命名空间（如 --brand、--surface、--canvas）
+ *
+ * v2 改动（基于 audit）：
+ *   - 颜色对比度修复：brand / bear / warning / fg-tertiary 全部达 WCAG AA
+ *   - 新增 --brand-text（白底文字专用）、--bear（显式声明，修隐性 bug）、
+ *     --warning-fg（badge/alert 文字专用）
+ *   - --bull 与 --brand 解耦（违背 SPEC 的撞色修复）
+ *   - 字号阶梯重排：mobile-first，去除桌面端缩小，每阶拉开 ≥1px
+ *   - --duration-fast / --font-weight-button 进入 @theme，可生成 utility
+ */
+
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --font-family-sans:
+    "Inter Variable", -apple-system, BlinkMacSystemFont, "SF Pro Display",
+    "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  --font-family-mono: "SF Mono", "Fira Code", Consolas, monospace;
+
+  /* ---------- shadcn 标准 ---------- */
+  --background: #f4f5f7;
+  --foreground: #0f1115;
+  --card: #ffffff;
+  --card-foreground: #0f1115;
+  --popover: #ffffff;
+  --popover-foreground: #0f1115;
+  --primary: var(--brand);
+  --primary-foreground: #000000;
+  --secondary: #f8fafc;
+  --secondary-foreground: #0f1115;
+  --muted: #f8fafc;
+  --muted-foreground: #4b5563;
+  /* accent 用品牌淡色 + 品牌字色（旧主题：accent 是带品牌识别的 hover/active 底色） */
+  --accent: var(--brand-muted);
+  --accent-foreground: var(--brand-text);
+  --destructive: var(--bear);
+  --destructive-foreground: #ffffff;
+  --border: #e5e7eb;
+  --input: rgba(0, 0, 0, 0.12);
+  --ring: rgba(0, 185, 116, 0.6);
+  --radius: 8px;
+
+  --chart-1: var(--brand);
+  --chart-2: var(--info);
+  --chart-3: var(--chart-accent);
+  --chart-4: var(--warning);
+  --chart-5: var(--bear);
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0f1115;
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: #000000;
+  --sidebar-accent: #f8fafc;
+  --sidebar-accent-foreground: #0f1115;
+  --sidebar-border: rgba(0, 0, 0, 0.06);
+  --sidebar-ring: rgba(0, 185, 116, 0.6);
+
+  /* ---------- 项目品牌色 ---------- */
+  --brand: #00b974;            /* 大色块/按钮底色（黑字落上，AA） */
+  --brand-hover: #009a61;
+  --brand-text: #00875a;       /* 白底文字/图标专用（AA on white 4.7:1） */
+  --brand-muted: rgba(0, 185, 116, 0.10);
+
+  /* ---------- 金融语义色 ---------- */
+  /* bull 与 brand 解耦：色相略偏黄绿，避免 chart 多系列与 brand 撞色 */
+  --bull: #16a268;
+  --bull-bg: #e6f6ee;
+  --bull-muted: rgba(22, 162, 104, 0.15);
+  --bear: #e0264f;             /* 显式声明（旧版未定义，Badge text-bear 隐性 bug） */
+  --bear-bg: #fdebf0;
+  --bear-muted: rgba(224, 38, 79, 0.15);
+  --warning: #d97706;          /* amber-600，AA on white 4.5:1 */
+  --warning-bg: #fef3e2;
+  --warning-fg: #92400e;       /* badge/alert 文字专用，深色更可读 */
+  --info: #2563eb;             /* blue-600，AA */
+  --info-bg: #ebf4ff;
+  /* chart-accent 留给 chart 调色板第三槽，避免 chart-1=brand / chart-3=bull 撞色 */
+  --chart-accent: #7c3aed;
+
+  /* ---------- 扩展背景层级 ---------- */
+  --canvas: #ffffff;
+  --surface: #ffffff;
+  --card-hover: #f3f4f6;
+  --dialog: #ffffff;
+  --field: rgba(0, 0, 0, 0.04);
+  --overlay: rgba(0, 0, 0, 0.4);
+
+  /* ---------- 扩展边框 ---------- */
+  --border-subtle: rgba(0, 0, 0, 0.06);
+
+  /* ---------- 扩展前景 ---------- */
+  --foreground-tertiary: #6b7280;   /* 旧 #9ca3af，AA 5:1 */
+  --foreground-disabled: #d1d5db;
+  --foreground-inverse: #ffffff;
+
+  /* ---------- 阴影 / 渐变 ---------- */
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.06);
+  --shadow-bull: 0 4px 16px rgba(22, 162, 104, 0.20);
+  --shadow-bear: 0 4px 16px rgba(224, 38, 79, 0.20);
+  --shadow-brand: 0 4px 16px rgba(0, 185, 116, 0.25);
+  --gradient-brand: linear-gradient(135deg, #00b974, #2563eb);
+}
+
+.dark,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --background: #050505;
+  --foreground: #ffffff;
+  --card: #111113;
+  --card-foreground: #ffffff;
+  --popover: #141416;
+  --popover-foreground: #ffffff;
+  --primary: var(--brand);
+  --primary-foreground: #000000;
+  --secondary: #1c1c1e;
+  --secondary-foreground: #ffffff;
+  --muted: #1c1c1e;
+  --muted-foreground: #a1a1aa;
+  --accent: var(--brand-muted);
+  --accent-foreground: var(--brand-text);
+  --destructive: var(--bear);
+  --destructive-foreground: #ffffff;
+  --border: #27272a;
+  --input: #2e2e32;
+  --ring: rgba(0, 255, 157, 0.6);
+
+  --sidebar: #111113;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: #000000;
+  --sidebar-accent: #1c1c1e;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #1f1f22;
+  --sidebar-ring: rgba(0, 255, 157, 0.6);
+
+  --brand: #00ff9d;            /* 深色底，对比 14:1，无需调整 */
+  --brand-hover: #33ffaf;
+  --brand-text: #00ff9d;       /* 深色主题下文字与底色同源即可 */
+  --brand-muted: rgba(0, 255, 157, 0.10);
+
+  --bull: #2ee08a;             /* 略偏黄绿，与 brand 解耦 */
+  --bull-bg: #001c11;
+  --bull-muted: rgba(46, 224, 138, 0.15);
+  --bear: #ff3366;             /* 显式声明 */
+  --bear-bg: #1f060c;
+  --bear-muted: rgba(255, 51, 102, 0.15);
+  --warning: #ff9900;
+  --warning-bg: #1f1300;
+  --warning-fg: #fbbf24;       /* 深色主题反向：用更浅的 amber */
+  --info: #3388ff;
+  --info-bg: #061122;
+  --chart-accent: #a78bfa;
+
+  --canvas: #000000;
+  --surface: #111113;
+  --card-hover: #1c1c1e;
+  --dialog: #0f0f11;
+  --field: #0f0f11;
+  --overlay: rgba(0, 0, 0, 0.8);
+
+  --border-subtle: #1f1f22;
+
+  --foreground-tertiary: #a1a1aa;   /* 深色主题下放亮一点，AA */
+  --foreground-disabled: #3f3f46;
+  --foreground-inverse: #000000;
+
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.4);
+  --shadow-bull: 0 4px 16px rgba(46, 224, 138, 0.20);
+  --shadow-bear: 0 4px 16px rgba(255, 51, 102, 0.20);
+  --shadow-brand: 0 4px 16px rgba(0, 255, 157, 0.25);
+  --gradient-brand: linear-gradient(135deg, #00ff9d, #00d4ff);
+}
+
+@theme {
+  /* shadcn 颜色 utility */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* 项目扩展 utility */
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-text: var(--brand-text);     /* 新增 */
+  --color-brand-muted: var(--brand-muted);
+  --color-bull: var(--bull);
+  --color-bull-bg: var(--bull-bg);
+  --color-bull-muted: var(--bull-muted);
+  --color-bear: var(--bear);                 /* 新增（修隐性 bug） */
+  --color-bear-bg: var(--bear-bg);
+  --color-bear-muted: var(--bear-muted);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --color-warning-fg: var(--warning-fg);     /* 新增 */
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
+  --color-chart-accent: var(--chart-accent);
+
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-card-hover: var(--card-hover);
+  --color-dialog: var(--dialog);
+  --color-field: var(--field);
+  --color-overlay: var(--overlay);
+
+  --color-border-subtle: var(--border-subtle);
+
+  --color-foreground-tertiary: var(--foreground-tertiary);
+  --color-foreground-disabled: var(--foreground-disabled);
+  --color-foreground-inverse: var(--foreground-inverse);
+
+  /* shadow / gradient 不在 @theme 注册：
+     - 真实值随主题切换，由 :root / .dark 直接写
+     - utility 由 globals.css 的 @utility 生成（避免 --x: var(--x) 自引用循环
+       和 Tailwind 自动 utility 重复定义） */
+
+  --font-sans: var(--font-family-sans);
+  --font-mono: var(--font-family-mono);
+  --font-heading: var(--font-family-sans);
+
+  /* 字重 utility（新增）：font-button 替代 font-[var(--font-weight-button)] */
+  --font-weight-button: 700;
+
+  /* 动效 utility（新增）：duration-fast / duration-base / ease-out */
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* mobile-first 字号；桌面端在 @media (min-width: 768px) 放大
+     原则：每一阶拉开 ≥ 1px，桌面端只放大不缩小 */
+  --text-2xs: 0.6875rem;   /* 11 mobile / 11 desktop */
+  --text-xs:  0.75rem;     /* 12 / 12 */
+  --text-sm:  0.875rem;    /* 14 / 14 */
+  --text-base:1rem;        /* 16 / 16 */
+  --text-lg:  1.0625rem;   /* 17 / 18 */
+  --text-xl:  1.1875rem;   /* 19 / 20 */
+  --text-2xl: 1.375rem;    /* 22 / 24 */
+  --text-3xl: 1.625rem;    /* 26 / 30 */
+  --text-4xl: 1.875rem;    /* 30 / 36 */
+
+  /* 标题语义字号（新增）：组件层用 text-h1/h2/h3，避免每个组件自己写阶梯 */
+  --text-h1: 1.875rem;      /* PageHeader 标题，30px */
+  --text-h2: 1.5rem;        /* Section 标题，24px */
+  --text-h3: 1.125rem;      /* Dialog / Empty / Card 标题，18px */
+  --text-stat-lg: 2rem;     /* StatItem size=lg，32px */
+
+  --leading-none: 1;
+  --leading-tight: 1.25;
+  --leading-snug: 1.375;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-3xl: 24px;
+  --radius-4xl: 28px;
+  --radius-full: 9999px;
+}
+
+@media (min-width: 768px) {
+  :root,
+  [data-theme="light"],
+  [data-theme="dark"] {
+    /* 桌面端：每阶 +1~2px，绝不做缩小（修原版 text-2xs 桌面反而更小的逆转） */
+    --text-2xs: 0.6875rem;   /* 持平 11px，不再缩到 10px */
+    --text-lg:  1.125rem;    /* 18 */
+    --text-xl:  1.25rem;     /* 20 */
+    --text-2xl: 1.5rem;      /* 24 */
+    --text-3xl: 1.875rem;    /* 30 */
+    --text-4xl: 2.25rem;     /* 36 */
+
+    --text-h1: 1.875rem;
+    --text-h2: 1.5rem;
+    --text-h3: 1.125rem;
+    --text-stat-lg: 2rem;
+  }
+}

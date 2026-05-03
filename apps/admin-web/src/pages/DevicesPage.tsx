@@ -1,23 +1,29 @@
 import * as React from 'react';
 import {
+  Badge,
+  Button,
+  InfoBlock,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
-} from '../components/ui/table.js';
-import { Skeleton } from '../components/ui/skeleton.js';
-import { Button } from '../components/ui/button.js';
-import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '../components/ui/dialog.js';
-import { listDevices, revokeDevice, type AdminDevice } from '../lib/admin-api.js';
+  Skeleton,
+} from '@tether/design';
+import { Radio, RefreshCcw, Shield, ShieldBan, Smartphone } from 'lucide-react';
+import { AdminEmptyState, AdminMetricCard, AdminPageFrame, AdminPanel } from '../components/console/AdminPageFrame.js';
+import {
+  listDevices,
+  revokeDevice,
+  type AdminDevice,
+} from '../lib/admin-api.js';
 import { useAdminAuth } from '../hooks/use-admin-auth.js';
 
 const PAGE_SIZE = 20;
@@ -29,17 +35,9 @@ function formatDate(ms: number | null): string {
 
 function StatusBadge({ status }: { status: 'active' | 'revoked' }) {
   if (status === 'revoked') {
-    return (
-      <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold text-destructive bg-destructive/10">
-        已吊销
-      </span>
-    );
+    return <Badge variant="destructive">已吊销</Badge>;
   }
-  return (
-    <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold text-green-400 bg-green-400/10">
-      在线
-    </span>
-  );
+  return <Badge variant="bull">在线</Badge>;
 }
 
 export function DevicesPage() {
@@ -93,117 +91,124 @@ export function DevicesPage() {
   }
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const activeDevices = devices.filter((device) => device.status === 'active').length;
+  const revokedDevices = devices.filter((device) => device.status === 'revoked').length;
+  const assignedDevices = devices.filter((device) => device.userEmail).length;
 
   return (
-    <div>
-      <h1 className="text-lg font-semibold mb-6">设备</h1>
-
-      {error && (
-        <div className="flex items-center gap-3 mb-4">
-          <p className="text-destructive text-sm">数据加载失败，请检查网络连接后重试。</p>
-          <Button variant="outline" size="sm" onClick={() => fetchDevices(page)}>
-            重试
-          </Button>
-        </div>
-      )}
-
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="text-xs font-semibold">设备名</TableHead>
-              <TableHead className="text-xs font-semibold">类型</TableHead>
-              <TableHead className="text-xs font-semibold">所属用户</TableHead>
-              <TableHead className="text-xs font-semibold">在线状态</TableHead>
-              <TableHead className="text-xs font-semibold">最后在线时间</TableHead>
-              <TableHead className="text-xs font-semibold">操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading
-              ? Array.from({ length: PAGE_SIZE }).map((_, i) => (
-                  <TableRow key={i}>
-                    {Array.from({ length: 6 }).map((_, j) => (
-                      <TableCell key={j}>
-                        <Skeleton className="h-4 w-full" />
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))
-              : devices.length === 0
-              ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={6}
-                      className="text-center py-12 text-muted-foreground"
-                    >
-                      <p className="font-medium">暂无设备</p>
-                      <p className="text-xs mt-1">该用户还没有注册设备。</p>
-                    </TableCell>
-                  </TableRow>
-                )
-              : devices.map(device => (
-                  <TableRow key={device.id}>
-                    <TableCell className="text-sm">{device.name}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{device.platform}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {device.userEmail ?? '—'}
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge status={device.status} />
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {formatDate(device.lastSeenAt)}
-                    </TableCell>
-                    <TableCell>
-                      {device.status === 'active'
-                        ? (
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              onClick={() => setConfirmDevice(device)}
-                            >
-                              吊销
-                            </Button>
-                          )
-                        : (
-                            <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold text-destructive bg-destructive/10">
-                              已吊销
-                            </span>
-                          )
-                      }
-                    </TableCell>
-                  </TableRow>
-                ))}
-          </TableBody>
-        </Table>
+    <AdminPageFrame
+      eyebrow="Access"
+      title="设备管理"
+      description="设备页不是单纯终端名单，而是接入风险面。重点看当前在线、已吊销和是否绑定到有效用户。"
+      actions={
+        <Button variant="outline" size="sm" onClick={() => fetchDevices(page)}>
+          <span className="inline-flex items-center gap-2">
+            <RefreshCcw className="size-4" />
+            刷新
+          </span>
+        </Button>
+      }
+    >
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <AdminMetricCard label="设备总量" value={loading ? <Skeleton className="h-10 w-20" /> : total} helper="当前工作区已注册终端" tone="brand" icon={Smartphone} />
+        <AdminMetricCard label="在线设备" value={loading ? <Skeleton className="h-10 w-20" /> : activeDevices} helper="当前页可继续接入的终端" tone="bull" icon={Radio} />
+        <AdminMetricCard label="已吊销" value={loading ? <Skeleton className="h-10 w-20" /> : revokedDevices} helper="已经被后台封禁的终端" tone="bear" icon={ShieldBan} />
+        <AdminMetricCard label="已绑定用户" value={loading ? <Skeleton className="h-10 w-20" /> : assignedDevices} helper="身份链路完整的终端" tone="default" icon={Shield} />
       </div>
 
-      {!loading && total > 0 && (
-        <div className="flex items-center justify-between mt-4 text-sm text-muted-foreground">
-          <span>
-            第 {page} 页，共 {total} 条
-          </span>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page <= 1}
-              onClick={() => setPage(p => p - 1)}
-            >
-              上一页
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages}
-              onClick={() => setPage(p => p + 1)}
-            >
-              下一页
-            </Button>
+      <AdminPanel
+        title="终端接入面"
+        description="看到异常设备时，直接在这里执行吊销，而不是先绕去别的页面。"
+        count={total}
+        toolbar={
+          <div className="flex flex-wrap items-center gap-3">
+            <Badge variant="default">支持直接吊销</Badge>
+            <Badge variant="secondary">展示用户归属</Badge>
+            <Badge variant="secondary">最后在线可见</Badge>
           </div>
-        </div>
-      )}
+        }
+      >
+        {error ? (
+          <AdminEmptyState
+            title="设备列表暂时拉不下来"
+            description="先恢复后台连接，再回来处理接入面风险。"
+            action={<Button onClick={() => fetchDevices(page)}>重新加载</Button>}
+          />
+        ) : (
+          <>
+            <div className="overflow-hidden rounded-2xl border border-border/60 bg-background/70">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs font-semibold">设备名</TableHead>
+                    <TableHead className="text-xs font-semibold">类型</TableHead>
+                    <TableHead className="text-xs font-semibold">所属用户</TableHead>
+                    <TableHead className="text-xs font-semibold">在线状态</TableHead>
+                    <TableHead className="text-xs font-semibold">最后在线时间</TableHead>
+                    <TableHead className="text-xs font-semibold">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading
+                    ? Array.from({ length: PAGE_SIZE }).map((_, i) => (
+                        <TableRow key={i}>
+                          {Array.from({ length: 6 }).map((_, j) => (
+                            <TableCell key={j}>
+                              <Skeleton className="h-4 w-full" />
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))
+                    : devices.length === 0
+                    ? (
+                        <TableRow>
+                          <TableCell colSpan={6} className="p-0">
+                            <AdminEmptyState
+                              title="还没有设备"
+                              description="没有设备接入时，后台就无法建立有效的终端控制和吊销闭环。"
+                            />
+                          </TableCell>
+                        </TableRow>
+                      )
+                    : devices.map((device) => (
+                        <TableRow key={device.id}>
+                          <TableCell className="align-top">
+                            <div className="space-y-1">
+                              <div className="text-sm font-semibold text-foreground">{device.name}</div>
+                              <div className="text-xs text-muted-foreground">{device.id}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{device.platform}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{device.userEmail ?? '—'}</TableCell>
+                          <TableCell><StatusBadge status={device.status} /></TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{formatDate(device.lastSeenAt)}</TableCell>
+                          <TableCell>
+                            {device.status === 'active' ? (
+                              <Button variant="destructive" size="sm" onClick={() => setConfirmDevice(device)}>
+                                吊销
+                              </Button>
+                            ) : (
+                              <Badge variant="destructive">已吊销</Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            {!loading && total > 0 ? (
+              <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-border/60 bg-background/70 px-4 py-3 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
+                <span>第 {page} 页，共 {total} 台设备</span>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>上一页</Button>
+                  <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>下一页</Button>
+                </div>
+              </div>
+            ) : null}
+          </>
+        )}
+      </AdminPanel>
 
       <Dialog
         open={!!confirmDevice}
@@ -214,34 +219,24 @@ export function DevicesPage() {
           }
         }}
       >
-        <DialogContent className="max-w-[400px]">
+        <DialogContent className="max-w-[420px]">
           <DialogHeader>
             <DialogTitle>吊销设备</DialogTitle>
             <DialogDescription>
-              确定吊销设备 {confirmDevice?.name}？此操作不可撤销。
+              确定吊销设备 {confirmDevice?.name}？此操作会立即切断该终端的后台访问资格。
             </DialogDescription>
           </DialogHeader>
-          {revokeError && (
-            <p className="text-sm text-destructive">{revokeError}</p>
-          )}
+          {revokeError ? <InfoBlock variant="error" title="吊销失败" description={revokeError} /> : null}
           <DialogFooter>
-            <Button
-              variant="secondary"
-              disabled={!!revoking}
-              onClick={() => { setConfirmDevice(null); setRevokeError(null); }}
-            >
+            <Button variant="secondary" disabled={!!revoking} onClick={() => { setConfirmDevice(null); setRevokeError(null); }}>
               取消
             </Button>
-            <Button
-              variant="destructive"
-              disabled={!!revoking}
-              onClick={() => confirmDevice && handleRevoke(confirmDevice)}
-            >
+            <Button variant="destructive" disabled={!!revoking} onClick={() => confirmDevice && handleRevoke(confirmDevice)}>
               {revoking ? '吊销中…' : '确认吊销'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </AdminPageFrame>
   );
 }

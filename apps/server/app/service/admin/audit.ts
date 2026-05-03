@@ -1,6 +1,6 @@
-import type { AuthConfig } from '../auth.js';
-import { runtimeStore } from '../runtime.js';
-import { mysqlModeEnabled, loadAuditEventsFiltered, countAuditEventsFiltered } from '../storage.js';
+import type { AuthConfig } from '../auth';
+import { runtimeStore } from '../runtime';
+import { mysqlModeEnabled, loadAuditEventsFiltered, countAuditEventsFiltered } from '../storage';
 
 export async function listAdminAuditEvents(
   _config: AuthConfig,

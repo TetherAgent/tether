@@ -16,6 +16,7 @@ import {
   type UserRecord
 } from './runtime';
 import {
+  bootstrapAccountAndWorkspace,
   countAdminUsers,
   createAccountOwnerUser,
   createAdminUser,
@@ -237,7 +238,7 @@ async function createDevice(base: {
     updatedAt: createdAt
   };
   if (mysqlModeEnabled() && options?.persist !== false) {
-    await saveDevice(device);
+    device.id = await saveDevice(device);
   } else if (!mysqlModeEnabled()) {
     runtimeStore().devices.set(device.id, device);
   }
@@ -258,6 +259,7 @@ function managementTokenPayload(user: AdminUserRecord, device: DeviceRecord) {
     accountId: user.accountId,
     workspaceId: user.workspaceId,
     adminUserId: user.id,
+    adminEmail: user.email,
     deviceId: device.id
   };
 }
@@ -349,15 +351,22 @@ export async function registerNormalUser(input: RegisterInput, config: AuthConfi
     }, mysqlModeEnabled() ? { persist: false } : undefined);
 
     if (mysqlModeEnabled()) {
-      await createAccountOwnerUser({
-        account: {
-          ...account,
-          passwordHash
-        },
+      const ids = await createAccountOwnerUser({
+        account: { ...account, passwordHash },
         workspace,
         user,
         device
       });
+      account.id = ids.accountId;
+      workspace.id = ids.workspaceId;
+      workspace.accountId = ids.accountId;
+      user.id = ids.userId;
+      user.accountId = ids.accountId;
+      user.workspaceId = ids.workspaceId;
+      device.id = ids.deviceId;
+      device.accountId = ids.accountId;
+      device.workspaceId = ids.workspaceId;
+      device.userId = ids.userId;
     } else {
       store.accounts.set(account.id, account);
       store.workspaces.set(workspace.id, workspace);
@@ -420,10 +429,10 @@ export async function registerNormalUser(input: RegisterInput, config: AuthConfi
   }, mysqlModeEnabled() ? { persist: false } : undefined);
 
   if (mysqlModeEnabled()) {
-    await createNormalUser({
-      user,
-      device
-    });
+    const ids = await createNormalUser({ user, device });
+    user.id = ids.userId;
+    device.id = ids.deviceId;
+    device.userId = ids.userId;
   } else {
     store.users.set(user.id, user);
   }
@@ -513,11 +522,39 @@ export async function loginNormalUser(input: LoginInput, config: AuthConfig) {
 
 export async function registerManagementUser(input: RegisterInput, config: AuthConfig) {
   const store = runtimeStore();
-  const account = await primaryAccountRecord();
-  const workspace = account ? await defaultWorkspaceRecord(account.id) : undefined;
+  let account = await primaryAccountRecord();
+  let workspace = account ? await defaultWorkspaceRecord(account.id) : undefined;
+
   if (!account || !workspace) {
-    throw new Error('owner_required');
+    const bootstrapAt = now();
+    account = {
+      id: newId('acct'),
+      email: input.email,
+      displayName: input.email,
+      status: 'active',
+      createdAt: bootstrapAt,
+      updatedAt: bootstrapAt
+    };
+    workspace = {
+      id: newId('ws'),
+      accountId: account.id,
+      slug: 'default',
+      name: 'Default Workspace',
+      isDefault: true,
+      createdAt: bootstrapAt,
+      updatedAt: bootstrapAt
+    };
+    if (mysqlModeEnabled()) {
+      const ids = await bootstrapAccountAndWorkspace({ account, workspace });
+      account.id = ids.accountId;
+      workspace.id = ids.workspaceId;
+      workspace.accountId = ids.accountId;
+    } else {
+      store.accounts.set(account.id, account);
+      store.workspaces.set(workspace.id, workspace);
+    }
   }
+
   const existing = await managementUserByEmail(input.email);
   if (existing) {
     throw new Error('email_already_registered');
@@ -545,10 +582,10 @@ export async function registerManagementUser(input: RegisterInput, config: AuthC
   }, mysqlModeEnabled() ? { persist: false } : undefined);
 
   if (mysqlModeEnabled()) {
-    await createAdminUser({
-      adminUser,
-      device
-    });
+    const ids = await createAdminUser({ adminUser, device });
+    adminUser.id = ids.adminId;
+    device.id = ids.deviceId;
+    device.adminUserId = ids.adminId;
   } else {
     store.adminUsers.set(adminUser.id, adminUser);
   }

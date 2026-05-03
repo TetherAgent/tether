@@ -3,15 +3,14 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card.js';
-import { Button } from '../components/ui/button.js';
+import { Button, InfoBlock, Input } from '@tether/design';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../components/ui/form.js';
-import { Input } from '../components/ui/input.js';
+import { AdminAuthShell } from '../components/console/AdminAuthShell.js';
 import { useAdminAuth } from '../hooks/use-admin-auth.js';
 import { createAdmin } from '../lib/admin-api.js';
 
 const registerSchema = z.object({
-  email: z.string().email('请输入有效邮箱'),
+  email: z.string().min(1, '请输入账户名'),
   password: z.string().min(8, '密码至少 8 位'),
   confirmPassword: z.string().min(1, '请再次输入密码')
 }).refine((data) => data.password === data.confirmPassword, {
@@ -50,66 +49,76 @@ export function AdminRegisterPage() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-background">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle className="text-lg">管理员注册</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>邮箱</FormLabel>
-                    <FormControl>
-                      <Input type="email" placeholder="admin@example.com" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>密码</FormLabel>
-                    <FormControl>
-                      <Input type="password" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="confirmPassword"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>确认密码</FormLabel>
-                    <FormControl>
-                      <Input type="password" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              {serverError && (
-                <p className="text-sm text-destructive">{serverError}</p>
-              )}
-              <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting ? '注册中…' : '注册'}
-              </Button>
-              <p className="text-sm text-center text-muted-foreground">
-                <Link to="/admin/login" className="underline">已有账户？登录</Link>
-              </p>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
-    </div>
+    <AdminAuthShell
+      mode="register"
+      title="创建管理员账户"
+      description="新增后台操作员前，先确认你当前处于已认证的管理域上下文。"
+      footer={
+        <div className="space-y-3">
+          <InfoBlock
+            variant={managementAuth ? 'success' : 'warning'}
+            title={managementAuth ? '已获得管理权限' : '需要先登录'}
+            description={
+              managementAuth
+                ? '当前会话已具备创建管理员账户的权限。'
+                : '注册管理员不是公开入口，必须由现有管理会话发起。'
+            }
+          />
+          <p className="text-sm text-center text-muted-foreground">
+            <Link to="/admin/login" className="underline underline-offset-4">已有账户？先登录再继续</Link>
+          </p>
+        </div>
+      }
+    >
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+          <FormField
+            control={form.control}
+            name="email"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>账户名</FormLabel>
+                <FormControl>
+                  <Input className="h-12 text-base" type="text" placeholder="admin@example.com" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="password"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>密码</FormLabel>
+                <FormControl>
+                  <Input className="h-12 text-base" type="password" placeholder="至少 8 位" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="confirmPassword"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>确认密码</FormLabel>
+                <FormControl>
+                  <Input className="h-12 text-base" type="password" placeholder="再次输入密码" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          {serverError ? (
+            <InfoBlock variant="error" title="创建失败" description={serverError} />
+          ) : null}
+          <Button type="submit" size="lg" className="w-full" disabled={form.formState.isSubmitting}>
+            {form.formState.isSubmitting ? '创建中…' : '创建管理员账户'}
+          </Button>
+        </form>
+      </Form>
+    </AdminAuthShell>
   );
 }

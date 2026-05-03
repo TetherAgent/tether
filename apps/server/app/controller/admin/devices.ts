@@ -1,6 +1,6 @@
 import { Controller } from 'egg';
-import { requireManagementToken } from '../../middleware/admin-auth.js';
-import { listAdminDevices, revokeAdminDevice } from '../../service/admin/devices.js';
+import { requireManagementToken } from '../../middleware/admin-auth';
+import { listAdminDevices, revokeAdminDevice } from '../../service/admin/devices';
 
 export default class AdminDevicesController extends Controller {
   public async index(): Promise<void> {
