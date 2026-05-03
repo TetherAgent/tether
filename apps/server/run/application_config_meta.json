@@ -248,6 +248,9 @@
     "type": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/config.default.js",
     "scripts": {
       "dev": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/config.default.js",
+      "build": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/config.default.js",
+      "start": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/config.default.js",
+      "stop": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/config.default.js",
       "test": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/config.default.js",
       "typecheck": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/config.default.js"
     },
@@ -266,6 +269,7 @@
     "devDependencies": {
       "@types/node": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/config.default.js",
       "egg-bin": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/config.default.js",
+      "egg-scripts": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/config.default.js",
       "tsx": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/config.default.js",
       "typescript": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/config.default.js"
     }
