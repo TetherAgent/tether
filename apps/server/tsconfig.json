@@ -2,17 +2,12 @@
   "extends": "@eggjs/tsconfig",
   "exclude": ["app/public", "app/views", "node_modules*"],
   "compilerOptions": {
-    "ignoreDeprecations": "5.0",
+     "ignoreDeprecations": "5.0",
+
     "noImplicitAny": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "esModuleInterop": true,
-    "target": "ES2022",
-    "module": "CommonJS",
-    "moduleResolution": "Node",
-    "baseUrl": ".",
-    "outDir": "dist",
-    "types": ["node"],
     "paths": {
       "@tether/core": ["../../packages/core/src/index.ts"]
     }
