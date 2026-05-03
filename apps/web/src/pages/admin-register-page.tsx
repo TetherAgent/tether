@@ -4,9 +4,12 @@ import { useForm } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 
-import { Button, Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle, Input } from '@tether/design';
+import { Button, InfoBlock, Input } from '@tether/design';
+import { WebAuthShell } from '../components/console/WebAuthShell.js';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../components/ui/form.js';
+import { useUiPreferences } from '../hooks/use-ui-preferences.js';
 import { useAuth } from '../hooks/use-auth.js';
+import { getWebCopy } from '../lib/ui-copy.js';
 
 const schema = z.object({
   displayName: z.string().trim().min(2, '请输入至少 2 个字符的名称'),
@@ -19,6 +22,8 @@ type FormValues = z.infer<typeof schema>;
 export function AdminRegisterPage() {
   const navigate = useNavigate();
   const { registerManagement } = useAuth();
+  const { locale } = useUiPreferences();
+  const copy = getWebCopy(locale);
   const [error, setError] = React.useState<string | null>(null);
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -40,51 +45,52 @@ export function AdminRegisterPage() {
   });
 
   return (
-    <main className="auth-shell">
-      <Card className="auth-card">
-        <CardHeader>
-          <CardTitle>Set up management console</CardTitle>
-          <CardDescription>Management auth stays isolated from terminal control and uses its own browser storage key.</CardDescription>
-        </CardHeader>
-        <CardContent className="auth-card-content">
-          <Form {...form}>
-            <form className="auth-form-stack" onSubmit={submit}>
-              <FormField control={form.control} name="displayName" render={({ field }) => (
-                <FormItem className="auth-form-field">
-                  <FormLabel>Display name</FormLabel>
-                  <FormControl><Input placeholder="Operator" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="email" render={({ field }) => (
-                <FormItem className="auth-form-field">
-                  <FormLabel>Email</FormLabel>
-                  <FormControl><Input placeholder="admin@example.com" type="text" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="password" render={({ field }) => (
-                <FormItem className="auth-form-field">
-                  <FormLabel>Password</FormLabel>
-                  <FormControl><Input placeholder="Minimum 8 characters" type="password" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              {error ? <p className="auth-error">{error}</p> : null}
-              <Button disabled={form.formState.isSubmitting} type="submit">
-                {form.formState.isSubmitting ? 'Setting up...' : 'Set up management console'}
-              </Button>
-            </form>
-          </Form>
-        </CardContent>
-        <CardFooter>
-          <p className="auth-footer-copy">
+    <WebAuthShell
+      realm="management"
+      title={copy.managementRegisterTitle}
+      description={copy.managementRegisterDescription}
+      footer={(
+        <InfoBlock
+          variant="info"
+          title={copy.managementSurface}
+          description={copy.managementRegisterDescription}
+          action={(
             <Link className="auth-footer-link" to="/admin/login">
-              Already set up? Sign in
+              {copy.adminReady}
             </Link>
-          </p>
-        </CardFooter>
-      </Card>
-    </main>
+          )}
+        />
+      )}
+    >
+      <Form {...form}>
+        <form className="auth-form-stack" onSubmit={submit}>
+          <FormField control={form.control} name="displayName" render={({ field }) => (
+            <FormItem className="auth-form-field">
+              <FormLabel>{copy.displayNameLabel}</FormLabel>
+              <FormControl><Input placeholder={copy.operatorPlaceholder} {...field} /></FormControl>
+              <FormMessage />
+            </FormItem>
+          )} />
+          <FormField control={form.control} name="email" render={({ field }) => (
+            <FormItem className="auth-form-field">
+              <FormLabel>{copy.emailLabel}</FormLabel>
+              <FormControl><Input placeholder={copy.adminEmailPlaceholder} type="text" {...field} /></FormControl>
+              <FormMessage />
+            </FormItem>
+          )} />
+          <FormField control={form.control} name="password" render={({ field }) => (
+            <FormItem className="auth-form-field">
+              <FormLabel>{copy.passwordLabel}</FormLabel>
+              <FormControl><Input placeholder={copy.passwordPlaceholder} type="password" {...field} /></FormControl>
+              <FormMessage />
+            </FormItem>
+          )} />
+          {error ? <InfoBlock variant="error" title={copy.setupManagement} description={error} /> : null}
+          <Button disabled={form.formState.isSubmitting} type="submit" size="lg" className="w-full">
+            {form.formState.isSubmitting ? copy.settingUpManagement : copy.setupManagement}
+          </Button>
+        </form>
+      </Form>
+    </WebAuthShell>
   );
 }
