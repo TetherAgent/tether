@@ -187,7 +187,7 @@
 
   证据：`apps/server/test/app/service/auth.test.ts:8`、`apps/server/app/service/authRepository.ts:26`
 
-  修复建议：新增 repository SQL 层测试。短期可 mock `ctx.service.db.query()` 捕获 SQL 和参数；中期加 `TETHER_SERVER_ENABLE_MYSQL=1` 的可选 integration 测试。
+  修复建议：新增 repository SQL 层测试。短期可 mock `ctx.service.db.query()` 捕获 SQL 和参数；中期加可选 MySQL integration 测试。
 
   建议测试：覆盖设备、refresh revoke、admin list、audit filter 的 MySQL SQL 分支。
 

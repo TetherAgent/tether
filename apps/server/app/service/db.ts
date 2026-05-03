@@ -11,18 +11,10 @@ type MysqlApplication = {
 };
 
 export default class DbService extends Service {
-  private envFlag(name: string): boolean {
-    const value = process.env[name]?.trim().toLowerCase();
-    return value === '1' || value === 'true';
-  }
-
   public mysqlModeEnabled() {
     const { app } = this;
     const env = app.config.env ?? process.env.EGG_SERVER_ENV ?? process.env.NODE_ENV;
-    if (env === 'local') {
-      return true;
-    }
-    return this.envFlag('TETHER_SERVER_ENABLE_MYSQL');
+    return env !== 'test' && env !== 'unittest';
   }
 
   public mysql() {

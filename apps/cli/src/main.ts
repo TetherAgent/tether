@@ -13,7 +13,6 @@ import {
   readTetherConfig,
   resolveGatewayConfig,
   resolveRelayConfig,
-  writeTetherConfig,
   type TetherConfig
 } from '@tether/config';
 import {
@@ -57,8 +56,10 @@ process.stdout.on('error', (error: NodeJS.ErrnoException) => {
 
 program
   .name('tether')
-  .description('Agent console for sharing one CLI agent session across devices')
-  .version('0.1.0');
+  .description('跨设备接管同一个 CLI Agent 会话的控制台')
+  .version('0.1.0', '-V, --version', '输出版本号')
+  .helpOption('-h, --help', '显示帮助')
+  .addHelpCommand('help [command]', '显示指定命令的帮助');
 
 type StartOptions = {
   host: string;
@@ -111,15 +112,15 @@ class NonTetherGatewayError extends Error {
 function addProviderCommand(provider: ProviderDefinition): void {
   program
     .command(provider.name)
-    .description(`start a tether-managed ${provider.name} session`)
-    .option('--host <host>', 'daemon host to bind', '127.0.0.1')
-    .option('--port <port>', 'daemon port', parsePort, 4789)
-    .option('--project <path>', 'project directory', process.cwd())
-    .option('--transport <transport>', 'session transport: pty or tmux', parseTransport, 'pty')
+    .description(`启动由 Tether 托管的 ${provider.name} 会话`)
+    .option('--host <host>', 'Gateway 监听地址', '127.0.0.1')
+    .option('--port <port>', 'Gateway 端口', parsePort, 4789)
+    .option('--project <path>', '项目目录', process.cwd())
+    .option('--transport <transport>', '会话传输方式：pty 或 tmux', parseTransport, 'pty')
     .option('--inline', '强制使用 inline Gateway，不转发到常驻 Gateway')
-    .option('--relay-url <url>', 'relay server URL; falls back to TETHER_RELAY_URL')
-    .option('--relay-secret <secret>', 'relay shared secret; falls back to TETHER_RELAY_SECRET')
-    .option('--no-attach', 'start session without attaching this terminal')
+    .option('--relay-url <url>', 'Relay 服务地址；默认读取 TETHER_RELAY_URL')
+    .option('--relay-secret <secret>', 'Relay 共享密钥；默认读取 TETHER_RELAY_SECRET')
+    .option('--no-attach', '只启动 session，不接入当前终端')
     .action((options: StartOptions) => startProviderSession(provider, options));
 }
 
@@ -129,11 +130,13 @@ for (const provider of Object.values(PROVIDERS)) {
 
 const gatewayCommand = program
   .command('gateway')
-  .description('start a persistent Tether Gateway without creating a session')
-  .option('--host <host>', 'daemon host to bind')
-  .option('--port <port>', 'daemon port', parsePort)
-  .option('--relay-url <url>', 'relay server URL; falls back to TETHER_RELAY_URL')
-  .option('--relay-secret <secret>', 'relay shared secret; falls back to TETHER_RELAY_SECRET')
+  .description('启动常驻 Tether Gateway，不创建新的 session')
+  .option('--host <host>', 'Gateway 监听地址')
+  .option('--port <port>', 'Gateway 端口', parsePort)
+  .option('--relay-url <url>', 'Relay 服务地址；默认读取 TETHER_RELAY_URL')
+  .option('--relay-secret <secret>', 'Relay 共享密钥；默认读取 TETHER_RELAY_SECRET')
+  .helpOption('-h, --help', '显示帮助')
+  .addHelpCommand('help [command]', '显示指定 Gateway 命令的帮助')
   .action(async (options: { host?: string; port?: number; relayUrl?: string; relaySecret?: string }, command: Command) => {
     const file = readTetherConfig();
     const gateway = resolveGatewayConfig({ cli: gatewayCliConfig(options, command), file });
@@ -156,10 +159,10 @@ const gatewayCommand = program
 
 gatewayCommand
   .command('login')
-  .description('bind this local Gateway to the remote auth server and persist auth.json')
-  .option('--server-url <url>', 'Server base URL; falls back to TETHER_SERVER_URL')
-  .option('--email <email>', 'account email')
-  .option('--password <password>', 'account password')
+  .description('绑定本机 Gateway 到远程 Server，并写入 auth.json')
+  .option('--server-url <url>', 'Server 基础地址；默认读取 TETHER_SERVER_URL')
+  .option('--email <email>', '账号邮箱')
+  .option('--password <password>', '账号密码')
   .action(async (options: { serverUrl?: string; email?: string; password?: string }) => {
     const serverUrl = normalizeServerUrl(options.serverUrl ?? process.env.TETHER_SERVER_URL);
     if (!serverUrl) {
@@ -211,98 +214,8 @@ gatewayCommand
   });
 
 gatewayCommand
-  .command('config')
-  .description('write local Tether Gateway configuration')
-  .option('--host <host>', 'Gateway host')
-  .option('--port <port>', 'Gateway port', parsePort)
-  .option('--relay-url <url>', 'Relay URL')
-  .option('--relay-secret <secret>', 'Relay shared secret')
-  .option('--codex-command <path>', 'Codex provider command path')
-  .option('--claude-command <path>', 'Claude provider command path')
-  .option('--opencode-command <path>', 'OpenCode provider command path')
-  .option('--clear-codex-command', 'clear Codex provider command path')
-  .option('--clear-claude-command', 'clear Claude provider command path')
-  .option('--clear-opencode-command', 'clear OpenCode provider command path')
-  .option('--allow-api-session-create', '允许 Gateway API 创建白名单 provider session')
-  .action(async (options: {
-    host?: string;
-    port?: number;
-    relayUrl?: string;
-    relaySecret?: string;
-    codexCommand?: string;
-    claudeCommand?: string;
-    opencodeCommand?: string;
-    clearCodexCommand?: boolean;
-    clearClaudeCommand?: boolean;
-    clearOpencodeCommand?: boolean;
-    allowApiSessionCreate?: boolean;
-  }, command: Command) => {
-    const gatewayOptions = command.parent?.opts<{
-      host?: string;
-      port?: number;
-      relayUrl?: string;
-      relaySecret?: string;
-    }>() ?? {};
-    const host = options.host ?? gatewayOptions.host;
-    const port = options.port ?? gatewayOptions.port;
-    const relayUrl = options.relayUrl ?? gatewayOptions.relayUrl;
-    const relaySecret = options.relaySecret ?? gatewayOptions.relaySecret;
-    const existing = readTetherConfig();
-    const next: TetherConfig = {
-      ...existing,
-      gateway: { ...existing.gateway },
-      relay: { ...existing.relay },
-      providers: { ...existing.providers }
-    };
-    if (host !== undefined) {
-      next.gateway = { ...next.gateway, host };
-    }
-    if (port !== undefined) {
-      next.gateway = { ...next.gateway, port };
-    }
-    if (command.getOptionValueSource('allowApiSessionCreate') === 'cli') {
-      next.gateway = { ...next.gateway, allowApiSessionCreate: options.allowApiSessionCreate === true };
-    }
-    if (relayUrl !== undefined) {
-      next.relay = { ...next.relay, url: relayUrl };
-    }
-    if (relaySecret !== undefined) {
-      next.relay = { ...next.relay, secret: relaySecret };
-    }
-    for (const [provider, commandPath] of Object.entries({
-      codex: options.codexCommand,
-      claude: options.claudeCommand,
-      opencode: options.opencodeCommand
-    }) as Array<[keyof NonNullable<TetherConfig['providers']>, string | undefined]>) {
-      if (commandPath !== undefined) {
-        next.providers = { ...next.providers, [provider]: { command: path.resolve(commandPath) } };
-      }
-    }
-    for (const [provider, clear] of Object.entries({
-      codex: options.clearCodexCommand,
-      claude: options.clearClaudeCommand,
-      opencode: options.clearOpencodeCommand
-    }) as Array<[keyof NonNullable<TetherConfig['providers']>, boolean | undefined]>) {
-      if (clear === true && next.providers) {
-        delete next.providers[provider];
-      }
-    }
-    if (next.gateway && Object.keys(next.gateway).length === 0) {
-      delete next.gateway;
-    }
-    if (next.relay && Object.keys(next.relay).length === 0) {
-      delete next.relay;
-    }
-    if (next.providers && Object.keys(next.providers).length === 0) {
-      delete next.providers;
-    }
-    await writeTetherConfig(next);
-    console.log(`Gateway 配置已写入：${configPath()}`);
-  });
-
-gatewayCommand
   .command('install')
-  .description('install the macOS LaunchAgent without starting Gateway')
+  .description('安装 macOS LaunchAgent，但不启动 Gateway')
   .action(async () => {
     const plistPath = await installLaunchAgent();
     console.log(`LaunchAgent 已安装：${plistPath}`);
@@ -311,15 +224,19 @@ gatewayCommand
 
 gatewayCommand
   .command('start')
-  .description('start Gateway through launchd')
+  .description('通过 launchd 启动 Gateway')
   .action(async () => {
+    const before = await launchAgentStatus();
     const status = await startLaunchAgent();
+    if (!before.installed) {
+      console.log(`LaunchAgent 未安装，已自动安装：${status.path}`);
+    }
     console.log(`Gateway 已通过 launchd 启动：${status.path}`);
   });
 
 gatewayCommand
   .command('stop')
-  .description('stop Gateway through launchd')
+  .description('通过 launchd 停止 Gateway')
   .action(async () => {
     await stopLaunchAgent();
     console.log('Gateway 已停止。');
@@ -327,7 +244,7 @@ gatewayCommand
 
 gatewayCommand
   .command('restart')
-  .description('restart Gateway through launchd')
+  .description('通过 launchd 重启 Gateway')
   .action(async () => {
     await restartLaunchAgent();
     console.log('Gateway 已重启。');
@@ -335,7 +252,7 @@ gatewayCommand
 
 gatewayCommand
   .command('uninstall')
-  .description('stop Gateway and remove the macOS LaunchAgent')
+  .description('停止 Gateway 并移除 macOS LaunchAgent')
   .action(async () => {
     const plistPath = await uninstallLaunchAgent();
     console.log(`LaunchAgent 已卸载：${plistPath}`);
@@ -343,14 +260,14 @@ gatewayCommand
 
 gatewayCommand
   .command('status')
-  .description('print Gateway status in Chinese')
+  .description('打印 Gateway 状态')
   .action(async () => {
     await printGatewayStatus();
   });
 
 gatewayCommand
   .command('providers')
-  .description('list configured provider commands')
+  .description('列出 provider 命令配置')
   .action(() => {
     const config = readTetherConfig();
     for (const provider of Object.values(PROVIDERS)) {
@@ -362,25 +279,25 @@ gatewayCommand
 
 gatewayCommand
   .command('logs')
-  .description('show Gateway launchd logs')
-  .option('-f, --follow', 'follow logs')
-  .option('--stderr', 'show stderr log only')
-  .option('--stdout', 'show stdout log only')
+  .description('查看 Gateway launchd 日志')
+  .option('-f, --follow', '持续跟随日志输出')
+  .option('--stderr', '只显示 stderr 日志')
+  .option('--stdout', '只显示 stdout 日志')
   .action(async (options: { follow?: boolean; stderr?: boolean; stdout?: boolean }) => {
     await showGatewayLogs(options);
   });
 
 gatewayCommand
   .command('doctor')
-  .description('diagnose Gateway background runtime')
+  .description('诊断 Gateway 后台运行环境')
   .action(async () => {
     await runGatewayDoctor();
   });
 
 gatewayCommand
   .command('verify')
-  .description('create and stop a short Gateway-managed session')
-  .option('--provider <provider>', 'provider to verify', 'codex')
+  .description('创建并停止一个短 session，用于验证 Gateway')
+  .option('--provider <provider>', '要验证的 provider', 'codex')
   .action(async (options: { provider: string }) => {
     await verifyGatewaySession(options.provider);
   });
@@ -388,15 +305,15 @@ gatewayCommand
 program
   .command('run')
   .argument('<provider>')
-  .description('start a PTY event-stream session for a provider')
-  .option('--host <host>', 'daemon host to bind', '127.0.0.1')
-  .option('--port <port>', 'daemon port', parsePort, 4789)
-  .option('--project <path>', 'project directory', process.cwd())
-  .option('--transport <transport>', 'session transport: tmux or pty', parseTransport, 'pty')
+  .description('为指定 provider 启动一个 PTY event-stream session')
+  .option('--host <host>', 'Gateway 监听地址', '127.0.0.1')
+  .option('--port <port>', 'Gateway 端口', parsePort, 4789)
+  .option('--project <path>', '项目目录', process.cwd())
+  .option('--transport <transport>', '会话传输方式：tmux 或 pty', parseTransport, 'pty')
   .option('--inline', '强制使用 inline Gateway，不转发到常驻 Gateway')
-  .option('--relay-url <url>', 'relay server URL; falls back to TETHER_RELAY_URL')
-  .option('--relay-secret <secret>', 'relay shared secret; falls back to TETHER_RELAY_SECRET')
-  .option('--no-attach', 'start session without attaching this terminal')
+  .option('--relay-url <url>', 'Relay 服务地址；默认读取 TETHER_RELAY_URL')
+  .option('--relay-secret <secret>', 'Relay 共享密钥；默认读取 TETHER_RELAY_SECRET')
+  .option('--no-attach', '只启动 session，不接入当前终端')
   .action((providerName: string, options: StartOptions) => {
     if (!isProviderName(providerName)) {
       throw new Error(`unknown provider: ${providerName}`);
@@ -598,11 +515,11 @@ async function createSessionViaGateway(
 program
   .command('attach')
   .argument('<id>')
-  .option('--host <host>', 'daemon host', '127.0.0.1')
-  .option('--port <port>', 'daemon port', parsePort, 4789)
-  .option('--control', 'attach as active controller')
-  .option('--observe', 'attach as observer')
-  .description('attach this terminal to an existing session')
+  .option('--host <host>', 'Gateway 地址', '127.0.0.1')
+  .option('--port <port>', 'Gateway 端口', parsePort, 4789)
+  .option('--control', '作为控制端接入')
+  .option('--observe', '作为观察端接入')
+  .description('把当前终端接入已有 session')
   .action(async (id: string, options: { host: string; port: number; control?: boolean; observe?: boolean }) => {
     const session = new Store().getSession(id);
     if (!session) {
@@ -617,7 +534,7 @@ program
 
 program
   .command('ls')
-  .description('list known sessions')
+  .description('列出已知 session')
   .action(async () => {
     const store = new Store();
     const sessions = store.listSessions();
@@ -634,9 +551,9 @@ program
 program
   .command('clients')
   .argument('<id>')
-  .option('--host <host>', 'daemon host', '127.0.0.1')
-  .option('--port <port>', 'daemon port', parsePort, 4789)
-  .description('list clients attached to a PTY event-stream session')
+  .option('--host <host>', 'Gateway 地址', '127.0.0.1')
+  .option('--port <port>', 'Gateway 端口', parsePort, 4789)
+  .description('列出接入某个 PTY event-stream session 的客户端')
   .action(async (id: string, options: { host: string; port: number }) => {
     const response = await fetch(`http://${options.host}:${options.port}/api/sessions/${encodeURIComponent(id)}/clients`);
     if (!response.ok) {
@@ -655,9 +572,9 @@ program
 program
   .command('url')
   .argument('<id>')
-  .option('--host <host>', 'host shown in the URL; defaults to LAN address')
-  .option('--port <port>', 'daemon port', parsePort, 4789)
-  .description('print the remote URL for a known session')
+  .option('--host <host>', 'URL 中展示的 host；默认使用局域网地址')
+  .option('--port <port>', 'Gateway 端口', parsePort, 4789)
+  .description('打印某个 session 的远程访问 URL')
   .action((id: string, options: { host?: string; port: number }) => {
     const session = new Store().getSession(id);
     if (!session) {
@@ -671,7 +588,7 @@ program
   .command('send')
   .argument('<id>')
   .argument('<text>')
-  .description('send text to an existing session')
+  .description('向已有 session 发送文本')
   .action(async (id: string, text: string) => {
     const store = new Store();
     const session = store.getSession(id);
@@ -696,10 +613,10 @@ program
 program
   .command('stop')
   .argument('[id]')
-  .option('--all', 'stop all running sessions')
-  .option('--host <host>', 'daemon host', '127.0.0.1')
-  .option('--port <port>', 'daemon port', parsePort, 4789)
-  .description('stop a running session')
+  .option('--all', '停止所有运行中的 session')
+  .option('--host <host>', 'Gateway 地址', '127.0.0.1')
+  .option('--port <port>', 'Gateway 端口', parsePort, 4789)
+  .description('停止运行中的 session')
   .action(async (id: string | undefined, options: { all?: boolean; host: string; port: number }) => {
     const store = new Store();
     if (options.all) {

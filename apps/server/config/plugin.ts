@@ -2,16 +2,13 @@ function currentEnv(): string {
   return process.env.EGG_SERVER_ENV ?? process.env.NODE_ENV ?? 'development';
 }
 
-function redisEnabled(): boolean {
-  const value = process.env.TETHER_SERVER_ENABLE_REDIS?.trim().toLowerCase();
-  return value === '1' || value === 'true';
+function isTestEnv(): boolean {
+  const env = currentEnv();
+  return env === 'test' || env === 'unittest';
 }
 
-function mysqlEnabled(): boolean {
-  if (currentEnv() === 'local') {
-    return true;
-  }
-  const value = process.env.TETHER_SERVER_ENABLE_MYSQL?.trim().toLowerCase();
+function redisEnabled(): boolean {
+  const value = process.env.TETHER_SERVER_ENABLE_REDIS?.trim().toLowerCase();
   return value === '1' || value === 'true';
 }
 
@@ -33,7 +30,7 @@ export default {
     package: 'egg-socket.io'
   },
   mysql: {
-    enable: mysqlEnabled(),
+    enable: !isTestEnv(),
     package: 'egg-mysql'
   },
   bcrypt: {

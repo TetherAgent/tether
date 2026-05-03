@@ -103,17 +103,8 @@ function assertJwtSecret(env: string): string {
   throw new Error('TETHER_SERVER_JWT_SECRET is required outside test mode');
 }
 
-function mysqlEnabled(env: string): boolean {
-  if (env === 'local') {
-    return true;
-  }
-
-  const value = process.env.TETHER_SERVER_ENABLE_MYSQL?.trim().toLowerCase();
-  return value === '1' || value === 'true';
-}
-
 function assertMysqlPassword(env: string): void {
-  if (!mysqlEnabled(env)) {
+  if (env === 'test' || env === 'unittest') {
     return;
   }
 
