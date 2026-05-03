@@ -79,14 +79,14 @@
   },
   "mysql": {
     "client": {
-      "host": "/Users/dream/code/tether/apps/server/config/config.local.ts",
-      "port": "/Users/dream/code/tether/apps/server/config/config.local.ts",
-      "user": "/Users/dream/code/tether/apps/server/config/config.local.ts",
-      "password": "/Users/dream/code/tether/apps/server/config/config.local.ts",
-      "database": "/Users/dream/code/tether/apps/server/config/config.local.ts"
+      "host": "/Users/dream/code/tether/apps/server/config/config.default.ts",
+      "port": "/Users/dream/code/tether/apps/server/config/config.default.ts",
+      "user": "/Users/dream/code/tether/apps/server/config/config.default.ts",
+      "password": "/Users/dream/code/tether/apps/server/config/config.default.ts",
+      "database": "/Users/dream/code/tether/apps/server/config/config.default.ts"
     },
-    "app": "/Users/dream/code/tether/apps/server/config/config.local.ts",
-    "agent": "/Users/dream/code/tether/apps/server/config/config.local.ts",
+    "app": "/Users/dream/code/tether/apps/server/config/config.default.ts",
+    "agent": "/Users/dream/code/tether/apps/server/config/config.default.ts",
     "default": {
       "database": "/Users/dream/code/tether/node_modules/.pnpm/egg-mysql@3.4.0/node_modules/egg-mysql/config/config.default.js",
       "connectionLimit": "/Users/dream/code/tether/node_modules/.pnpm/egg-mysql@3.4.0/node_modules/egg-mysql/config/config.default.js"
@@ -271,6 +271,9 @@
       "egg-bin": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/config.default.js",
       "egg-scripts": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/config.default.js",
       "tsx": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/config.default.js",
+      "typescript": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/config.default.js"
+    },
+    "egg": {
       "typescript": "/Users/dream/code/tether/node_modules/.pnpm/egg@3.34.0/node_modules/egg/config/config.default.js"
     }
   },
