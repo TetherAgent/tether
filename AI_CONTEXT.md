@@ -14,7 +14,7 @@
   审阅 agent 做了什么、批准它要做什么
 - 远期叙事："像管 app 一样管 agent"
 
-详细设计见 `docs/working/2026-05-01-tether-agent-console.md`。
+历史设计草稿见 `docs/archive/completed-working/2026-05-01-tether-agent-console.md`。
 
 ## 关键架构决策
 

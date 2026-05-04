@@ -1,4 +1,8 @@
-# Tether：Agent 控制台（草稿）
+# Tether：Agent 控制台（归档）
+
+状态：Completed Archive  
+归档时间：2026-05-04  
+说明：本文原为 `docs/working/` 立项前草稿。项目定位和架构事实已沉淀到 `AI_CONTEXT.md` 和 `docs/current/`。
 
 > **状态**：Working / 立项前调研。
 > **代号**：tether（"拴绳"——多端拴在同一个 agent 会话上）

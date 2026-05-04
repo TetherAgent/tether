@@ -1,4 +1,8 @@
-# Phase 2：PTY-backed Event Stream（草案）
+# Phase 2：PTY-backed Event Stream（归档）
+
+状态：Completed Archive  
+归档时间：2026-05-04  
+说明：本文原为 `docs/working/` 草案。Phase 2 PTY event stream 主线已完成，当前事实以根目录长期文档和 `docs/current/` 为准。
 
 > 状态：Working / 待讨论。
 > 目的：记录 Phase 2 如何从 tmux 迁移到 Gateway-owned PTY event stream，

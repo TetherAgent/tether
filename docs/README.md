@@ -14,6 +14,7 @@
 | --- | --- | --- |
 | **[current/](current/)** | 当前事实来源 | 已确认、现行有效的设计与规格。这是主干。 |
 | **[working/](working/)** | 工作草稿 | 还在讨论中、未正式立项的过程方案。文件名 `YYYY-MM-DD-<slug>.md`。 |
+| **[archive/](archive/)** | 归档记录 | 已完成、已被当前文档吸收或不再作为当前事实入口的历史工作文档。 |
 | **[../.planning/](../.planning/)** | GSD 工作区 | 阶段计划、执行状态、验收记录和项目进度。 |
 
 ## 当前知识库导览 (`current/`)
@@ -21,7 +22,7 @@
 | 文档路径 | 状态 | 内容描述 |
 | --- | --- | --- |
 | [deploy-and-start.md](current/deploy-and-start.md) | **Current** | Tether 部署和启动：云服务器 Relay/Web、本机 Gateway、nginx、Phase 5 本地 Web/Server/Gateway 启动与登录验收 |
-| [gateway-supervisor.md](current/gateway-supervisor.md) | **Current** | Phase 6 Gateway supervisor：常驻 Gateway、launchd 后台运行、CLI 转发、inline fallback，以及 Gateway 重启后的 session 恢复缺口 |
+| [gateway-supervisor.md](current/gateway-supervisor.md) | **Current** | Phase 6 Gateway supervisor：常驻 Gateway、launchd 后台运行、CLI 转发和 inline fallback |
 | [relay-mvp.md](current/relay-mvp.md) | **Current** | Phase 1 Personal Relay MVP：nginx serve `apps/web`，`apps/relay` 作为 Node relay 服务 |
 
 ## 当前工作草稿 (`working/`)
@@ -30,10 +31,15 @@
 
 | 文档路径 | 状态 | 内容描述 |
 | --- | --- | --- |
-| [2026-05-01-tether-agent-console.md](working/2026-05-01-tether-agent-console.md) | **Working** | 项目主设计：定位、阶段路线（Phase 1–4）、技术栈与决策记录 |
-| [2026-05-01-phase-2-pty-event-stream.md](working/2026-05-01-phase-2-pty-event-stream.md) | **Working** | Phase 2 设计草案：用 PTY-backed event stream 替换 tmux，并定义任务与验收 |
-| [2026-05-03-server-cli-bug-todo.md](working/2026-05-03-server-cli-bug-todo.md) | **Working** | Server / CLI / Gateway / Relay 认证与通讯链路 bug TODO |
-| [2026-05-03-gateway-profile-init.md](working/2026-05-03-gateway-profile-init.md) | **Working** | Gateway `local/direct/relay` profile、`init` 初始化、Relay token 鉴权和默认 URL 的启动模型方案 |
+| [2026-05-04-gateway-session-recovery.md](working/2026-05-04-gateway-session-recovery.md) | **Working** | Gateway 重启后 running session 恢复、失联标记、stream 明确错误和可重附着 supervisor 缺口 |
+| [2026-05-04-relay-control-frame-scope.md](working/2026-05-04-relay-control-frame-scope.md) | **Working** | Relay `client.input` / `resize` / `stop` 等控制帧按 session scope 强校验的安全修复方案 |
+| [2026-05-04-token-auth-unfinished-items.md](working/2026-05-04-token-auth-unfinished-items.md) | **Working** | 当前代码核验后仍未完成的 token/auth 问题清单 |
+
+## 归档记录 (`archive/`)
+
+| 文档路径 | 状态 | 内容描述 |
+| --- | --- | --- |
+| [completed-working/](archive/completed-working/) | **Completed Archive** | 已完成并从 `working/` 移出的阶段草稿、迁移清单和 bug TODO 记录 |
 
 ## 工作流指南
 
@@ -52,4 +58,4 @@
    `docs/current/`。
 
 理解为：**`docs/working/`（起草） → `.planning/`（计划/施工/验收） →
-`docs/current/` 与根目录长期文档（地图更新）**。
+`docs/current/` 与根目录长期文档（地图更新） → `docs/archive/`（完成后归档）**。

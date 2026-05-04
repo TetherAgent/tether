@@ -1,4 +1,8 @@
-# Server / CLI / Gateway 关联逻辑 Bug TODO
+# Server / CLI / Gateway 关联逻辑 Bug TODO（归档）
+
+状态：Completed Archive  
+归档时间：2026-05-04  
+说明：本文原为 `docs/working/` bug TODO。已完成项归档；仍未完成的 token/auth 问题已拆到 `docs/working/2026-05-04-token-auth-unfinished-items.md`。
 
 状态：Working  
 创建时间：2026-05-03  
@@ -98,6 +102,8 @@
   建议测试：Gateway WS 测试改为 subprotocol 携带 ticket，覆盖 observe/control、resize、重复 controller 等路径。
 
 - [ ] **TODO-018：Relay 控制帧需要按 session scope 做强校验**
+
+  独立方案文档：`docs/working/2026-05-04-relay-control-frame-scope.md`。
 
   影响：Relay 目前已在连接认证阶段通过 server `/api/token/validate` 拿到 `RelayAuthScope`，并在 `client.list` / `client.subscribe` 时用 `clientCanSeeSession()` 过滤 session。但 `client.input`、`client.resize`、`client.stop` 等控制帧仍主要依赖“先订阅成功”这一状态，`clientCanAccessFrameSession()` 对 `normal_client_access` 没有再次根据 `latestSessions.get(sessionId)` 校验 `accountId/workspaceId/userId/gatewayId`。这能跑，但安全边界不够硬；如果后续出现订阅状态残留、异常 frame 顺序或 legacy/unscoped session，就可能绕过每帧 ownership 校验。
 

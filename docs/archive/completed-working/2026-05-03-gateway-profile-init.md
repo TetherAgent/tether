@@ -1,4 +1,8 @@
-# Gateway Profile / Init 启动模型方案
+# Gateway Profile / Init 启动模型方案（归档）
+
+状态：Completed Archive  
+归档时间：2026-05-04  
+说明：本文原为 `docs/working/` 启动模型方案。当前启动与部署口径以 `docs/current/deploy-and-start.md` 为准。
 
 状态：Working  
 创建时间：2026-05-03  
