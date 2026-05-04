@@ -49,6 +49,7 @@ import {
 import { runningSessionIds } from './session-stop.js';
 
 const program = new Command();
+const TERMINAL_RESET_SEQUENCE = '\x1b[?2004l\x1b[?1004l\x1b[<u\x1b[0m\x1b[?25h';
 
 process.stdout.on('error', (error: NodeJS.ErrnoException) => {
   if (error.code === 'EPIPE') {
@@ -68,6 +69,7 @@ type StartOptions = {
   project: string;
   title?: string;
   attach: boolean;
+  reconnect?: boolean;
   providerArgs?: string[];
 };
 
@@ -105,6 +107,21 @@ type CreatedGatewaySession = {
   id: string;
 };
 
+type AttachMode = 'control' | 'observe';
+
+type AttachPtySessionOptions = {
+  host: string;
+  port: number;
+  mode?: AttachMode;
+  reconnect?: boolean;
+};
+
+type AttachAttemptResult = {
+  status: 'detached' | 'exited' | 'reconnect' | 'lost';
+  latestEventId: number;
+  message?: string;
+};
+
 type GatewayAuthState = {
   serverUrl: string;
   gatewayId: string;
@@ -128,6 +145,7 @@ function addProviderCommand(provider: ProviderDefinition): void {
     .option('--project <path>', '项目目录', process.cwd())
     .option('--title <title>', '前端展示的 session 标题')
     .option('--no-attach', '只启动 session，不接入当前终端')
+    .option('--no-reconnect', '本地 attach 断开后不自动重连')
     .argument('[providerArgs...]')
     .allowUnknownOption(true)
     .action((providerArgs: string[], options: StartOptions) => {
@@ -294,6 +312,7 @@ program
   .option('--project <path>', '项目目录', process.cwd())
   .option('--title <title>', '前端展示的 session 标题')
   .option('--no-attach', '只启动 session，不接入当前终端')
+  .option('--no-reconnect', '本地 attach 断开后不自动重连')
   .allowUnknownOption(true)
   .action((providerName: string, providerArgs: string[], options: StartOptions) => {
     if (!isProviderName(providerName)) {
@@ -317,7 +336,8 @@ async function startProviderSession(provider: ProviderDefinition, options: Start
     const result = await attachPtySession(session.id, {
       host: gateway.hostname,
       port: Number(gateway.port),
-      mode: 'control'
+      mode: 'control',
+      reconnect: options.reconnect
     });
     if (result !== 'exited') {
       console.error(`已断开本地 attach。常驻 Gateway 仍在托管 ${remoteUrl}`);
@@ -392,8 +412,9 @@ program
   .option('--port <port>', 'Gateway 端口', parsePort, 4789)
   .option('--control', '作为控制端接入')
   .option('--observe', '作为观察端接入')
+  .option('--no-reconnect', 'Gateway 重启或连接断开后不自动重连')
   .description('把当前终端接入已有 session')
-  .action(async (id: string, options: { host: string; port: number; control?: boolean; observe?: boolean }) => {
+  .action(async (id: string, options: { host: string; port: number; control?: boolean; observe?: boolean; reconnect?: boolean }) => {
     const session = new Store().getSession(id);
     if (!session) {
       throw new Error(`unknown session: ${id}`);
@@ -971,13 +992,67 @@ async function sleep(ms: number): Promise<void> {
 
 async function attachPtySession(
   id: string,
-  options: { host: string; port: number; mode?: 'control' | 'observe' }
+  options: AttachPtySessionOptions
 ): Promise<'detached' | 'exited'> {
   const mode = options.mode ?? 'control';
-  const ticket = await requestWsTicket(options, id, mode);
-  const url = `ws://${options.host}:${options.port}/api/sessions/${encodeURIComponent(id)}/stream?surface=cli&mode=${mode}`;
+  const reconnect = options.reconnect !== false;
+  let latestEventId = 0;
+  let reconnectAttempt = 0;
+
+  while (true) {
+    let attempt: AttachAttemptResult;
+    try {
+      attempt = await attachPtySessionOnce(id, { ...options, mode }, latestEventId);
+    } catch (error) {
+      if (!reconnect || isAttachAuthError(error)) {
+        throw error;
+      }
+      attempt = {
+        status: 'reconnect',
+        latestEventId,
+        message: error instanceof Error ? error.message : 'Gateway 连接失败'
+      };
+    }
+
+    latestEventId = Math.max(latestEventId, attempt.latestEventId);
+    if (attempt.status === 'exited') {
+      return 'exited';
+    }
+    if (attempt.status === 'detached') {
+      return 'detached';
+    }
+    if (attempt.status === 'lost') {
+      throw new Error(attempt.message ?? 'session 已失联，无法自动重连');
+    }
+    if (!reconnect) {
+      return 'detached';
+    }
+
+    reconnectAttempt += 1;
+    const delayMs = Math.min(500 * reconnectAttempt, 5000);
+    const reason = attempt.message ? `：${attempt.message}` : '';
+    console.error(`\nGateway 连接断开${reason}。${delayMs}ms 后自动重连；当前输入不会发送。按 Ctrl-C 退出。`);
+    await sleep(delayMs);
+  }
+}
+
+async function attachPtySessionOnce(
+  id: string,
+  options: Required<Pick<AttachPtySessionOptions, 'host' | 'port' | 'mode'>>,
+  after: number
+): Promise<AttachAttemptResult> {
+  const ticket = await requestWsTicket(options, id, options.mode);
+  const params = new URLSearchParams({
+    surface: 'cli',
+    mode: options.mode
+  });
+  if (after > 0) {
+    params.set('after', String(after));
+  }
+  const url = `ws://${options.host}:${options.port}/api/sessions/${encodeURIComponent(id)}/stream?${params.toString()}`;
   const ws = new WebSocket(url, [`tether-ticket.${ticket}`]);
-  let result: 'detached' | 'exited' = 'detached';
+  let result: AttachAttemptResult = { status: 'reconnect', latestEventId: after };
+  let localDetach = false;
 
   const previousRawMode = process.stdin.isRaw;
   const wasStdinPaused = process.stdin.isPaused();
@@ -1004,7 +1079,7 @@ async function attachPtySession(
       process.stdin.pause();
     }
     if (process.stdout.isTTY) {
-      process.stdout.write('\x1b[0m\x1b[?25h');
+      process.stdout.write(TERMINAL_RESET_SEQUENCE);
     }
   };
   const signalHandler = (signal: NodeJS.Signals) => {
@@ -1026,10 +1101,12 @@ async function attachPtySession(
   };
   const onData = (chunk: Buffer) => {
     if (chunk.includes(LOCAL_DETACH_KEY.charCodeAt(0))) {
+      localDetach = true;
+      result = { status: 'detached', latestEventId: result.latestEventId };
       ws.close(1000, 'local detach');
       return;
     }
-    if (mode !== 'observe' && ws.readyState === WebSocket.OPEN) {
+    if (options.mode !== 'observe' && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'input', data: chunk.toString('utf8') }));
     }
   };
@@ -1044,8 +1121,15 @@ async function attachPtySession(
     ws.on('message', (raw: RawData) => {
       const frame = JSON.parse(raw.toString()) as {
         type?: string;
-        event?: { type?: string; payload?: { data?: unknown } };
+        latestEventId?: unknown;
+        event?: { id?: unknown; type?: string; payload?: { data?: unknown } };
       };
+      if (typeof frame.latestEventId === 'number') {
+        result.latestEventId = Math.max(result.latestEventId, frame.latestEventId);
+      }
+      if (typeof frame.event?.id === 'number') {
+        result.latestEventId = Math.max(result.latestEventId, frame.event.id);
+      }
       if (frame.type === 'event' && frame.event?.type === 'terminal.output') {
         const data = frame.event.payload?.data;
         if (typeof data === 'string') {
@@ -1054,11 +1138,31 @@ async function attachPtySession(
         return;
       }
       if (frame.type === 'event' && frame.event?.type === 'session.exited') {
-        result = 'exited';
+        result = { status: 'exited', latestEventId: result.latestEventId };
         ws.close();
       }
     });
-    ws.once('close', () => resolve());
+    ws.once('close', (code, reasonBuffer) => {
+      if (result.status === 'exited' || localDetach) {
+        resolve();
+        return;
+      }
+      const reason = reasonBuffer.toString();
+      if (reason.includes('session_lost')) {
+        result = {
+          status: 'lost',
+          latestEventId: result.latestEventId,
+          message: 'Gateway 已恢复，但这个 session runner 不可连接'
+        };
+      } else {
+        result = {
+          status: 'reconnect',
+          latestEventId: result.latestEventId,
+          message: closeReasonMessage(code, reason)
+        };
+      }
+      resolve();
+    });
     ws.once('error', reject);
   }).finally(() => {
     process.off('SIGINT', signalHandler);
@@ -1067,6 +1171,17 @@ async function attachPtySession(
     cleanupTerminal();
   });
   return result;
+}
+
+function closeReasonMessage(code: number, reason: string): string {
+  if (reason) {
+    return `WebSocket ${code} ${reason}`;
+  }
+  return `WebSocket ${code}`;
+}
+
+function isAttachAuthError(error: unknown): boolean {
+  return error instanceof Error && /ticket failed: HTTP (401|403)/.test(error.message);
 }
 
 async function requestWsTicket(

@@ -83,3 +83,16 @@ test('gateway delete-db requires confirmation and removes sqlite sidecar files',
   assert.match(source, /\`\$\{dbPath\}-shm\`/);
   assert.match(source, /Gateway 仍在运行/);
 });
+
+test('pty attach defaults to reconnect with fresh tickets and event cursor', () => {
+  const source = readFileSync(path.resolve(process.cwd(), 'src/main.ts'), 'utf8');
+  assert.match(source, /\.option\('--no-reconnect'/);
+  assert.match(source, /const reconnect = options\.reconnect !== false/);
+  assert.match(source, /attempt = await attachPtySessionOnce/);
+  assert.match(source, /requestWsTicket\(options, id, options\.mode\)/);
+  assert.match(source, /params\.set\('after', String\(after\)\)/);
+  assert.match(source, /Gateway 连接断开/);
+  assert.match(source, /当前输入不会发送/);
+  assert.match(source, /TERMINAL_RESET_SEQUENCE/);
+  assert.match(source, /\\x1b\[<u/);
+});

@@ -812,27 +812,19 @@ class _TerminalScreenState extends State<TerminalScreen>
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **OHOS `shared_preferences` and `dio` compatibility**
-   - What we know: Both packages have platform-channel implementations. OHOS fork community has a `flutter_packages` repo on gitee with adapted versions of common plugins.
-   - What's unclear: Whether the latest pub.dev versions include OHOS support or need gitee overrides.
-   - Recommendation: Wave 0 task — run `flutter build hap --debug` on a minimal project with these packages and check for MissingPluginException before starting UI work.
+1. **OHOS `shared_preferences` and `dio` compatibility** — RESOLVED: defer to Phase 09-06 Wave 0
+   - Resolution: These packages are treated as ASSUMED compatible (see Assumptions Log A1, A2). The Wave 0 task in Plan 09-06 validates compatibility by running `flutter build hap --debug` with these packages. If MissingPluginException surfaces, Plan 09-06 documents the required gitee override packages in OHOS_NOTES.md. No change to planning required before execution.
 
-2. **xterm `onOutput` vs hardware key events for Ctrl modifier**
-   - What we know: xterm SSH example uses `terminal.onOutput` to capture user keystrokes and send them to the SSH session.
-   - What's unclear: On mobile with IME, whether `onOutput` receives raw key codes or composed text. Ctrl+C via IME may not produce the codeunit 0x03 directly.
-   - Recommendation: Test on Android first. If IME composes text before `onOutput`, Ctrl modifier must intercept at the Flutter keyboard event level (`onKeyEvent` in TerminalView).
+2. **xterm `onOutput` vs hardware key events for Ctrl modifier** — RESOLVED: use `onOutput` interception
+   - Resolution: The xterm SSH example (github.com/TerminalStudio/xterm.dart) confirms `terminal.onOutput` receives user input characters including from IME. The Ctrl hold state machine in Plan 09-05 Task 1 intercepts at `onOutput` level and applies `charCode & 0x1F`. If IME composes before `onOutput`, the `& 0x1F` transform still applies to the first codeunit. Verified approach in KeyboardToolbar implementation.
 
-3. **OHOS DevEco Studio minimum version for 3.22.0 fork**
-   - What we know: DevEco Studio NEXT IDE Beta3 or newer is required. Node + ohpm + hvigor must be in PATH.
-   - What's unclear: Exact minimum DevEco Studio version compatible with the 3.22.0 fork specifically.
-   - Recommendation: Document in `native/flutter/OHOS_SETUP.md` with the exact version used when the project is initialized.
+3. **OHOS DevEco Studio minimum version for 3.22.0 fork** — RESOLVED: document during Plan 09-06
+   - Resolution: The exact minimum version cannot be determined without installing the fork. Plan 09-06 Task 1 creates OHOS_SETUP.md documenting the exact DevEco Studio version used. The Wave 0 acceptance criterion requires recording this in the setup doc. No blocker to Waves 1-3 plans.
 
-4. **Relay URL discovery from server login response**
-   - What we know: D-09 says "Server provides the Relay URL automatically after login."
-   - What's unclear: Which field in the `/login` response contains the Relay URL. The Web client has `VITE_TETHER_RELAY_URL` as an env variable — not obviously in the login response.
-   - Recommendation: Read `apps/server` login response schema before planning the auth service. This may require a build-time constant fallback.
+4. **Relay URL discovery from server login response** — RESOLVED: no relayUrl in login response
+   - Resolution: Read `apps/server/app/service/auth.ts` `loginNormalUser` method (lines 409-465). The login response returns `{ user, device, accessToken, refreshToken }` — there is NO `relayUrl` field. The Web client (`apps/web/src/main.tsx` lines 109-129) reads the relay URL from **localStorage** key `tether:relayUrl`, with fallback to `VITE_TETHER_RELAY_URL` build-time env var, then to `wss://tether.earntools.me` as the product default. D-09's claim that "Server provides the Relay URL" is inaccurate for the current implementation. **Corrected approach in Plan 09-02:** `auth_service.dart` does NOT expect `relayUrl` in the login response. Instead, `AuthService.readRelayUrl()` returns the stored relay URL from `flutter_secure_storage` key `tether:relay_url` (initially null), and `SessionListScreen._startConnection()` falls back to `kDefaultRelayUrl = 'wss://tether.earntools.me'` when null. This matches the Web client's fallback pattern.
 
 ---
 

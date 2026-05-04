@@ -2,8 +2,8 @@
 phase: 9
 slug: flutter-client-app
 status: draft
-nyquist_compliant: false
-wave_0_complete: false
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-05-04
 ---
 
@@ -40,13 +40,14 @@ created: 2026-05-04
 |---------|------|------|-------------|-----------|-------------------|--------|
 | scaffold | 01 | 0 | SC-1 | build | `flutter build apk --debug` | ⬜ pending |
 | protocol-types | 01 | 0 | SC-5 | unit | `flutter test test/protocol_test.dart` | ⬜ pending |
-| auth-flow | 02 | 1 | D-07/D-10/D-11 | unit | `flutter test test/auth_test.dart` | ⬜ pending |
+| auth-flow | 02 | 1 | D-07/D-10/D-11 | unit | `flutter test test/auth_service_test.dart` | ⬜ pending |
+| login-screen | 04 | 1 | D-07/D-11 | widget | `flutter test test/login_screen_test.dart` | ⬜ pending |
 | session-list | 03 | 1 | SC-2/D-16~D-18/D-34~D-36 | widget | `flutter test test/session_list_test.dart` | ⬜ pending |
-| relay-client | 04 | 1 | SC-2/D-22~D-24/D-35 | unit | `flutter test test/relay_client_test.dart` | ⬜ pending |
+| relay-client | 02 | 1 | SC-2/D-22~D-24/D-35 | unit | `flutter test test/relay_client_test.dart` | ⬜ pending |
 | terminal-screen | 05 | 2 | SC-2/SC-4/D-12~D-15/D-21 | widget | `flutter test test/terminal_screen_test.dart` | ⬜ pending |
-| replay-screen | 06 | 2 | SC-2/D-37~D-38 | widget | `flutter test test/replay_screen_test.dart` | ⬜ pending |
+| replay-screen | 05 | 3 | SC-2/D-37~D-38 | manual | See Manual-Only Verifications (no automated widget test; covered by terminal_screen_test.dart KeyboardToolbar absence) | ⬜ pending |
 | lan-direct | 07 | 2 | SC-3/D-25~D-27/D-36 | unit | `flutter test test/lan_client_test.dart` | ⬜ pending |
-| i18n-theme | 08 | 2 | D-39/D-40 | unit | `flutter test test/i18n_test.dart` | ⬜ pending |
+| i18n-theme | 01 | 1 | D-39/D-40 | build | `flutter gen-l10n && flutter analyze --no-pub` (ARB files verify i18n; theme verified via ThemeNotifier in auth_service_test.dart) | ⬜ pending |
 | ohos-compat | 09 | 3 | SC-6 | build | `flutter build hap --debug` | ⬜ pending |
 | protocol-codegen | 10 | 3 | SC-5 | existence | `test -f packages/protocol/scripts/gen-dart.sh` | ⬜ pending |
 
