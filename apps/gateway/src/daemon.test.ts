@@ -370,8 +370,11 @@ test('session creation accepts whitelisted provider when enabled', async () => {
       if (!createdId) {
         throw new Error('created session id missing');
       }
-      assert.equal(ptySessions.hasLiveSession(createdId), true);
-      ptySessions.stop(createdId);
+      assert.equal(typeof store.getSession(createdId)?.runnerSocketPath, 'string');
+      await fetch(`http://127.0.0.1:4901/api/sessions/${encodeURIComponent(createdId)}/stop`, {
+        method: 'POST',
+        headers: authHeaders()
+      });
     });
   } finally {
     process.env.PATH = originalPath;
@@ -420,7 +423,10 @@ test('session creation forwards provider arguments to whitelisted provider', asy
       }
       const startedEvent = store.listEvents(createdId).find((event) => event.type === 'session.started');
       assert.deepEqual(startedEvent?.payload.providerArgs, ['--resume', '99acd804-8250-43db-9503-884c1e7ca450']);
-      ptySessions.stop(createdId);
+      await fetch(`http://127.0.0.1:${port}/api/sessions/${encodeURIComponent(createdId)}/stop`, {
+        method: 'POST',
+        headers: authHeaders()
+      });
     });
   } finally {
     await daemon.close();
@@ -491,7 +497,10 @@ test('session creation uses configured provider command path', async () => {
       const createdId = body.session?.id;
       assert.equal(typeof createdId, 'string');
       if (createdId) {
-        ptySessions.stop(createdId);
+        await fetch(`http://127.0.0.1:4908/api/sessions/${encodeURIComponent(createdId)}/stop`, {
+          method: 'POST',
+          headers: authHeaders()
+        });
       }
     });
   } finally {
@@ -526,7 +535,10 @@ test('session creation accepts display name as session title', async () => {
       const createdId = body.session?.id;
       assert.equal(typeof createdId, 'string');
       if (createdId) {
-        ptySessions.stop(createdId);
+        await fetch(`http://127.0.0.1:4909/api/sessions/${encodeURIComponent(createdId)}/stop`, {
+          method: 'POST',
+          headers: authHeaders()
+        });
       }
     });
   } finally {
@@ -584,6 +596,69 @@ test('daemon marks running pty sessions lost when no live handle exists', async 
   try {
     assert.equal(store.getSession('tth_lost_test')?.status, 'lost');
     assert.equal(store.listEvents('tth_lost_test').some((event) => event.type === 'session.error'), true);
+  } finally {
+    await daemon.close();
+    cleanup();
+  }
+});
+
+test('daemon restart keeps runner-backed session controllable', async () => {
+  const { store, cleanup } = tempStore();
+  const port = 5500 + Math.floor(Math.random() * 1000);
+  let daemon = await startDaemon({
+    host: '127.0.0.1',
+    port,
+    store,
+    allowApiSessionCreate: true,
+    config: { providers: { codex: { command: '/bin/cat' } } }
+  });
+
+  try {
+    await withAuthFixture(async ({ authHeaders }) => {
+      const createResponse = await fetch(`http://127.0.0.1:${port}/api/sessions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ provider: 'codex', projectPath: process.cwd(), cols: 80, rows: 24 })
+      });
+      assert.equal(createResponse.status, 201);
+      const createBody = (await createResponse.json()) as { session?: { id?: string; runnerSocketPath?: string } };
+      const sessionId = createBody.session?.id;
+      assert.equal(typeof sessionId, 'string');
+      assert.equal(typeof createBody.session?.runnerSocketPath, 'string');
+      if (!sessionId) {
+        throw new Error('created session id missing');
+      }
+
+      await daemon.close();
+      daemon = await startDaemon({
+        host: '127.0.0.1',
+        port,
+        store,
+        allowApiSessionCreate: true,
+        config: { providers: { codex: { command: '/bin/cat' } } }
+      });
+
+      const sessionsResponse = await fetch(`http://127.0.0.1:${port}/api/sessions`, {
+        headers: authHeaders()
+      });
+      assert.equal(sessionsResponse.status, 200);
+      const sessionsBody = (await sessionsResponse.json()) as { sessions?: Array<{ id?: string; status?: string }> };
+      assert.deepEqual(sessionsBody.sessions?.map((session) => [session.id, session.status]), [[sessionId, 'running']]);
+
+      const inputResponse = await fetch(`http://127.0.0.1:${port}/api/sessions/${encodeURIComponent(sessionId)}/input`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ data: 'after restart\r' })
+      });
+      assert.equal(inputResponse.status, 200);
+      await waitFor(() => store.transcript(sessionId).includes('after restart'), 1000);
+
+      const stopResponse = await fetch(`http://127.0.0.1:${port}/api/sessions/${encodeURIComponent(sessionId)}/stop`, {
+        method: 'POST',
+        headers: authHeaders()
+      });
+      assert.equal(stopResponse.status, 200);
+    });
   } finally {
     await daemon.close();
     cleanup();

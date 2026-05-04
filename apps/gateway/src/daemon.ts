@@ -17,6 +17,8 @@ import { maskSensitiveOutput } from './mask.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import { listGateways, registerGateway, touchGateway, unregisterGateway } from './registry.js';
 import { startRelayClient, type RunningRelayClient } from './relay-client.js';
+import { SessionRunnerClient } from './session-runner-client.js';
+import { spawnSessionRunnerProcess } from './session-runner-spawn.js';
 import { Store, type Session } from './store.js';
 import { capturePane, sendKeys, sessionExists } from './tmux.js';
 
@@ -80,7 +82,54 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   const consumedTicketJtis = new Set<string>();
   const clients = new Map<string, Map<string, ClientInfo>>();
   const controllers = new Map<string, string>();
+  const runnerClients = new Map<string, SessionRunnerClient>();
   let relayClient: RunningRelayClient | undefined;
+
+  const getRunnerClient = (session: Session): SessionRunnerClient | undefined => {
+    if (!session.runnerSocketPath) {
+      return undefined;
+    }
+    let client = runnerClients.get(session.id);
+    if (!client) {
+      client = new SessionRunnerClient({ socketPath: session.runnerSocketPath });
+      runnerClients.set(session.id, client);
+    }
+    return client;
+  };
+
+  const pingRunner = async (session: Session): Promise<boolean> => {
+    const client = getRunnerClient(session);
+    if (!client) {
+      return false;
+    }
+    try {
+      const result = await client.ping();
+      return result?.sessionId === session.id;
+    } catch {
+      runnerClients.delete(session.id);
+      await client.close().catch(() => undefined);
+      return false;
+    }
+  };
+
+  const isLivePtySession = async (session: Session): Promise<boolean> => {
+    if (session.transport !== 'pty-event-stream') {
+      return false;
+    }
+    if (session.runnerSocketPath) {
+      return pingRunner(session);
+    }
+    return options.ptySessions?.hasLiveSession(session.id) ?? false;
+  };
+
+  const markSessionLost = (session: Session, message: string): void => {
+    options.store.updateSessionStatus(session.id, 'lost');
+    options.store.appendEvent(session.id, 'session.error', {
+      code: 'session_lost',
+      message
+    });
+    session.status = 'lost';
+  };
   app.post('/api/ws-ticket', async (c) => {
     const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
     if (!actor.ok) {
@@ -125,7 +174,24 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     return c.json({ ticket, expiresInMs: 60_000 });
   });
 
-  app.get('/api/status', (c) => {
+  app.get('/api/status', async (c) => {
+    const ptySessions = options.store.listSessions().filter(
+      (session) => session.transport === 'pty-event-stream' && session.status === 'running'
+    );
+    let runnerReachableCount = 0;
+    let runnerUnreachableCount = 0;
+    const liveSessionIds: string[] = [...(options.ptySessions?.liveSessionIds() ?? [])];
+    for (const session of ptySessions) {
+      if (!session.runnerSocketPath) {
+        continue;
+      }
+      if (await pingRunner(session)) {
+        runnerReachableCount += 1;
+        liveSessionIds.push(session.id);
+      } else {
+        runnerUnreachableCount += 1;
+      }
+    }
     return c.json({
       ok: true,
       pid: process.pid,
@@ -138,7 +204,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         pathHasHomebrewBin: pathListIncludes(process.env.PATH, '/opt/homebrew/bin'),
         pathHasUsrLocalBin: pathListIncludes(process.env.PATH, '/usr/local/bin')
       },
-      liveSessionIds: options.ptySessions?.liveSessionIds() ?? []
+      liveSessionIds,
+      runners: {
+        reachable: runnerReachableCount,
+        unreachable: runnerUnreachableCount
+      }
     });
   });
 
@@ -153,19 +223,14 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     for (const session of sessions) {
       const alive =
         session.transport === 'pty-event-stream'
-          ? options.ptySessions?.hasLiveSession(session.id) ?? false
+          ? await isLivePtySession(session)
           : await sessionExists(session.tmuxSessionName);
       if (!alive && session.status === 'running' && session.transport === 'tmux') {
         options.store.updateSessionStatus(session.id, 'stopped');
         session.status = 'stopped';
       }
       if (!alive && session.status === 'running' && session.transport === 'pty-event-stream') {
-        options.store.updateSessionStatus(session.id, 'lost');
-        options.store.appendEvent(session.id, 'session.error', {
-          code: 'session_lost',
-          message: 'Gateway no longer has a live PTY handle for this session'
-        });
-        session.status = 'lost';
+        markSessionLost(session, 'Gateway no longer has a live runner for this session');
       }
       if (alive && session.status === 'stopped' && session.transport === 'tmux') {
         options.store.updateSessionStatus(session.id, 'running');
@@ -233,26 +298,25 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     }
     const terminalRows = rows as number;
 
-    if (!options.ptySessions) {
-      return c.json({ error: 'pty session manager unavailable' }, 503);
-    }
-
     const id = createSessionId();
-    const session = options.ptySessions.create({
-      id,
-      provider,
-      command,
-      providerArgs,
-      projectPath,
-      title,
-      cols,
-      rows: terminalRows,
-      owner: {
-        accountId: actor.payload.accountId,
-        workspaceId: actor.payload.workspaceId,
-        userId: actor.payload.userId,
-        deviceId: actor.payload.deviceId,
-        gatewayId: actor.payload.gatewayId
+    const session = await spawnSessionRunnerProcess({
+      store: options.store,
+      options: {
+        id,
+        provider,
+        command,
+        providerArgs,
+        projectPath,
+        title,
+        cols,
+        rows: terminalRows,
+        owner: {
+          accountId: actor.payload.accountId,
+          workspaceId: actor.payload.workspaceId,
+          userId: actor.payload.userId,
+          deviceId: actor.payload.deviceId,
+          gatewayId: actor.payload.gatewayId
+        }
       }
     });
     return c.json({ session }, 201);
@@ -319,9 +383,19 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     }
 
     if (session.transport === 'pty-event-stream') {
+      const runnerClient = getRunnerClient(session);
+      if (runnerClient) {
+        try {
+          await runnerClient.write(`${body.text}\r`, 'http-send');
+          return c.json({ ok: true });
+        } catch {
+          markSessionLost(session, 'Gateway could not write to this session runner');
+          return c.json({ error: 'pty session is no longer running' }, 410);
+        }
+      }
       const ok = options.ptySessions?.write(session.id, { clientId: 'http-send', data: `${body.text}\r` }) ?? false;
       if (!ok) {
-        options.store.updateSessionStatus(session.id, 'lost');
+        markSessionLost(session, 'Gateway no longer has a live PTY handle for this session');
         return c.json({ error: 'pty session is no longer running' }, 410);
       }
       return c.json({ ok: true });
@@ -399,9 +473,19 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!body || typeof body.data !== 'string' || body.data.length === 0) {
       return c.json({ error: 'data is required' }, 400);
     }
+    const runnerClient = getRunnerClient(session);
+    if (runnerClient) {
+      try {
+        await runnerClient.write(body.data, 'http-input');
+        return c.json({ ok: true });
+      } catch {
+        markSessionLost(session, 'Gateway could not write to this session runner');
+        return c.json({ error: 'pty session is no longer running' }, 410);
+      }
+    }
     const ok = options.ptySessions?.write(session.id, { clientId: 'http-input', data: body.data }) ?? false;
     if (!ok) {
-      options.store.updateSessionStatus(session.id, 'lost');
+      markSessionLost(session, 'Gateway no longer has a live PTY handle for this session');
       return c.json({ error: 'pty session is no longer running' }, 410);
     }
     return c.json({ ok: true });
@@ -421,14 +505,28 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       return c.json({ error: ownership.error }, ownership.status);
     }
     if (session.transport === 'pty-event-stream') {
+      const runnerClient = getRunnerClient(session);
+      if (runnerClient) {
+        try {
+          await runnerClient.stop('http-stop');
+          return c.json({ ok: true });
+        } catch {
+          if (session.status === 'running') {
+            markSessionLost(session, 'Stop requested after Gateway lost the session runner');
+          }
+          return c.json({
+            ok: true,
+            stopped: false,
+            status: 'lost',
+            error: 'session_lost',
+            message: 'Gateway no longer has a live session runner; session was marked lost'
+          });
+        }
+      }
       const ok = options.ptySessions?.stop(session.id) ?? false;
       if (!ok) {
         if (session.status === 'running') {
-          options.store.updateSessionStatus(session.id, 'lost');
-          options.store.appendEvent(session.id, 'session.error', {
-            code: 'session_lost',
-            message: 'Stop requested after Gateway lost the PTY handle'
-          });
+          markSessionLost(session, 'Stop requested after Gateway lost the PTY handle');
         }
         return c.json({
           ok: true,
@@ -477,12 +575,17 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     port: options.port
   }) as ServerType;
 
-  const livePtyIds = options.ptySessions?.liveSessionIds() ?? [];
-  for (const sessionId of options.store.markRunningPtySessionsLost(livePtyIds)) {
-    options.store.appendEvent(sessionId, 'session.error', {
-      code: 'session_lost',
-      message: 'Gateway restarted without a live PTY handle'
-    });
+  const livePtyIds = new Set(options.ptySessions?.liveSessionIds() ?? []);
+  for (const session of options.store.listSessions()) {
+    if (session.status !== 'running' || session.transport !== 'pty-event-stream') {
+      continue;
+    }
+    const live = session.runnerSocketPath ? await pingRunner(session) : livePtyIds.has(session.id);
+    if (live) {
+      livePtyIds.add(session.id);
+      continue;
+    }
+    markSessionLost(session, 'Gateway restarted without a live PTY runner');
   }
 
   const wss = new WebSocketServer({ server: server as unknown as HttpServer });
@@ -499,7 +602,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       socket.close(1008, 'session not found');
       return;
     }
-    if (!(options.ptySessions?.hasLiveSession(session.id) ?? false)) {
+    if (!(await isLivePtySession(session))) {
       socket.close(1008, 'session_lost');
       return;
     }
@@ -562,11 +665,19 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     });
     socket.send(JSON.stringify({ type: 'event', event: attached }));
 
-    const unsubscribe = options.ptySessions?.subscribe(sessionId, (event) => {
-      if (socket.readyState === socket.OPEN) {
-        socket.send(JSON.stringify({ type: 'event', event }));
-      }
-    });
+    const runnerClient = getRunnerClient(session);
+    const unsubscribe = runnerClient
+      ? await runnerClient.subscribeEvents((frame) => {
+        const event = options.store.listEvents(frame.sessionId, frame.eventId - 1, 1)[0];
+        if (event && socket.readyState === socket.OPEN) {
+          socket.send(JSON.stringify({ type: 'event', event }));
+        }
+      }, options.store.latestEventId(sessionId))
+      : options.ptySessions?.subscribe(sessionId, (event) => {
+        if (socket.readyState === socket.OPEN) {
+          socket.send(JSON.stringify({ type: 'event', event }));
+        }
+      });
 
     socket.on('message', (data) => {
       const frame = parseClientFrame(data.toString());
@@ -582,6 +693,12 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             code: client.mode === 'observe' ? 'observe_only' : 'not_controller',
             message: client.mode === 'observe' ? 'observer clients cannot send input' : 'client is not the active controller'
           }));
+          return;
+        }
+        if (runnerClient) {
+          runnerClient.write(frame.data, clientId).catch(() => {
+            socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));
+          });
           return;
         }
         const ok = options.ptySessions?.write(sessionId, { clientId, data: frame.data }) ?? false;
@@ -606,6 +723,12 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         }
         if (!isValidTerminalSize(frame.cols, frame.rows)) {
           socket.send(JSON.stringify({ type: 'error', code: 'bad_resize', message: 'resize requires positive terminal dimensions' }));
+          return;
+        }
+        if (runnerClient) {
+          runnerClient.resize(frame.cols, frame.rows, clientId).catch(() => {
+            socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));
+          });
           return;
         }
         const ok = options.ptySessions?.resize(sessionId, clientId, frame.cols, frame.rows) ?? false;
@@ -660,7 +783,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       secret: options.relay.secret,
       gatewayId,
       store: options.store,
-      ptySessions: options.ptySessions
+      ptySessions: options.ptySessions,
+      runnerClientForSession: getRunnerClient
     });
   }
 
@@ -669,6 +793,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     close: async () => {
       clearInterval(heartbeat);
       await relayClient?.close();
+      for (const client of runnerClients.values()) {
+        await client.close().catch(() => undefined);
+      }
+      runnerClients.clear();
       wss.close();
       return new Promise<void>((resolve, reject) => {
         server.close((error) => {

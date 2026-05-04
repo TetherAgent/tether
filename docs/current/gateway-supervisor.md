@@ -1,8 +1,10 @@
 # Gateway Supervisor 使用说明
 
 本文记录当前本机 Gateway 日常使用方式。常规路径是先让常驻 Gateway 在 Mac 上运行，
-再用 `tether codex` / `tether run codex` 请求这个 Gateway 创建并托管 PTY session。
-CLI 只负责发起请求和 attach，关闭 CLI 不应杀掉 session。
+再用 `tether codex` / `tether run codex` 请求这个 Gateway 创建 session。Gateway 会为
+每个 session 启动 detached session runner；runner 持有 PTY 和 provider child，Gateway
+负责控制面、状态对账和 UI/Relay 转发。CLI 只负责发起请求和 attach，关闭 CLI 不应杀掉
+session。
 
 当前 `tether codex` 不再内置启动 Gateway，也不再提供 `--host`、`--port`、`--inline`、
 `--transport`、`--relay-url`、`--relay-secret`。找不到常驻 Gateway 时会直接提示先运行
@@ -30,8 +32,9 @@ pnpm tether gateway status
 pnpm tether codex
 ```
 
-这时 `codex` session 是由后台 Gateway 托管的。你关掉当前终端，session 理论上也不应该
-跟着死；手机/Web/其他终端后续可以再 attach。
+这时 `codex` session 是由后台 Gateway 创建的，真正持有 PTY 的是单独的 session runner。
+你关掉当前终端，session 不应该跟着死；Gateway 重启后也会重新 ping runner，能连上就继续
+显示为 `running`，连不上才标记为 `lost`。
 
 如果你只是想临时前台跑 Gateway 看日志，不想装后台：
 
@@ -66,7 +69,7 @@ pnpm tether gateway uninstall # 删除登录启动
 一句话区分：
 
 - `pnpm tether gateway start`：让后台 Gateway 跑起来。
-- `pnpm tether codex`：开一个由后台 Gateway 托管的 Codex session。
+- `pnpm tether codex`：开一个由后台 Gateway 管理、runner 持有 PTY 的 Codex session。
 - `pnpm tether gateway status`：看现在到底跑没跑。
 
 ## 你现在该敲哪个命令
@@ -152,13 +155,14 @@ tether stop --all
 - `tether gateway verify --provider codex`：通过常驻 Gateway 创建一个短 session，再立即
   停止，用来验证 API session creation、provider 命令和 stop 链路。
 - `tether gateway uninstall`：停止后台 Gateway 并移除 LaunchAgent。
-- `tether codex`：请求常驻 Gateway 创建并持有 Codex session；找不到 Gateway 会提示先运行 `tether gateway start`。
+- `tether codex`：请求常驻 Gateway 创建 Codex session；实际 PTY 由 detached runner 持有，找不到 Gateway 会提示先运行 `tether gateway start`。
 - `tether codex --project /path/to/project`：让 Gateway 在指定项目目录创建 session。
 - `tether codex --no-attach`：只创建 session，不接入当前终端。
 - `tether codex -- <codex 参数...>`：`--` 后面的内容不再由 Tether 解析，会作为
   Codex 原生命令参数透传。例如 `tether codex -- --resume <session-id>`。
 - `tether ls`：列出已知 session。常见状态包括 `running`、`stopped`、`completed`、
-  `failed`、`lost`。
+  `failed`、`lost`。优先通过 Gateway 获取 runner-aware 状态；Gateway 不可用时才退回
+  本地历史记录，并提示这些状态可能未对账。
 - `tether stop <id>`：关闭指定 session。
 - `tether stop --all`：关闭所有 `running` session，不删除历史记录。
 
@@ -268,6 +272,58 @@ pnpm tether ls
 pnpm tether codex --inline --no-attach
 ```
 
+Gateway 重启恢复验证：
+
+```bash
+# 先允许 Gateway API 创建 session，并确保后台 Gateway 跑的是最新代码
+pnpm tether gateway config --allow-api-session-create
+pnpm tether gateway restart
+
+# 创建一个不占住当前终端的 Codex session
+pnpm tether codex --no-attach
+pnpm tether ls
+
+# 从上一条输出里复制 session id
+SESSION_ID=<session-id>
+
+# 查看这个 session 对应的 runner pid 和 Unix socket
+SESSION_ID=$SESSION_ID node -e "const Database=require('better-sqlite3'); const db=new Database(process.env.HOME+'/.tether/tether.db'); console.log(db.prepare('select id,status,runner_pid,runner_socket_path from sessions where id=?').get(process.env.SESSION_ID));"
+
+# 重启 Gateway。预期：runner 不重启，session 仍是 running
+pnpm tether gateway restart
+pnpm tether ls
+
+# 继续控制同一个 session
+pnpm tether send "$SESSION_ID" "你还在吗"
+pnpm tether attach "$SESSION_ID" --control
+```
+
+如果要验证 Gateway 被强杀后 runner 仍存活：
+
+```bash
+# 如果下面命令取不到 PID，就从 pnpm tether gateway status 输出里手动复制 PID
+GATEWAY_PID=$(pnpm tether gateway status | awk '/PID/ {print $NF; exit}')
+RUNNER_PID=$(SESSION_ID=$SESSION_ID node -e "const Database=require('better-sqlite3'); const db=new Database(process.env.HOME+'/.tether/tether.db'); const row=db.prepare('select runner_pid from sessions where id=?').get(process.env.SESSION_ID); console.log(row.runner_pid)")
+
+ps -p "$RUNNER_PID" -o pid,command
+kill -9 "$GATEWAY_PID"
+
+# 预期：runner 进程还在
+ps -p "$RUNNER_PID" -o pid,command
+
+# 重新启动 Gateway 后，预期：同一个 session 仍可 attach / send / stop
+pnpm tether gateway start
+pnpm tether ls
+pnpm tether attach "$SESSION_ID" --control
+```
+
+验证结束后清理：
+
+```bash
+pnpm tether stop "$SESSION_ID"
+pnpm tether gateway status
+```
+
 远程 Relay 验证：
 
 ```bash
@@ -356,6 +412,45 @@ pnpm tether gateway uninstall
 ## Verification
 
 本节记录本文件对应计划的手工和自动验证结果。
+
+### 2026-05-04 Gateway session runner recovery
+
+自动验证：通过。
+
+```bash
+pnpm --filter @tether/gateway typecheck
+pnpm --filter @tether/gateway test
+pnpm --filter @tether/cli typecheck
+pnpm --filter @tether/cli test
+pnpm typecheck
+pnpm test
+git diff --check
+```
+
+结果：
+
+- Gateway typecheck 通过。
+- Gateway test 通过，43 个测试全部通过。
+- CLI typecheck 通过。
+- CLI test 通过。
+- 全仓 `pnpm typecheck` 通过。
+- 全仓 `pnpm test` 通过。
+- `git diff --check` 通过。
+
+本轮自动测试已经覆盖：
+
+- detached session runner 脱离父进程后仍可 ping、write、subscribe events 和 stop。
+- Gateway server 重启后，runner-backed session 仍为 `running`，HTTP input、CLI attach
+  input、resize、stop 仍能控制同一 session。
+- Store schema 迁移、runner metadata、多个 Store 实例写同一个 SQLite DB。
+- Relay input / resize / stop 经 Gateway 转发到 runner。
+
+尚待人工验证：
+
+- macOS launchd `gateway restart` 后 runner 和 provider child 仍存活。
+- 手工 `kill -9` Gateway 后 runner 和 provider child 仍存活。
+- WebSocket UI 重连后能看到旧输出并继续收到新输出。
+- `doctor` 或后续 runner 诊断命令展示 stale socket / pid。
 
 ### 2026-05-02 Phase 6 Plan 05
 

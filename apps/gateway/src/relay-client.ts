@@ -10,6 +10,7 @@ import type {
   RelayTerminalEvent
 } from '@tether/protocol';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
+import type { SessionRunnerClient } from './session-runner-client.js';
 import type { Session, SessionEvent, Store } from './store.js';
 
 export type RelayClientOptions = {
@@ -20,6 +21,7 @@ export type RelayClientOptions = {
   scope?: RelayAuthScope;
   store: Store;
   ptySessions?: PtySessionManager;
+  runnerClientForSession?: (session: Session) => SessionRunnerClient | undefined;
 };
 
 export type RunningRelayClient = {
@@ -36,7 +38,7 @@ export type RelayConnectionStatus = {
 
 type RelaySubscription = {
   mode: 'control' | 'observe';
-  unsubscribe?: () => void;
+  unsubscribe?: () => void | Promise<void>;
 };
 
 const MIN_RECONNECT_DELAY_MS = 1000;
@@ -147,16 +149,16 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         sendSessions();
         return;
       case 'client.subscribe':
-        subscribeClient(frame.clientId, frame.sessionId, frame.after ?? 0, frame.mode, frame.tail);
+        void subscribeClient(frame.clientId, frame.sessionId, frame.after ?? 0, frame.mode, frame.tail);
         return;
       case 'client.input':
-        writeInput(frame.clientId, frame.sessionId, frame.data);
+        void writeInput(frame.clientId, frame.sessionId, frame.data);
         return;
       case 'client.resize':
-        resizePty(frame.clientId, frame.sessionId, frame.cols, frame.rows);
+        void resizePty(frame.clientId, frame.sessionId, frame.cols, frame.rows);
         return;
       case 'client.stop':
-        stopPty(frame.clientId, frame.sessionId);
+        void stopPty(frame.clientId, frame.sessionId);
         return;
       case 'client.detach':
         removeSubscription(frame.clientId, frame.sessionId);
@@ -164,8 +166,8 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     }
   };
 
-  const subscribeClient = (clientId: string, sessionId: string, after: number, mode: 'control' | 'observe', tail?: number) => {
-    removeSubscription(clientId, sessionId);
+  const subscribeClient = async (clientId: string, sessionId: string, after: number, mode: 'control' | 'observe', tail?: number) => {
+    await removeSubscription(clientId, sessionId);
     const session = options.store.getSession(sessionId);
     if (!session) {
       sendError(clientId, sessionId, 'session_not_found', 'session not found');
@@ -178,13 +180,21 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     send({ type: 'gateway.replay', gatewayId: effectiveGatewayId, clientId, sessionId, events });
 
     const key = subscriptionKey(clientId, sessionId);
-    const unsubscribe = options.ptySessions?.subscribe(sessionId, (event) => {
-      send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(event) });
-    });
+    const runnerClient = options.runnerClientForSession?.(session);
+    const unsubscribe = runnerClient
+      ? await runnerClient.subscribeEvents((frame) => {
+        const event = options.store.listEvents(frame.sessionId, frame.eventId - 1, 1)[0];
+        if (event) {
+          send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(event) });
+        }
+      }, options.store.latestEventId(sessionId))
+      : options.ptySessions?.subscribe(sessionId, (event) => {
+        send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(event) });
+      });
     subscriptions.set(key, { mode, unsubscribe });
   };
 
-  const writeInput = (clientId: string, sessionId: string, data: string) => {
+  const writeInput = async (clientId: string, sessionId: string, data: string) => {
     const subscription = subscriptions.get(subscriptionKey(clientId, sessionId));
     if (!subscription) {
       sendError(clientId, sessionId, 'not_subscribed', 'client is not subscribed to this session');
@@ -194,13 +204,21 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       sendError(clientId, sessionId, 'observe_only', 'observer clients cannot send input');
       return;
     }
+    const session = options.store.getSession(sessionId);
+    const runnerClient = session ? options.runnerClientForSession?.(session) : undefined;
+    if (runnerClient) {
+      await runnerClient.write(data, clientId).catch(() => {
+        sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
+      });
+      return;
+    }
     const ok = options.ptySessions?.write(sessionId, { clientId, data }) ?? false;
     if (!ok) {
       sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
     }
   };
 
-  const resizePty = (clientId: string, sessionId: string, cols: number, rows: number) => {
+  const resizePty = async (clientId: string, sessionId: string, cols: number, rows: number) => {
     const subscription = subscriptions.get(subscriptionKey(clientId, sessionId));
     if (!subscription) {
       sendError(clientId, sessionId, 'not_subscribed', 'client is not subscribed to this session');
@@ -214,13 +232,21 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       sendError(clientId, sessionId, 'bad_resize', 'resize requires positive terminal dimensions');
       return;
     }
+    const session = options.store.getSession(sessionId);
+    const runnerClient = session ? options.runnerClientForSession?.(session) : undefined;
+    if (runnerClient) {
+      await runnerClient.resize(cols, rows, clientId).catch(() => {
+        sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
+      });
+      return;
+    }
     const ok = options.ptySessions?.resize(sessionId, clientId, cols, rows) ?? false;
     if (!ok) {
       sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
     }
   };
 
-  const stopPty = (clientId: string, sessionId: string) => {
+  const stopPty = async (clientId: string, sessionId: string) => {
     const subscription = subscriptions.get(subscriptionKey(clientId, sessionId));
     if (!subscription) {
       sendError(clientId, sessionId, 'not_subscribed', 'client is not subscribed to this session');
@@ -228,6 +254,15 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     }
     if (subscription.mode !== 'control') {
       sendError(clientId, sessionId, 'observe_only', 'observer clients cannot stop sessions');
+      return;
+    }
+    const session = options.store.getSession(sessionId);
+    const runnerClient = session ? options.runnerClientForSession?.(session) : undefined;
+    if (runnerClient) {
+      await runnerClient.stop('relay-stop').catch(() => {
+        options.store.updateSessionStatus(sessionId, 'lost');
+        sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
+      });
       return;
     }
     const ok = options.ptySessions?.stop(sessionId) ?? false;
@@ -241,16 +276,16 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     send({ type: 'gateway.error', gatewayId: effectiveGatewayId, clientId, sessionId, code, message });
   };
 
-  const removeSubscription = (clientId: string, sessionId: string) => {
+  const removeSubscription = async (clientId: string, sessionId: string) => {
     const key = subscriptionKey(clientId, sessionId);
     const subscription = subscriptions.get(key);
-    subscription?.unsubscribe?.();
+    await subscription?.unsubscribe?.();
     subscriptions.delete(key);
   };
 
   const clearSubscriptions = () => {
     for (const subscription of subscriptions.values()) {
-      subscription.unsubscribe?.();
+      void subscription.unsubscribe?.();
     }
     subscriptions.clear();
   };

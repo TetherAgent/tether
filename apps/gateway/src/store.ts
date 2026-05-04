@@ -23,6 +23,10 @@ export type Session = {
   tmuxSessionName: string;
   command: string;
   pid?: number;
+  runnerPid?: number;
+  runnerSocketPath?: string;
+  runnerStartedAt?: number;
+  runnerLastHeartbeatAt?: number;
   transport: SessionTransport;
   createdAt: number;
   updatedAt: number;
@@ -38,6 +42,9 @@ export type SessionEventType =
   | 'client.attached'
   | 'client.detached'
   | 'terminal.resize'
+  | 'runner.started'
+  | 'runner.heartbeat'
+  | 'runner.exited'
   | 'client.control_changed'
   | 'approval.requested'
   | 'diff.detected'
@@ -66,6 +73,10 @@ type SessionRow = {
   tmux_session_name: string;
   command: string;
   pid?: number | null;
+  runner_pid?: number | null;
+  runner_socket_path?: string | null;
+  runner_started_at?: number | null;
+  runner_last_heartbeat_at?: number | null;
   transport?: SessionTransport;
   created_at: number;
   updated_at: number;
@@ -83,10 +94,11 @@ type SessionEventRow = {
 export class Store {
   private readonly db: Database.Database;
 
-  constructor(dbPath = defaultDbPath()) {
+  constructor(readonly dbPath = defaultDbPath()) {
     mkdirSync(path.dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
+    this.db.pragma('busy_timeout = 5000');
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY,
@@ -101,6 +113,10 @@ export class Store {
         status TEXT NOT NULL,
         tmux_session_name TEXT NOT NULL,
         command TEXT NOT NULL,
+        runner_pid INTEGER,
+        runner_socket_path TEXT,
+        runner_started_at INTEGER,
+        runner_last_heartbeat_at INTEGER,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         last_active_at INTEGER NOT NULL
@@ -139,11 +155,11 @@ export class Store {
       .prepare(
         `INSERT INTO sessions (
           id, provider, title, project_path, account_id, workspace_id, user_id, device_id, gateway_id, status, attach_state, tmux_session_name,
-          command, pid, transport,
+          command, pid, runner_pid, runner_socket_path, runner_started_at, runner_last_heartbeat_at, transport,
           created_at, updated_at, last_active_at
         ) VALUES (
           @id, @provider, @title, @project_path, @account_id, @workspace_id, @user_id, @device_id, @gateway_id, @status, @attach_state, @tmux_session_name,
-          @command, @pid, @transport,
+          @command, @pid, @runner_pid, @runner_socket_path, @runner_started_at, @runner_last_heartbeat_at, @transport,
           @created_at, @updated_at, @last_active_at
         )`
       )
@@ -162,6 +178,42 @@ export class Store {
 
   updateAttachState(id: string, attachState: AttachState, now = Date.now()): void {
     this.db.prepare('UPDATE sessions SET attach_state = ?, updated_at = ? WHERE id = ?').run(attachState, now, id);
+  }
+
+  updateRunnerMetadata(
+    id: string,
+    metadata: {
+      runnerPid?: number;
+      runnerSocketPath?: string;
+      runnerStartedAt?: number;
+      runnerLastHeartbeatAt?: number;
+    },
+    now = Date.now()
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE sessions
+         SET runner_pid = ?,
+             runner_socket_path = ?,
+             runner_started_at = ?,
+             runner_last_heartbeat_at = ?,
+             updated_at = ?
+         WHERE id = ?`
+      )
+      .run(
+        metadata.runnerPid ?? null,
+        metadata.runnerSocketPath ?? null,
+        metadata.runnerStartedAt ?? null,
+        metadata.runnerLastHeartbeatAt ?? null,
+        now,
+        id
+      );
+  }
+
+  touchRunnerHeartbeat(id: string, now = Date.now()): void {
+    this.db
+      .prepare('UPDATE sessions SET runner_last_heartbeat_at = ?, updated_at = ? WHERE id = ?')
+      .run(now, now, id);
   }
 
   markRunningPtySessionsLost(liveSessionIds: Iterable<string>, now = Date.now()): string[] {
@@ -279,6 +331,18 @@ export class Store {
     if (!columns.has('gateway_id')) {
       this.db.exec('ALTER TABLE sessions ADD COLUMN gateway_id TEXT');
     }
+    if (!columns.has('runner_pid')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN runner_pid INTEGER');
+    }
+    if (!columns.has('runner_socket_path')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN runner_socket_path TEXT');
+    }
+    if (!columns.has('runner_started_at')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN runner_started_at INTEGER');
+    }
+    if (!columns.has('runner_last_heartbeat_at')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN runner_last_heartbeat_at INTEGER');
+    }
   }
 }
 
@@ -302,6 +366,10 @@ function fromRow(row: SessionRow): Session {
     tmuxSessionName: row.tmux_session_name,
     command: row.command,
     pid: row.pid ?? undefined,
+    runnerPid: row.runner_pid ?? undefined,
+    runnerSocketPath: row.runner_socket_path ?? undefined,
+    runnerStartedAt: row.runner_started_at ?? undefined,
+    runnerLastHeartbeatAt: row.runner_last_heartbeat_at ?? undefined,
     transport: row.transport ?? 'tmux',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -325,6 +393,10 @@ function toRow(session: Session): SessionRow {
     tmux_session_name: session.tmuxSessionName,
     command: session.command,
     pid: session.pid ?? null,
+    runner_pid: session.runnerPid ?? null,
+    runner_socket_path: session.runnerSocketPath ?? null,
+    runner_started_at: session.runnerStartedAt ?? null,
+    runner_last_heartbeat_at: session.runnerLastHeartbeatAt ?? null,
     transport: session.transport,
     created_at: session.createdAt,
     updated_at: session.updatedAt,

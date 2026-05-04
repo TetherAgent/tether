@@ -88,6 +88,14 @@ type GatewayStatus = {
   };
 };
 
+type CliSession = {
+  id: string;
+  status: string;
+  transport?: string;
+  projectPath?: string;
+  tmuxSessionName?: string;
+};
+
 type GatewayLoginEnv = 'local' | 'prod';
 
 const LOCAL_SERVER_URL = 'http://127.0.0.1:4800';
@@ -401,10 +409,16 @@ program
   .command('ls')
   .description('列出已知 session')
   .action(async () => {
+    const gatewaySessions = await fetchGatewaySessions().catch(() => undefined);
     const store = new Store();
-    const sessions = store.listSessions();
+    const sessions = gatewaySessions ?? store.listSessions();
+    if (!gatewaySessions) {
+      console.warn('未能连接常驻 Gateway，以下为本地历史状态，可能未对账。');
+    }
     for (const session of sessions) {
-      const alive = session.transport === 'tmux' ? await sessionExists(session.tmuxSessionName) : session.status === 'running';
+      const alive = session.transport === 'tmux' && session.tmuxSessionName
+        ? await sessionExists(session.tmuxSessionName)
+        : session.status === 'running';
       if (session.transport === 'tmux' && !alive && session.status === 'running') {
         store.updateSessionStatus(session.id, 'stopped');
       }
@@ -485,7 +499,8 @@ program
   .action(async (id: string | undefined, options: { all?: boolean; host: string; port: number }) => {
     const store = new Store();
     if (options.all) {
-      const ids = runningSessionIds(store.listSessions());
+      const sessions = await fetchGatewaySessions(`http://${options.host}:${options.port}`).catch(() => store.listSessions());
+      const ids = runningSessionIds(sessions);
       for (const sessionId of ids) {
         await stopSession(store, sessionId, options);
         console.log(`已关闭 ${sessionId}`);
@@ -520,6 +535,21 @@ async function stopSession(store: Store, id: string, options: { host: string; po
     return;
   }
   await sendKeys(session.tmuxSessionName, 'C-c');
+}
+
+async function fetchGatewaySessions(gatewayUrl?: string): Promise<CliSession[]> {
+  const url = gatewayUrl ?? await findPersistentGateway();
+  if (!url) {
+    throw new Error('missing gateway');
+  }
+  const response = await fetch(`${url}/api/sessions?all=1`, {
+    headers: await gatewayAuthHeaders()
+  });
+  if (!response.ok) {
+    throw new Error(`gateway sessions failed: HTTP ${response.status}`);
+  }
+  const body = (await response.json()) as { sessions?: CliSession[] };
+  return Array.isArray(body.sessions) ? body.sessions : [];
 }
 
 function parsePort(value: string): number {

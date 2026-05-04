@@ -28,8 +28,8 @@ occupies an active roadmap phase number.
 - [ ] **Phase 2: Experience Hardening** - Detach hotkey, key passthrough, paste, ANSI, and TUI resize all verified on macOS
 - [x] **Phase 3: Cleanup** - tmux fallback removed; single-transport codebase ready for auth work (completed 2026-05-02)
 - [x] **Phase 4: Account & Auth Contract** - Short no-code contract gate for ownership, roles, token classes, Server, Web, Gateway, and Relay boundaries before implementation (completed 2026-05-02)
-- [ ] **Phase 5: Web-first Account Setup & Server Auth Runtime** - Adds remote `apps/server`, first-owner Web registration, login/token/Gateway binding/Relay auth/role/audit runtime
-- [ ] **Phase 6: Account Management Console** - Web admin surface for workspace members, roles, devices, Gateways, revoke/unlink, and audit visibility
+- [x] **Phase 5: Web-first Account Setup & Server Auth Runtime** - Adds remote `apps/server`, first-owner Web registration, login/token/Gateway binding/Relay auth/role/audit runtime (completed 2026-05-04)
+- [x] **Phase 6: Account Management Console** - Web admin surface for workspace members, roles, devices, Gateways, revoke/unlink, and audit visibility (completed 2026-05-04)
 - [ ] **Phase 7: Retention** - Event store bounded; WAL checkpoint scheduled; Gateway stable under multi-hour uptime
 - [ ] **Phase 8: Security, Isolation Tests & Final Cleanup** - Milestone exit gate; account isolation, relay auth, whitelist, mask, retention all covered by integration tests
 - [ ] **Phase 9: Flutter Client App** - Phone-first Flutter client for remote Relay/LAN session viewing and control, with HarmonyOS support and generated Dart protocol
@@ -215,8 +215,8 @@ Plans:
 | 2. Experience Hardening | 0/TBD | Not started | - |
 | 3. Cleanup | 4/4 | Complete    | 2026-05-02 |
 | 4. Account & Auth Contract | 1/1 | Complete    | 2026-05-02 |
-| 5. Web-first Account Setup & Server Auth Runtime | 7/7 | In verification | - |
-| 6. Account Management Console | 0/5 | Not started | - |
+| 5. Web-first Account Setup & Server Auth Runtime | 7/7 | Complete | 2026-05-04 |
+| 6. Account Management Console | 6/6 | Complete | 2026-05-04 |
 | 7. Retention | 0/TBD | Not started | - |
 | 8. Security, Isolation Tests & Final Cleanup | 0/TBD | Not started | - |
 | 9. Flutter Client App | 0/TBD | Not started | - |

@@ -82,6 +82,7 @@ type RelayClientToServerFrame =
   | { type: 'client.stop'; sessionId: string };
 
 const RECENT_REPLAY_EVENT_LIMIT = 100;
+const FULL_REPLAY_EVENT_PAGE_LIMIT = 5000;
 const WEB_TRANSPORT_KEY = 'tether:webTransportMode';
 const WEB_CLIENT_MODE_KEY = 'tether:webClientMode';
 const WEB_REPLAY_MODE_KEY = 'tether:webReplayMode';
@@ -545,25 +546,41 @@ function PtySessionView({
         return;
       }
       setStatus(t.statusReplaying);
-      const replayQuery = after > 0
-        ? `after=${after}&limit=1000`
-        : replayMode === 'recent'
-          ? `after=0&tail=${RECENT_REPLAY_EVENT_LIMIT}`
-          : 'after=0&limit=5000';
-      const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/events?${replayQuery}`);
-      if (response.status === 401) {
-        logoutNormal();
-      }
-      if (response.status === 404) {
-        reconnectStopped = true;
-        throw new Error(t.statusSessionDetached);
-      }
-      if (!response.ok) {
-        throw new Error(`events HTTP ${response.status}`);
-      }
-      const data = (await response.json()) as { events: SessionEvent[] };
-      for (const event of data.events) {
-        writeEvent(event);
+      const shouldUseRecentReplay = replayOnly && replayMode === 'recent';
+      const fetchReplayPage = async (query: string): Promise<SessionEvent[]> => {
+        const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/events?${query}`);
+        if (response.status === 401) {
+          logoutNormal();
+        }
+        if (response.status === 404) {
+          reconnectStopped = true;
+          throw new Error(t.statusSessionDetached);
+        }
+        if (!response.ok) {
+          throw new Error(`events HTTP ${response.status}`);
+        }
+        const data = (await response.json()) as { events: SessionEvent[] };
+        return data.events;
+      };
+
+      if (after > 0 || shouldUseRecentReplay) {
+        const replayQuery = after > 0
+          ? `after=${after}&limit=1000`
+          : `after=0&tail=${RECENT_REPLAY_EVENT_LIMIT}`;
+        const events = await fetchReplayPage(replayQuery);
+        for (const event of events) {
+          writeEvent(event);
+        }
+      } else {
+        let keepLoading = true;
+        while (!disposed && keepLoading) {
+          const beforePageCursor = after;
+          const events = await fetchReplayPage(`after=${after}&limit=${FULL_REPLAY_EVENT_PAGE_LIMIT}`);
+          for (const event of events) {
+            writeEvent(event);
+          }
+          keepLoading = events.length === FULL_REPLAY_EVENT_PAGE_LIMIT && after > beforePageCursor;
+        }
       }
       replayComplete = true;
       setTerminalReady(true);
@@ -710,7 +727,7 @@ function PtySessionView({
               type: 'client.subscribe',
               sessionId,
               after,
-              tail: replayMode === 'recent' && after === 0 ? RECENT_REPLAY_EVENT_LIMIT : undefined,
+              tail: replayOnly && replayMode === 'recent' && after === 0 ? RECENT_REPLAY_EVENT_LIMIT : undefined,
               mode: effectiveClientMode
             }));
             return;
@@ -795,7 +812,7 @@ function PtySessionView({
         sessionId,
         mode: effectiveClientMode
       });
-      const tailQuery = replayMode === 'recent' && after === 0 ? `&tail=${RECENT_REPLAY_EVENT_LIMIT}` : '';
+      const tailQuery = replayOnly && replayMode === 'recent' && after === 0 ? `&tail=${RECENT_REPLAY_EVENT_LIMIT}` : '';
       const streamQuery = `after=${after}&surface=web&mode=${effectiveClientMode}${tailQuery}`;
       return new WebSocket(
         buildGatewayStreamUrl(sessionId, streamQuery),

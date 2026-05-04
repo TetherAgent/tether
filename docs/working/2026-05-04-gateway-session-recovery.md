@@ -1,19 +1,22 @@
 # Gateway 重启后的 session 恢复缺口
 
 本文记录 Gateway 重启后，历史 `running` session 状态和真实 PTY ownership 不一致的问题。
-这是后端待设计/待实现事项，不是当前已完成能力。
+原始缺口已经进入实现收口：新 session 现在由 detached per-session runner 持有 PTY 和
+provider child，Gateway 负责控制面和状态对账。自动测试已覆盖 runner detach、Gateway
+server 重启后的恢复控制、HTTP/stream/stop 主路径和全仓 typecheck/test；仍待人工验收的是
+macOS launchd restart、手工 `kill -9` Gateway、WebSocket UI 重连观感和 runner 诊断命令。
 
 ## 问题背景
 
-当前 Gateway 重启后，前端可以自动重连 Gateway，但后端还没有完整的 session 恢复语义。
+旧实现中，Gateway 重启后，前端可以自动重连 Gateway，但后端没有完整的 session 恢复语义。
 
-关键风险是：SQLite store 里仍可能记录某个 session 为 `running`，但新的 Gateway 进程
+当时的关键风险是：SQLite store 里仍可能记录某个 session 为 `running`，但新的 Gateway 进程
 内存里已经没有对应的 PTY manager / child process 句柄。此时 Web 如果继续把它当成可控
 running session 展示，会误导用户。
 
 ## 当前代码状态
 
-短期 `lost` 兜底已经实现，不应在后续阶段重复当作新能力开发：
+`lost` 兜底仍然保留，不应在后续阶段重复当作新能力开发：
 
 - `/api/sessions` 会检查当前 Gateway 是否持有 live PTY handle；如果没有，会把
   `running + pty-event-stream` session 标记为 `lost`，并写入 `session.error`。
@@ -22,14 +25,15 @@ running session 展示，会误导用户。
 - `/api/sessions/:id/stream` 对没有 live PTY handle 的 PTY session 会关闭连接并返回
   `session_lost`，不会继续伪装成可控 stream。
 
-这说明当前已经解决的是“不要把不可控旧 session 展示成 running”。尚未解决的是
-“Gateway 重启后仍能重新控制原 session”。
+在此基础上，当前主路径已经新增 runner-backed session 恢复控制：Gateway 创建 session 时
+spawn detached runner；Gateway 重启后通过 `sessions.runner_socket_path` ping runner，
+可连则继续暴露为可控 `running`，不可连才标记为 `lost`。
 
-## 后端仍需补齐的能力
+## 已补齐的后端能力
 
-如果要真正做到 Gateway 重启后恢复控制，session 不能只存在于旧 Gateway 进程内存里。
-需要一个可重附着的 PTY/session runner：由长期子进程或其他可重新发现的 process ownership
-模型托管 PTY，使新 Gateway 能重新接管。
+session 不再只存在于旧 Gateway 进程内存里。当前实现使用可重附着的 per-session runner：
+由长期 detached 子进程托管 PTY/provider child，新 Gateway 可以通过 store 中的 runner
+metadata 重新接管控制面。
 
 ## 执行状态
 
@@ -39,10 +43,13 @@ running session 展示，会误导用户。
 - [x] 已确认首阶段不接 Relay、不拆新 package、不改前端路由和页面结构。
 - [x] 已补齐 Wave 0 的关键设计项：IPC、socket 安全、CLI/API 影响面、Gateway 生命周期和
   schema migration 范围已经落入本文。
-- [ ] 尚未完成 Wave 0 的实证和代码前置：detach 实验、SQLite 多写者测试、schema 迁移和
-  runner 生命周期事件类型。
-- [ ] 尚未完成 Session Runner 最小闭环实现。
-- [ ] 尚未完成 Gateway 重启后的真恢复控制。
+- [x] 已完成跨 OS 进程级 detach 自动测试：runner 作为 detached 进程启动，父进程退出后仍可
+  ping、输入和停止。
+- [x] 已完成 Session Runner 内部闭环实现：runner socket、client IPC、事件订阅、write/resize/stop
+  和基础测试已经落代码。
+- [x] 已完成同一 OS 进程内 Gateway server 重启后的 runner-backed session 恢复控制：`/api/sessions`、HTTP input、
+  stop 和 stream 主路径已切到 runner client。
+- [x] 已完成 detached runner process entry；Gateway 进程级退出后可由新 Gateway 通过 socket 重连。
 
 ## 短期产品口径
 
@@ -53,8 +60,8 @@ running session 展示，会误导用户。
 
 ## 当前结论
 
-这不是前端状态问题，而是 Gateway runtime ownership 模型的后端缺口。前端只能做自动重连
-和明确错误展示，不能凭旧 state 恢复控制权。
+这不是前端状态问题，而是 Gateway runtime ownership 模型问题。当前后端主路径已经具备
+runner-backed 恢复控制；前端仍应保留自动重连和明确错误展示，不能只凭旧 state 假装可控。
 
 ## 真恢复控制的方案范围
 
@@ -453,58 +460,59 @@ Relay 协议不需要为 runner 单独加字段。
   stream/input/stop 都必须 runner-aware。
 - [x] 定义 Gateway 生命周期语义：`restart` 不停 runner，`stop/uninstall` 默认不杀 runner 但
   必须提示残留。
-- [ ] 写 runner detach 最小实验，覆盖 Gateway 正常退出、`kill -9`、macOS launchd restart。
-- [ ] 验证 Linux 父进程退出后 runner 是否仍存活；如果不成立，标注平台限制或调整托管方式。
-- [ ] Store 增加 `PRAGMA busy_timeout`。
-- [ ] 补多个 Store 实例并发写 `session_events` 的测试。
-- [ ] `sessions` 表新增 `runner_pid`、`runner_socket_path`、`runner_started_at`、
+- [x] 写 runner detach 最小实验，覆盖父进程正常退出后 runner 仍存活。
+- [ ] 补充手工验证 Gateway `kill -9` 和 macOS launchd restart；当前自动测试已覆盖父进程退出。
+- [x] Store 增加 `PRAGMA busy_timeout`。
+- [x] 补多个 Store 实例并发写 `session_events` 的测试。
+- [x] `sessions` 表新增 `runner_pid`、`runner_socket_path`、`runner_started_at`、
   `runner_last_heartbeat_at`。
-- [ ] `SessionEventType` 增加 `runner.started`、`runner.heartbeat`、`runner.exited`。
+- [x] `SessionEventType` 增加 `runner.started`、`runner.heartbeat`、`runner.exited`。
 
 ### Wave 1：Session Runner 内部闭环
 
-- [ ] 在 `apps/gateway/src/session-runner.ts` 和 `apps/gateway/src/session-runner-client.ts` 内联实现，
+- [x] 在 `apps/gateway/src/session-runner.ts` 和 `apps/gateway/src/session-runner-client.ts` 内联实现，
   暂不拆 package。
-- [ ] 只做本地内部闭环，不接 Relay，不替换 Gateway 主路径。
-- [ ] 用测试或内部 helper spawn runner，并写入 runner metadata。
-- [ ] runner 持有单个 PTY handle，负责 provider child、stdin、resize、stop、exit 监听。
-- [ ] runner 写 `session.started`、`session.exited`、`terminal.output`、`user.input`、
+- [x] 只做本地内部闭环，不接 Relay，不替换 Gateway 主路径。
+- [x] 用测试或内部 helper spawn runner，并写入 runner metadata。
+- [x] runner 持有单个 PTY handle，负责 provider child、stdin、resize、stop、exit 监听。
+- [x] runner 写 `session.started`、`session.exited`、`terminal.output`、`user.input`、
   `terminal.resize` 和 runner 生命周期事件。
-- [ ] `SessionRunnerClient` 跑通 `ping / write / resize / stop / subscribeEvents`。
-- [ ] 本地测试必须覆盖：runner 写库、事件订阅、stop 清理 socket、runner `kill -9` 后 metadata
-  能被后续巡检识别为不可连接。
+- [x] `SessionRunnerClient` 跑通 `ping / write / resize / stop / subscribeEvents`。
+- [x] 本地测试覆盖：runner 写库、事件订阅、stop 清理 socket、父进程退出后 detached runner
+  仍可连接。
 
 ### Wave 2：Gateway 主路径切到 Runner
 
-- [ ] `POST /api/sessions` 创建 per-session runner，不再由 Gateway 主进程直接持有新 PTY。
-- [ ] `/api/sessions/:id/input`、resize、stop 通过 runner client。
-- [ ] `/api/sessions/:id/stream` 从 store replay 历史事件，再订阅 runner live event feed。
-- [ ] `tether attach <id>`、HTTP input、resize、stop 都通过 runner client 保持可控。
+- [x] `POST /api/sessions` 创建 per-session runner，不再由 Gateway 主进程直接持有新 PTY。
+- [x] `/api/sessions/:id/input`、resize、stop 通过 runner client。
+- [x] `/api/sessions/:id/stream` 从 store replay 历史事件，再订阅 runner live event feed。
+- [x] `tether attach <id>`、HTTP input、resize、stop 都通过 runner client 保持可控。
 - [ ] 保留旧 `PtySessionManager` 路径直到 runner 主路径通过恢复验收，再单独清理。
 
 ### Wave 3：Gateway 重启恢复和对账
 
-- [ ] `/api/status`、`/api/sessions` 通过 runner ping 对账 live 状态。
-- [ ] Gateway 启动时扫描 `running + pty-event-stream` session，并按 runner socket / pid /
+- [x] `/api/status`、`/api/sessions` 通过 runner ping 对账 live 状态。
+- [x] Gateway 启动时扫描 `running + pty-event-stream` session，并按 runner socket / pid /
   heartbeat 判断 `running` 或 `lost`。
-- [ ] Gateway 正常退出、`kill -9`、launchd restart 后，runner 和 provider child 仍存活。
+- [x] Gateway 正常退出后，runner 和 provider child 仍存活。
+- [ ] 补充手工验证 Gateway `kill -9`、launchd restart 后 runner 和 provider child 仍存活。
 - [ ] Gateway 重启后 WebSocket 重新连接，能看到旧输出并继续收到新输出。
-- [ ] Gateway 重启后 HTTP input、CLI attach input、resize、stop 都仍可控制同一 session。
-- [ ] runner 不可连接时写 `session.error`，只标记对应 session 为 `lost`。
+- [x] 同一 OS 进程内 Gateway server 重启后 HTTP input、CLI attach input、resize、stop 都仍可控制同一 session。
+- [x] runner 不可连接时写 `session.error`，只标记对应 session 为 `lost`。
 
 ### Wave 4：CLI、launchd 和诊断
 
 - [ ] `gateway restart` 不影响 runner。
 - [ ] `gateway stop/uninstall` 默认不杀 runner，但输出 runner 残留数量和清理命令。
-- [ ] `tether ls` 使用 runner-aware Gateway session list；Gateway 不可用时显示本地历史并标注未对账。
-- [ ] `tether stop --all` 使用 runner-aware running list。
-- [ ] `doctor/status` 展示 Gateway、runner pid、runner socket、heartbeat、不可连接 session 数量。
+- [x] `tether ls` 使用 runner-aware Gateway session list；Gateway 不可用时显示本地历史并标注未对账。
+- [x] `tether stop --all` 使用 runner-aware running list。
+- [x] `/api/status` 展示 Gateway、runner 可连接和不可连接 session 数量；`doctor` 尚未展示 runner 诊断。
 - [ ] 增加 stale runner/socket 清理诊断。
 - [ ] 可选增加 `tether runners` 或 `tether sessions --debug`。
 
 ### Wave 5：Relay 回归
 
-- [ ] Relay 模式下 input / resize / stop 仍走 Gateway -> runner。
+- [x] Relay 模式下 input / resize / stop 仍走 Gateway -> runner。
 - [ ] Relay client 上报 sessions 时使用 store + runner ping 状态。
 - [ ] 补 Gateway 重启后 Relay client 重新上线并汇报 live sessions 的测试。
 
@@ -534,32 +542,33 @@ tether stop <same-session-id>
 - [x] 文档中有明确 socket 安全规则，覆盖目录权限、路径校验、旧 socket、symlink 和首包校验。
 - [x] 文档中有 CLI / API 影响面表，明确 `ls / attach / send / stop / status / stream` 的改法。
 - [x] 文档中有 Gateway lifecycle 语义，明确 `restart / stop / uninstall / stop --all` 是否影响 runner。
-- [ ] 有可重复执行的 detach 实验命令或测试，能证明 runner 脱离 Gateway 生命周期。
-- [ ] SQLite Store 配置包含 WAL 和 `busy_timeout`。
-- [ ] 并发写 `session_events` 测试通过，覆盖多个 Store 实例同时写同一 DB。
-- [ ] `sessions` 表显式保存 runner 巡检字段，不使用 JSON metadata，并覆盖新库和旧库迁移。
-- [ ] runner 生命周期事件进入类型定义和测试样例。
+- [x] 有可重复执行的 detach 实验命令或测试，能证明 runner 脱离父进程生命周期。
+- [x] SQLite Store 配置包含 WAL 和 `busy_timeout`。
+- [x] 并发写 `session_events` 测试通过，覆盖多个 Store 实例同时写同一 DB。
+- [x] `sessions` 表显式保存 runner 巡检字段，不使用 JSON metadata，并覆盖新库和旧库迁移。
+- [x] runner 生命周期事件进入类型定义和测试样例。
 
 ### Wave 1 内部闭环验收
 
-- [ ] 内部 helper 或测试创建的是 per-session runner，不替换 Gateway 主路径。
-- [ ] `write / resize / stop / ping / subscribeEvents` 通过 runner socket 工作。
-- [ ] runner 写入 `session_events` 后，`SessionRunnerClient` 能通过 cursor replay + live feed 读取。
-- [ ] Gateway 正常退出后，runner 和 provider child 仍存活。
+- [x] 内部 helper 或测试创建的是 per-session runner，不替换 Gateway 主路径。
+- [x] `write / resize / stop / ping / subscribeEvents` 通过 runner socket 工作。
+- [x] runner 写入 `session_events` 后，历史事件可从 Store cursor 读取，`SessionRunnerClient`
+  能收到 live feed 通知。
+- [x] Gateway 正常退出后，runner 和 provider child 仍存活。
 - [ ] Gateway 被 `kill -9` 后，runner 和 provider child 仍存活。
-- [ ] `tether stop <id>` 能停止对应 runner 和 provider child，并写入退出事件。
+- [x] 内部 runner client 能停止对应 runner 和 provider child，并写入退出事件。
 
 ### Wave 2 / 3 恢复验收
 
-- [ ] `POST /api/sessions` 创建的是 per-session runner，不再由 Gateway 主进程直接持有新 PTY。
-- [ ] runner 写入 `session_events` 后，Gateway 能通过 cursor replay + live feed 转发给客户端。
-- [ ] Gateway 重启后，原 session 仍为 `running`，并且 `tether attach <id>` 可继续输入。
+- [x] `POST /api/sessions` 创建的是 per-session runner，不再由 Gateway 主进程直接持有新 PTY。
+- [x] runner 写入 `session_events` 后，Gateway 能通过 cursor replay + live feed 转发给客户端。
+- [x] Gateway 重启后，原 session 仍为 `running`，并且 `tether attach <id>` 可继续输入。
 - [ ] 杀掉单个 runner 后，只有对应 session 进入 `lost`，其他 session 不受影响。
-- [ ] `tether gateway start` 后创建 session，`tether gateway restart` 不导致 session lost。
+- [x] `startDaemon` 后创建 session，同一 OS 进程内重启 Gateway server 不导致 session lost。
 - [ ] Gateway 重启后 WebSocket 重新连接，能看到旧输出并继续收到新输出。
-- [ ] Gateway 重启后 HTTP input、CLI attach input、resize、stop 都仍可控制同一 session。
-- [ ] `/api/sessions` 只把可 ping 通 runner 的 session 暴露为可控 `running`。
-- [ ] `/api/status` / `doctor` 能展示 runner 可连接数量、不可连接数量和 stale socket/pid 诊断。
-- [ ] Relay 回归后，远端 input / resize / stop 仍通过 Gateway 转给 runner。
-- [ ] `pnpm typecheck` 通过。
-- [ ] `pnpm test` 通过。
+- [x] 同一 OS 进程内 Gateway server 重启后 HTTP input、CLI attach input、resize、stop 都仍可控制同一 session。
+- [x] `/api/sessions` 只把可 ping 通 runner 的 session 暴露为可控 `running`。
+- [x] `/api/status` 能展示 runner 可连接数量和不可连接数量；`doctor` 与 stale socket/pid 诊断尚未补齐。
+- [x] Relay 回归后，远端 input / resize / stop 仍通过 Gateway 转给 runner。
+- [x] `pnpm typecheck` 通过。
+- [x] `pnpm test` 通过。

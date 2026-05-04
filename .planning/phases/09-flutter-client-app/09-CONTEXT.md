@@ -38,12 +38,25 @@ This phase builds a phone-first Flutter client that lets users remotely view and
 
 ### Session List
 - **D-16:** Session list screen shows two sections: active sessions (running) at top, history (stopped/completed/failed/lost, up to 8) below as a collapsible section — same structure as Web end.
-- **D-17:** Each session card shows: provider name, status label, lastActiveAt timestamp, projectPath.
-- **D-18:** Stop a session: swipe the session card to reveal a "停止" action button. No stop button visible by default.
+- **D-17:** Each session card shows: `title || provider` (same fallback as Web), status badge, lastActiveAt timestamp, projectPath, and session ID (truncated, same as Web card). Matches Web `SessionCard` display fields exactly.
+- **D-18:** Stop a session: swipe the session card to reveal a "停止" action button. No stop button visible by default. This is the mobile-appropriate equivalent of the Web's AlertDialog confirm-stop flow; no additional confirmation dialog required.
+- **D-34:** Session list screen shows a summary stats row at the top: active session count, history count, and gateway count — matching the Web Overview metrics panel (`Activity`, `Clock3`, `Router` icons). In Relay mode, gateway count shows "Relay" label same as Web.
+- **D-35:** `gateway_unavailable` error state: when Relay returns `error.code === 'gateway_unavailable'`, the empty state shows a disconnected icon + "Gateway 未连接" heading + "Gateway 尚未连接到 Relay，请先启动 tether gateway。" body — matching Web's distinct `WifiOff` + `t.gatewayNotConnected` / `t.relayGatewayUnavailableDescription` state.
+- **D-36:** Gateway panel: in direct (LAN) mode, show a gateway info section below the stats row displaying Gateway URL. In Relay mode, show "通过 Relay 连接" label. Matches Web's gateway panel behavior.
+
+### Session Replay
+- **D-37:** History session cards navigate to a Replay screen instead of the Terminal control screen. Tap a history card → push Replay screen. Replay screen shows the terminal in read-only playback mode using the same `client.subscribe` protocol with `mode: 'observe'` and `after: 0` (full replay from start). Matches Web's `SessionReplayPage` behavior.
+- **D-38:** Replay screen AppBar shows: back arrow + session title/provider + "回放" label (non-interactive, replaces the control/observe toggle). No keyboard toolbar in replay mode. Pinch-to-zoom still works.
 
 ### App Navigation
-- **D-19:** Stack navigation: Login → Session List → Terminal screen. Back button / back gesture from Terminal returns to Session List. No bottom tab bar in the first version.
+- **D-19:** Stack navigation: Login → Session List → Terminal screen (active sessions) or Replay screen (history sessions). Back button / back gesture returns to Session List. No bottom tab bar in the first version.
 - **D-20:** Settings (Server URL, connection mode, LAN Gateway address) is accessible via a settings entry in the navigation bar of the Session List screen. Settings screen UI is deferred for most fields — only connection mode and LAN Gateway address are needed for first-version functionality.
+
+### i18n
+- **D-39:** The app supports Simplified Chinese and English, same as Web. Language preference is persisted in SharedPreferences (key: `tether:locale`). A language toggle is accessible from the Session List AppBar (icon button). All visible copy must have both zh and en variants. Default locale follows system locale; falls back to zh if system locale is not en.
+
+### Theme
+- **D-40:** The app supports dark and light themes, same as Web. Theme preference is persisted in SharedPreferences (key: `tether:theme`). A theme toggle is accessible from the Session List AppBar. Default follows system theme (`ThemeMode.system`).
 
 ### Control / Observe Mode
 - **D-21:** Toggle button at the top of the terminal screen to switch between control and observe mode. Shows current mode clearly. Matches the same protocol semantics as the Web end (`client.subscribe` with `mode: 'control' | 'observe'`).
@@ -159,3 +172,4 @@ This phase builds a phone-first Flutter client that lets users remotely view and
 
 *Phase: 9-Flutter Client App*
 *Context gathered: 2026-05-02*
+*Updated: 2026-05-04 — feature alignment with Web; added D-34~D-40 (stats, gateway panel, gateway_unavailable, replay, i18n, theme)*
