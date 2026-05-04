@@ -3796,6 +3796,13 @@ a {
   min-width: 0;
 }
 
+.session-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .session-list-controls button,
 .session-panel-heading button,
 .session-card-stop,
@@ -3806,7 +3813,33 @@ a {
 .connection-settings {
   justify-content: flex-end;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.connection-settings-button {
+  flex: 0 0 auto;
+}
+
+.connection-settings-form {
+  display: grid;
+  gap: 14px;
+}
+
+.connection-settings-dialog .relay-url-input,
+.connection-settings-dialog .connection-select-trigger {
+  width: 100%;
+}
+
+.connection-settings-form .mode-select,
+.connection-settings-form .relay-field {
+  display: grid;
+  gap: 7px;
+}
+
+.connection-settings-form .connection-select-trigger,
+.connection-settings-form .relay-url-input {
+  width: 100%;
 }
 
 .mode-select,
@@ -4160,7 +4193,7 @@ textarea.composer-input {
   display: grid;
   align-content: start;
   align-items: start;
-  gap: 8px;
+  gap: 10px;
 }
 
 .history-section {
@@ -4199,19 +4232,21 @@ textarea.composer-input {
 
 .session-card {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  gap: 14px;
   align-items: center;
-  padding: 10px;
+  min-width: 0;
+  padding: 12px 14px;
   color: var(--foreground);
   text-decoration: none;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--background) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--card) 72%, var(--background));
+  transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
 }
 
 .session-primary-panel .session-card {
-  min-height: 80px;
+  min-height: 78px;
 }
 
 .session-card-link {
@@ -4222,10 +4257,9 @@ textarea.composer-input {
 }
 
 .session-card-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  grid-row: span 3;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
 }
 
 .session-card-main {
@@ -4234,22 +4268,33 @@ textarea.composer-input {
   gap: 3px;
 }
 
+.session-card-title-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .session-card-title {
   font-size: 15px;
   font-weight: 760;
   line-height: 1.25;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .session-card-meta {
-  grid-column: 2 / -1;
   display: flex;
-  gap: 7px;
+  gap: 6px;
   flex-wrap: wrap;
   font-size: 12px;
+  justify-content: flex-end;
 }
 
 .session-card-meta span {
-  padding: 4px 8px;
+  padding: 3px 8px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: color-mix(in srgb, var(--card) 80%, transparent);
@@ -4259,10 +4304,10 @@ textarea.composer-input {
 .session-card-path {
   font-size: 12px;
   overflow-wrap: anywhere;
+  color: var(--muted-foreground);
 }
 
 .session-card-id {
-  grid-column: 2 / -1;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 }
 
@@ -4271,14 +4316,15 @@ textarea.composer-input {
 }
 
 .session-status-pill {
-  grid-column: 3;
-  grid-row: 1;
   justify-self: end;
-  padding: 6px 9px;
+  min-width: 62px;
+  padding: 5px 9px;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 760;
   border: 1px solid var(--border);
+  text-align: center;
+  white-space: nowrap;
 }
 
 .session-status-running,
@@ -4300,9 +4346,53 @@ textarea.composer-input {
 }
 
 .session-card-stop {
-  grid-column: 4;
-  grid-row: 1;
-  justify-self: end;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  padding: 0;
+  color: var(--muted-foreground);
+  opacity: 0.38;
+}
+
+.session-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.session-card-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 72px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--brand) 48%, transparent);
+  border-radius: 9px;
+  color: var(--background);
+  background: var(--brand);
+  font-size: 13px;
+  font-weight: 780;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.session-card-open:hover {
+  background: color-mix(in srgb, var(--brand) 86%, white);
+}
+
+.session-card-open svg {
+  width: 15px;
+  height: 15px;
+}
+
+.session-card-stop:hover {
+  color: hsl(var(--destructive));
+  opacity: 0.82;
+  background: transparent;
 }
 
 .session-history-grid {
@@ -4312,7 +4402,7 @@ textarea.composer-input {
 }
 
 .session-history-grid .session-card {
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
 .session-history-grid .session-status-pill,
@@ -4320,9 +4410,12 @@ textarea.composer-input {
   display: none;
 }
 
-.session-history-grid .session-card-meta,
-.session-history-grid .session-card-id {
-  grid-column: 2;
+.session-history-grid .session-card-meta {
+  display: none;
+}
+
+.session-history-grid .session-card-actions {
+  grid-column: 3;
 }
 
 .session-empty-state {
@@ -4940,8 +5033,53 @@ textarea.composer-input {
 
 .session-card:active,
 .session-card:hover {
-  border-color: color-mix(in srgb, var(--brand) 52%, var(--border));
-  background: color-mix(in srgb, var(--brand) 7%, var(--background));
+  border-color: color-mix(in srgb, var(--brand) 18%, var(--border));
+  background: color-mix(in srgb, var(--card) 84%, var(--background));
+}
+
+@media (max-width: 1120px) {
+  .session-card {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    padding: 12px;
+  }
+
+  .session-card-icon {
+    grid-row: span 3;
+  }
+
+  .session-card-main {
+    grid-column: 2;
+  }
+
+  .session-card-meta {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+
+  .session-status-pill {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .session-card-actions {
+    grid-column: 3;
+    grid-row: 1 / span 3;
+    align-self: center;
+  }
+
+  .session-card-open {
+    min-width: 64px;
+    height: 32px;
+    padding: 0 10px;
+  }
+
+  .session-card-stop {
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+  }
 }
 
 .session-skeleton-line,
@@ -5054,17 +5192,110 @@ textarea.composer-input {
   .session-list-topbar {
     position: relative;
     display: grid;
-    grid-template-columns: 1fr;
-    align-items: stretch;
-    padding: 12px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 12px;
+    padding: 14px 12px 12px;
   }
 
   .session-list-brand {
     min-width: 0;
+    gap: 10px;
+  }
+
+  .session-list-brand-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+  }
+
+  .session-list-brand h1 {
+    font-size: 17px;
+  }
+
+  .session-list-brand p {
+    font-size: 11px;
   }
 
   .session-list-controls {
-    justify-content: flex-start;
+    display: contents;
+  }
+
+  .session-header-actions {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    align-self: start;
+    gap: 7px;
+  }
+
+  .connection-settings {
+    display: flex;
+    gap: 0;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .connection-settings-button {
+    width: 34px;
+    height: 34px;
+  }
+
+  .mode-select,
+  .relay-field {
+    min-width: 0;
+    display: grid;
+    gap: 5px;
+  }
+
+  .connection-select-trigger,
+  .relay-url-input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .relay-url-input {
+    font-size: 13px;
+  }
+
+  .session-sync-status {
+    justify-self: start;
+    min-height: 32px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+
+  .web-chrome-controls {
+    height: 32px;
+    padding: 0;
+    gap: 7px;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+
+  .web-chrome-controls [data-slot="button"],
+  .session-header-actions > button {
+    min-width: 0;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    font-size: 12px;
+  }
+
+  .session-header-actions > button:last-child {
+    width: 32px;
+    padding: 0;
+  }
+
+  .session-sign-out-button span {
+    display: none;
+  }
+
+  .web-chrome-controls [data-slot="button"] svg,
+  .session-header-actions > button svg {
+    margin: 0;
   }
 
   .session-list {
@@ -5078,7 +5309,31 @@ textarea.composer-input {
   }
 
   .session-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .session-metric {
+    min-width: 0;
     grid-template-columns: 1fr;
+    justify-items: start;
+    gap: 5px;
+    padding: 9px;
+  }
+
+  .session-metric svg {
+    grid-row: auto;
+    width: 15px;
+    height: 15px;
+  }
+
+  .session-metric span {
+    font-size: 10px;
+    line-height: 1.1;
+  }
+
+  .session-metric strong {
+    font-size: 18px;
   }
 
   .session-workbench-grid {
@@ -5111,25 +5366,80 @@ textarea.composer-input {
   }
 
   .session-card {
-    grid-template-columns: 1fr;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 9px;
+    min-height: 0;
+    padding: 10px;
   }
 
-  .session-card a {
-    grid-template-columns: auto minmax(0, 1fr);
+  .session-card-icon {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    width: 30px;
+    height: 30px;
   }
 
-  .session-status-pill {
+  .session-card-main {
     grid-column: 2;
-    justify-self: start;
+    grid-row: 1;
+    gap: 2px;
   }
 
-  .session-card-meta,
-  .session-card-id {
-    grid-column: 1 / 3;
+  .session-card-title {
+    font-size: 14px;
+  }
+
+  .session-card-path {
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .session-card-id,
+  .session-status-pill {
+    display: none;
+  }
+
+  .session-card-meta {
+    grid-column: 2 / 4;
+    grid-row: 2;
+    justify-content: flex-start;
+    gap: 5px;
+    flex-wrap: nowrap;
+    overflow: hidden;
+  }
+
+  .session-card-meta span {
+    max-width: 136px;
+    padding: 2px 7px;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .session-card-actions {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: center;
+    justify-self: end;
+  }
+
+  .session-card-open {
+    min-width: 58px;
+    height: 30px;
+    padding: 0 10px;
+    font-size: 12px;
   }
 
   .session-card-stop {
-    justify-self: start;
+    min-width: 22px;
+  }
+
+  .session-history-grid .session-card {
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
   .session-detail-page {

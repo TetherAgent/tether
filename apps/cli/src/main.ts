@@ -66,6 +66,7 @@ program
 
 type StartOptions = {
   project: string;
+  title?: string;
   attach: boolean;
   providerArgs?: string[];
 };
@@ -117,6 +118,7 @@ function addProviderCommand(provider: ProviderDefinition): void {
     .command(provider.name)
     .description(`启动由 Tether 托管的 ${provider.name} 会话`)
     .option('--project <path>', '项目目录', process.cwd())
+    .option('--title <title>', '前端展示的 session 标题')
     .option('--no-attach', '只启动 session，不接入当前终端')
     .argument('[providerArgs...]')
     .allowUnknownOption(true)
@@ -282,6 +284,7 @@ program
   .argument('[providerArgs...]')
   .description('为指定 provider 启动一个 PTY event-stream session')
   .option('--project <path>', '项目目录', process.cwd())
+  .option('--title <title>', '前端展示的 session 标题')
   .option('--no-attach', '只启动 session，不接入当前终端')
   .allowUnknownOption(true)
   .action((providerName: string, providerArgs: string[], options: StartOptions) => {
@@ -347,7 +350,7 @@ async function gatewayCandidateUrls(): Promise<string[]> {
 
 async function createSessionViaGateway(
   provider: ProviderDefinition,
-  options: Pick<StartOptions, 'project' | 'providerArgs'>,
+  options: Pick<StartOptions, 'project' | 'title' | 'providerArgs'>,
   gatewayUrl: string
 ): Promise<CreatedGatewaySession> {
   const authHeaders = await gatewayAuthHeaders();

@@ -12,6 +12,7 @@ export type CreatePtySessionOptions = {
   command: string;
   providerArgs?: string[];
   projectPath: string;
+  title?: string;
   cols: number;
   rows: number;
   owner?: Pick<AuthScopePayload, 'accountId' | 'workspaceId' | 'userId' | 'deviceId' | 'gatewayId'>;
@@ -52,7 +53,7 @@ export class PtySessionManager {
   constructor(private readonly store: Store) {}
 
   create(options: CreatePtySessionOptions): Session {
-    const title = path.basename(options.projectPath);
+    const title = options.title ?? path.basename(options.projectPath);
     const providerArgs = options.providerArgs ?? [];
     const term = pty.spawn(options.command, providerArgs, {
       name: 'xterm-256color',

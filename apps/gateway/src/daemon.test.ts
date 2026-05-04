@@ -501,6 +501,66 @@ test('session creation uses configured provider command path', async () => {
   }
 });
 
+test('session creation accepts display name as session title', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const daemon = await startDaemon({
+    host: '127.0.0.1',
+    port: 4909,
+    store,
+    ptySessions,
+    allowApiSessionCreate: true,
+    config: { providers: { codex: { command: '/bin/cat' } } }
+  });
+
+  try {
+    await withAuthFixture(async ({ authHeaders }) => {
+      const response = await fetch('http://127.0.0.1:4909/api/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ provider: 'codex', projectPath: process.cwd(), title: '登录问题', cols: 100, rows: 30 })
+      });
+      assert.equal(response.status, 201);
+      const body = (await response.json()) as { session?: { id?: string; title?: string } };
+      assert.equal(body.session?.title, '登录问题');
+      const createdId = body.session?.id;
+      assert.equal(typeof createdId, 'string');
+      if (createdId) {
+        ptySessions.stop(createdId);
+      }
+    });
+  } finally {
+    await daemon.close();
+    cleanup();
+  }
+});
+
+test('session creation rejects invalid display name', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const daemon = await startDaemon({
+    host: '127.0.0.1',
+    port: 4910,
+    store,
+    ptySessions,
+    allowApiSessionCreate: true
+  });
+
+  try {
+    await withAuthFixture(async ({ authHeaders }) => {
+      const response = await fetch('http://127.0.0.1:4910/api/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ provider: 'codex', projectPath: process.cwd(), title: 'bad\nname', cols: 100, rows: 30 })
+      });
+      assert.equal(response.status, 400);
+    });
+  } finally {
+    await daemon.close();
+    cleanup();
+  }
+});
+
 test('daemon marks running pty sessions lost when no live handle exists', async () => {
   const { store, cleanup } = tempStore();
   const now = Date.now();

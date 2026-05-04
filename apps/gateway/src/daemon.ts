@@ -216,6 +216,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       return c.json({ error: 'projectPath must be a string' }, 400);
     }
     const projectPath = path.resolve(request.projectPath ?? process.cwd());
+    const title = normalizeSessionTitle(request.title);
+    if (request.title !== undefined && !title) {
+      return c.json({ error: 'title must be a non-empty string with at most 64 characters' }, 400);
+    }
 
     const providerArgs = request.providerArgs ?? [];
     if (!isValidProviderArgs(providerArgs)) {
@@ -240,6 +244,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       command,
       providerArgs,
       projectPath,
+      title,
       cols,
       rows: terminalRows,
       owner: {
@@ -715,10 +720,25 @@ type ClientInfo = {
   lastSeenAt: number;
 };
 
-const SESSION_CREATE_ALLOWED_KEYS = new Set(['provider', 'projectPath', 'cols', 'rows', 'providerArgs']);
+const SESSION_CREATE_ALLOWED_KEYS = new Set(['provider', 'projectPath', 'title', 'cols', 'rows', 'providerArgs']);
 const SESSION_CREATE_FORBIDDEN_KEYS = new Set(['command', 'args', 'argv', 'env', 'shell', 'providerCommand']);
+const MAX_SESSION_NAME_LENGTH = 64;
 const MAX_PROVIDER_ARGS = 64;
 const MAX_PROVIDER_ARG_LENGTH = 4096;
+
+function normalizeSessionTitle(value: unknown): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > MAX_SESSION_NAME_LENGTH || /[\r\n]/.test(trimmed)) {
+    return undefined;
+  }
+  return trimmed;
+}
 
 function isValidProviderArgs(value: unknown): value is string[] {
   return (

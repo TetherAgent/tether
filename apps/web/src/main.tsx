@@ -5,17 +5,33 @@ import { BrowserRouter, Link } from 'react-router-dom';
 import {
   Activity,
   Clock3,
+  ArrowRight,
   LogOut,
   MonitorDot,
   Power,
   Router,
   Server,
+  Settings,
   TerminalSquare,
   Wifi,
   WifiOff
 } from 'lucide-react';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
   Input,
   Label,
   Select,
@@ -313,23 +329,36 @@ function ConnectionSettingsControl({
   const update = React.useCallback((patch: Partial<ConnectionSettings>) => {
     onChange({ ...settings, ...patch });
   }, [onChange, settings]);
+  const modeLabel = settings.connectionMode === 'relay' ? t.relay : t.direct;
 
   return (
-    <div className="connection-settings" aria-label={t.connectionSettingsLabel}>
-      <div className="mode-select">
-        <Label>{t.connection}</Label>
-        <Select value={settings.connectionMode} onValueChange={(value) => update({ connectionMode: value as ConnectionMode })}>
-          <SelectTrigger className="connection-select-trigger">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="direct">{t.direct}</SelectItem>
-            <SelectItem value="relay">{t.relay}</SelectItem>
-          </SelectContent>
-        </Select>
+    <Dialog>
+      <div className="connection-settings" aria-label={t.connectionSettingsLabel}>
+        <DialogTrigger asChild>
+          <Button className="connection-settings-button" variant="outline" size="icon-sm" type="button" aria-label={t.connectionSettingsLabel}>
+            <Settings aria-hidden="true" />
+          </Button>
+        </DialogTrigger>
       </div>
-      {settings.connectionMode === 'relay' ? (
-        <>
+      <DialogContent className="connection-settings-dialog">
+        <DialogHeader>
+          <DialogTitle>{t.connectionSettingsLabel}</DialogTitle>
+          <DialogDescription>{t.connectionSettingsDescription}</DialogDescription>
+        </DialogHeader>
+        <div className="connection-settings-form">
+          <div className="mode-select">
+            <Label>{t.connection}</Label>
+            <Select value={settings.connectionMode} onValueChange={(value) => update({ connectionMode: value as ConnectionMode })}>
+              <SelectTrigger className="connection-select-trigger">
+                <SelectValue>{modeLabel}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="direct">{t.direct}</SelectItem>
+                <SelectItem value="relay">{t.relay}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {settings.connectionMode === 'relay' ? (
           <div className="relay-field">
             <Label>{t.relayUrl}</Label>
             <Input
@@ -342,9 +371,10 @@ function ConnectionSettingsControl({
               onChange={(event) => update({ relayUrl: event.target.value })}
             />
           </div>
-        </>
-      ) : null}
-    </div>
+          ) : null}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -363,6 +393,7 @@ function SessionList({
   const [webTransportMode, setWebTransportMode] = React.useState<WebTransportMode>(readWebTransportMode);
   const [status, setStatus] = React.useState<string>(t.statusLoading);
   const [hasLoadedSessions, setHasLoadedSessions] = React.useState(false);
+  const [relayGatewayUnavailable, setRelayGatewayUnavailable] = React.useState(false);
   const listSocket = React.useRef<WebSocket | undefined>(undefined);
 
   const changeWebTransportMode = React.useCallback((mode: WebTransportMode) => {
@@ -397,8 +428,10 @@ function SessionList({
       setSessions(active);
       setHistory(historyData.sessions.filter((session) => !activeIds.has(session.id)).slice(0, 8));
       setGateways(gatewaysData.gateways);
+      setRelayGatewayUnavailable(false);
       setStatus(new Date().toLocaleTimeString());
     } catch (error) {
+      setRelayGatewayUnavailable(false);
       setStatus(error instanceof Error ? error.message : t.statusDisconnected);
     } finally {
       setHasLoadedSessions(true);
@@ -426,6 +459,7 @@ function SessionList({
     setSessions([]);
     setHistory([]);
     setGateways([]);
+    setRelayGatewayUnavailable(false);
     try {
       ws = new WebSocket(buildRelayClientUrl(connectionSettings.relayUrl, t));
     } catch (error) {
@@ -457,12 +491,14 @@ function SessionList({
       }
       const frame = parsedFrame as RelayServerToClientFrame;
       if (frame.type === 'client.auth.ok') {
+        setRelayGatewayUnavailable(false);
         setStatus(`${t.relayClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
         sendList();
         timer = window.setInterval(sendList, 3000);
         return;
       }
       if (frame.type === 'client.auth.failed') {
+        setRelayGatewayUnavailable(false);
         setStatus(displayMessage(frame.message, t));
         setHasLoadedSessions(true);
         ws?.close();
@@ -472,6 +508,7 @@ function SessionList({
         const next = splitActiveSessions(frame.sessions);
         setSessions(next.active);
         setHistory(next.history);
+        setRelayGatewayUnavailable(false);
         setStatus(new Date().toLocaleTimeString());
         setHasLoadedSessions(true);
         return;
@@ -481,10 +518,12 @@ function SessionList({
           setSessions([]);
           setHistory([]);
           setGateways([]);
+          setRelayGatewayUnavailable(true);
           setStatus(t.gatewayNotConnected);
           setHasLoadedSessions(true);
           return;
         }
+        setRelayGatewayUnavailable(false);
         setStatus(displayMessage(frame.message, t));
         setHasLoadedSessions(true);
       }
@@ -492,12 +531,14 @@ function SessionList({
     ws.addEventListener('close', () => {
       if (!disposed) {
         setStatus(t.statusRelayClosed);
+        setRelayGatewayUnavailable(false);
         setHasLoadedSessions(true);
       }
     });
     ws.addEventListener('error', () => {
       if (!disposed) {
         setStatus(t.statusRelayError);
+        setRelayGatewayUnavailable(false);
         setHasLoadedSessions(true);
       }
     });
@@ -543,7 +584,15 @@ function SessionList({
 
   const activeGateway = gateways[0];
   const isRelayMode = connectionSettings.connectionMode === 'relay';
-  const statusIcon = status === t.statusDisconnected || status === t.statusRelayClosed || status === t.statusRelayError
+  const isRelayGatewayUnavailable = isRelayMode && relayGatewayUnavailable;
+  const emptyStateIcon = isRelayGatewayUnavailable
+    ? <WifiOff aria-hidden="true" />
+    : <MonitorDot aria-hidden="true" />;
+  const emptyStateTitle = isRelayGatewayUnavailable ? t.gatewayNotConnected : t.noSessions;
+  const emptyStateDescription = isRelayGatewayUnavailable
+    ? t.relayGatewayUnavailableDescription
+    : t.noSessionsDescription;
+  const statusIcon = isRelayGatewayUnavailable || status === t.statusDisconnected || status === t.statusRelayClosed || status === t.statusRelayError
     ? <WifiOff aria-hidden="true" />
     : <Wifi aria-hidden="true" />;
 
@@ -558,7 +607,6 @@ function SessionList({
           </div>
         </div>
         <div className="session-list-controls">
-          <ConnectionSettingsControl settings={connectionSettings} onChange={onConnectionSettingsChange} />
           {connectionSettings.connectionMode === 'direct' ? (
             <div className="mode-select">
               <Label>{t.transport}</Label>
@@ -573,15 +621,18 @@ function SessionList({
               </Select>
             </div>
           ) : null}
-          <div className="status session-sync-status">
-            {statusIcon}
-            <span>{status}</span>
+          <div className="session-header-actions">
+            <div className="status session-sync-status">
+              {statusIcon}
+              <span>{status}</span>
+            </div>
+            <WebHeaderPreferences />
+            <ConnectionSettingsControl settings={connectionSettings} onChange={onConnectionSettingsChange} />
+            <Button className="session-sign-out-button" variant="outline" size="sm" type="button" onClick={logoutNormal} aria-label={t.signOut}>
+              <LogOut aria-hidden="true" />
+              <span>{t.signOut}</span>
+            </Button>
           </div>
-          <WebHeaderPreferences />
-          <Button variant="outline" size="sm" type="button" onClick={logoutNormal}>
-            <LogOut aria-hidden="true" />
-            {t.signOut}
-          </Button>
         </div>
       </header>
 
@@ -625,9 +676,9 @@ function SessionList({
                 </div>
                 {sessions.length === 0 ? (
                   <div className="empty session-empty-state">
-                    <MonitorDot aria-hidden="true" />
-                    <h2>{t.noSessions}</h2>
-                    <p>{t.noSessionsDescription}</p>
+                    {emptyStateIcon}
+                    <h2>{emptyStateTitle}</h2>
+                    <p>{emptyStateDescription}</p>
                   </div>
                 ) : (
                   <div className="session-card-grid">
@@ -766,6 +817,7 @@ function SessionCardSkeleton() {
         <Skeleton className="session-skeleton-chip" />
       </div>
       <Skeleton className="session-skeleton-line session-skeleton-card-id" />
+      <Skeleton className="session-skeleton-pill" />
     </div>
   );
 }
@@ -781,32 +833,61 @@ function SessionCard({
   target?: 'control' | 'replay';
   t: WebMessages;
 }) {
+  const [stopDialogOpen, setStopDialogOpen] = React.useState(false);
   const statusLabel = sessionStatusLabel(session.status, t);
   const transport = session.transport ?? t.fallbackTmuxTransport;
   const sessionPath = `/remote/session/${encodeURIComponent(session.id)}${target === 'replay' ? '/replay' : ''}`;
+  const openLabel = target === 'replay' ? t.replay : t.enterSession;
+  const sessionName = session.title || session.provider || session.id;
+  const confirmStop = React.useCallback(() => {
+    if (!onStop) return;
+    setStopDialogOpen(false);
+    onStop(session.id);
+  }, [onStop, session.id]);
 
   return (
     <div className={`session-card session-card-${statusTone(session.status)}`}>
-      <Link className="session-card-link" to={sessionPath} aria-label={`${t.openSession}: ${session.title || session.id}`}>
-        <span className="session-card-icon"><TerminalSquare aria-hidden="true" /></span>
-        <span className="session-card-main">
+      <span className="session-card-icon"><TerminalSquare aria-hidden="true" /></span>
+      <span className="session-card-main">
+        <span className="session-card-title-row">
           <span className="session-card-title">{session.title || session.provider}</span>
-          <span className="session-card-path">{session.projectPath || t.unknownProjectPath}</span>
+          {onStop ? (
+            <AlertDialog open={stopDialogOpen} onOpenChange={setStopDialogOpen}>
+              <Button className="session-card-stop" variant="ghost" size="icon" type="button" onClick={() => setStopDialogOpen(true)} aria-label={t.stop}>
+                <Power aria-hidden="true" />
+              </Button>
+              <AlertDialogContent size="sm">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{t.stopSessionConfirmTitle}</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t.stopSessionConfirmDescription.replace('{session}', sessionName)}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>{t.cancel}</AlertDialogCancel>
+                  <AlertDialogAction variant="destructive" onClick={confirmStop}>
+                    {t.confirmStop}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : null}
         </span>
-        <span className={`session-status-pill session-status-${statusTone(session.status)}`}>{statusLabel}</span>
-        <span className="session-card-meta">
-          <span>{session.provider}</span>
-          <span>{transport}</span>
-          <span>{formatSessionTime(session.lastActiveAt)}</span>
-        </span>
+        <span className="session-card-path">{session.projectPath || t.unknownProjectPath}</span>
         <span className="session-card-id">{session.id}</span>
-      </Link>
-      {onStop ? (
-        <Button className="session-card-stop" variant="outline" size="sm" type="button" onClick={() => onStop(session.id)}>
-          <Power aria-hidden="true" />
-          {t.stop}
-        </Button>
-      ) : null}
+      </span>
+      <span className="session-card-meta">
+        <span>{session.provider}</span>
+        <span>{transport}</span>
+        <span>{formatSessionTime(session.lastActiveAt)}</span>
+      </span>
+      <span className={`session-status-pill session-status-${statusTone(session.status)}`}>{statusLabel}</span>
+      <div className="session-card-actions">
+        <Link className="session-card-open" to={sessionPath} aria-label={`${t.openSession}: ${session.title || session.id}`}>
+          {openLabel}
+          <ArrowRight aria-hidden="true" />
+        </Link>
+      </div>
     </div>
   );
 }

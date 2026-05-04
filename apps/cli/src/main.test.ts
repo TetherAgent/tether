@@ -22,6 +22,28 @@ test('does not include command-shaped fields in forwarded create payload', () =>
   assert.equal(payload.rows, 30);
 });
 
+test('session title is Tether metadata and is not forwarded as provider args', () => {
+  const payload = buildCreateSessionPayload(
+    PROVIDERS.codex,
+    {
+      project: '.',
+      title: '登录问题',
+      providerArgs: ['--resume', '99acd804-8250-43db-9503-884c1e7ca450']
+    },
+    { columns: 100, rows: 30 }
+  );
+
+  assert.equal(payload.title, '登录问题');
+  assert.deepEqual(payload.providerArgs, ['--resume', '99acd804-8250-43db-9503-884c1e7ca450']);
+  assert.equal(payload.providerArgs?.includes('--title'), false);
+  assert.equal(payload.providerArgs?.includes('登录问题'), false);
+});
+
+test('provider command declares --title before provider args passthrough', () => {
+  const source = readFileSync(path.resolve(process.cwd(), 'src/main.ts'), 'utf8');
+  assert.match(source, /\.option\('--title <title>', '前端展示的 session 标题'\)[\s\S]*\.argument\('\[providerArgs\.\.\.\]'\)/);
+});
+
 test('gateway login wiring is present in main.ts', () => {
   const source = readFileSync(path.resolve(process.cwd(), 'src/main.ts'), 'utf8');
   assert.match(source, /gateway'\)\s*[\s\S]*command\('login'\)/);
