@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Link } from 'react-router-dom';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
-import { Maximize2, Minimize2, Power } from 'lucide-react';
+import { Maximize2, MessageSquare, Minimize2, Power, TerminalSquare } from 'lucide-react';
 import {
   Button,
   Label,
@@ -80,6 +80,27 @@ type RelayServerToClientFrame =
 type RelayClientToServerFrame =
   | { type: 'client.subscribe'; sessionId: string; after?: number; tail?: number; mode: ClientMode; cols?: number; rows?: number }
   | { type: 'client.stop'; sessionId: string };
+
+type ChatItem =
+  | { kind: 'user'; text: string; sentAt: number }
+  | { kind: 'agent'; text: string; endedAt: number };
+
+function readTerminalText(term: Terminal): string {
+  const buf = term.buffer.active;
+  const totalLines = buf.length;
+  const startLine = Math.max(0, totalLines - 5000);
+  const lines: string[] = [];
+  for (let i = startLine; i < totalLines; i++) {
+    const line = buf.getLine(i);
+    if (line) {
+      lines.push(line.translateToString(true));
+    }
+  }
+  while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
+    lines.pop();
+  }
+  return lines.join('\n');
+}
 
 const RECENT_REPLAY_EVENT_LIMIT = 100;
 const FULL_REPLAY_EVENT_PAGE_LIMIT = 5000;
@@ -190,18 +211,21 @@ export type SessionSurfaceProps = {
   surfaceMode: SessionSurfaceMode;
   connectionSettings: ConnectionSettings;
   onConnectionSettingsChange: (settings: ConnectionSettings) => void;
+  isSimplePage?: boolean;
 };
 
 export function SessionSurface({
   sessionId,
   surfaceMode,
   connectionSettings,
-  onConnectionSettingsChange
+  onConnectionSettingsChange,
+  isSimplePage
 }: {
   sessionId: string;
   surfaceMode: 'control' | 'replay';
   connectionSettings: ConnectionSettings;
   onConnectionSettingsChange: (settings: ConnectionSettings) => void;
+  isSimplePage?: boolean;
 }) {
   const { logoutNormal, normalAuth } = useAuth();
   const { t } = useI18n();
@@ -259,6 +283,7 @@ export function SessionSurface({
         replayOnly={surfaceMode === 'replay'}
         initialStatus={status}
         connectionSettings={connectionSettings}
+        isSimplePage={isSimplePage}
       />
     );
   }
@@ -321,12 +346,14 @@ function PtySessionView({
   sessionId,
   replayOnly,
   initialStatus,
-  connectionSettings
+  connectionSettings,
+  isSimplePage
 }: {
   sessionId: string;
   replayOnly: boolean;
   initialStatus: string;
   connectionSettings: ConnectionSettings;
+  isSimplePage?: boolean;
 }) {
   const { logoutNormal, normalAuth } = useAuth();
   const { t } = useI18n();
@@ -344,6 +371,10 @@ function PtySessionView({
   const [status, setStatus] = React.useState(initialStatus);
   const [isTerminalReady, setTerminalReady] = React.useState(false);
   const [text, setText] = React.useState('');
+  const [chatHistory, setChatHistory] = React.useState<ChatItem[]>([]);
+  const [currentAgentOutput, setCurrentAgentOutput] = React.useState('');
+  const currentAgentOutputRef = React.useRef('');
+  const simpleScrollRef = React.useRef<HTMLDivElement>(null);
 
   const refreshClients = React.useCallback(async () => {
     if (connectionSettings.connectionMode === 'relay') {
@@ -442,12 +473,27 @@ function PtySessionView({
     send
       .then((ok) => {
         if (!ok) return;
+        if (isSimplePage) {
+          const agentText = currentAgentOutputRef.current;
+          setChatHistory((prev) => {
+            const next: ChatItem[] = [...prev];
+            if (agentText.trim()) {
+              next.push({ kind: 'agent', text: agentText, endedAt: Date.now() });
+            }
+            next.push({ kind: 'user', text: value, sentAt: Date.now() });
+            return next;
+          });
+          currentAgentOutputRef.current = '';
+          setCurrentAgentOutput('');
+        }
         setText('');
         setStatus(connectionSettings.connectionMode === 'relay' ? t.statusRelaySent : transportMode === 'http' ? t.statusHttpSent : t.statusWsSent);
-        terminal.current?.focus();
+        if (!isSimplePage) {
+          terminal.current?.focus();
+        }
       })
       .catch(() => setStatus(t.statusInputFailed));
-  }, [connectionSettings.connectionMode, sendHttpInput, sendWsInput, t, text, transportMode]);
+  }, [connectionSettings.connectionMode, isSimplePage, sendHttpInput, sendWsInput, t, text, transportMode]);
 
   React.useEffect(() => {
     const root = terminalRef.current;
@@ -484,6 +530,7 @@ function PtySessionView({
     let reconnectAttempt = 0;
     let reconnectStopped = false;
     let closeWasExpected = false;
+    let simpleUpdateFrame = 0;
     const sendResize = () => {
       if (term.cols === lastSize.cols && term.rows === lastSize.rows) {
         return;
@@ -522,7 +569,9 @@ function PtySessionView({
     term.open(root);
     fitAddon.fit();
     sendResize();
-    term.focus();
+    if (!isSimplePage) {
+      term.focus();
+    }
 
     const cursorKey = `tether:${sessionId}:latestEventId`;
     let after = 0;
@@ -544,7 +593,18 @@ function PtySessionView({
         const data = event.payload.data;
         if (typeof data === 'string') {
           setTerminalReady(true);
-          term.write(data);
+          if (isSimplePage) {
+            term.write(data, () => {
+              window.cancelAnimationFrame(simpleUpdateFrame);
+              simpleUpdateFrame = window.requestAnimationFrame(() => {
+                const txt = readTerminalText(term);
+                currentAgentOutputRef.current = txt;
+                setCurrentAgentOutput(txt);
+              });
+            });
+          } else {
+            term.write(data);
+          }
         }
         return;
       }
@@ -853,6 +913,7 @@ function PtySessionView({
     return () => {
       disposed = true;
       window.cancelAnimationFrame(resizeFrame);
+      window.cancelAnimationFrame(simpleUpdateFrame);
       if (tailTimer) {
         window.clearInterval(tailTimer);
       }
@@ -876,6 +937,7 @@ function PtySessionView({
     connectionSettings.relayUrl,
     effectiveClientMode,
     isDark,
+    isSimplePage,
     logoutNormal,
     normalAuth?.accessToken,
     replayMode,
@@ -885,6 +947,13 @@ function PtySessionView({
     t,
     transportMode
   ]);
+
+  React.useEffect(() => {
+    const el = simpleScrollRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [currentAgentOutput, chatHistory]);
 
   async function stopSession(): Promise<void> {
     if (connectionSettings.connectionMode === 'relay') {
@@ -945,6 +1014,21 @@ function PtySessionView({
                 </SelectContent>
               </Select>
             </div>
+            {isSimplePage ? (
+              <Button asChild variant="outline" size="sm" type="button">
+                <Link to={`/remote/session/${encodeURIComponent(sessionId)}`}>
+                  <TerminalSquare aria-hidden="true" />
+                  {t.terminalView}
+                </Link>
+              </Button>
+            ) : (
+              <Button asChild variant="outline" size="sm" type="button">
+                <Link to={`/remote/session/${encodeURIComponent(sessionId)}/simple`}>
+                  <MessageSquare aria-hidden="true" />
+                  {t.simpleView}
+                </Link>
+              </Button>
+            )}
             <Button asChild variant="outline" size="sm" type="button">
               <Link to={`/remote/session/${encodeURIComponent(sessionId)}/replay`}>{t.replay}</Link>
             </Button>
@@ -956,35 +1040,57 @@ function PtySessionView({
         )}
       </SessionDetailHeader>
       <main
-        className={`terminal-shell terminal-panel${isTerminalFullscreen ? ' terminal-panel-fullscreen' : ''}`}
+        className={`terminal-shell terminal-panel${isTerminalFullscreen && !isSimplePage ? ' terminal-panel-fullscreen' : ''}`}
         aria-label={t.terminalSurface}
-        onMouseDown={() => terminal.current?.focus()}
+        onMouseDown={!isSimplePage ? () => terminal.current?.focus() : undefined}
       >
-        <Button
-          className="terminal-fullscreen-toggle"
-          variant="outline"
-          size="icon"
-          type="button"
-          aria-label={isTerminalFullscreen ? t.exitTerminalFullscreen : t.enterTerminalFullscreen}
-          title={isTerminalFullscreen ? t.exitTerminalFullscreen : t.enterTerminalFullscreen}
-          onMouseDown={(event) => event.stopPropagation()}
-          onClick={() => setTerminalFullscreen((value) => !value)}
-        >
-          {isTerminalFullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
-        </Button>
-        <div ref={terminalRef} className="terminal-host" />
+        {!isSimplePage ? (
+          <Button
+            className="terminal-fullscreen-toggle"
+            variant="outline"
+            size="icon"
+            type="button"
+            aria-label={isTerminalFullscreen ? t.exitTerminalFullscreen : t.enterTerminalFullscreen}
+            title={isTerminalFullscreen ? t.exitTerminalFullscreen : t.enterTerminalFullscreen}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={() => setTerminalFullscreen((value) => !value)}
+          >
+            {isTerminalFullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
+          </Button>
+        ) : null}
+        <div ref={terminalRef} className={`terminal-host${isSimplePage ? ' terminal-host-hidden' : ''}`} />
+        {isSimplePage ? (
+          <div ref={simpleScrollRef} className="chat-view">
+            {chatHistory.map((item, i) => (
+              <div key={i} className={`chat-bubble chat-bubble-${item.kind}`}>
+                <div className="chat-bubble-content">
+                  {item.kind === 'user' ? item.text : <pre>{item.text}</pre>}
+                </div>
+              </div>
+            ))}
+            {currentAgentOutput ? (
+              <div className="chat-bubble chat-bubble-agent">
+                <div className="chat-bubble-content">
+                  <pre>{currentAgentOutput}</pre>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         {!isTerminalReady ? <TerminalSurfaceSkeleton /> : null}
-        {clients.length > 0 ? (
-          <aside className="client-strip">
-            <span>{t.controllerLabel} {controllerClientId ? controllerClientId.slice(0, 8) : '-'}</span>
-            <span>{clients.length} {t.clients}</span>
-            <span>{transportMode.toUpperCase()}</span>
-          </aside>
-        ) : connectionSettings.connectionMode === 'relay' ? (
-          <aside className="client-strip">
-            <span>{t.relay}</span>
-            <span>{clientModeLabel(effectiveClientMode, t)}</span>
-          </aside>
+        {!isSimplePage ? (
+          clients.length > 0 ? (
+            <aside className="client-strip">
+              <span>{t.controllerLabel} {controllerClientId ? controllerClientId.slice(0, 8) : '-'}</span>
+              <span>{clients.length} {t.clients}</span>
+              <span>{transportMode.toUpperCase()}</span>
+            </aside>
+          ) : connectionSettings.connectionMode === 'relay' ? (
+            <aside className="client-strip">
+              <span>{t.relay}</span>
+              <span>{clientModeLabel(effectiveClientMode, t)}</span>
+            </aside>
+          ) : null
         ) : null}
       </main>
       {!replayOnly ? (

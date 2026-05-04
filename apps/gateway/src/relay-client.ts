@@ -43,6 +43,7 @@ type RelaySubscription = {
 
 const MIN_RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_DELAY_MS = 5000;
+const RELAY_REPLAY_PAGE_SIZE = 5000;
 const RELAY_FORBIDDEN_KEYS = new Set(['command', 'args', 'argv', 'env', 'providerCommand']);
 
 export function startRelayClient(options: RelayClientOptions): RunningRelayClient {
@@ -175,46 +176,120 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     cols?: number,
     rows?: number
   ) => {
-    await removeSubscription(clientId, sessionId);
     const session = options.store.getSession(sessionId);
     if (!session) {
       sendError(clientId, sessionId, 'session_not_found', 'session not found');
       return;
     }
     const key = subscriptionKey(clientId, sessionId);
+    const previousSubscription = subscriptions.get(key);
+    if (previousSubscription) {
+      await previousSubscription.unsubscribe?.();
+      subscriptions.delete(key);
+    }
+    subscriptions.set(key, { mode });
     if (isValidTerminalSize(cols, rows) && mode === 'control') {
       const nextCols = cols;
       const nextRows = Number(rows);
       const runnerClient = options.runnerClientForSession?.(session);
       if (runnerClient) {
-        await runnerClient.resize(nextCols, nextRows, clientId).catch(() => {
+        const resized = await runnerClient.resize(nextCols, nextRows, clientId).then(
+          () => true,
+          () => {
+            markSessionLost(sessionId);
+            return false;
+          }
+        );
+        if (!resized) {
+          subscriptions.delete(key);
           sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
-        });
+          return;
+        }
       } else {
         const ok = options.ptySessions?.resize(sessionId, clientId, nextCols, nextRows) ?? false;
         if (!ok) {
+          markSessionLost(sessionId);
+          subscriptions.delete(key);
           sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
+          return;
         }
       }
     }
 
-    const events = tail && tail > 0 && after === 0
-      ? options.store.listRecentEvents(sessionId, tail).map(toRelayEvent)
-      : options.store.listEvents(sessionId, after, 5000).map(toRelayEvent);
-    send({ type: 'gateway.replay', gatewayId: effectiveGatewayId, clientId, sessionId, events });
+    const replayCursor = replayEvents(clientId, sessionId, after, tail);
 
     const runnerClient = options.runnerClientForSession?.(session);
-    const unsubscribe = runnerClient
-      ? await runnerClient.subscribeEvents((frame) => {
-        const event = options.store.listEvents(frame.sessionId, frame.eventId - 1, 1)[0];
-        if (event) {
-          send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(event) });
-        }
-      }, options.store.latestEventId(sessionId))
-      : options.ptySessions?.subscribe(sessionId, (event) => {
+    let unsubscribe: (() => void | Promise<void>) | undefined;
+    if (runnerClient) {
+      try {
+        unsubscribe = await runnerClient.subscribeEvents((frame) => {
+          const event = options.store.listEvents(frame.sessionId, frame.eventId - 1, 1)[0];
+          if (event) {
+            send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(event) });
+          }
+        }, replayCursor);
+      } catch {
+        markSessionLost(sessionId);
+        subscriptions.delete(key);
+        sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
+        return;
+      }
+    } else {
+      unsubscribe = options.ptySessions?.subscribe(sessionId, (event) => {
         send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(event) });
       });
+    }
     subscriptions.set(key, { mode, unsubscribe });
+  };
+
+  const markSessionLost = (sessionId: string): void => {
+    const session = options.store.getSession(sessionId);
+    if (session?.status === 'running') {
+      options.store.updateSessionStatus(sessionId, 'lost');
+      options.store.appendEvent(sessionId, 'session.error', {
+        code: 'session_lost',
+        message: 'Gateway relay client lost the session runner'
+      });
+    }
+  };
+
+  const replayEvents = (clientId: string, sessionId: string, after: number, tail?: number): number => {
+    if (tail && tail > 0 && after === 0) {
+      const events = options.store.listRecentEvents(sessionId, tail);
+      send({
+        type: 'gateway.replay',
+        gatewayId: effectiveGatewayId,
+        clientId,
+        sessionId,
+        events: events.map(toRelayEvent),
+        latestEventId: options.store.latestEventId(sessionId)
+      });
+      return options.store.latestEventId(sessionId);
+    }
+
+    let cursor = after;
+    while (true) {
+      const events = options.store.listEvents(sessionId, cursor, RELAY_REPLAY_PAGE_SIZE);
+      if (events.length === 0) {
+        send({ type: 'gateway.replay', gatewayId: effectiveGatewayId, clientId, sessionId, events: [], latestEventId: cursor });
+        return cursor;
+      }
+
+      cursor = events.at(-1)?.id ?? cursor;
+      send({
+        type: 'gateway.replay',
+        gatewayId: effectiveGatewayId,
+        clientId,
+        sessionId,
+        events: events.map(toRelayEvent),
+        done: events.length < RELAY_REPLAY_PAGE_SIZE,
+        latestEventId: cursor
+      });
+
+      if (events.length < RELAY_REPLAY_PAGE_SIZE) {
+        return cursor;
+      }
+    }
   };
 
   const writeInput = async (clientId: string, sessionId: string, data: string) => {

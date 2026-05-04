@@ -9,6 +9,7 @@ import { startRelayServer } from '../../relay/src/relay.js';
 import { createSessionId } from './ids.js';
 import { PtySessionManager } from './pty.js';
 import { relayGatewayUrl, startRelayClient } from './relay-client.js';
+import type { SessionRunnerClient } from './session-runner-client.js';
 import { Store } from './store.js';
 
 const SECRET = 'relay-client-test-secret';
@@ -198,6 +199,127 @@ test('gateway relay client replays and forwards output', async () => {
   }
 });
 
+test('gateway relay client paginates full relay replay before live subscription cursor', async () => {
+  const { store, cleanup } = tempStore();
+  const sessionId = createSessionId();
+  const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  const port = await waitForWebSocketServerPort(fakeRelay);
+  const gatewaySocketPromise = waitForGatewaySocket(fakeRelay);
+  const now = Date.now();
+  store.insertSession({
+    id: sessionId,
+    provider: 'codex',
+    title: 'paged replay',
+    projectPath: process.cwd(),
+    accountId: 'acct_test',
+    workspaceId: 'ws_test',
+    userId: 'user_test',
+    gatewayId: 'gw_test_paged_replay',
+    status: 'running',
+    attachState: 'detached',
+    tmuxSessionName: '',
+    command: '/bin/cat',
+    transport: 'pty-event-stream',
+    createdAt: now,
+    updatedAt: now,
+    lastActiveAt: now
+  });
+  for (let i = 1; i <= 5001; i += 1) {
+    store.appendEvent(sessionId, 'terminal.output', { data: `line ${i}\r\n`, encoding: 'utf8' });
+  }
+  const relayClient = startRelayClient({
+    url: `ws://127.0.0.1:${port}`,
+    secret: SECRET,
+    gatewayId: 'gw_test_paged_replay',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_paged_replay' },
+    store
+  });
+
+  try {
+    const gatewaySocket = await gatewaySocketPromise;
+    await waitForGatewayFrame(gatewaySocket, (frame) => frame.type === 'gateway.auth');
+    gatewaySocket.send(JSON.stringify({ type: 'gateway.auth.ok', gatewayId: 'gw_test_paged_replay' }));
+    gatewaySocket.send(JSON.stringify({ type: 'client.subscribe', clientId: 'relay_paged_replay', sessionId, after: 0, mode: 'control' }));
+    const replayFrames = await waitForGatewayReplayPages(gatewaySocket, sessionId);
+
+    assert.equal(replayFrames.length, 2);
+    assert.equal(replayFrames[0].events.length, 5000);
+    assert.equal(replayFrames[0].done, false);
+    assert.equal(replayFrames[1].events.length, 1);
+    assert.equal(replayFrames[1].done, true);
+    assert.equal(replayFrames[0].events[0]?.payload.data, 'line 1\r\n');
+    assert.equal(replayFrames[1].events[0]?.payload.data, 'line 5001\r\n');
+    assert.equal(replayFrames[1].latestEventId, 5001);
+  } finally {
+    await relayClient.close();
+    await closeWebSocketServer(fakeRelay);
+    cleanup();
+  }
+});
+
+test('gateway relay client marks missing runner lost instead of crashing on subscribe', async () => {
+  const { store, cleanup } = tempStore();
+  const sessionId = createSessionId();
+  const relay = await relayAuthServer({ gatewayId: 'gw_test_missing_runner' });
+  const now = Date.now();
+  store.insertSession({
+    id: sessionId,
+    provider: 'codex',
+    title: 'missing runner',
+    projectPath: process.cwd(),
+    accountId: 'acct_test',
+    workspaceId: 'ws_test',
+    userId: 'user_test',
+    gatewayId: 'gw_test_missing_runner',
+    status: 'running',
+    attachState: 'detached',
+    tmuxSessionName: '',
+    command: '/bin/cat',
+    runnerSocketPath: '/tmp/tether-missing-runner.sock',
+    transport: 'pty-event-stream',
+    createdAt: now,
+    updatedAt: now,
+    lastActiveAt: now
+  });
+  const missingRunner = {
+    subscribeEvents: async () => {
+      throw new Error('connect ENOENT /tmp/tether-missing-runner.sock');
+    }
+  } as unknown as SessionRunnerClient;
+  const relayClient = startRelayClient({
+    url: relay.url,
+    secret: SECRET,
+    gatewayId: 'gw_test_missing_runner',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_missing_runner' },
+    store,
+    runnerClientForSession: () => missingRunner
+  });
+  await waitForRelayClientConnected(relayClient);
+  const client = await connectRelayClient(relay.url);
+
+  try {
+    await waitForSessionList(client, sessionId);
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'observe' }));
+    const error = await waitForFrame(client, (frame) => frame.type === 'error' && frame.code === 'session_lost');
+    assert.equal(error.type, 'error');
+    assert.equal(store.getSession(sessionId)?.status, 'lost');
+    assert.equal(
+      store
+        .listEvents(sessionId, 0, 5000)
+        .some((event) => event.type === 'session.error' && event.payload.code === 'session_lost'),
+      true
+    );
+    assert.equal(relayClient.status().state, 'connected');
+  } finally {
+    client.close();
+    await relayClient.close();
+    await relay.close();
+    cleanup();
+  }
+});
+
 test('gateway relay client forwards control input to pty', async () => {
   const { store, cleanup } = tempStore();
   const ptySessions = new PtySessionManager(store);
@@ -352,6 +474,46 @@ test('gateway relay client forwards control stop to pty', async () => {
     const replayDonePromise = waitForFrame(client, (frame) => frame.type === 'replay.done' && frame.sessionId === sessionId);
     client.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control' }));
     await replayDonePromise;
+    client.send(JSON.stringify({ type: 'client.stop', sessionId }));
+    await waitFor(() => !ptySessions.hasLiveSession(sessionId));
+  } finally {
+    client.close();
+    ptySessions.stop(sessionId);
+    await relayClient.close();
+    await relay.close();
+    cleanup();
+  }
+});
+
+test('gateway relay client accepts stop immediately after subscribe', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const sessionId = createSessionId();
+  const relay = await relayAuthServer({ gatewayId: 'gw_test_immediate_stop' });
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24,
+    owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_immediate_stop' }
+  });
+  const relayClient = startRelayClient({
+    url: relay.url,
+    secret: SECRET,
+    gatewayId: 'gw_test_immediate_stop',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_immediate_stop' },
+    store,
+    ptySessions
+  });
+  await waitForRelayClientConnected(relayClient);
+  const client = await connectRelayClient(relay.url);
+
+  try {
+    await waitForSessionList(client, sessionId);
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control' }));
     client.send(JSON.stringify({ type: 'client.stop', sessionId }));
     await waitFor(() => !ptySessions.hasLiveSession(sessionId));
   } finally {
@@ -661,6 +823,22 @@ async function waitForGatewaySocket(server: WebSocketServer): Promise<WebSocket>
   });
 }
 
+async function waitForWebSocketServerPort(server: WebSocketServer): Promise<number> {
+  const existingAddress = server.address();
+  if (existingAddress && typeof existingAddress !== 'string') {
+    return existingAddress.port;
+  }
+  await new Promise<void>((resolve, reject) => {
+    server.once('listening', () => resolve());
+    server.once('error', reject);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('websocket server did not bind to a TCP port');
+  }
+  return address.port;
+}
+
 async function waitForGatewayFrame(
   ws: WebSocket,
   predicate: (frame: RelayGatewayToServerFrame) => boolean,
@@ -676,6 +854,42 @@ async function waitForGatewayFrame(
       if (predicate(frame)) {
         cleanup();
         resolve(frame);
+      }
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      ws.off('message', onMessage);
+      ws.off('error', onError);
+    };
+    ws.on('message', onMessage);
+    ws.on('error', onError);
+  });
+}
+
+async function waitForGatewayReplayPages(
+  ws: WebSocket,
+  sessionId: string,
+  timeoutMs = 1500
+): Promise<Array<Extract<RelayGatewayToServerFrame, { type: 'gateway.replay' }>>> {
+  return await new Promise((resolve, reject) => {
+    const frames: Array<Extract<RelayGatewayToServerFrame, { type: 'gateway.replay' }>> = [];
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('timed out waiting for gateway replay pages'));
+    }, timeoutMs);
+    const onMessage = (raw: WebSocket.RawData) => {
+      const frame = JSON.parse(raw.toString()) as RelayGatewayToServerFrame;
+      if (frame.type !== 'gateway.replay' || frame.sessionId !== sessionId) {
+        return;
+      }
+      frames.push(frame);
+      if (frame.done !== false) {
+        cleanup();
+        resolve(frames);
       }
     };
     const onError = (error: Error) => {

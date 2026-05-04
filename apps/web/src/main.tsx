@@ -54,6 +54,7 @@ import { gatewayAuthHeaders } from './lib/api.js';
 import { WebChromeControls } from './components/console/web-chrome-controls.js';
 import { SessionControlPage } from './pages/session-control-page.js';
 import { SessionReplayPage } from './pages/session-replay-page.js';
+import { SessionSimplePage } from './pages/session-simple-page.js';
 import { WebRoutes } from './routes.js';
 import './styles.css';
 
@@ -294,23 +295,33 @@ function App() {
                 onConnectionSettingsChange={updateConnectionSettings}
               />
             )}
-            renderSessionView={(sessionId, mode) => (
-              mode === 'replay'
-                ? (
+            renderSessionView={(sessionId, mode) => {
+              if (mode === 'replay') {
+                return (
                   <SessionReplayPage
                     sessionId={sessionId}
                     connectionSettings={connectionSettings}
                     onConnectionSettingsChange={updateConnectionSettings}
                   />
-                )
-                : (
-                  <SessionControlPage
+                );
+              }
+              if (mode === 'simple') {
+                return (
+                  <SessionSimplePage
                     sessionId={sessionId}
                     connectionSettings={connectionSettings}
                     onConnectionSettingsChange={updateConnectionSettings}
                   />
-                )
-            )}
+                );
+              }
+              return (
+                <SessionControlPage
+                  sessionId={sessionId}
+                  connectionSettings={connectionSettings}
+                  onConnectionSettingsChange={updateConnectionSettings}
+                />
+              );
+            }}
           />
         </BrowserRouter>
         <Toaster />

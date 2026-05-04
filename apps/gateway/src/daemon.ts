@@ -708,18 +708,28 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     socket.send(JSON.stringify({ type: 'event', event: attached }));
 
     const runnerClient = getRunnerClient(session);
-    const unsubscribe = runnerClient
-      ? await runnerClient.subscribeEvents((frame) => {
+    let unsubscribe: (() => void | Promise<void>) | undefined;
+    if (runnerClient) {
+      try {
+        unsubscribe = await runnerClient.subscribeEvents((frame) => {
         const event = options.store.listEvents(frame.sessionId, frame.eventId - 1, 1)[0];
         if (event && socket.readyState === socket.OPEN) {
           socket.send(JSON.stringify({ type: 'event', event }));
         }
-      }, options.store.latestEventId(sessionId))
-      : options.ptySessions?.subscribe(sessionId, (event) => {
+        }, options.store.latestEventId(sessionId));
+      } catch {
+        markSessionLost(session, 'Gateway could not subscribe to this session runner');
+        socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));
+        socket.close(1008, 'session_lost');
+        return;
+      }
+    } else {
+      unsubscribe = options.ptySessions?.subscribe(sessionId, (event) => {
         if (socket.readyState === socket.OPEN) {
           socket.send(JSON.stringify({ type: 'event', event }));
         }
       });
+    }
 
     socket.on('message', (data) => {
       const frame = parseClientFrame(data.toString());

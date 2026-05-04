@@ -93,9 +93,20 @@ test('pty attach defaults to reconnect with fresh tickets and event cursor', () 
   assert.match(source, /params\.set\('after', String\(after\)\)/);
   assert.match(source, /Gateway 连接断开/);
   assert.match(source, /当前输入不会发送/);
-  assert.match(source, /退出本地 attach，session 继续运行/);
+  assert.match(source, /Ctrl-C 停止 session/);
+  assert.match(source, /Ctrl-\] 只退出本地 attach/);
   assert.match(source, /TERMINAL_RESET_SEQUENCE/);
   assert.match(source, /\\x1b\[<u/);
+});
+
+test('pty attach maps Ctrl-C to session stop and Ctrl-] to local detach', () => {
+  const source = readFileSync(path.resolve(process.cwd(), 'src/main.ts'), 'utf8');
+  assert.match(source, /Press Ctrl-C to stop, Ctrl-\] to detach/);
+  assert.match(source, /const stopAttachedSession = \(\) =>/);
+  assert.match(source, /stopPtySessionViaGateway\(id, `http:\/\/\$\{options\.host\}:\$\{options\.port\}`\)/);
+  assert.match(source, /chunk\.includes\(0x03\)/);
+  assert.match(source, /chunk\.includes\(LOCAL_DETACH_KEY\.charCodeAt\(0\)\)/);
+  assert.match(source, /status: 'stopped'/);
 });
 
 test('stop prints success and can fall back to runner socket', () => {

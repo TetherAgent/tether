@@ -180,7 +180,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         }
         break;
       case 'gateway.replay':
-        sendReplay(frame.clientId, frame.sessionId, frame.events);
+        sendReplay(frame.clientId, frame.sessionId, frame.events, frame.done !== false, frame.latestEventId);
         break;
       case 'gateway.event':
         sendEventToSubscribers(frame.event);
@@ -387,7 +387,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     }
   }
 
-  function sendReplay(clientId: string, sessionId: string, events: RelayTerminalEvent[]): void {
+  function sendReplay(clientId: string, sessionId: string, events: RelayTerminalEvent[], done: boolean, latestEventId?: number): void {
     const client = clients.get(clientId);
     if (!client || !client.subscriptions.has(sessionId) || !clientCanAccessSession(client.scope, client.authMethod, sessionId)) {
       return;
@@ -395,7 +395,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     for (const event of events) {
       sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'event', event });
     }
-    sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'replay.done', sessionId, latestEventId: events.at(-1)?.id ?? 0 });
+    if (done) {
+      sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'replay.done', sessionId, latestEventId: latestEventId ?? events.at(-1)?.id ?? 0 });
+    }
   }
 
   function sendEventToSubscribers(event: RelayTerminalEvent): void {

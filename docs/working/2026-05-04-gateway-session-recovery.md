@@ -420,6 +420,9 @@ Relay 本身不需要知道 runner。Gateway relay-client 仍按原协议向 Rel
 
 Relay 协议不需要为 runner 单独加字段。
 
+Direct / Relay 回放一致性已单独记录在
+[2026-05-04-direct-relay-replay-consistency.md](2026-05-04-direct-relay-replay-consistency.md)。
+
 ### 6. 测试范围
 
 必须补以下测试：

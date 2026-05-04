@@ -231,7 +231,9 @@ export const WEB_MESSAGES = {
     ],
     landingCtaTitle: '让 Agent 跑久一点，让你自由一点。',
     landingCtaBody: '工作站跑重活，手机和 Web 负责监督、接管和放行。代码和凭证始终留在本机。',
-    landingCtaButton: '打开 Tether'
+    landingCtaButton: '打开 Tether',
+    simpleView: '简洁',
+    terminalView: '终端'
   },
   en: {
     appName: 'Tether',
@@ -460,7 +462,9 @@ export const WEB_MESSAGES = {
     ],
     landingCtaTitle: 'Let Agents run longer. Let yourself move freely.',
     landingCtaBody: 'The workstation does the heavy work. Phone and Web supervise, take over, and approve. Code and credentials stay local.',
-    landingCtaButton: 'Open Tether'
+    landingCtaButton: 'Open Tether',
+    simpleView: 'Simple',
+    terminalView: 'Terminal'
   }
 } as const;
 

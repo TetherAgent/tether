@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import WebSocket from 'ws';
-import type { RelayAuthScope, RelaySession } from '@tether/protocol';
+import type { RelayAuthScope, RelayServerToClientFrame, RelaySession } from '@tether/protocol';
 import { startRelayServer } from './relay.js';
 
 const SECRET = 'test-relay-secret';
@@ -242,6 +242,91 @@ test('relay forwards subscribed input and resize to gateway', async () => {
       clientId,
       sessionId: 'tth_input_test'
     });
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+  }
+});
+
+test('relay waits for final paged replay frame before replay.done', async () => {
+  const relay = await createRelay();
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  let replayDoneCount = 0;
+  client.on('message', (raw) => {
+    const frame = JSON.parse(raw.toString()) as RelayServerToClientFrame;
+    if (frame.type === 'replay.done') {
+      replayDoneCount += 1;
+    }
+  });
+
+  try {
+    await authenticateGateway(gateway);
+    const clientId = await authenticateClient(client);
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [{
+        id: 'tth_paged_replay_test',
+        provider: 'codex',
+        title: 'Paged Replay Test',
+        projectPath: process.cwd(),
+        accountId: 'acct_1',
+        workspaceId: 'ws_1',
+        gatewayId: 'gateway-test',
+        userId: 'user_1',
+        status: 'running',
+        transport: 'pty-event-stream',
+        lastActiveAt: Date.now()
+      }]
+    }));
+    await waitForJson(client, (message) => message.type === 'sessions');
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_paged_replay_test', after: 0, mode: 'control' }));
+    await waitForJson(gateway, (message) => message.type === 'client.subscribe' && message.clientId === clientId);
+
+    gateway.send(JSON.stringify({
+      type: 'gateway.replay',
+      gatewayId: 'gateway-test',
+      clientId,
+      sessionId: 'tth_paged_replay_test',
+      events: [{
+        id: 1,
+        sessionId: 'tth_paged_replay_test',
+        type: 'terminal.output',
+        ts: Date.now(),
+        payload: { data: 'page 1\r\n', encoding: 'utf8' }
+      }],
+      done: false,
+      latestEventId: 1
+    }));
+    await waitForJson(client, (message) => {
+      if (message.type !== 'event') {
+        return false;
+      }
+      const event = message.event as { id?: number } | undefined;
+      return event?.id === 1;
+    });
+    assert.equal(replayDoneCount, 0);
+
+    gateway.send(JSON.stringify({
+      type: 'gateway.replay',
+      gatewayId: 'gateway-test',
+      clientId,
+      sessionId: 'tth_paged_replay_test',
+      events: [{
+        id: 2,
+        sessionId: 'tth_paged_replay_test',
+        type: 'terminal.output',
+        ts: Date.now(),
+        payload: { data: 'page 2\r\n', encoding: 'utf8' }
+      }],
+      done: true,
+      latestEventId: 2
+    }));
+    const done = await waitForJson(client, (message) => message.type === 'replay.done' && message.sessionId === 'tth_paged_replay_test');
+    assert.equal(done.latestEventId, 2);
+    assert.equal(replayDoneCount, 1);
   } finally {
     gateway.close();
     client.close();

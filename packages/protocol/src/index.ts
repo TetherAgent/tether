@@ -50,7 +50,7 @@ export type RelayTerminalEvent = {
 export type RelayGatewayToServerFrame =
   | { type: 'gateway.auth'; gatewayId: string; token?: string; secret?: string; scope?: RelayAuthScope }
   | { type: 'gateway.sessions'; gatewayId: string; sessions: RelaySession[] }
-  | { type: 'gateway.replay'; gatewayId: string; clientId: string; sessionId: string; events: RelayTerminalEvent[] }
+  | { type: 'gateway.replay'; gatewayId: string; clientId: string; sessionId: string; events: RelayTerminalEvent[]; done?: boolean; latestEventId?: number }
   | { type: 'gateway.event'; gatewayId: string; event: RelayTerminalEvent }
   | { type: 'gateway.error'; gatewayId: string; clientId?: string; sessionId?: string; code: string; message: string };
 

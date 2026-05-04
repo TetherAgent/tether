@@ -118,7 +118,7 @@ type AttachPtySessionOptions = {
 };
 
 type AttachAttemptResult = {
-  status: 'detached' | 'exited' | 'reconnect' | 'lost';
+  status: 'detached' | 'exited' | 'stopped' | 'reconnect' | 'lost';
   latestEventId: number;
   message?: string;
 };
@@ -1038,7 +1038,7 @@ async function sleep(ms: number): Promise<void> {
 async function attachPtySession(
   id: string,
   options: AttachPtySessionOptions
-): Promise<'detached' | 'exited'> {
+): Promise<'detached' | 'exited' | 'stopped'> {
   const mode = options.mode ?? 'control';
   const reconnect = options.reconnect !== false;
   let latestEventId = 0;
@@ -1063,6 +1063,9 @@ async function attachPtySession(
     if (attempt.status === 'exited') {
       return 'exited';
     }
+    if (attempt.status === 'stopped') {
+      return 'stopped';
+    }
     if (attempt.status === 'detached') {
       return 'detached';
     }
@@ -1076,7 +1079,7 @@ async function attachPtySession(
     reconnectAttempt += 1;
     const delayMs = Math.min(500 * reconnectAttempt, 5000);
     const reason = attempt.message ? `：${attempt.message}` : '';
-    console.error(`\nGateway 连接断开${reason}。${delayMs}ms 后自动重连；当前输入不会发送。按 Ctrl-C 退出本地 attach，session 继续运行。`);
+    console.error(`\nGateway 连接断开${reason}。${delayMs}ms 后自动重连；当前输入不会发送。按 Ctrl-C 停止 session，按 Ctrl-] 只退出本地 attach。`);
     await sleep(delayMs);
   }
 }
@@ -1098,6 +1101,8 @@ async function attachPtySessionOnce(
   const ws = new WebSocket(url, [`tether-ticket.${ticket}`]);
   let result: AttachAttemptResult = { status: 'reconnect', latestEventId: after };
   let localDetach = false;
+  let localStop = false;
+  let stopPromise: Promise<void> | undefined;
 
   const previousRawMode = process.stdin.isRaw;
   const wasStdinPaused = process.stdin.isPaused();
@@ -1106,7 +1111,7 @@ async function attachPtySessionOnce(
     ws.once('error', reject);
   });
 
-  console.error('Attached to Tether PTY session. Press Ctrl-] to detach.');
+  console.error('Attached to Tether PTY session. Press Ctrl-C to stop, Ctrl-] to detach.');
   process.stdin.setRawMode?.(true);
   process.stdin.resume();
   let terminalCleanedUp = false;
@@ -1127,12 +1132,43 @@ async function attachPtySessionOnce(
       process.stdout.write(TERMINAL_RESET_SEQUENCE);
     }
   };
+  const stopAttachedSession = () => {
+    if (localStop) {
+      return;
+    }
+    localStop = true;
+    result = { status: 'stopped', latestEventId: result.latestEventId };
+    cleanupTerminal();
+    console.error('\n正在停止 Tether session...');
+    stopPromise = stopPtySessionViaGateway(id, `http://${options.host}:${options.port}`)
+      .then((stopped) => {
+        if (!stopped) {
+          throw new Error('Gateway stop endpoint unavailable');
+        }
+      })
+      .catch((error: unknown) => {
+        result = {
+          status: 'lost',
+          latestEventId: result.latestEventId,
+          message: error instanceof Error ? error.message : '停止 session 失败'
+        };
+      })
+      .finally(() => {
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          ws.close(1000, 'local stop');
+        }
+      });
+  };
   const signalHandler = (signal: NodeJS.Signals) => {
+    if (signal === 'SIGINT') {
+      stopAttachedSession();
+      return;
+    }
     cleanupTerminal();
     if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
       ws.close(1000, `local ${signal}`);
     }
-    process.exit(signal === 'SIGINT' ? 130 : 143);
+    process.exit(143);
   };
 
   const resize = () => {
@@ -1145,6 +1181,10 @@ async function attachPtySessionOnce(
     }
   };
   const onData = (chunk: Buffer) => {
+    if (chunk.includes(0x03)) {
+      stopAttachedSession();
+      return;
+    }
     if (chunk.includes(LOCAL_DETACH_KEY.charCodeAt(0))) {
       localDetach = true;
       result = { status: 'detached', latestEventId: result.latestEventId };
@@ -1188,7 +1228,7 @@ async function attachPtySessionOnce(
       }
     });
     ws.once('close', (code, reasonBuffer) => {
-      if (result.status === 'exited' || localDetach) {
+      if (result.status === 'exited' || result.status === 'stopped' || localDetach || localStop) {
         resolve();
         return;
       }
@@ -1215,6 +1255,7 @@ async function attachPtySessionOnce(
     process.off('SIGHUP', signalHandler);
     cleanupTerminal();
   });
+  await stopPromise;
   return result;
 }
 
