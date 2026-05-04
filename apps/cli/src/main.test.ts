@@ -45,6 +45,13 @@ test('foreground gateway checks port before prompting for auth', () => {
   assert.match(source, /pnpm tether gateway stop/);
 });
 
+test('launchd gateway profile skips interactive prompt', () => {
+  const source = readFileSync(path.resolve(process.cwd(), 'src/main.ts'), 'utf8');
+  assert.match(source, /gatewayProfileFromEnv/);
+  assert.match(source, /process\.env\.TETHER_GATEWAY_PROFILE/);
+  assert.match(source, /startGatewayForeground\(launchdProfile\)/);
+});
+
 test('gateway delete-db requires confirmation and removes sqlite sidecar files', () => {
   const source = readFileSync(path.resolve(process.cwd(), 'src/main.ts'), 'utf8');
   assert.match(source, /command\('delete-db'\)/);

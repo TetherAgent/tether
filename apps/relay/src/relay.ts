@@ -34,15 +34,19 @@ const AUTH_TIMEOUT_MS = 5000;
 type GatewayState = {
   gatewayId: string;
   scope?: RelayAuthScope;
+  authMethod: RelayAuthMethod;
   socket: WebSocket;
 };
 
 type ClientState = {
   clientId: string;
   scope?: RelayAuthScope;
+  authMethod: RelayAuthMethod;
   socket: WebSocket;
   subscriptions: Map<string, RelayClientMode>;
 };
+
+type RelayAuthMethod = 'token' | 'legacy-secret';
 
 export async function startRelayServer(options: RelayServerOptions): Promise<RunningRelayServer> {
   if (!options.secret && !options.validateToken) {
@@ -130,7 +134,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           }
           gatewayId = parsed.gatewayId;
           gatewayScope = auth.scope;
-          gateway = { gatewayId, scope: auth.scope, socket };
+          gateway = { gatewayId, scope: auth.scope, authMethod: auth.authMethod, socket };
           authenticated = true;
           clearTimeout(authTimer);
           sendToSocket<RelayServerToGatewayFrame>(socket, { type: 'gateway.auth.ok', gatewayId });
@@ -169,7 +173,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         for (const client of clients.values()) {
           sendToSocket<RelayServerToClientFrame>(client.socket, {
             type: 'sessions',
-            sessions: frame.sessions.filter((session) => clientCanSeeSession(client.scope, session, gatewayScope))
+            sessions: frame.sessions.filter((session) => clientCanSeeSession(client.scope, client.authMethod, session, gatewayScope))
           });
         }
         break;
@@ -221,7 +225,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           authenticated = true;
           clearTimeout(authTimer);
           clientScope = auth.scope;
-          clients.set(clientId, { clientId, scope: auth.scope, socket, subscriptions });
+          clients.set(clientId, { clientId, scope: auth.scope, authMethod: auth.authMethod, socket, subscriptions });
           sendToSocket<RelayServerToClientFrame>(socket, { type: 'client.auth.ok', clientId });
           sendToSocket<RelayServerToClientFrame>(socket, {
             type: 'hello',
@@ -257,16 +261,17 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     subscriptions: Map<string, RelayClientMode>,
     frame: RelayClientToServerFrame
   ): void {
+    const authMethod = clients.get(clientId)?.authMethod ?? 'token';
     switch (frame.type) {
       case 'client.list':
         forwardToGateway({ type: 'client.list', clientId });
         if (!gateway) {
-          sendToClient(clientId, { type: 'sessions', sessions: [...latestSessions.values()].filter((session) => clientCanSeeSession(clientScope, session)) });
+          sendToClient(clientId, { type: 'sessions', sessions: [...latestSessions.values()].filter((session) => clientCanSeeSession(clientScope, authMethod, session, gateway?.scope)) });
         }
         break;
       case 'client.subscribe': {
         const session = latestSessions.get(frame.sessionId);
-        if (!session || !clientCanSeeSession(clientScope, session)) {
+        if (!session || !clientCanSeeSession(clientScope, authMethod, session, gateway?.scope)) {
           sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });
           break;
         }
@@ -281,7 +286,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         break;
       }
       case 'client.input':
-        if (!clientCanAccessFrameSession(clientScope, frame.sessionId)) {
+        if (!clientCanAccessSession(clientScope, authMethod, frame.sessionId, 'control')) {
           sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });
           break;
         }
@@ -297,7 +302,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         forwardToGateway({ type: 'client.input', clientId, sessionId: frame.sessionId, data: frame.data });
         break;
       case 'client.resize':
-        if (!clientCanAccessFrameSession(clientScope, frame.sessionId)) {
+        if (!clientCanAccessSession(clientScope, authMethod, frame.sessionId, 'control')) {
           sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });
           break;
         }
@@ -317,7 +322,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         forwardToGateway({ type: 'client.resize', clientId, sessionId: frame.sessionId, cols: frame.cols, rows: frame.rows });
         break;
       case 'client.stop':
-        if (!clientCanAccessFrameSession(clientScope, frame.sessionId)) {
+        if (!clientCanAccessSession(clientScope, authMethod, frame.sessionId, 'control')) {
           sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });
           break;
         }
@@ -333,6 +338,10 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         forwardToGateway({ type: 'client.stop', clientId, sessionId: frame.sessionId });
         break;
       case 'client.detach':
+        if (!clientCanAccessSession(clientScope, authMethod, frame.sessionId)) {
+          sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });
+          break;
+        }
         subscriptions.delete(frame.sessionId);
         forwardToGateway({ type: 'client.detach', clientId, sessionId: frame.sessionId });
         break;
@@ -354,7 +363,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
 
   function sendReplay(clientId: string, sessionId: string, events: RelayTerminalEvent[]): void {
     const client = clients.get(clientId);
-    if (!client || !client.subscriptions.has(sessionId) || !clientCanAccessFrameSession(client.scope, sessionId)) {
+    if (!client || !client.subscriptions.has(sessionId) || !clientCanAccessSession(client.scope, client.authMethod, sessionId)) {
       return;
     }
     for (const event of events) {
@@ -365,10 +374,31 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
 
   function sendEventToSubscribers(event: RelayTerminalEvent): void {
     for (const client of clients.values()) {
-      if (client.subscriptions.has(event.sessionId) && clientCanAccessFrameSession(client.scope, event.sessionId)) {
+      if (client.subscriptions.has(event.sessionId) && clientCanAccessSession(client.scope, client.authMethod, event.sessionId)) {
         sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'event', event });
       }
     }
+  }
+
+  function clientCanAccessSession(
+    clientScope: RelayAuthScope | undefined,
+    authMethod: RelayAuthMethod,
+    sessionId: string,
+    requiredTicketMode?: RelayClientMode
+  ): boolean {
+    const session = latestSessions.get(sessionId);
+    if (!session || !clientCanSeeSession(clientScope, authMethod, session, gateway?.scope)) {
+      return false;
+    }
+    if (clientScope?.tokenClass === 'ws_ticket') {
+      if (clientScope.sessionId !== sessionId) {
+        return false;
+      }
+      if (requiredTicketMode && clientScope.mode !== requiredTicketMode) {
+        return false;
+      }
+    }
+    return true;
   }
 
   function sendGatewayError(frame: Extract<RelayGatewayToServerFrame, { type: 'gateway.error' }>): void {
@@ -397,7 +427,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
 async function authenticateGatewayFrame(
   frame: Extract<RelayGatewayToServerFrame, { type: 'gateway.auth' }>,
   options: RelayServerOptions
-): Promise<{ ok: true; scope: RelayAuthScope } | { ok: false; code: string; message: string }> {
+): Promise<{ ok: true; scope: RelayAuthScope; authMethod: RelayAuthMethod } | { ok: false; code: string; message: string }> {
   if (frame.token && options.validateToken) {
     const scope = await options.validateToken(frame.token);
     if (!scope) {
@@ -409,10 +439,10 @@ async function authenticateGatewayFrame(
     if (scope.gatewayId && scope.gatewayId !== frame.gatewayId) {
       return { ok: false, code: 'wrong_gateway', message: 'gateway token does not match gateway id' };
     }
-    return { ok: true, scope };
+    return { ok: true, scope, authMethod: 'token' };
   }
   if (options.allowLegacySecret === true && frame.secret === options.secret && frame.scope) {
-    return { ok: true, scope: frame.scope };
+    return { ok: true, scope: frame.scope, authMethod: 'legacy-secret' };
   }
   return { ok: false, code: 'authentication_failed', message: 'gateway authentication failed' };
 }
@@ -420,7 +450,7 @@ async function authenticateGatewayFrame(
 async function authenticateClientFrame(
   frame: Extract<RelayClientToServerFrame, { type: 'client.auth' }>,
   options: RelayServerOptions
-): Promise<{ ok: true; scope: RelayAuthScope } | { ok: false; code: string; message: string }> {
+): Promise<{ ok: true; scope: RelayAuthScope; authMethod: RelayAuthMethod } | { ok: false; code: string; message: string }> {
   const token = frame.ticket ?? frame.token;
   if (token && options.validateToken) {
     const scope = await options.validateToken(token);
@@ -430,10 +460,10 @@ async function authenticateClientFrame(
     if (scope.tokenClass !== 'normal_client_access' && scope.tokenClass !== 'ws_ticket') {
       return { ok: false, code: 'wrong_token_class', message: 'client token must be normal_client_access or ws_ticket' };
     }
-    return { ok: true, scope };
+    return { ok: true, scope, authMethod: 'token' };
   }
   if (options.allowLegacySecret === true && frame.secret === options.secret && frame.scope) {
-    return { ok: true, scope: frame.scope };
+    return { ok: true, scope: frame.scope, authMethod: 'legacy-secret' };
   }
   return { ok: false, code: 'authentication_failed', message: 'client authentication failed' };
 }
@@ -453,8 +483,11 @@ function gatewayFrameWithinScope(frame: RelayGatewayToServerFrame, gatewayScope:
   }
 }
 
-function clientCanSeeSession(clientScope: RelayAuthScope | undefined, session: RelaySession, gatewayScope?: RelayAuthScope): boolean {
+function clientCanSeeSession(clientScope: RelayAuthScope | undefined, authMethod: RelayAuthMethod, session: RelaySession, gatewayScope?: RelayAuthScope): boolean {
   if (!clientScope) {
+    return false;
+  }
+  if (authMethod === 'token' && (!session.accountId || !session.workspaceId || !session.gatewayId)) {
     return false;
   }
   if (session.accountId && session.accountId !== clientScope.accountId) {
@@ -476,16 +509,6 @@ function clientCanSeeSession(clientScope: RelayAuthScope | undefined, session: R
     if (session.gatewayId && gatewayScope?.gatewayId && session.gatewayId !== gatewayScope.gatewayId) {
       return false;
     }
-  }
-  return true;
-}
-
-function clientCanAccessFrameSession(clientScope: RelayAuthScope | undefined, sessionId: string): boolean {
-  if (!clientScope) {
-    return false;
-  }
-  if (clientScope.tokenClass === 'ws_ticket' && clientScope.sessionId && clientScope.sessionId !== sessionId) {
-    return false;
   }
   return true;
 }

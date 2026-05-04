@@ -9,11 +9,12 @@ const GATEWAY_TOKEN = 'gateway-token';
 const CLIENT_TOKEN = 'client-token';
 const CLIENT_TICKET = 'client-ticket';
 
-function createRelay() {
+function createRelay(options?: { allowLegacySecret?: boolean }) {
   return startRelayServer({
     host: '127.0.0.1',
-    port: nextPort(),
+    port: 0,
     secret: SECRET,
+    allowLegacySecret: options?.allowLegacySecret,
     validateToken: async (token) => {
       if (token === GATEWAY_TOKEN) {
         return {
@@ -50,12 +51,6 @@ function createRelay() {
       return undefined;
     }
   });
-}
-
-let relayPort = 4900;
-function nextPort(): number {
-  relayPort += 1;
-  return relayPort;
 }
 
 test('relay rejects unauthenticated sockets', async () => {
@@ -204,6 +199,24 @@ test('relay rejects unsubscribed input and resize', async () => {
   try {
     await authenticateGateway(gateway);
     await authenticateClient(client);
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [{
+        id: 'tth_unsubscribed_test',
+        provider: 'codex',
+        title: 'Unsubscribed Test',
+        projectPath: process.cwd(),
+        accountId: 'acct_1',
+        workspaceId: 'ws_1',
+        gatewayId: 'gateway-test',
+        userId: 'user_1',
+        status: 'running',
+        transport: 'pty-event-stream',
+        lastActiveAt: Date.now()
+      }]
+    }));
+    await waitForJson(client, (message) => message.type === 'sessions');
 
     client.send(JSON.stringify({ type: 'client.input', sessionId: 'tth_unsubscribed_test', data: 'blocked\r' }));
     const inputError = await waitForJson(client, (message) => message.type === 'error' && message.code === 'not_subscribed');
@@ -212,6 +225,72 @@ test('relay rejects unsubscribed input and resize', async () => {
     client.send(JSON.stringify({ type: 'client.resize', sessionId: 'tth_unsubscribed_test', cols: 90, rows: 25 }));
     const resizeError = await waitForJson(client, (message) => message.type === 'error' && message.code === 'not_subscribed');
     assert.equal(resizeError.sessionId, 'tth_unsubscribed_test');
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+  }
+});
+
+test('relay rejects control frames after session scope changes', async () => {
+  const relay = await createRelay();
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+
+  try {
+    await authenticateGateway(gateway);
+    const clientId = await authenticateClient(client);
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [{
+        id: 'tth_scope_drift',
+        provider: 'codex',
+        title: 'Scope Drift',
+        projectPath: process.cwd(),
+        accountId: 'acct_1',
+        workspaceId: 'ws_1',
+        gatewayId: 'gateway-test',
+        userId: 'user_1',
+        status: 'running',
+        transport: 'pty-event-stream',
+        lastActiveAt: Date.now()
+      }]
+    }));
+    await waitForJson(client, (message) => message.type === 'sessions');
+
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_scope_drift', after: 0, mode: 'control' }));
+    await waitForJson(gateway, (message) => message.type === 'client.subscribe' && message.clientId === clientId);
+
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [{
+        id: 'tth_scope_drift',
+        provider: 'codex',
+        title: 'Scope Drift Moved',
+        projectPath: process.cwd(),
+        accountId: 'acct_2',
+        workspaceId: 'ws_2',
+        gatewayId: 'gateway-test',
+        status: 'running',
+        transport: 'pty-event-stream',
+        lastActiveAt: Date.now()
+      }]
+    }));
+    await waitForJson(client, (message) => message.type === 'sessions');
+
+    client.send(JSON.stringify({ type: 'client.input', sessionId: 'tth_scope_drift', data: 'blocked\r' }));
+    const inputError = await waitForJson(client, (message) => message.type === 'error' && message.code === 'forbidden');
+    assert.equal(inputError.sessionId, 'tth_scope_drift');
+
+    client.send(JSON.stringify({ type: 'client.resize', sessionId: 'tth_scope_drift', cols: 100, rows: 30 }));
+    const resizeError = await waitForJson(client, (message) => message.type === 'error' && message.code === 'forbidden');
+    assert.equal(resizeError.sessionId, 'tth_scope_drift');
+
+    client.send(JSON.stringify({ type: 'client.stop', sessionId: 'tth_scope_drift' }));
+    const stopError = await waitForJson(client, (message) => message.type === 'error' && message.code === 'forbidden');
+    assert.equal(stopError.sessionId, 'tth_scope_drift');
   } finally {
     gateway.close();
     client.close();
@@ -336,6 +415,105 @@ test('relay rejects cross-account session list and wrong-session ticket subscrib
   }
 });
 
+test('relay hides unscoped sessions from token clients', async () => {
+  const relay = await createRelay();
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+
+  try {
+    await authenticateGateway(gateway);
+    await authenticateClient(client);
+
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [
+        { id: 'tth_unscoped', provider: 'codex', title: 'unscoped', projectPath: process.cwd(), status: 'running', transport: 'pty-event-stream', lastActiveAt: Date.now() }
+      ]
+    }));
+
+    const sessions = await waitForJson(client, (message) => message.type === 'sessions');
+    assert.deepEqual(sessions.sessions, []);
+
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_unscoped', after: 0, mode: 'control' }));
+    const error = await waitForJson(client, (message) => message.type === 'error' && message.code === 'forbidden');
+    assert.equal(error.sessionId, 'tth_unscoped');
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+  }
+});
+
+test('relay allows unscoped sessions only for legacy secret clients', async () => {
+  const relay = await createRelay({ allowLegacySecret: true });
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const legacyScope: RelayAuthScope = {
+    accountId: 'acct_legacy',
+    workspaceId: 'ws_legacy',
+    userId: 'user_legacy',
+    tokenClass: 'normal_client_access',
+    expiresAt: Date.now() + 60_000,
+    jti: 'jti_legacy'
+  };
+
+  try {
+    await authenticateGateway(gateway);
+    const clientId = await authenticateLegacyClient(client, legacyScope);
+
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [
+        { id: 'tth_legacy_unscoped', provider: 'codex', title: 'legacy', projectPath: process.cwd(), status: 'running', transport: 'pty-event-stream', lastActiveAt: Date.now() }
+      ]
+    }));
+
+    const sessions = await waitForJson(client, (message) => message.type === 'sessions');
+    assert.equal((sessions.sessions as RelaySession[]).some((session) => session.id === 'tth_legacy_unscoped'), true);
+
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_legacy_unscoped', after: 0, mode: 'control' }));
+    const subscribe = await waitForJson(gateway, (message) => message.type === 'client.subscribe');
+    assert.equal(subscribe.clientId, clientId);
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+  }
+});
+
+test('relay rejects observe tickets that send control frames', async () => {
+  const relay = await createRelay();
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const ticketClient = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+
+  try {
+    await authenticateGateway(gateway);
+    await authenticateClient(ticketClient, { token: CLIENT_TICKET });
+
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [
+        { id: 'tth_ticket_test', provider: 'codex', title: 'ticket', projectPath: process.cwd(), accountId: 'acct_1', workspaceId: 'ws_1', gatewayId: 'gateway-test', status: 'running', transport: 'pty-event-stream', lastActiveAt: Date.now() }
+      ]
+    }));
+    await waitForJson(ticketClient, (message) => message.type === 'sessions');
+
+    ticketClient.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_ticket_test', after: 0, mode: 'observe' }));
+    await waitForJson(gateway, (message) => message.type === 'client.subscribe');
+
+    ticketClient.send(JSON.stringify({ type: 'client.input', sessionId: 'tth_ticket_test', data: 'blocked\r' }));
+    const error = await waitForJson(ticketClient, (message) => message.type === 'error' && message.code === 'forbidden');
+    assert.equal(error.sessionId, 'tth_ticket_test');
+  } finally {
+    gateway.close();
+    ticketClient.close();
+    await relay.close();
+  }
+});
+
 async function authenticateGateway(ws: WebSocket): Promise<void> {
   await waitForOpen(ws);
   ws.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-test', token: GATEWAY_TOKEN }));
@@ -345,6 +523,14 @@ async function authenticateGateway(ws: WebSocket): Promise<void> {
 async function authenticateClient(ws: WebSocket, options?: { token?: string; scope?: RelayAuthScope }): Promise<string> {
   await waitForOpen(ws);
   ws.send(JSON.stringify({ type: 'client.auth', token: options?.token ?? CLIENT_TOKEN, scope: options?.scope }));
+  const auth = await waitForJson(ws, (message) => message.type === 'client.auth.ok');
+  assert.equal(typeof auth.clientId, 'string');
+  return auth.clientId as string;
+}
+
+async function authenticateLegacyClient(ws: WebSocket, scope: RelayAuthScope): Promise<string> {
+  await waitForOpen(ws);
+  ws.send(JSON.stringify({ type: 'client.auth', secret: SECRET, scope }));
   const auth = await waitForJson(ws, (message) => message.type === 'client.auth.ok');
   assert.equal(typeof auth.clientId, 'string');
   return auth.clientId as string;

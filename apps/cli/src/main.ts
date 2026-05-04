@@ -134,6 +134,11 @@ const gatewayCommand = program
   .helpOption('-h, --help', '显示帮助')
   .addHelpCommand('help [command]', '显示指定 Gateway 命令的帮助')
   .action(async () => {
+    const launchdProfile = gatewayProfileFromEnv();
+    if (launchdProfile) {
+      await startGatewayForeground(launchdProfile);
+      return;
+    }
     const profile = await promptGatewayProfile('请选择本次前台启动模式');
     await startGatewayForeground(profile);
   });
@@ -1198,6 +1203,17 @@ async function promptGatewayProfile(title: string): Promise<GatewayProfileName> 
     return answer;
   }
   throw new Error(`未知 Gateway 启动模式：${answer}`);
+}
+
+function gatewayProfileFromEnv(): GatewayProfileName | undefined {
+  const profile = process.env.TETHER_GATEWAY_PROFILE;
+  if (!profile) {
+    return undefined;
+  }
+  if (isGatewayProfileName(profile)) {
+    return profile;
+  }
+  throw new Error(`未知 Gateway 启动模式：${profile}`);
 }
 
 async function waitForShutdown(): Promise<void> {
