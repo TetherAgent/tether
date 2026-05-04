@@ -193,7 +193,18 @@ Plans:
   5. Dart protocol types or SDK are generated from `packages/protocol`, or the phase leaves a verified generation bridge with no separate hand-maintained Dart contract
   6. HarmonyOS compatibility risks for Flutter plugins, terminal rendering, secure storage, WebSocket behavior, and packaging are researched and documented before implementation choices are locked
   7. The app never sends arbitrary command/provider args/env/process creation requests and never duplicates Gateway session ownership, auth decisions, or Relay routing logic
-**Plans**: TBD
+**Plans**: 6 plans
+Plans:
+  - **Wave 1** (no deps):
+    - [ ] `09-01-PLAN.md` — Flutter 项目骨架、pubspec.yaml 依赖、Dart 协议类型（14变体）、ARB i18n 文件、ThemeData 常量
+  - **Wave 2** *(depends on Plan 01)*:
+    - [ ] `09-02-PLAN.md` — AuthService（flutter_secure_storage token + QueuedInterceptor 刷新）+ RelayClient（Relay WS 状态机）
+    - [ ] `09-03-PLAN.md` — LanClient（GET /api/sessions 轮询 + WS ticket 流）
+  - **Wave 3** *(depends on Plans 02, 03)*:
+    - [ ] `09-04-PLAN.md` — LoginScreen + RegisterScreen + SessionListScreen + SettingsScreen + widgets
+    - [ ] `09-05-PLAN.md` — TerminalScreen（xterm + KeyboardToolbar + mode toggle）+ ReplayScreen
+  - **Wave 4** *(depends on all prior plans)*:
+    - [ ] `09-06-PLAN.md` — OHOS 兼容性验证 + 全量测试 + OHOS_SETUP.md + OHOS_NOTES.md + human verify checkpoint
 
 ### Phase 10: Multi-workspace Expansion
 **Goal**: Expand the v0.3 default-workspace model into full product support for multiple workspaces per account.
@@ -219,7 +230,7 @@ Plans:
 | 6. Account Management Console | 6/6 | Complete | 2026-05-04 |
 | 7. Retention | 0/TBD | Not started | - |
 | 8. Security, Isolation Tests & Final Cleanup | 0/TBD | Not started | - |
-| 9. Flutter Client App | 0/TBD | Not started | - |
+| 9. Flutter Client App | 0/6 | Not started | - |
 | 10. Multi-workspace Expansion | 0/TBD | Not started | - |
 
 ---
