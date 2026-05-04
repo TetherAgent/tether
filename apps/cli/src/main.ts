@@ -90,6 +90,7 @@ type GatewayStatus = {
 type GatewayLoginEnv = 'local' | 'prod';
 
 const LOCAL_SERVER_URL = 'http://127.0.0.1:4800';
+const LOCAL_DETACH_KEY = '\x1d';
 
 type CreatedGatewaySession = {
   id: string;
@@ -946,14 +947,40 @@ async function attachPtySession(
   let result: 'detached' | 'exited' = 'detached';
 
   const previousRawMode = process.stdin.isRaw;
+  const wasStdinPaused = process.stdin.isPaused();
   await new Promise<void>((resolve, reject) => {
     ws.once('open', () => resolve());
     ws.once('error', reject);
   });
 
-  console.error('Attached to Tether PTY session. Close this terminal client to detach.');
+  console.error('Attached to Tether PTY session. Press Ctrl-] to detach.');
   process.stdin.setRawMode?.(true);
   process.stdin.resume();
+  let terminalCleanedUp = false;
+  const cleanupTerminal = () => {
+    if (terminalCleanedUp) {
+      return;
+    }
+    terminalCleanedUp = true;
+    process.stdin.off('data', onData);
+    process.stdout.off('resize', resize);
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode?.(previousRawMode);
+    }
+    if (wasStdinPaused) {
+      process.stdin.pause();
+    }
+    if (process.stdout.isTTY) {
+      process.stdout.write('\x1b[0m\x1b[?25h');
+    }
+  };
+  const signalHandler = (signal: NodeJS.Signals) => {
+    cleanupTerminal();
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      ws.close(1000, `local ${signal}`);
+    }
+    process.exit(signal === 'SIGINT' ? 130 : 143);
+  };
 
   const resize = () => {
     if (ws.readyState === WebSocket.OPEN) {
@@ -965,12 +992,19 @@ async function attachPtySession(
     }
   };
   const onData = (chunk: Buffer) => {
+    if (chunk.includes(LOCAL_DETACH_KEY.charCodeAt(0))) {
+      ws.close(1000, 'local detach');
+      return;
+    }
     if (mode !== 'observe' && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'input', data: chunk.toString('utf8') }));
     }
   };
   process.stdin.on('data', onData);
   process.stdout.on('resize', resize);
+  process.once('SIGINT', signalHandler);
+  process.once('SIGTERM', signalHandler);
+  process.once('SIGHUP', signalHandler);
   resize();
 
   await new Promise<void>((resolve, reject) => {
@@ -994,11 +1028,10 @@ async function attachPtySession(
     ws.once('close', () => resolve());
     ws.once('error', reject);
   }).finally(() => {
-    process.stdin.off('data', onData);
-    process.stdout.off('resize', resize);
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode?.(previousRawMode);
-    }
+    process.off('SIGINT', signalHandler);
+    process.off('SIGTERM', signalHandler);
+    process.off('SIGHUP', signalHandler);
+    cleanupTerminal();
   });
   return result;
 }

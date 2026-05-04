@@ -1,8 +1,17 @@
 # Relay 控制帧 session scope 强校验
 
-状态：Working  
+状态：Completed Archive  
 创建时间：2026-05-04  
 范围：`apps/relay`、`apps/gateway`、`apps/web`、`apps/cli`、`apps/server`
+
+## 完成记录
+
+已完成：
+
+- Relay 控制帧、detach、replay、event 分发统一按当前 session scope 校验。
+- token 模式下缺少 `accountId` / `workspaceId` / `gatewayId` 的 unscoped session 不再暴露给普通 Web client。
+- legacy secret 兼容边界保留为显式分支。
+- 覆盖测试已补入 `apps/relay/src/relay.test.ts` 和 `apps/gateway/src/relay-client.test.ts`。
 
 ## 问题背景
 

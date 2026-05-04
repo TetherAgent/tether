@@ -33,7 +33,6 @@
 | --- | --- | --- |
 | [2026-05-04-gateway-session-recovery.md](working/2026-05-04-gateway-session-recovery.md) | **Working** | Gateway 重启后 running session 恢复、失联标记、stream 明确错误和可重附着 supervisor 缺口 |
 | [2026-05-04-npm-cli-gateway-packaging.md](working/2026-05-04-npm-cli-gateway-packaging.md) | **Working** | npm CLI 与本机 Gateway 打包发布给其他用户安装使用的方案 |
-| [2026-05-04-relay-control-frame-scope.md](working/2026-05-04-relay-control-frame-scope.md) | **Working** | Relay `client.input` / `resize` / `stop` 等控制帧按 session scope 强校验的安全修复方案 |
 | [2026-05-04-token-auth-unfinished-items.md](working/2026-05-04-token-auth-unfinished-items.md) | **Working** | 当前代码核验后仍未完成的 token/auth 问题清单 |
 
 ## 归档记录 (`archive/`)

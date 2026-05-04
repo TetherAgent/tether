@@ -530,6 +530,50 @@ test('daemon marks running pty sessions lost when no live handle exists', async 
   }
 });
 
+test('stop marks unavailable pty session lost instead of failing hard', async () => {
+  const { store, cleanup } = tempStore();
+  const now = Date.now();
+  const sessionId = 'tth_stop_lost_test';
+  store.insertSession({
+    id: sessionId,
+    provider: 'codex',
+    title: 'lost',
+    projectPath: process.cwd(),
+    accountId: 'acct_test',
+    workspaceId: 'ws_test',
+    userId: 'user_test',
+    deviceId: 'device_test',
+    status: 'running',
+    attachState: 'attached',
+    tmuxSessionName: '',
+    command: 'codex',
+    pid: 999999,
+    transport: 'pty-event-stream',
+    createdAt: now,
+    updatedAt: now,
+    lastActiveAt: now
+  });
+
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4898, store, ptySessions: new PtySessionManager(store) });
+  try {
+    await withAuthFixture(async ({ authHeaders }) => {
+      const response = await fetch(`http://127.0.0.1:4898/api/sessions/${sessionId}/stop`, {
+        method: 'POST',
+        headers: authHeaders(TOKEN_NORMAL)
+      });
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { ok?: unknown; status?: unknown; error?: unknown };
+      assert.equal(body.ok, true);
+      assert.equal(body.status, 'lost');
+      assert.equal(body.error, 'session_lost');
+      assert.equal(store.getSession(sessionId)?.status, 'lost');
+    });
+  } finally {
+    await daemon.close();
+    cleanup();
+  }
+});
+
 test('observe websocket clients cannot write input', async () => {
   const { store, cleanup } = tempStore();
   const ptySessions = new PtySessionManager(store);

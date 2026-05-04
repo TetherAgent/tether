@@ -13,4 +13,4 @@
 | [2026-05-03-frontend-design-migration-checklist.md](2026-05-03-frontend-design-migration-checklist.md) | 前端设计系统迁移清单 | 迁移主线已完成，后续规范以 `FRONTEND.md` 和 app 级规则为准 |
 | [2026-05-03-gateway-profile-init.md](2026-05-03-gateway-profile-init.md) | Gateway profile / init 启动模型方案 | 启动与部署口径以 `docs/current/deploy-and-start.md` 为准 |
 | [2026-05-03-server-cli-bug-todo.md](2026-05-03-server-cli-bug-todo.md) | Server / CLI / Gateway / Relay bug TODO | 已完成项归档，剩余 token/auth 问题已拆到 `docs/working/2026-05-04-token-auth-unfinished-items.md` |
-
+| [2026-05-04-relay-control-frame-scope.md](2026-05-04-relay-control-frame-scope.md) | Relay 控制帧 session scope 强校验方案 | 已实现并通过 relay/gateway 测试覆盖 |

@@ -15,7 +15,6 @@ Direct WS ticket subprotocol 等不再放入本清单。
 
 | 原 TODO | 状态 | 问题 | 当前证据 | 建议优先级 |
 | --- | --- | --- | --- | --- |
-| TODO-018 | 未完成 | Relay 控制帧没有按真实 session scope 做强校验 | `apps/relay/src/relay.ts` 的 `client.input`、`client.resize`、`client.stop`、replay/event 分发仍主要走 `clientCanAccessFrameSession()`；该函数只限制 `ws_ticket.sessionId`，没有用 `latestSessions.get(sessionId)` 反查 `accountId/workspaceId/userId/gatewayId` | P0 |
 | TODO-008 | 未完成 | access token revoke 不会连带撤销同设备 refresh token | `apps/server/app/service/auth.ts` 的 `revokeToken()` 只 revoke 当前 token 的 `jti`；access token 与 refresh token 的 `jti` 不同 | P0 |
 | TODO-014 | 未完成 | Gateway 保存了 refreshToken，但 access token 过期后不会自动 refresh | `apps/gateway/src/daemon.ts` 读取 `auth.json` 后只判断 `expiresAt`，过期返回 `gateway_auth_expired`；未调用 server refresh 接口写回新 token | P1 |
 | TODO-007 | 未完成 | MySQL 设备列表和统计仍按旧 token class 查询 | `apps/server/app/service/authRepository.ts` 仍有 `token_class = 'normal_client_access'`；当前设备身份语义不应继续按普通 access token 过滤 | P1 |
@@ -32,27 +31,6 @@ Direct WS ticket subprotocol 等不再放入本清单。
 | TODO-015 | 未完成 | Server 测试没有覆盖 MySQL SQL 分支 | 当前 runtime fallback 测试抓不到 `token_class` SQL drift，也抓不到生产 MySQL 分支里的 revoke/query 语义问题 | P2 |
 
 ## 细化方案
-
-### TODO-018：Relay 控制帧 session scope 强校验
-
-已有独立方案文档：`docs/working/2026-05-04-relay-control-frame-scope.md`。
-
-落地时应新增统一函数，例如：
-
-```ts
-clientCanAccessSession(clientScope, sessionId, gatewayScope)
-```
-
-规则：
-
-1. 先用 `latestSessions.get(sessionId)` 读取真实 session metadata。
-2. session 不存在时拒绝控制帧。
-3. session 存在时复用 `clientCanSeeSession()` 判断 `accountId`、`workspaceId`、
-   `userId`、`gatewayId`。
-4. `client.input`、`client.resize`、`client.stop`、`client.detach`、`sendReplay()`、
-   `sendEventToSubscribers()` 全部走同一判断。
-5. `ws_ticket` 继续限制 `sessionId` 和 `mode`。
-6. token 模式下，缺少 scope 字段的 legacy session 不暴露给普通 Web client。
 
 ### TODO-008：revoke / logout 语义拆清楚
 
@@ -120,3 +98,5 @@ clientCanAccessSession(clientScope, sessionId, gatewayScope)
 - TODO-004：Relay validate token 已解包 server `{ code, data }`。
 - TODO-006：Gateway 读接口已有 auth 注入和保护方向。
 - TODO-017：Direct WS ticket 已支持 WebSocket subprotocol；query fallback 只是兼容旧客户端。
+- TODO-018：Relay 控制帧 session scope 强校验已完成，方案归档到
+  `docs/archive/completed-working/2026-05-04-relay-control-frame-scope.md`。

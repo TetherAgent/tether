@@ -159,6 +159,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
       clearTimeout(authTimer);
       if (gateway?.socket === socket) {
         gateway = undefined;
+        latestSessions.clear();
+        broadcastGatewayUnavailable();
       }
     });
   }
@@ -264,10 +266,11 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     const authMethod = clients.get(clientId)?.authMethod ?? 'token';
     switch (frame.type) {
       case 'client.list':
-        forwardToGateway({ type: 'client.list', clientId });
-        if (!gateway) {
-          sendToClient(clientId, { type: 'sessions', sessions: [...latestSessions.values()].filter((session) => clientCanSeeSession(clientScope, authMethod, session, gateway?.scope)) });
+        if (!gateway || gateway.socket.readyState !== WebSocket.OPEN) {
+          sendGatewayUnavailable(clientId);
+          break;
         }
+        forwardToGateway({ type: 'client.list', clientId });
         break;
       case 'client.subscribe': {
         const session = latestSessions.get(frame.sessionId);
@@ -354,11 +357,25 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     if (!gateway || gateway.socket.readyState !== WebSocket.OPEN) {
       const clientId = 'clientId' in frame ? frame.clientId : undefined;
       if (clientId) {
-        sendToClient(clientId, { type: 'error', code: 'gateway_unavailable', message: 'gateway is not connected' });
+        sendGatewayUnavailable(clientId);
       }
       return;
     }
     sendToSocket<RelayServerToGatewayFrame>(gateway.socket, frame);
+  }
+
+  function sendGatewayUnavailable(clientId: string): void {
+    latestSessions.clear();
+    sendToClient(clientId, { type: 'sessions', sessions: [] });
+    sendToClient(clientId, { type: 'error', code: 'gateway_unavailable', message: 'gateway is not connected' });
+  }
+
+  function broadcastGatewayUnavailable(): void {
+    latestSessions.clear();
+    for (const client of clients.values()) {
+      sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'sessions', sessions: [] });
+      sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'error', code: 'gateway_unavailable', message: 'gateway is not connected' });
+    }
   }
 
   function sendReplay(clientId: string, sessionId: string, events: RelayTerminalEvent[]): void {

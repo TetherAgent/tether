@@ -121,6 +121,62 @@ test('relay forwards session list from gateway to client', async () => {
   }
 });
 
+test('relay clears visible sessions when gateway disconnects', async () => {
+  const relay = await createRelay();
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+
+  try {
+    await authenticateGateway(gateway);
+    await authenticateClient(client);
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [{
+        id: 'tth_gateway_disconnect',
+        provider: 'codex',
+        title: 'Gateway Disconnect',
+        projectPath: process.cwd(),
+        accountId: 'acct_1',
+        workspaceId: 'ws_1',
+        gatewayId: 'gateway-test',
+        userId: 'user_1',
+        status: 'running',
+        transport: 'pty-event-stream',
+        lastActiveAt: Date.now()
+      }]
+    }));
+    const initialSessions = await waitForJson(client, (message) => message.type === 'sessions');
+    assert.equal((initialSessions.sessions as RelaySession[]).some((session) => session.id === 'tth_gateway_disconnect'), true);
+
+    const emptySessionsPromise = waitForJson(
+      client,
+      (message) => message.type === 'sessions' && Array.isArray(message.sessions) && message.sessions.length === 0
+    );
+    const errorPromise = waitForJson(client, (message) => message.type === 'error' && message.code === 'gateway_unavailable');
+    gateway.terminate();
+    const emptySessions = await emptySessionsPromise;
+    assert.deepEqual(emptySessions.sessions, []);
+    const error = await errorPromise;
+    assert.equal(error.message, 'gateway is not connected');
+
+    const listEmptyPromise = waitForJson(
+      client,
+      (message) => message.type === 'sessions' && Array.isArray(message.sessions) && message.sessions.length === 0
+    );
+    const listErrorPromise = waitForJson(client, (message) => message.type === 'error' && message.code === 'gateway_unavailable');
+    client.send(JSON.stringify({ type: 'client.list' }));
+    const listEmpty = await listEmptyPromise;
+    assert.deepEqual(listEmpty.sessions, []);
+    const listError = await listErrorPromise;
+    assert.equal(listError.message, 'gateway is not connected');
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+  }
+});
+
 test('relay forwards subscribed input and resize to gateway', async () => {
   const relay = await createRelay();
   const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);

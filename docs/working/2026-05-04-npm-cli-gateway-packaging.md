@@ -279,6 +279,66 @@ ProgramArguments:
 
 这样即使用户 shell 里能找到 `tether`，launchd 也不依赖 shell 初始化文件。
 
+## 后台 PATH 与 provider 命令
+
+当前 `tether gateway doctor/status` 会显示类似：
+
+```text
+后台 PATH: 包含 /opt/homebrew/bin，包含 /usr/local/bin
+Provider 命令: 未配置，使用 PATH 查找
+```
+
+这个逻辑在开发和个人使用里是合理的，但打包给其他人时要明确边界：
+
+- 全局 `tether` 命令本身不能依赖 PATH fallback，必须由 npm global bin 提供。
+- LaunchAgent 启动 Gateway 不能只写 `tether`，必须写绝对 CLI 入口。
+- provider 命令可以继续默认用 PATH 查找，例如 `codex`、`claude`、`opencode`。
+- launchd 的 PATH 必须显式写入常见目录，否则后台 Gateway 可能找不到用户前台 shell 里能找到的 provider。
+
+第一版建议保留 provider PATH fallback，但增强诊断和配置：
+
+1. LaunchAgent `EnvironmentVariables.PATH` 默认包含：
+
+   ```text
+   /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
+   ```
+
+2. `tether gateway doctor` 明确检查：
+
+   - 全局 `tether` bin 是否可用。
+   - LaunchAgent 实际 CLI 入口是否是绝对路径。
+   - 后台 PATH 是否包含 `/opt/homebrew/bin` 和 `/usr/local/bin`。
+   - `codex` / `claude` / `opencode` 是否能在后台 PATH 中解析到。
+
+3. `tether gateway providers` 显示每个 provider 的 resolved command：
+
+   ```text
+   codex: /opt/homebrew/bin/codex
+   claude: 未找到
+   ```
+
+4. 如果用户机器的 provider 不在默认 PATH，允许写入绝对路径配置：
+
+   ```json
+   {
+     "providers": {
+       "codex": {
+         "command": "/Users/<user>/.local/bin/codex"
+       }
+     }
+   }
+   ```
+
+5. `Provider 命令: 未配置，使用 PATH 查找` 不算错误；只有后台 PATH 找不到 provider
+   时才应该报 actionable error：
+
+   ```text
+   未找到 codex。请确认 codex 已安装，或运行 tether gateway providers 配置绝对路径。
+   ```
+
+结论：打包发布必须修“全局 tether / launchd 入口不能依赖 PATH”；provider 命令可以继续使用
+PATH fallback，但要补强后台 PATH、doctor 和绝对路径配置能力。
+
 ## 原生依赖风险
 
 ### node-pty

@@ -477,6 +477,14 @@ function SessionList({
         return;
       }
       if (frame.type === 'error') {
+        if (frame.code === 'gateway_unavailable') {
+          setSessions([]);
+          setHistory([]);
+          setGateways([]);
+          setStatus(t.gatewayNotConnected);
+          setHasLoadedSessions(true);
+          return;
+        }
         setStatus(displayMessage(frame.message, t));
         setHasLoadedSessions(true);
       }

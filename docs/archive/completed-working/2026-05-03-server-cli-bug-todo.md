@@ -101,9 +101,10 @@
 
   建议测试：Gateway WS 测试改为 subprotocol 携带 ticket，覆盖 observe/control、resize、重复 controller 等路径。
 
-- [ ] **TODO-018：Relay 控制帧需要按 session scope 做强校验**
+- [x] **TODO-018：Relay 控制帧需要按 session scope 做强校验**
 
-  独立方案文档：`docs/working/2026-05-04-relay-control-frame-scope.md`。
+  独立方案文档已完成并归档：
+  `docs/archive/completed-working/2026-05-04-relay-control-frame-scope.md`。
 
   影响：Relay 目前已在连接认证阶段通过 server `/api/token/validate` 拿到 `RelayAuthScope`，并在 `client.list` / `client.subscribe` 时用 `clientCanSeeSession()` 过滤 session。但 `client.input`、`client.resize`、`client.stop` 等控制帧仍主要依赖“先订阅成功”这一状态，`clientCanAccessFrameSession()` 对 `normal_client_access` 没有再次根据 `latestSessions.get(sessionId)` 校验 `accountId/workspaceId/userId/gatewayId`。这能跑，但安全边界不够硬；如果后续出现订阅状态残留、异常 frame 顺序或 legacy/unscoped session，就可能绕过每帧 ownership 校验。
 

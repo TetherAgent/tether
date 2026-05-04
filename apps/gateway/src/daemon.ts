@@ -159,6 +159,14 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         options.store.updateSessionStatus(session.id, 'stopped');
         session.status = 'stopped';
       }
+      if (!alive && session.status === 'running' && session.transport === 'pty-event-stream') {
+        options.store.updateSessionStatus(session.id, 'lost');
+        options.store.appendEvent(session.id, 'session.error', {
+          code: 'session_lost',
+          message: 'Gateway no longer has a live PTY handle for this session'
+        });
+        session.status = 'lost';
+      }
       if (alive && session.status === 'stopped' && session.transport === 'tmux') {
         options.store.updateSessionStatus(session.id, 'running');
         session.status = 'running';
@@ -410,8 +418,20 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (session.transport === 'pty-event-stream') {
       const ok = options.ptySessions?.stop(session.id) ?? false;
       if (!ok) {
-        options.store.updateSessionStatus(session.id, 'lost');
-        return c.json({ error: 'pty session is no longer running' }, 410);
+        if (session.status === 'running') {
+          options.store.updateSessionStatus(session.id, 'lost');
+          options.store.appendEvent(session.id, 'session.error', {
+            code: 'session_lost',
+            message: 'Stop requested after Gateway lost the PTY handle'
+          });
+        }
+        return c.json({
+          ok: true,
+          stopped: false,
+          status: 'lost',
+          error: 'session_lost',
+          message: 'Gateway no longer has a live PTY handle; session was marked lost'
+        });
       }
       return c.json({ ok: true });
     }
@@ -472,6 +492,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     const session = options.store.getSession(sessionId);
     if (!session || session.transport !== 'pty-event-stream') {
       socket.close(1008, 'session not found');
+      return;
+    }
+    if (!(options.ptySessions?.hasLiveSession(session.id) ?? false)) {
+      socket.close(1008, 'session_lost');
       return;
     }
     const ticket = wsTicketFromRequest(request, parsedUrl);
