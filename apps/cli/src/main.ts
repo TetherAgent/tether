@@ -102,7 +102,7 @@ type CliSession = {
 type GatewayLoginEnv = 'local' | 'prod';
 
 const LOCAL_SERVER_URL = 'http://127.0.0.1:4800';
-const LOCAL_DETACH_KEY = '\x1d';
+const LOCAL_DETACH_KEY = '\x01';
 
 type CreatedGatewaySession = {
   id: string;
@@ -340,7 +340,7 @@ async function startProviderSession(provider: ProviderDefinition, options: Start
       mode: 'control',
       reconnect: options.reconnect
     });
-    if (result !== 'exited') {
+    if (result === 'detached') {
       console.error(`已断开本地 attach。常驻 Gateway 仍在托管 ${remoteUrl}`);
     }
   }
@@ -1079,7 +1079,7 @@ async function attachPtySession(
     reconnectAttempt += 1;
     const delayMs = Math.min(500 * reconnectAttempt, 5000);
     const reason = attempt.message ? `：${attempt.message}` : '';
-    console.error(`\nGateway 连接断开${reason}。${delayMs}ms 后自动重连；当前输入不会发送。按 Ctrl-C 停止 session，按 Ctrl-] 只退出本地 attach。`);
+    console.error(`\nGateway 连接断开${reason}。${delayMs}ms 后自动重连；当前输入不会发送。按 Ctrl-C 停止 session，按 Ctrl-A 只退出本地 attach。`);
     await sleep(delayMs);
   }
 }
@@ -1111,7 +1111,7 @@ async function attachPtySessionOnce(
     ws.once('error', reject);
   });
 
-  console.error('Attached to Tether PTY session. Press Ctrl-C to stop, Ctrl-] to detach.');
+  console.error('Attached to Tether PTY session. Press Ctrl-C to stop, Ctrl-A to detach.');
   process.stdin.setRawMode?.(true);
   process.stdin.resume();
   let terminalCleanedUp = false;
@@ -1137,7 +1137,7 @@ async function attachPtySessionOnce(
       return;
     }
     localStop = true;
-    result = { status: 'stopped', latestEventId: result.latestEventId };
+    result = { status: 'stopped', latestEventId: result.latestEventId, message: `Session 已停止：${id}` };
     cleanupTerminal();
     console.error('\n正在停止 Tether session...');
     stopPromise = stopPtySessionViaGateway(id, `http://${options.host}:${options.port}`)
@@ -1150,7 +1150,7 @@ async function attachPtySessionOnce(
         result = {
           status: 'lost',
           latestEventId: result.latestEventId,
-          message: error instanceof Error ? error.message : '停止 session 失败'
+          message: `停止 session 失败：${error instanceof Error ? error.message : '未知错误'}`
         };
       })
       .finally(() => {
@@ -1187,7 +1187,7 @@ async function attachPtySessionOnce(
     }
     if (chunk.includes(LOCAL_DETACH_KEY.charCodeAt(0))) {
       localDetach = true;
-      result = { status: 'detached', latestEventId: result.latestEventId };
+      result = { status: 'detached', latestEventId: result.latestEventId, message: `已退出本地 attach，session 继续运行：${id}` };
       ws.close(1000, 'local detach');
       return;
     }
@@ -1223,7 +1223,7 @@ async function attachPtySessionOnce(
         return;
       }
       if (frame.type === 'event' && frame.event?.type === 'session.exited') {
-        result = { status: 'exited', latestEventId: result.latestEventId };
+        result = { status: 'exited', latestEventId: result.latestEventId, message: `Session 已停止：${id}` };
         ws.close();
       }
     });
@@ -1237,7 +1237,7 @@ async function attachPtySessionOnce(
         result = {
           status: 'lost',
           latestEventId: result.latestEventId,
-          message: 'Gateway 已恢复，但这个 session runner 不可连接'
+          message: `Session 已失联：${id}。Gateway 已恢复，但这个 session runner 不可连接`
         };
       } else {
         result = {
@@ -1256,6 +1256,9 @@ async function attachPtySessionOnce(
     cleanupTerminal();
   });
   await stopPromise;
+  if ((result.status === 'detached' || result.status === 'exited' || result.status === 'stopped' || result.status === 'lost') && result.message) {
+    console.error(`\n${result.message}`);
+  }
   return result;
 }
 

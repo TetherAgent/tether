@@ -3891,22 +3891,13 @@ a {
   padding: 10px;
 }
 
-.terminal-host-hidden {
-  visibility: hidden;
-  pointer-events: none;
-}
-
-.chat-view {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
+.chat-panel {
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px clamp(12px, 3vw, 24px);
-  background: var(--background);
-  border-radius: inherit;
+  gap: 12px;
+  padding: 16px clamp(14px, 2.5vw, 28px);
 }
 
 .chat-bubble {
@@ -3950,6 +3941,25 @@ a {
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+@keyframes chat-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.chat-bubble-live::after {
+  content: '▍';
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--brand);
+  animation: chat-cursor-blink 1s step-start infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-bubble-live::after {
+    animation: none;
+  }
 }
 
 .terminal-host .xterm {

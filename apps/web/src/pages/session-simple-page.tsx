@@ -1,7 +1,8 @@
-import { SessionSurface, type SessionSurfaceProps } from '../components/session/session-surface.js';
+import {
+  ChatSessionSurface,
+  type ChatSessionSurfaceProps
+} from '../components/session/chat-session-surface.js';
 
-type SessionSimplePageProps = Omit<SessionSurfaceProps, 'surfaceMode' | 'isSimplePage'>;
-
-export function SessionSimplePage(props: SessionSimplePageProps) {
-  return <SessionSurface {...props} surfaceMode="control" isSimplePage />;
+export function SessionSimplePage(props: ChatSessionSurfaceProps) {
+  return <ChatSessionSurface {...props} />;
 }
