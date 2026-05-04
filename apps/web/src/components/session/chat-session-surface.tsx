@@ -46,7 +46,9 @@ type RelayServerToClientFrame =
 
 type ChatMsg = { id: string; role: 'user' | 'agent'; text: string };
 
-const ANSI_RE = /\x1b(?:[@-Z\\-_]|\[[0-9;?]*[a-zA-Z]|\][^\x07]*\x07|[()][0-9A-Z])/g;
+// Matches: OSC (BEL or ST terminated), DCS/SOS/PM/APC (ST terminated),
+// CSI (extended params: digits ; : < = > ?), Fe 2-byte, G0/G1 charset
+const ANSI_RE = /\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|[P_X^][^\x1b]*\x1b\\|\[[0-9;:<=>?]*[a-zA-Z@]|[@-_]|[()][0-9A-Za-z])/g;
 
 let _msgIdCounter = 0;
 function genId(): string {
@@ -56,16 +58,24 @@ function genId(): string {
 class LineBuffer {
   private lines: string[] = [''];
   private col = 0;
+  // true after \r until first printable char — clears line on next write (not on \r\n)
+  private clearOnWrite = false;
 
   push(data: string): void {
     const stripped = data.replace(ANSI_RE, '');
     for (const ch of stripped) {
       if (ch === '\r') {
         this.col = 0;
+        this.clearOnWrite = true;
       } else if (ch === '\n') {
+        this.clearOnWrite = false;
         this.lines.push('');
         this.col = 0;
       } else if (ch >= ' ' || ch === '\t') {
+        if (this.clearOnWrite) {
+          this.lines[this.lines.length - 1] = '';
+          this.clearOnWrite = false;
+        }
         const last = this.lines.length - 1;
         const line = this.lines[last];
         if (this.col < line.length) {
@@ -89,6 +99,7 @@ class LineBuffer {
   reset(): void {
     this.lines = [''];
     this.col = 0;
+    this.clearOnWrite = false;
   }
 }
 
@@ -211,8 +222,8 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       }
       const agentText = lineBuffer.current.snapshot();
       const userText = pendingInput.current
-        .replace(/[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]/g, '')
-        .replace(/\r/g, '')
+        .replace(ANSI_RE, '')
+        .replace(/[\x00-\x1f\x7f]/g, '')
         .trim();
       pendingInput.current = '';
       lineBuffer.current.reset();
