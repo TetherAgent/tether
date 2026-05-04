@@ -10,6 +10,7 @@ import type {
   RelayTerminalEvent
 } from '@tether/protocol';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
+import { replaySessionEvents } from './replay.js';
 import type { SessionRunnerClient } from './session-runner-client.js';
 import type { Session, SessionEvent, Store } from './store.js';
 
@@ -43,7 +44,6 @@ type RelaySubscription = {
 
 const MIN_RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_DELAY_MS = 5000;
-const RELAY_REPLAY_PAGE_SIZE = 5000;
 const RELAY_FORBIDDEN_KEYS = new Set(['command', 'args', 'argv', 'env', 'providerCommand']);
 
 export function startRelayClient(options: RelayClientOptions): RunningRelayClient {
@@ -254,42 +254,23 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   };
 
   const replayEvents = (clientId: string, sessionId: string, after: number, tail?: number): number => {
-    if (tail && tail > 0 && after === 0) {
-      const events = options.store.listRecentEvents(sessionId, tail);
-      send({
-        type: 'gateway.replay',
-        gatewayId: effectiveGatewayId,
-        clientId,
-        sessionId,
-        events: events.map(toRelayEvent),
-        latestEventId: options.store.latestEventId(sessionId)
-      });
-      return options.store.latestEventId(sessionId);
-    }
-
-    let cursor = after;
-    while (true) {
-      const events = options.store.listEvents(sessionId, cursor, RELAY_REPLAY_PAGE_SIZE);
-      if (events.length === 0) {
-        send({ type: 'gateway.replay', gatewayId: effectiveGatewayId, clientId, sessionId, events: [], latestEventId: cursor });
-        return cursor;
+    return replaySessionEvents({
+      store: options.store,
+      sessionId,
+      after,
+      tail,
+      sendPage: ({ events, done, latestEventId }) => {
+        send({
+          type: 'gateway.replay',
+          gatewayId: effectiveGatewayId,
+          clientId,
+          sessionId,
+          events: events.map(toRelayEvent),
+          done,
+          latestEventId
+        });
       }
-
-      cursor = events.at(-1)?.id ?? cursor;
-      send({
-        type: 'gateway.replay',
-        gatewayId: effectiveGatewayId,
-        clientId,
-        sessionId,
-        events: events.map(toRelayEvent),
-        done: events.length < RELAY_REPLAY_PAGE_SIZE,
-        latestEventId: cursor
-      });
-
-      if (events.length < RELAY_REPLAY_PAGE_SIZE) {
-        return cursor;
-      }
-    }
+    });
   };
 
   const writeInput = async (clientId: string, sessionId: string, data: string) => {

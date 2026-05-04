@@ -15,6 +15,7 @@ import { ResponseCode, type AuthScopePayload, type AuthTokenClass, type Provider
 import { createSessionId } from './ids.js';
 import { maskSensitiveOutput } from './mask.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
+import { replaySessionEvents } from './replay.js';
 import { listGateways, registerGateway, touchGateway, unregisterGateway } from './registry.js';
 import { startRelayClient, type RunningRelayClient } from './relay-client.js';
 import { SessionRunnerClient } from './session-runner-client.js';
@@ -663,6 +664,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
 
     const clientId = `cli_${randomUUID()}`;
     const after = parseIntegerQuery(parsedUrl.searchParams.get('after') ?? undefined, 0);
+    const tail = parseIntegerQuery(parsedUrl.searchParams.get('tail') ?? undefined, 0);
+    const requestedCols = parseIntegerQuery(parsedUrl.searchParams.get('cols') ?? undefined, 0);
+    const requestedRows = parseIntegerQuery(parsedUrl.searchParams.get('rows') ?? undefined, 0);
     let sessionClients = clients.get(session.id);
     if (!sessionClients) {
       sessionClients = new Map();
@@ -688,17 +692,50 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       latestEventId: options.store.latestEventId(sessionId),
       controllerClientId: controllers.get(session.id) ?? null
     }));
-    const tail = parseIntegerQuery(parsedUrl.searchParams.get('tail') ?? undefined, 0);
-    const replayEvents = tail > 0 && after === 0
-      ? options.store.listRecentEvents(sessionId, tail)
-      : options.store.listEvents(sessionId, after, 5000);
-    for (const event of replayEvents) {
-      socket.send(JSON.stringify({ type: 'event', event }));
+    if (mode === 'control' && isValidTerminalSize(requestedCols, requestedRows)) {
+      const runnerClient = getRunnerClient(session);
+      if (runnerClient) {
+        try {
+          await runnerClient.resize(requestedCols, requestedRows, clientId);
+        } catch {
+          markSessionLost(session, 'Gateway could not resize this session runner before replay');
+          socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));
+          socket.close(1008, 'session_lost');
+          return;
+        }
+      } else {
+        const ok = options.ptySessions?.resize(sessionId, clientId, requestedCols, requestedRows) ?? false;
+        if (!ok) {
+          markSessionLost(session, 'Gateway could not resize this PTY session before replay');
+          socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));
+          socket.close(1008, 'session_lost');
+          return;
+        }
+      }
     }
-    socket.send(JSON.stringify({
-      type: 'replay.done',
-      latestEventId: options.store.latestEventId(sessionId)
-    }));
+    const replayCursor = replaySessionEvents({
+      store: options.store,
+      sessionId,
+      after,
+      tail,
+      sendPage: ({ events, done, latestEventId }) => {
+        const output = events
+          .map((event) => event.type === 'terminal.output' && typeof event.payload.data === 'string' ? event.payload.data : '')
+          .join('');
+        if (output.length > 0) {
+          socket.send(JSON.stringify({ type: 'replay.output', sessionId, data: output, latestEventId }));
+        }
+        for (const event of events) {
+          if (event.type === 'terminal.output' || event.type === 'user.input' || event.type === 'terminal.resize' || event.type === 'client.attached') {
+            continue;
+          }
+          socket.send(JSON.stringify({ type: 'event', event }));
+        }
+        if (done) {
+          socket.send(JSON.stringify({ type: 'replay.done', latestEventId }));
+        }
+      }
+    });
     const attached = options.store.appendEvent(session.id, 'client.attached', {
       clientId,
       deviceName: client.deviceName,
@@ -712,11 +749,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (runnerClient) {
       try {
         unsubscribe = await runnerClient.subscribeEvents((frame) => {
-        const event = options.store.listEvents(frame.sessionId, frame.eventId - 1, 1)[0];
-        if (event && socket.readyState === socket.OPEN) {
-          socket.send(JSON.stringify({ type: 'event', event }));
-        }
-        }, options.store.latestEventId(sessionId));
+          const event = options.store.listEvents(frame.sessionId, frame.eventId - 1, 1)[0];
+          if (event && socket.readyState === socket.OPEN) {
+            socket.send(JSON.stringify({ type: 'event', event }));
+          }
+        }, replayCursor);
       } catch {
         markSessionLost(session, 'Gateway could not subscribe to this session runner');
         socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));

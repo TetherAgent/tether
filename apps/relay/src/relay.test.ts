@@ -285,6 +285,7 @@ test('relay waits for final paged replay frame before replay.done', async () => 
     client.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_paged_replay_test', after: 0, mode: 'control' }));
     await waitForJson(gateway, (message) => message.type === 'client.subscribe' && message.clientId === clientId);
 
+    const firstReplayOutputPromise = waitForJson(client, (message) => message.type === 'replay.output' && message.latestEventId === 1);
     gateway.send(JSON.stringify({
       type: 'gateway.replay',
       gatewayId: 'gateway-test',
@@ -300,15 +301,12 @@ test('relay waits for final paged replay frame before replay.done', async () => 
       done: false,
       latestEventId: 1
     }));
-    await waitForJson(client, (message) => {
-      if (message.type !== 'event') {
-        return false;
-      }
-      const event = message.event as { id?: number } | undefined;
-      return event?.id === 1;
-    });
+    const firstReplayOutput = await firstReplayOutputPromise;
+    assert.equal(firstReplayOutput.data, 'page 1\r\n');
     assert.equal(replayDoneCount, 0);
 
+    const secondReplayOutputPromise = waitForJson(client, (message) => message.type === 'replay.output' && message.latestEventId === 2);
+    const donePromise = waitForJson(client, (message) => message.type === 'replay.done' && message.sessionId === 'tth_paged_replay_test');
     gateway.send(JSON.stringify({
       type: 'gateway.replay',
       gatewayId: 'gateway-test',
@@ -324,7 +322,9 @@ test('relay waits for final paged replay frame before replay.done', async () => 
       done: true,
       latestEventId: 2
     }));
-    const done = await waitForJson(client, (message) => message.type === 'replay.done' && message.sessionId === 'tth_paged_replay_test');
+    const secondReplayOutput = await secondReplayOutputPromise;
+    assert.equal(secondReplayOutput.data, 'page 2\r\n');
+    const done = await donePromise;
     assert.equal(done.latestEventId, 2);
     assert.equal(replayDoneCount, 1);
   } finally {

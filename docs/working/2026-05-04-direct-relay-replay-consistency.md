@@ -5,7 +5,8 @@
 
 ## 背景
 
-Web session 页面虽然共用同一个终端视图，但 Direct 和 Relay 的历史回放入口不是同一段代码。
+修复前，Web session 页面虽然共用同一个终端视图，但 Direct 和 Relay 的历史回放入口不是
+同一段代码。
 
 Direct 链路：
 
@@ -21,7 +22,9 @@ Web -> Relay client.subscribe -> Gateway relay-client -> SQLite session_events
 Gateway relay-client -> Relay gateway.replay -> Web event / replay.done
 ```
 
-因此 UI 上同一个 `全部` 选项，背后对应两套 transport 实现。
+因此 UI 上同一个 `全部` 选项，背后对应两套 replay 实现。当前主路径已经改为 Direct 和
+Relay 都走 Gateway-owned subscribe / replay / live；HTTP `/events` 只保留为调试、
+fallback 或 transcript 类读取接口。
 
 ## 这次问题
 
@@ -54,6 +57,10 @@ latestEventId(sessionId)
 
 ## 当前修复规则
 
+- Gateway `replaySessionEvents()` 是唯一 replay 规则入口，统一 `recent/all`、分页、
+  `done` 和最后 cursor。
+- Direct WS `/api/sessions/:id/stream` 对全量 replay 必须按 cursor 分页，页大小仍是
+  5000。
 - Gateway relay-client 对全量 replay 必须按 cursor 分页，页大小仍是 5000。
 - 分页 replay 过程中，前面页发送 `gateway.replay` 时标记 `done: false`。
 - Relay 收到 `done: false` 只转发事件，不给 Web 发 `replay.done`。
@@ -87,58 +94,67 @@ latestEventId(sessionId)
 - [x] `pnpm --filter @tether/relay typecheck`
 - [x] `pnpm --filter @tether/protocol typecheck`
 - [x] `pnpm --filter @tether/web typecheck`
+- [x] `pnpm --filter @tether/web build`
 - [x] `pnpm --filter @tether/cli test`
 - [x] `pnpm --filter @tether/cli typecheck`
 - [x] `pnpm typecheck`
 
 ### 本期范围
 
-- [ ] 控制页面进入后必须马上初始化并显示 terminal surface，不等待完整历史拉取完成。
-- [ ] 控制页面历史恢复采用“即时顺序恢复 + live”：历史按 `event.id` 顺序快速写入，不按真实
+- [x] 控制页面进入后必须马上初始化并显示 terminal surface，不等待完整历史拉取完成。
+- [x] 控制页面历史恢复采用“即时顺序恢复 + live”：历史按 `event.id` 顺序快速写入，不按真实
   时间间隔播放。
-- [ ] Web 端对历史 replay 做分批 flush，避免长历史导致浏览器假死。
-- [ ] 收到 `replay.done` 后，必须等本地 replay 队列 flush 完，再开启输入和直接写入 live。
-- [ ] Direct 和 Relay 都走 Gateway-owned subscribe / replay / live 语义，控制页面体验保持一致。
+- [x] Web 端对历史 replay 做 output chunk 分批 flush，避免长历史导致浏览器假死。
+- [x] Relay / Direct replay 传输阶段合并 `terminal.output` 为 `replay.output`，减少大量历史
+  event frame 导致的新进入等待。
+- [x] 收到 `replay.done` 后，必须等本地 replay 队列 flush 完，再开启输入和直接写入 live。
+- [x] Direct 和 Relay 都走 Gateway-owned subscribe / replay / live 语义，控制页面体验保持一致。
 
 ### 待做
 
-- [ ] 抽 Gateway `replaySessionEvents()` 共享 helper，统一 `recent/all`、分页、`done` 和最后
+- [x] 抽 Gateway `replaySessionEvents()` 共享 helper，统一 `recent/all`、分页、`done` 和最后
   cursor 计算。
-- [ ] Gateway relay-client 改为调用共享 helper，删除本地重复 replay 循环。
-- [ ] Direct WS `/api/sessions/:id/stream` 改为调用共享 helper，从单页 replay 升级为分页 replay。
-- [ ] 明确 Direct WS replay frame 语义：多页 replay 期间继续发送 `event`，只在最后发送
+- [x] Gateway relay-client 改为调用共享 helper，删除本地重复 replay 循环。
+- [x] Direct WS `/api/sessions/:id/stream` 改为调用共享 helper，从单页 replay 升级为分页 replay。
+- [x] 明确 Direct WS replay frame 语义：多页 replay 期间继续发送 `event`，只在最后发送
   `replay.done`，并保证 `latestEventId` 是最后 replay cursor。
-- [ ] Web Direct 主路径移除 HTTP `/events` 全量 replay，改为只打开 WS 并消费 `event` /
+- [x] Web Direct 主路径移除 HTTP `/events` 全量 replay，改为只打开 WS 并消费 `event` /
   `replay.done`。
-- [ ] HTTP `/events` 降级为调试、fallback 或 transcript 类读取接口，不再承载 Direct 主回放规则。
+- [x] HTTP `/events` 降级为调试、fallback 或 transcript 类读取接口，不再承载 Direct 主回放规则。
 - [ ] 补 Direct / Relay 行为一致性测试：`all` 超过 5000 条、`recent`、live cursor、
   `session_lost`、resize before replay。
 - [ ] 补 replay 过程中断测试：Web 切换 session / 切换 replay mode / WS 断开重连时，旧 replay
   不应继续写入新 terminal。
 - [ ] 补输入边界测试：replay 完成前控制端输入不发送；`replay.done` 后才允许 input / resize
   正常进入 live 控制路径。
-- [ ] 实现控制台“完整历史快速恢复 + live”的分批写入，避免超长历史 replay 卡住浏览器。
-- [ ] 为长历史 replay 增加最小进度状态，例如已恢复事件数或“正在恢复历史”，避免页面看起来卡住。
+- [x] 实现控制台“完整历史快速恢复 + live”的分批写入，避免超长历史 replay 卡住浏览器。
+- [x] 控制页面 replay 阶段合并 `terminal.output`，按字节 chunk 写入 xterm，减少 `term.write()`
+  调用次数。
+- [x] Direct WS 和 Relay server 在 replay 阶段发送 `replay.output`，把一页 replay 的终端输出
+  合并后再发给 Web。
+- [x] 控制页面 replay 阶段跳过 `user.input`、`client.attached`、`terminal.resize` 等非显示事件，
+  只维护 cursor 和必要状态。
+- [x] 为长历史 replay 增加最小进度状态，例如已恢复事件数或“正在恢复历史”，避免页面看起来卡住。
 - [ ] 回放页补速度选项：`即时`、`5x`、`2x`、`1x`，默认不要真实时间。
 - [ ] 中期评估 terminal checkpoint，不使用纯文本 snapshot 作为终端真相。
 - [ ] 浏览器人工验收 Direct / Relay 两条链路：进入控制台、进入回放页、切换 `最近/全部`、页面停止、
   CLI attach 被页面 stop 后明确收尾。
-- [ ] 实现完成后同步 `docs/current/deploy-and-start.md`，删除“当前 Direct 仍由 Web HTTP
+- [x] 实现完成后同步 `docs/current/deploy-and-start.md`，删除“当前 Direct 仍由 Web HTTP
   `/events` 主回放”的临时口径。
 
 ### 待验证
 
-- [ ] Gateway helper 单元验证：`all` 模式超过 5000 条时发多页，最后一页才 `done:true`，
+- [x] Gateway helper 单元验证：`all` 模式超过 5000 条时发多页，最后一页才 `done:true`，
   返回最后 replay cursor。
-- [ ] Gateway helper 单元验证：`recent` 模式只 replay tail 事件，但 live cursor 从当前
+- [x] Gateway helper 单元验证：`recent` 模式只 replay tail 事件，但 live cursor 从当前
   latest event id 开始，不重复旧事件。
 - [ ] Direct WS 验证：`/api/sessions/:id/stream?after=0` 能完整 replay 超过 5000 条历史，
   不再只发第一页。
 - [ ] Direct WS 验证：`tail=100` 仍只回放最近事件，并在 `replay.done` 后接 live。
 - [ ] Direct WS 验证：runner socket 缺失 / session lost 时返回 `session_lost`，Gateway 不崩。
-- [ ] Relay 验证：Relay `client.subscribe` 继续支持多页 `gateway.replay`，且只在最后一页后
+- [x] Relay 验证：Relay `client.subscribe` 继续支持多页 `gateway.replay`，且只在最后一页后
   向 Web 发 `replay.done`。
-- [ ] Relay 验证：`client.subscribe` 后立即 `client.stop` 仍能停到底层 runner。
+- [x] Relay 验证：`client.subscribe` 后立即 `client.stop` 仍能停到底层 runner。
 - [ ] Web Direct 验证：Direct 模式不再依赖 HTTP `/events` 做主回放，进入控制台和回放页都走
   WS `event` / `replay.done`。
 - [ ] Web Relay 验证：Relay 模式进入控制台和回放页行为与 Direct 一致。
@@ -148,11 +164,11 @@ latestEventId(sessionId)
 - [ ] 长历史体验验证：超过 5000 / 10000 条事件时浏览器不假死，并显示恢复中状态。
 - [ ] CLI 收尾验证：页面 stop 后，本机 CLI attach 收到 `session.exited` 并打印
   `Session 已停止：<id>`。
-- [ ] 回归命令：`pnpm --filter @tether/gateway test`
-- [ ] 回归命令：`pnpm --filter @tether/relay exec tsx --test src/relay.test.ts`
-- [ ] 回归命令：`pnpm --filter @tether/web typecheck`
-- [ ] 回归命令：`pnpm --filter @tether/cli test`
-- [ ] 回归命令：`pnpm typecheck`
+- [x] 回归命令：`pnpm --filter @tether/gateway test`
+- [x] 回归命令：`pnpm --filter @tether/relay exec tsx --test src/relay.test.ts`
+- [x] 回归命令：`pnpm --filter @tether/web typecheck`
+- [x] 回归命令：`pnpm --filter @tether/cli test`
+- [x] 回归命令：`pnpm typecheck`
 
 ## 后续处理原则
 
@@ -163,9 +179,9 @@ latestEventId(sessionId)
   Direct 和 Relay 测试。
 - 如果以后引入 snapshot / transcript 优化，也要明确 Direct 和 Relay 的降级语义一致。
 
-## 下一步对齐方向：Gateway-owned subscribe / replay / live
+## 已落地方向：Gateway-owned subscribe / replay / live
 
-长期不应继续让 Direct 和 Relay 分别维护 replay 规则。推荐对齐到同一个
+长期不应继续让 Direct 和 Relay 分别维护 replay 规则。本期已对齐到同一个
 Gateway-owned subscribe / replay / live 模型：
 
 ```text
@@ -193,7 +209,7 @@ Gateway -> live events
 ```
 
 这不是“Direct 对齐 Relay”，而是 Direct 和 Relay 都对齐 Gateway-owned session
-订阅模型。Relay 当前已经比较接近该模型，所以第一步主要改 Direct。
+订阅模型。Relay 已经比较接近该模型，本期主要改 Direct 并抽 Gateway 共享 helper。
 
 目标规则：
 
@@ -203,7 +219,7 @@ Gateway -> live events
 - HTTP `/events` 保留为调试、fallback 或 transcript 类读取接口。
 - Relay 不拥有 replay 规则，只转发 Gateway 的 `gateway.replay` / `gateway.event`。
 
-建议实现顺序：
+本期实现顺序：
 
 1. 在 Gateway 抽共享 helper：
 
@@ -222,8 +238,8 @@ Gateway -> live events
 2. Gateway relay-client 使用该 helper，保持现有 Relay frame 语义。
 3. Direct WS `/stream` 使用同一 helper，从一页 replay 升级为分页 replay。
 4. Web Direct 主路径移除 HTTP 全量 replay，改为只打开 WS 并消费 `event` / `replay.done`。
-5. 补 Direct / Relay 行为一致性测试：`all` 超过 5000 条、`recent`、live cursor、
-   `session_lost`、resize before replay。
+5. 已补 Gateway helper 和 Relay 多页 replay 测试；Direct WS、Web 输入边界和浏览器人工验收
+   仍保留在上方 `待验证`，作为下一轮验证补强项。
 
 不做：
 
@@ -254,7 +270,9 @@ Gateway -> live events
 - 收到 `replay.done` 后，必须等本地 replay 队列 flush 完，再开启输入。
 - replay 队列 flush 完后，从最后 event id 继续接 live，live event 才直接写入 xterm，避免重复、
   漏事件或乱序。
-- 对超长历史做分批写入，例如每批 200 条或每帧最多写入 8ms，避免浏览器假死。
+- 对超长历史做 output chunk 分批写入，例如每帧最多 128KB / 8ms，避免浏览器假死。
+- replay 阶段只把 `terminal.output` 写入 xterm；`user.input`、`client.attached`、
+  `terminal.resize` 等非显示事件不进入 xterm 写入路径。
 - UI 可显示恢复进度，例如“正在恢复 12000 条事件”，但不应阻塞到像真实时间回放一样慢。
 
 控制台默认应使用“即时顺序恢复 + live”。回放页可以提供速度选择：

@@ -392,11 +392,21 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     if (!client || !client.subscriptions.has(sessionId) || !clientCanAccessSession(client.scope, client.authMethod, sessionId)) {
       return;
     }
+    const output = events
+      .map((event) => event.type === 'terminal.output' && typeof event.payload.data === 'string' ? event.payload.data : '')
+      .join('');
+    const pageLatestEventId = latestEventId ?? events.at(-1)?.id ?? 0;
+    if (output.length > 0) {
+      sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'replay.output', sessionId, data: output, latestEventId: pageLatestEventId });
+    }
     for (const event of events) {
+      if (event.type === 'terminal.output' || event.type === 'user.input' || event.type === 'terminal.resize' || event.type === 'client.attached') {
+        continue;
+      }
       sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'event', event });
     }
     if (done) {
-      sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'replay.done', sessionId, latestEventId: latestEventId ?? events.at(-1)?.id ?? 0 });
+      sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'replay.done', sessionId, latestEventId: pageLatestEventId });
     }
   }
 

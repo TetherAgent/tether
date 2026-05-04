@@ -64,6 +64,7 @@ type SessionEvent = {
 
 type StreamFrame =
   | { type: 'hello'; sessionId: string; clientId: string; latestEventId: number; controllerClientId: string | null }
+  | { type: 'replay.output'; sessionId?: string; data: string; latestEventId: number }
   | { type: 'replay.done'; latestEventId: number }
   | { type: 'event'; event: SessionEvent }
   | { type: 'error'; code: string; message: string };
@@ -74,6 +75,7 @@ type RelayServerToClientFrame =
   | { type: 'sessions'; sessions: Session[] }
   | { type: 'hello'; clientId: string; gatewayId?: string }
   | { type: 'event'; event: SessionEvent }
+  | { type: 'replay.output'; sessionId: string; data: string; latestEventId: number }
   | { type: 'replay.done'; sessionId: string; latestEventId: number }
   | { type: 'error'; sessionId?: string; code: string; message: string };
 
@@ -88,6 +90,8 @@ const WEB_CLIENT_MODE_KEY = 'tether:webClientMode';
 const WEB_REPLAY_MODE_KEY = 'tether:webReplayMode';
 const COMPOSER_ENTER_DELAY_MS = 40;
 const TERMINAL_ENTER = '\r';
+const REPLAY_FLUSH_BUDGET_MS = 8;
+const REPLAY_FLUSH_MAX_CHARS = 128 * 1024;
 
 type WebMessages = ReturnType<typeof useI18n>['t'];
 
@@ -338,6 +342,7 @@ function PtySessionView({
   const [controllerClientId, setControllerClientId] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState(initialStatus);
   const [isTerminalReady, setTerminalReady] = React.useState(false);
+  const [isInputReady, setInputReady] = React.useState(false);
   const [text, setText] = React.useState('');
   const refreshClients = React.useCallback(async () => {
     if (connectionSettings.connectionMode === 'relay') {
@@ -423,6 +428,10 @@ function PtySessionView({
     if (!value) {
       return;
     }
+    if (!isInputReady) {
+      setStatus(t.statusReplaying);
+      return;
+    }
     setStatus(t.statusSending);
     const isHttpFallback = connectionSettings.connectionMode === 'direct' && transportMode === 'http';
     const send = (async () => {
@@ -441,7 +450,7 @@ function PtySessionView({
         terminal.current?.focus();
       })
       .catch(() => setStatus(t.statusInputFailed));
-  }, [connectionSettings.connectionMode, sendHttpInput, sendWsInput, t, text, transportMode]);
+  }, [connectionSettings.connectionMode, isInputReady, sendHttpInput, sendWsInput, t, text, transportMode]);
 
   React.useEffect(() => {
     const root = terminalRef.current;
@@ -449,6 +458,7 @@ function PtySessionView({
       return undefined;
     }
     setTerminalReady(false);
+    setInputReady(false);
 
     const term = new Terminal({
       cursorBlink: true,
@@ -517,10 +527,16 @@ function PtySessionView({
     fitAddon.fit();
     sendResize();
     term.focus();
+    setTerminalReady(true);
+    setStatus(t.statusReplaying);
 
     const cursorKey = `tether:${sessionId}:latestEventId`;
     let after = 0;
     let tailTimer: number | undefined;
+    let replayDoneCursor: number | undefined;
+    let replayDoneReceived = false;
+    let replayFlushFrame = 0;
+    let replayOutputBuffer = '';
 
     const input = term.onData((data) => {
       if (!disposed && replayComplete) {
@@ -528,7 +544,7 @@ function PtySessionView({
       }
     });
 
-    const writeEvent = (event: SessionEvent) => {
+    const writeEventNow = (event: SessionEvent) => {
       if (event.id <= after) {
         return;
       }
@@ -544,6 +560,87 @@ function PtySessionView({
       }
       if (event.type === 'session.exited') {
         setStatus(t.statusExited);
+      }
+    };
+
+    const finishReplayIfReady = () => {
+      if (!replayDoneReceived || replayOutputBuffer.length > 0 || replayComplete) {
+        return;
+      }
+      if (typeof replayDoneCursor === 'number') {
+        after = Math.max(after, replayDoneCursor);
+        window.localStorage.setItem(cursorKey, String(after));
+      }
+      replayComplete = true;
+      setInputReady(true);
+      setTerminalReady(true);
+      fitAddon.fit();
+      sendResize();
+    };
+
+    const flushReplayQueue = () => {
+      replayFlushFrame = 0;
+      const startedAt = performance.now();
+      while (replayOutputBuffer.length > 0 && performance.now() - startedAt < REPLAY_FLUSH_BUDGET_MS) {
+        const chunk = replayOutputBuffer.slice(0, REPLAY_FLUSH_MAX_CHARS);
+        replayOutputBuffer = replayOutputBuffer.slice(chunk.length);
+        setTerminalReady(true);
+        term.write(chunk);
+      }
+      if (replayOutputBuffer.length > 0) {
+        replayFlushFrame = window.requestAnimationFrame(flushReplayQueue);
+        return;
+      }
+      finishReplayIfReady();
+    };
+
+    const queueReplayEvent = (event: SessionEvent) => {
+      if (event.id <= after) {
+        return;
+      }
+      window.localStorage.setItem(cursorKey, String(event.id));
+      after = Math.max(after, event.id);
+      if (event.type === 'terminal.output') {
+        const data = event.payload.data;
+        if (typeof data === 'string') {
+          replayOutputBuffer += data;
+        }
+      } else if (event.type === 'session.exited') {
+        setStatus(t.statusExited);
+      }
+      if (!replayFlushFrame) {
+        replayFlushFrame = window.requestAnimationFrame(flushReplayQueue);
+      }
+    };
+
+    const handleStreamEvent = (event: SessionEvent) => {
+      if (replayComplete) {
+        writeEventNow(event);
+        return;
+      }
+      queueReplayEvent(event);
+    };
+
+    const handleReplayOutput = (data: string, latestEventId: number) => {
+      if (replayComplete) {
+        if (latestEventId > after) {
+          window.localStorage.setItem(cursorKey, String(latestEventId));
+          after = latestEventId;
+        }
+        setTerminalReady(true);
+        term.write(data);
+        return;
+      }
+      if (latestEventId <= after && data.length === 0) {
+        return;
+      }
+      if (latestEventId > after) {
+        window.localStorage.setItem(cursorKey, String(latestEventId));
+        after = latestEventId;
+      }
+      replayOutputBuffer += data;
+      if (!replayFlushFrame) {
+        replayFlushFrame = window.requestAnimationFrame(flushReplayQueue);
       }
     };
 
@@ -579,7 +676,7 @@ function PtySessionView({
           : `after=0&tail=${RECENT_REPLAY_EVENT_LIMIT}`;
         const events = await fetchReplayPage(replayQuery);
         for (const event of events) {
-          writeEvent(event);
+          writeEventNow(event);
         }
       } else {
         let keepLoading = true;
@@ -587,12 +684,13 @@ function PtySessionView({
           const beforePageCursor = after;
           const events = await fetchReplayPage(`after=${after}&limit=${FULL_REPLAY_EVENT_PAGE_LIMIT}`);
           for (const event of events) {
-            writeEvent(event);
+            writeEventNow(event);
           }
           keepLoading = events.length === FULL_REPLAY_EVENT_PAGE_LIMIT && after > beforePageCursor;
         }
       }
       replayComplete = true;
+      setInputReady(true);
       setTerminalReady(true);
       fitAddon.fit();
       sendResize();
@@ -612,7 +710,7 @@ function PtySessionView({
         }
         const data = (await response.json()) as { events: SessionEvent[] };
         for (const event of data.events) {
-          writeEvent(event);
+          writeEventNow(event);
         }
       } catch {
         // WS is the primary live path; polling is a best-effort browser fallback.
@@ -689,13 +787,23 @@ function PtySessionView({
           throw new Error(reconnectStopped ? t.statusSessionDetached : t.statusGatewayRestarting);
         }
       }
-      await replayEvents();
       if (connectionSettings.connectionMode === 'direct' && transportMode === 'http') {
+        await replayEvents();
         tailTimer = window.setInterval(pollTail, 500);
         setStatus(t.statusSyncingHttp);
         setTerminalReady(true);
+        setInputReady(true);
         reconnectAttempt = 0;
         return;
+      }
+      replayComplete = false;
+      replayDoneReceived = false;
+      replayDoneCursor = undefined;
+      replayOutputBuffer = '';
+      fitAddon.fit();
+      sendResize();
+      if (connectionSettings.connectionMode === 'direct') {
+        await syncTerminalSize();
       }
       const nextWs = await openStreamWebSocket();
       ws = nextWs;
@@ -760,15 +868,17 @@ function PtySessionView({
             return;
           }
           if (frame.type === 'replay.done') {
-            replayComplete = true;
-            after = Math.max(after, frame.latestEventId);
-            setTerminalReady(true);
-            fitAddon.fit();
-            sendResize();
+            replayDoneReceived = true;
+            replayDoneCursor = frame.latestEventId;
+            finishReplayIfReady();
+            return;
+          }
+          if (frame.type === 'replay.output') {
+            handleReplayOutput(frame.data, frame.latestEventId);
             return;
           }
           if (frame.type === 'event') {
-            writeEvent(frame.event);
+            handleStreamEvent(frame.event);
           }
           return;
         }
@@ -783,13 +893,16 @@ function PtySessionView({
           return;
         }
         if (frame.type === 'replay.done') {
-          replayComplete = true;
-          setTerminalReady(true);
-          fitAddon.fit();
-          sendResize();
+          replayDoneReceived = true;
+          replayDoneCursor = frame.latestEventId;
+          finishReplayIfReady();
           return;
         }
-        writeEvent(frame.event);
+        if (frame.type === 'replay.output') {
+          handleReplayOutput(frame.data, frame.latestEventId);
+          return;
+        }
+        handleStreamEvent(frame.event);
         if (frame.event.type === 'session.exited') {
           setStatus(t.statusExited);
           closeWasExpected = true;
@@ -825,7 +938,8 @@ function PtySessionView({
         mode: effectiveClientMode
       });
       const tailQuery = replayOnly && replayMode === 'recent' && after === 0 ? `&tail=${RECENT_REPLAY_EVENT_LIMIT}` : '';
-      const streamQuery = `after=${after}&surface=web&mode=${effectiveClientMode}${tailQuery}`;
+      const sizeQuery = term.cols > 0 && term.rows > 0 ? `&cols=${term.cols}&rows=${term.rows}` : '';
+      const streamQuery = `after=${after}&surface=web&mode=${effectiveClientMode}${tailQuery}${sizeQuery}`;
       return new WebSocket(
         buildGatewayStreamUrl(sessionId, streamQuery),
         [`tether-ticket.${ticket}`]
@@ -847,6 +961,9 @@ function PtySessionView({
     return () => {
       disposed = true;
       window.cancelAnimationFrame(resizeFrame);
+      if (replayFlushFrame) {
+        window.cancelAnimationFrame(replayFlushFrame);
+      }
       if (tailTimer) {
         window.clearInterval(tailTimer);
       }
@@ -995,9 +1112,10 @@ function PtySessionView({
             autoComplete="off"
             placeholder={t.sendToAgent}
             value={text}
+            disabled={!isInputReady}
             onChange={(event) => setText(event.target.value)}
           />
-          <Button type="submit">{t.send}</Button>
+          <Button type="submit" disabled={!isInputReady}>{t.send}</Button>
         </form>
       ) : null}
     </div>

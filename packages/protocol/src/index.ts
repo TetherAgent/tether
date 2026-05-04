@@ -80,5 +80,6 @@ export type RelayServerToClientFrame =
   | { type: 'sessions'; sessions: RelaySession[] }
   | { type: 'hello'; clientId: string; gatewayId?: string }
   | { type: 'event'; event: RelayTerminalEvent }
+  | { type: 'replay.output'; sessionId: string; data: string; latestEventId: number }
   | { type: 'replay.done'; sessionId: string; latestEventId: number }
   | { type: 'error'; sessionId?: string; code: string; message: string };

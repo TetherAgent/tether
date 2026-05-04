@@ -171,12 +171,12 @@ test('gateway relay client replays and forwards output', async () => {
     await waitForSessionList(client, sessionId);
     const replayPromise = waitForFrame(
       client,
-      (frame) => frame.type === 'event' && frame.event.type === 'terminal.output' && frame.event.payload.data === 'from replay\r\n'
+      (frame) => frame.type === 'replay.output' && frame.data === 'from replay\r\n' && frame.latestEventId === replayed.id
     );
     const replayDonePromise = waitForFrame(client, (frame) => frame.type === 'replay.done' && frame.sessionId === sessionId);
     client.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: replayed.id - 1, mode: 'control' }));
     const replayFrame = await replayPromise;
-    assert.equal(replayFrame.type, 'event');
+    assert.equal(replayFrame.type, 'replay.output');
     await replayDonePromise;
 
     const livePromise = waitForFrame(
