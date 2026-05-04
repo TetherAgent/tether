@@ -46,8 +46,7 @@ const http = createHttpClient();
 
 function normalizeRequestError(error: unknown): Error {
   if (error instanceof ApiRequestError) {
-    const detail = error.stackDetail ? `${error.message}\n\n${error.stackDetail}` : error.message;
-    return new Error(detail);
+    return error;
   }
   return error instanceof Error ? error : new Error('network_error');
 }
@@ -98,6 +97,16 @@ export async function registerNormal(input: { email: string; password: string; d
 export async function loginNormal(input: { email: string; password: string }) {
   try {
     return await http.post<NormalAuthPayload>('/api/auth/login', input, {
+      suppressGlobalError: true
+    });
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
+}
+
+export async function refreshNormal(refreshToken: string) {
+  try {
+    return await http.post<NormalAuthPayload>('/api/auth/refresh', { refreshToken }, {
       suppressGlobalError: true
     });
   } catch (error) {

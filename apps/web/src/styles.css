@@ -3688,66 +3688,44 @@ a {
 }
 
 
-.session-header {
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--card) 92%, transparent);
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-}
-
-.session-header h1 {
-  font-size: 15px;
-  margin: 0;
-  font-weight: 650;
-}
-
 .status {
   font-size: 12px;
   color: var(--muted-foreground);
   white-space: nowrap;
 }
 
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+#root:has(.session-list-page) {
+  display: block;
+  height: auto;
+  min-height: 100dvh;
+  overflow: auto;
+  background: var(--background);
+}
+
+#root:has(.session-detail-page) {
+  min-height: 100dvh;
+  background: var(--background);
 }
 
 .session-list-page {
   min-height: 100dvh;
   color: var(--foreground);
   background:
-    radial-gradient(780px 520px at 18% 0%, color-mix(in srgb, var(--brand) 11%, transparent), transparent 68%),
-    radial-gradient(680px 460px at 88% 8%, rgb(56 189 248 / 0.08), transparent 70%),
-    linear-gradient(180deg, color-mix(in srgb, var(--background) 96%, var(--brand) 4%), var(--background));
-}
-
-.session-list-page::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(to right, color-mix(in srgb, var(--foreground) 7%, transparent) 1px, transparent 1px),
-    linear-gradient(to bottom, color-mix(in srgb, var(--foreground) 7%, transparent) 1px, transparent 1px);
-  background-size: 88px 88px;
-  mask-image: linear-gradient(to bottom, black 0%, transparent 82%);
+    radial-gradient(880px 420px at 50% -160px, color-mix(in srgb, var(--brand) 10%, transparent), transparent 72%),
+    linear-gradient(180deg, color-mix(in srgb, var(--card) 34%, var(--background)), var(--background) 42%);
 }
 
 .session-list-topbar {
   position: sticky;
   z-index: 10;
   top: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(220px, auto) minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
   padding: 14px clamp(16px, 3vw, 34px);
   border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--card) 90%, transparent);
+  background: color-mix(in srgb, var(--background) 88%, transparent);
   backdrop-filter: blur(18px) saturate(170%);
 }
 
@@ -3777,9 +3755,9 @@ a {
 }
 
 .session-list-brand-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
 }
 
 .session-list-brand-icon svg,
@@ -3791,7 +3769,10 @@ a {
 .session-metric svg,
 .gateway-row svg,
 .empty svg,
-.history-section summary svg {
+.history-section summary svg,
+.session-detail-title svg,
+.session-detail-actions button svg,
+.session-detail-meta-item svg {
   width: 16px;
   height: 16px;
 }
@@ -3812,11 +3793,13 @@ a {
   justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .session-list-controls button,
 .session-panel-heading button,
-.session-card-stop {
+.session-card-stop,
+.session-detail-actions button {
   gap: 7px;
 }
 
@@ -3834,18 +3817,11 @@ a {
   font-weight: 650;
 }
 
-.connection-settings select,
-.mode-select select,
-.relay-field input {
-  min-height: 34px;
-  color: var(--foreground);
-  background: color-mix(in srgb, var(--input) 82%, transparent);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 6px 10px;
+.connection-select-trigger {
+  min-width: 116px;
 }
 
-.relay-field input {
+.relay-url-input {
   width: 210px;
 }
 
@@ -3873,7 +3849,7 @@ a {
   position: relative;
   min-height: 0;
   overflow: auto;
-  background: color-mix(in srgb, var(--canvas) 92%, transparent);
+  background: color-mix(in srgb, var(--background) 94%, black);
 }
 
 .terminal-host {
@@ -3886,13 +3862,55 @@ a {
   height: 100%;
 }
 
+.terminal-skeleton {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 18px;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--background) 94%, black);
+}
+
+.scrollport .terminal-skeleton {
+  position: relative;
+  min-height: 100%;
+}
+
+.terminal-skeleton-line {
+  height: 15px;
+  border-radius: 5px;
+}
+
+.terminal-skeleton-line-1 {
+  width: min(100%, 620px);
+}
+
+.terminal-skeleton-line-2 {
+  width: min(84%, 840px);
+}
+
+.terminal-skeleton-line-3 {
+  width: min(62%, 560px);
+}
+
+.terminal-skeleton-line-4 {
+  width: min(92%, 920px);
+}
+
+.terminal-skeleton-line-5 {
+  width: min(48%, 420px);
+}
+
 .client-strip {
   position: absolute;
   top: 8px;
-  right: 10px;
+  right: 46px;
   display: flex;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   max-width: min(70vw, 560px);
   color: var(--muted-foreground);
   font-size: 11px;
@@ -3922,18 +3940,26 @@ pre {
   grid-template-columns: 1fr auto;
   gap: 8px;
   border-top: 1px solid var(--border);
-  background: color-mix(in srgb, var(--card) 92%, transparent);
+  background: color-mix(in srgb, var(--background) 92%, transparent);
 }
 
 .composer-input {
   min-width: 0;
+  height: 40px;
+  min-height: 40px;
   resize: none;
   font: inherit;
   color: var(--foreground);
   background: color-mix(in srgb, var(--input) 80%, transparent);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 11px 12px;
+  padding: 8px 12px;
+  line-height: 22px;
+  overflow: hidden;
+}
+
+textarea.composer-input {
+  field-sizing: fixed;
 }
 
 .empty h2 {
@@ -3951,25 +3977,24 @@ pre {
 .session-list {
   position: relative;
   z-index: 1;
-  width: min(100% - 32px, 1180px);
+  width: min(100% - 28px, 1320px);
   min-height: 0;
   margin: 0 auto;
-  padding: 28px 0 48px;
+  padding: 18px 0 34px;
   display: grid;
   align-content: start;
-  gap: 18px;
+  gap: 12px;
 }
 
 .session-overview {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 22px;
-  align-items: end;
-  padding: 26px;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 460px);
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--card) 84%, transparent);
-  box-shadow: 0 24px 70px rgb(0 0 0 / 0.09);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--card) 72%, transparent);
 }
 
 .session-kicker {
@@ -3980,36 +4005,39 @@ pre {
 }
 
 .session-overview h2 {
-  margin: 8px 0 8px;
-  font-size: clamp(28px, 4vw, 46px);
-  line-height: 1.02;
+  margin: 4px 0 5px;
+  font-size: clamp(20px, 2.4vw, 28px);
+  line-height: 1.12;
 }
 
 .session-overview p {
-  max-width: 620px;
+  max-width: 680px;
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 15px;
-  line-height: 1.7;
+  font-size: 14px;
+  line-height: 1.55;
 }
 
 .session-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(112px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(104px, 1fr));
+  gap: 7px;
 }
 
 .session-metric {
-  min-width: 112px;
+  min-width: 104px;
   display: grid;
-  gap: 7px;
-  padding: 14px;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 8px;
+  align-items: center;
+  padding: 10px;
   border: 1px solid var(--border);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--background) 54%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--background) 74%, transparent);
 }
 
 .session-metric svg {
+  grid-row: span 2;
   color: var(--brand);
 }
 
@@ -4032,17 +4060,37 @@ pre {
 
 .session-metric strong {
   color: var(--foreground);
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1;
+}
+
+.session-workbench-grid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.session-side-stack {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
 }
 
 .session-panel {
   display: grid;
-  gap: 14px;
-  padding: 18px;
+  align-content: start;
+  gap: 12px;
+  padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--card) 88%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--card) 78%, transparent);
+}
+
+.session-primary-panel {
+  align-self: stretch;
+  min-height: 0;
 }
 
 .session-panel-heading {
@@ -4055,7 +4103,7 @@ pre {
 .session-panel-heading h2 {
   margin: 4px 0 0;
   color: var(--foreground);
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
@@ -4081,29 +4129,38 @@ pre {
 
 .gateway-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
+  gap: 7px 10px;
   padding: 10px 12px;
   color: var(--muted-foreground);
   font-size: 13px;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--background) 58%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background) 74%, transparent);
 }
 
 .gateway-row svg {
+  grid-row: span 2;
   color: var(--brand);
+}
+
+.gateway-row span:last-child {
+  grid-column: 2;
+  font-size: 12px;
 }
 
 .session-section {
   display: grid;
-  gap: 14px;
+  align-content: start;
+  gap: 10px;
 }
 
 .session-card-grid {
   display: grid;
-  gap: 10px;
+  align-content: start;
+  align-items: start;
+  gap: 8px;
 }
 
 .history-section {
@@ -4142,31 +4199,32 @@ pre {
 
 .session-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 8px;
   align-items: center;
-  padding: 13px;
+  padding: 10px;
   color: var(--foreground);
   text-decoration: none;
   border: 1px solid var(--border);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--background) 64%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background) 78%, transparent);
 }
 
-.session-card a {
+.session-primary-panel .session-card {
+  min-height: 80px;
+}
+
+.session-card-link {
   min-width: 0;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 8px 12px;
-  align-items: center;
+  display: contents;
   color: inherit;
   text-decoration: none;
 }
 
 .session-card-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
   grid-row: span 3;
 }
 
@@ -4177,13 +4235,13 @@ pre {
 }
 
 .session-card-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 760;
   line-height: 1.25;
 }
 
 .session-card-meta {
-  grid-column: 2 / 4;
+  grid-column: 2 / -1;
   display: flex;
   gap: 7px;
   flex-wrap: wrap;
@@ -4204,7 +4262,7 @@ pre {
 }
 
 .session-card-id {
-  grid-column: 2 / 4;
+  grid-column: 2 / -1;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 }
 
@@ -4213,6 +4271,8 @@ pre {
 }
 
 .session-status-pill {
+  grid-column: 3;
+  grid-row: 1;
   justify-self: end;
   padding: 6px 9px;
   border-radius: 999px;
@@ -4240,7 +4300,196 @@ pre {
 }
 
 .session-card-stop {
+  grid-column: 4;
+  grid-row: 1;
   justify-self: end;
+}
+
+.session-history-grid {
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.session-history-grid .session-card {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.session-history-grid .session-status-pill,
+.session-history-grid .session-card-stop {
+  display: none;
+}
+
+.session-history-grid .session-card-meta,
+.session-history-grid .session-card-id {
+  grid-column: 2;
+}
+
+.session-empty-state {
+  min-height: 180px;
+}
+
+.session-detail-page {
+  min-height: 100dvh;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  color: var(--foreground);
+  background:
+    radial-gradient(820px 360px at 50% -180px, color-mix(in srgb, var(--brand) 10%, transparent), transparent 72%),
+    var(--background);
+}
+
+.session-detail-header {
+  z-index: 10;
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(0, auto);
+  align-items: center;
+  gap: 14px;
+  padding: 12px clamp(14px, 2.5vw, 28px);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--background) 90%, transparent);
+  backdrop-filter: blur(18px) saturate(170%);
+}
+
+.session-detail-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.session-detail-title > div {
+  min-width: 0;
+}
+
+.session-detail-title span {
+  display: block;
+  color: var(--brand);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.session-detail-title h1 {
+  margin: 3px 0;
+  font-size: 18px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-detail-title p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-detail-actions {
+  min-width: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.session-detail-meta {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px clamp(14px, 2.5vw, 28px);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card) 62%, transparent);
+}
+
+.session-detail-meta-item {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 7px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background) 78%, transparent);
+}
+
+.session-detail-meta-item svg {
+  grid-row: span 2;
+  color: var(--brand);
+}
+
+.session-detail-meta-item span {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.session-detail-meta-item strong {
+  min-width: 0;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 720;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-panel {
+  margin: 12px clamp(14px, 2.5vw, 28px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 18px 50px rgb(0 0 0 / 0.12);
+}
+
+.session-detail-page .composer-form {
+  margin: 0 clamp(14px, 2.5vw, 28px) 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.terminal-fullscreen-toggle {
+  position: absolute;
+  z-index: 3;
+  top: 8px;
+  right: 10px;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  padding: 3px 6px;
+  border-radius: 999px;
+}
+
+.terminal-fullscreen-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.session-detail-page .terminal-panel-fullscreen {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  min-height: 100dvh;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--background);
+  box-shadow: none;
+}
+
+.session-detail-page .terminal-panel-fullscreen .terminal-host {
+  height: 100dvh;
+  padding: 12px;
+}
+
+.session-detail-page .terminal-panel-fullscreen .client-strip {
+  right: 46px;
 }
 
 .web-auth-shell {
@@ -4695,11 +4944,118 @@ pre {
   background: color-mix(in srgb, var(--brand) 7%, var(--background));
 }
 
+.session-skeleton-line,
+.session-skeleton-icon,
+.session-skeleton-card-icon,
+.session-skeleton-pill,
+.session-skeleton-row,
+.session-skeleton-chip,
+.terminal-skeleton-line {
+  background: color-mix(in srgb, var(--muted) 64%, transparent);
+}
+
+.session-skeleton-kicker {
+  width: 132px;
+  height: 16px;
+}
+
+.session-skeleton-title {
+  width: min(100%, 320px);
+  height: 34px;
+}
+
+.session-skeleton-copy {
+  width: min(100%, 560px);
+  height: 18px;
+}
+
+.session-skeleton-label {
+  width: 74px;
+  height: 12px;
+}
+
+.session-skeleton-heading {
+  width: 180px;
+  height: 22px;
+  margin-top: 7px;
+}
+
+.session-skeleton-number {
+  width: 28px;
+  height: 24px;
+}
+
+.session-skeleton-icon,
+.session-skeleton-card-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+
+.session-skeleton-metric {
+  min-height: 82px;
+}
+
+.session-skeleton-pill {
+  width: 78px;
+  height: 30px;
+  border-radius: 999px;
+}
+
+.session-skeleton-row {
+  height: 54px;
+  border-radius: 10px;
+}
+
+.session-card-skeleton {
+  pointer-events: none;
+}
+
+.session-skeleton-card-main {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.session-skeleton-card-title {
+  width: min(100%, 170px);
+  height: 18px;
+}
+
+.session-skeleton-card-path {
+  width: min(100%, 250px);
+  height: 14px;
+}
+
+.session-skeleton-chip {
+  width: 64px;
+  height: 26px;
+  border-radius: 999px;
+}
+
+.session-skeleton-chip-wide {
+  width: 128px;
+}
+
+.session-skeleton-card-id {
+  grid-column: 2 / -1;
+  width: min(100%, 210px);
+  height: 14px;
+}
+
+.history-skeleton-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
 @media (max-width: 720px) {
   .session-list-topbar {
     position: relative;
+    display: grid;
+    grid-template-columns: 1fr;
     align-items: stretch;
-    flex-direction: column;
     padding: 12px;
   }
 
@@ -4723,6 +5079,18 @@ pre {
 
   .session-metrics {
     grid-template-columns: 1fr;
+  }
+
+  .session-workbench-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .session-primary-panel {
+    min-height: 0;
+  }
+
+  .session-history-grid {
+    max-height: none;
   }
 
   .session-panel {
@@ -4762,6 +5130,39 @@ pre {
 
   .session-card-stop {
     justify-self: start;
+  }
+
+  .session-detail-page {
+    height: 100dvh;
+  }
+
+  .session-detail-header {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    padding: 10px 12px;
+  }
+
+  .session-detail-actions {
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .session-detail-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 8px 12px;
+  }
+
+  .session-detail-meta-item {
+    padding: 8px;
+  }
+
+  .terminal-panel {
+    margin: 10px 12px;
+    border-radius: 10px;
+  }
+
+  .session-detail-page .composer-form {
+    margin: 0 12px 10px;
   }
 
   .landing-container {
@@ -4946,17 +5347,6 @@ pre {
     justify-self: start;
   }
 
-  header {
-    padding: 10px;
-    align-items: flex-start;
-  }
-
-  .header-actions {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-
   .mode-select {
     font-size: 11px;
   }
@@ -4966,7 +5356,7 @@ pre {
     gap: 6px;
   }
 
-  .relay-field input {
+  .relay-url-input {
     width: min(44vw, 180px);
   }
 
@@ -4980,7 +5370,9 @@ pre {
   }
 
   .composer-input {
-    padding: 10px;
+    height: 40px;
+    min-height: 40px;
+    padding: 8px 10px;
     font-size: 16px;
   }
 

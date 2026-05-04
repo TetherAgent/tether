@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { ApiRequestError } from '@tether/http';
 
 import {
   NORMAL_STORAGE_KEY,
@@ -8,6 +9,7 @@ import {
   loginNormal,
   readStoredNormalAuth,
   registerNormal,
+  refreshNormal,
   validateNormal
 } from '../lib/api.js';
 
@@ -49,6 +51,10 @@ function writeStorage<T>(key: string, value: AuthStorageRecord<T> | null) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
+function shouldClearStoredAuth(error: unknown): boolean {
+  return error instanceof ApiRequestError && [401, 402, 404].includes(error.code);
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [normalAuth, setNormalAuth] = React.useState<AuthStorageRecord<NormalIdentity> | null>(null);
   const [authReady, setAuthReady] = React.useState(false);
@@ -82,8 +88,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       persistNormal({ ...stored, identity });
       return true;
     } catch {
-      logoutNormal();
-      return false;
+      try {
+        const refreshed = await refreshNormal(stored.refreshToken);
+        const next: AuthStorageRecord<NormalIdentity> = {
+          accessToken: refreshed.accessToken,
+          refreshToken: refreshed.refreshToken
+        };
+        const identity = await validateNormal(refreshed.accessToken);
+        persistNormal({ ...next, identity });
+        return true;
+      } catch (refreshError) {
+        if (shouldClearStoredAuth(refreshError)) {
+          logoutNormal();
+          return false;
+        }
+        setNormalAuth(stored);
+        return true;
+      }
     }
   }, [logoutNormal, persistNormal]);
 
@@ -105,21 +126,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     authReady,
     loginNormal: async (input) => {
       const result = await loginNormal(input);
-      const identity = await validateNormal(result.accessToken);
-      persistNormal({
+      const record: AuthStorageRecord<NormalIdentity> = {
         accessToken: result.accessToken,
-        refreshToken: result.refreshToken,
-        identity
-      });
+        refreshToken: result.refreshToken
+      };
+      persistNormal(record);
+      validateNormal(result.accessToken)
+        .then((identity) => persistNormal({ ...record, identity }))
+        .catch(() => undefined);
     },
     registerNormal: async (input) => {
       const result = await registerNormal(input);
-      const identity = await validateNormal(result.accessToken);
-      persistNormal({
+      const record: AuthStorageRecord<NormalIdentity> = {
         accessToken: result.accessToken,
-        refreshToken: result.refreshToken,
-        identity
-      });
+        refreshToken: result.refreshToken
+      };
+      persistNormal(record);
+      validateNormal(result.accessToken)
+        .then((identity) => persistNormal({ ...record, identity }))
+        .catch(() => undefined);
     },
     logoutNormal,
     validateNormalSession

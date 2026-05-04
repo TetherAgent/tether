@@ -2,8 +2,6 @@ import * as React from 'react';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link } from 'react-router-dom';
-import { FitAddon } from '@xterm/addon-fit';
-import { Terminal } from '@xterm/xterm';
 import {
   Activity,
   Clock3,
@@ -16,7 +14,19 @@ import {
   Wifi,
   WifiOff
 } from 'lucide-react';
-import { Button, Toaster, toast } from '@tether/design';
+import {
+  Button,
+  Input,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Skeleton,
+  Toaster,
+  toast
+} from '@tether/design';
 import { eventBus } from '@tether/http';
 import '@xterm/xterm/css/xterm.css';
 import { AuthProvider } from './contexts/auth-context.js';
@@ -24,16 +34,12 @@ import { UiPreferencesProvider } from './contexts/ui-preferences-context.js';
 import { useAuth } from './hooks/use-auth.js';
 import { useI18n } from './hooks/use-i18n.js';
 import { useUiPreferences } from './hooks/use-ui-preferences.js';
-import { gatewayAuthHeaders, requestGatewayWsTicket } from './lib/api.js';
+import { gatewayAuthHeaders } from './lib/api.js';
 import { WebChromeControls } from './components/console/web-chrome-controls.js';
+import { SessionControlPage } from './pages/session-control-page.js';
+import { SessionReplayPage } from './pages/session-replay-page.js';
 import { WebRoutes } from './routes.js';
 import './styles.css';
-
-type Snapshot = {
-  text: string;
-  capturedAt: number;
-  session?: Session;
-};
 
 type Session = {
   id: string;
@@ -55,21 +61,17 @@ type Gateway = {
 type WebTransportMode = 'ws' | 'http';
 type ClientMode = 'control' | 'observe';
 type ConnectionMode = 'direct' | 'relay';
-type ReplayMode = 'recent' | 'all';
+
+type SessionEvent = {
+  id: number;
+  type: string;
+  payload: Record<string, unknown>;
+};
 
 type ConnectionSettings = {
   connectionMode: ConnectionMode;
   relayUrl: string;
   relaySecret: string;
-};
-
-type ClientInfo = {
-  clientId: string;
-  deviceName: string;
-  surface: string;
-  mode: ClientMode;
-  attachedAt: number;
-  lastSeenAt: number;
 };
 
 type RelayServerToClientFrame =
@@ -86,34 +88,28 @@ type RelayClientToServerFrame =
   | { type: 'client.subscribe'; sessionId: string; after?: number; tail?: number; mode: ClientMode }
   | { type: 'client.stop'; sessionId: string };
 
-const RECENT_REPLAY_EVENT_LIMIT = 100;
 const WEB_TRANSPORT_KEY = 'tether:webTransportMode';
-const WEB_CLIENT_MODE_KEY = 'tether:webClientMode';
-const WEB_REPLAY_MODE_KEY = 'tether:webReplayMode';
 const CONNECTION_MODE_KEY = 'tether:connectionMode';
 const RELAY_URL_KEY = 'tether:relayUrl';
 const RELAY_SECRET_KEY = 'tether:relaySecret';
-
+const DEFAULT_CONNECTION_MODE = import.meta.env.VITE_TETHER_CONNECTION_MODE;
+const DEFAULT_RELAY_URL = import.meta.env.VITE_TETHER_RELAY_URL;
 function readWebTransportMode(): WebTransportMode {
   return window.localStorage.getItem(WEB_TRANSPORT_KEY) === 'http' ? 'http' : 'ws';
 }
 
-function readClientMode(): ClientMode {
-  return window.localStorage.getItem(WEB_CLIENT_MODE_KEY) === 'observe' ? 'observe' : 'control';
-}
-
-function readReplayMode(): ReplayMode {
-  return window.localStorage.getItem(WEB_REPLAY_MODE_KEY) === 'all' ? 'all' : 'recent';
-}
-
 function readConnectionMode(): ConnectionMode {
-  return window.localStorage.getItem(CONNECTION_MODE_KEY) === 'relay' ? 'relay' : 'direct';
+  const stored = window.localStorage.getItem(CONNECTION_MODE_KEY);
+  if (stored === 'relay' || stored === 'direct') {
+    return stored;
+  }
+  return DEFAULT_CONNECTION_MODE === 'relay' ? 'relay' : 'direct';
 }
 
 function readConnectionSettings(): ConnectionSettings {
   return {
     connectionMode: readConnectionMode(),
-    relayUrl: window.localStorage.getItem(RELAY_URL_KEY) ?? '',
+    relayUrl: window.localStorage.getItem(RELAY_URL_KEY) ?? DEFAULT_RELAY_URL ?? '',
     relaySecret: window.localStorage.getItem(RELAY_SECRET_KEY) ?? ''
   };
 }
@@ -194,10 +190,6 @@ function sessionStatusLabel(status: string, t: WebMessages): string {
     default:
       return status;
   }
-}
-
-function clientModeLabel(mode: ClientMode, t: WebMessages): string {
-  return mode === 'observe' ? t.observe : t.control;
 }
 
 function formatSessionTime(value: number): string {
@@ -285,12 +277,22 @@ function App() {
                 onConnectionSettingsChange={updateConnectionSettings}
               />
             )}
-            renderSessionView={(sessionId) => (
-              <SessionView
-                sessionId={sessionId}
-                connectionSettings={connectionSettings}
-                onConnectionSettingsChange={updateConnectionSettings}
-              />
+            renderSessionView={(sessionId, mode) => (
+              mode === 'replay'
+                ? (
+                  <SessionReplayPage
+                    sessionId={sessionId}
+                    connectionSettings={connectionSettings}
+                    onConnectionSettingsChange={updateConnectionSettings}
+                  />
+                )
+                : (
+                  <SessionControlPage
+                    sessionId={sessionId}
+                    connectionSettings={connectionSettings}
+                    onConnectionSettingsChange={updateConnectionSettings}
+                  />
+                )
             )}
           />
         </BrowserRouter>
@@ -314,18 +316,24 @@ function ConnectionSettingsControl({
 
   return (
     <div className="connection-settings" aria-label={t.connectionSettingsLabel}>
-      <label className="mode-select">
-        {t.connection}
-        <select value={settings.connectionMode} onChange={(event) => update({ connectionMode: event.target.value as ConnectionMode })}>
-          <option value="direct">{t.direct}</option>
-          <option value="relay">{t.relay}</option>
-        </select>
-      </label>
+      <div className="mode-select">
+        <Label>{t.connection}</Label>
+        <Select value={settings.connectionMode} onValueChange={(value) => update({ connectionMode: value as ConnectionMode })}>
+          <SelectTrigger className="connection-select-trigger">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="direct">{t.direct}</SelectItem>
+            <SelectItem value="relay">{t.relay}</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
       {settings.connectionMode === 'relay' ? (
         <>
-          <label className="relay-field">
-            {t.relayUrl}
-            <input
+          <div className="relay-field">
+            <Label>{t.relayUrl}</Label>
+            <Input
+              className="relay-url-input"
               type="url"
               inputMode="url"
               autoComplete="url"
@@ -333,17 +341,7 @@ function ConnectionSettingsControl({
               value={settings.relayUrl}
               onChange={(event) => update({ relayUrl: event.target.value })}
             />
-          </label>
-          <label className="relay-field">
-            {t.relaySecret}
-            <input
-              type="password"
-              autoComplete="current-password"
-              placeholder={t.relaySecretPlaceholder}
-              value={settings.relaySecret}
-              onChange={(event) => update({ relaySecret: event.target.value })}
-            />
-          </label>
+          </div>
         </>
       ) : null}
     </div>
@@ -364,6 +362,7 @@ function SessionList({
   const [gateways, setGateways] = React.useState<Gateway[]>([]);
   const [webTransportMode, setWebTransportMode] = React.useState<WebTransportMode>(readWebTransportMode);
   const [status, setStatus] = React.useState<string>(t.statusLoading);
+  const [hasLoadedSessions, setHasLoadedSessions] = React.useState(false);
   const listSocket = React.useRef<WebSocket | undefined>(undefined);
 
   const changeWebTransportMode = React.useCallback((mode: WebTransportMode) => {
@@ -401,6 +400,8 @@ function SessionList({
       setStatus(new Date().toLocaleTimeString());
     } catch (error) {
       setStatus(error instanceof Error ? error.message : t.statusDisconnected);
+    } finally {
+      setHasLoadedSessions(true);
     }
   }, [logoutNormal, normalAuth?.accessToken, t.statusDisconnected]);
 
@@ -408,6 +409,7 @@ function SessionList({
     if (connectionSettings.connectionMode !== 'direct') {
       return undefined;
     }
+    setHasLoadedSessions(false);
     refreshDirect();
     const timer = window.setInterval(refreshDirect, 3000);
     return () => window.clearInterval(timer);
@@ -420,6 +422,7 @@ function SessionList({
     let disposed = false;
     let ws: WebSocket | undefined;
     let timer: number | undefined;
+    setHasLoadedSessions(false);
     setSessions([]);
     setHistory([]);
     setGateways([]);
@@ -460,8 +463,8 @@ function SessionList({
         return;
       }
       if (frame.type === 'client.auth.failed') {
-        logoutNormal();
         setStatus(displayMessage(frame.message, t));
+        setHasLoadedSessions(true);
         ws?.close();
         return;
       }
@@ -470,20 +473,24 @@ function SessionList({
         setSessions(next.active);
         setHistory(next.history);
         setStatus(new Date().toLocaleTimeString());
+        setHasLoadedSessions(true);
         return;
       }
       if (frame.type === 'error') {
         setStatus(displayMessage(frame.message, t));
+        setHasLoadedSessions(true);
       }
     });
     ws.addEventListener('close', () => {
       if (!disposed) {
         setStatus(t.statusRelayClosed);
+        setHasLoadedSessions(true);
       }
     });
     ws.addEventListener('error', () => {
       if (!disposed) {
         setStatus(t.statusRelayError);
+        setHasLoadedSessions(true);
       }
     });
     return () => {
@@ -526,12 +533,6 @@ function SessionList({
     await refreshDirect();
   }, [connectionSettings.connectionMode, logoutNormal, normalAuth?.accessToken, refreshDirect, t]);
 
-  const stopAllSessions = React.useCallback(async () => {
-    for (const session of sessions) {
-      await stopSession(session.id);
-    }
-  }, [sessions, stopSession]);
-
   const activeGateway = gateways[0];
   const isRelayMode = connectionSettings.connectionMode === 'relay';
   const statusIcon = status === t.statusDisconnected || status === t.statusRelayClosed || status === t.statusRelayError
@@ -551,13 +552,18 @@ function SessionList({
         <div className="session-list-controls">
           <ConnectionSettingsControl settings={connectionSettings} onChange={onConnectionSettingsChange} />
           {connectionSettings.connectionMode === 'direct' ? (
-            <label className="mode-select">
-              {t.transport}
-              <select value={webTransportMode} onChange={(event) => changeWebTransportMode(event.target.value as WebTransportMode)}>
-                <option value="ws">WS</option>
-                <option value="http">{t.httpFallback}</option>
-              </select>
-            </label>
+            <div className="mode-select">
+              <Label>{t.transport}</Label>
+              <Select value={webTransportMode} onValueChange={(value) => changeWebTransportMode(value as WebTransportMode)}>
+                <SelectTrigger className="connection-select-trigger">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ws">WS</SelectItem>
+                  <SelectItem value="http">{t.httpFallback}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           ) : null}
           <div className="status session-sync-status">
             {statusIcon}
@@ -572,110 +578,208 @@ function SessionList({
       </header>
 
       <main className="session-list">
-        <section className="session-overview" aria-label={t.sessionOverview}>
-          <div className="session-overview-main">
-            <span className="session-kicker">{t.sessionShell}</span>
-            <h2>{t.sessionDashboardTitle}</h2>
-            <p>{t.sessionDashboardDescription}</p>
-          </div>
-          <div className="session-metrics" aria-label={t.sessionStats}>
-            <div className="session-metric">
-              <Activity aria-hidden="true" />
-              <span>{t.activeSessions}</span>
-              <strong>{sessions.length}</strong>
-            </div>
-            <div className="session-metric">
-              <Clock3 aria-hidden="true" />
-              <span>{t.history}</span>
-              <strong>{history.length}</strong>
-            </div>
-            <div className="session-metric">
-              <Router aria-hidden="true" />
-              <span>{t.gatewayList}</span>
-              <strong>{isRelayMode ? t.relay : gateways.length}</strong>
-            </div>
-          </div>
-        </section>
-
-        <section className="session-panel gateway-list" aria-label={t.gatewayList}>
-          <div className="session-panel-heading">
-            <div>
-              <span>{t.activeGateway}</span>
-              <h2>{isRelayMode ? t.relay : activeGateway?.url ?? t.noGateways}</h2>
-            </div>
-            <span className="session-panel-badge">{connectionSettings.connectionMode}</span>
-          </div>
-          {gateways.length > 0 ? (
-            <div className="gateway-grid">
-              {gateways.map((gateway) => (
-                <div className="gateway-row" key={gateway.id}>
-                  <Server aria-hidden="true" />
-                  <span>{gateway.url}</span>
-                  <span>{t.pidLabel} {gateway.pid}</span>
+        {!hasLoadedSessions ? (
+          <SessionListSkeleton />
+        ) : (
+          <>
+            <section className="session-overview" aria-label={t.sessionOverview}>
+              <div className="session-overview-main">
+                <span className="session-kicker">{t.sessionShell}</span>
+                <h2>{t.sessionDashboardTitle}</h2>
+                <p>{t.sessionDashboardDescription}</p>
+              </div>
+              <div className="session-metrics" aria-label={t.sessionStats}>
+                <div className="session-metric">
+                  <Activity aria-hidden="true" />
+                  <span>{t.activeSessions}</span>
+                  <strong>{sessions.length}</strong>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <p className="session-panel-empty">{isRelayMode ? t.relayGatewayHint : t.noGatewaysDescription}</p>
-          )}
-        </section>
+                <div className="session-metric">
+                  <Clock3 aria-hidden="true" />
+                  <span>{t.history}</span>
+                  <strong>{history.length}</strong>
+                </div>
+                <div className="session-metric">
+                  <Router aria-hidden="true" />
+                  <span>{t.gatewayList}</span>
+                  <strong>{isRelayMode ? t.relay : gateways.length}</strong>
+                </div>
+              </div>
+            </section>
 
-        <section className="session-panel session-section" aria-label={t.activeSessions}>
-          <div className="session-panel-heading">
-            <div>
-              <span>{t.activeSessions}</span>
-              <h2>{t.sessionActiveTitle}</h2>
-            </div>
-            {sessions.length > 0 ? (
-              <Button variant="outline" size="sm" type="button" onClick={() => void stopAllSessions()}>
-                <Power aria-hidden="true" />
-                {t.stopAll}
-              </Button>
-            ) : null}
-          </div>
-          {sessions.length === 0 ? (
-            <div className="empty">
-              <MonitorDot aria-hidden="true" />
-              <h2>{t.noSessions}</h2>
-              <p>{t.noSessionsDescription}</p>
-            </div>
-          ) : (
-            <div className="session-card-grid">
-              {sessions.map((session) => (
-                <SessionCard session={session} key={session.id} onStop={stopSession} t={t} />
-              ))}
-            </div>
-          )}
-        </section>
+            <div className="session-workbench-grid">
+              <section className="session-panel session-section session-primary-panel" aria-label={t.activeSessions}>
+                <div className="session-panel-heading">
+                  <div>
+                    <span>{t.activeSessions}</span>
+                    <h2>{t.sessionActiveTitle}</h2>
+                  </div>
+                </div>
+                {sessions.length === 0 ? (
+                  <div className="empty session-empty-state">
+                    <MonitorDot aria-hidden="true" />
+                    <h2>{t.noSessions}</h2>
+                    <p>{t.noSessionsDescription}</p>
+                  </div>
+                ) : (
+                  <div className="session-card-grid">
+                    {sessions.map((session) => (
+                      <SessionCard session={session} key={session.id} onStop={stopSession} t={t} />
+                    ))}
+                  </div>
+                )}
+              </section>
 
-        {history.length > 0 ? (
-          <details className="session-panel session-section history-section">
-            <summary>
-              <span>
-                <Clock3 aria-hidden="true" />
-                {t.history}
-              </span>
-              <strong>{history.length}</strong>
-            </summary>
-            <div className="session-card-grid">
-              {history.map((session) => (
-                <SessionCard session={session} key={session.id} t={t} />
-              ))}
+              <aside className="session-side-stack">
+                <section className="session-panel gateway-list" aria-label={t.gatewayList}>
+                  <div className="session-panel-heading">
+                    <div>
+                      <span>{t.activeGateway}</span>
+                      <h2>{isRelayMode ? t.relay : activeGateway?.url ?? t.noGateways}</h2>
+                    </div>
+                    <span className="session-panel-badge">{connectionSettings.connectionMode}</span>
+                  </div>
+                  {gateways.length > 0 ? (
+                    <div className="gateway-grid">
+                      {gateways.map((gateway) => (
+                        <div className="gateway-row" key={gateway.id}>
+                          <Server aria-hidden="true" />
+                          <span>{gateway.url}</span>
+                          <span>{t.pidLabel} {gateway.pid}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="session-panel-empty">{isRelayMode ? t.relayGatewayHint : t.noGatewaysDescription}</p>
+                  )}
+                </section>
+
+                {history.length > 0 ? (
+                  <details className="session-panel session-section history-section" open>
+                    <summary>
+                      <span>
+                        <Clock3 aria-hidden="true" />
+                        {t.history}
+                      </span>
+                      <strong>{history.length}</strong>
+                    </summary>
+                    <div className="session-card-grid session-history-grid">
+                      {history.map((session) => (
+                        <SessionCard session={session} key={session.id} target="replay" t={t} />
+                      ))}
+                    </div>
+                  </details>
+                ) : null}
+              </aside>
             </div>
-          </details>
-        ) : null}
+          </>
+        )}
       </main>
     </div>
   );
 }
 
-function SessionCard({ session, onStop, t }: { session: Session; onStop?: (sessionId: string) => void; t: WebMessages }) {
+function SessionListSkeleton() {
+  return (
+    <>
+      <section className="session-overview session-skeleton-overview" aria-hidden="true">
+        <div className="session-overview-main">
+          <Skeleton className="session-skeleton-line session-skeleton-kicker" />
+          <Skeleton className="session-skeleton-line session-skeleton-title" />
+          <Skeleton className="session-skeleton-line session-skeleton-copy" />
+        </div>
+        <div className="session-metrics">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div className="session-metric session-skeleton-metric" key={index}>
+              <Skeleton className="session-skeleton-icon" />
+              <Skeleton className="session-skeleton-line session-skeleton-label" />
+              <Skeleton className="session-skeleton-line session-skeleton-number" />
+            </div>
+          ))}
+        </div>
+      </section>
+      <div className="session-workbench-grid" aria-hidden="true">
+        <section className="session-panel session-section session-primary-panel">
+          <div className="session-panel-heading">
+            <div>
+              <Skeleton className="session-skeleton-line session-skeleton-label" />
+              <Skeleton className="session-skeleton-line session-skeleton-heading" />
+            </div>
+          </div>
+          <div className="session-card-grid">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <SessionCardSkeleton key={index} />
+            ))}
+          </div>
+        </section>
+        <aside className="session-side-stack">
+          <section className="session-panel gateway-list">
+            <div className="session-panel-heading">
+              <div>
+                <Skeleton className="session-skeleton-line session-skeleton-label" />
+                <Skeleton className="session-skeleton-line session-skeleton-heading" />
+              </div>
+              <Skeleton className="session-skeleton-pill" />
+            </div>
+            <div className="gateway-grid">
+              <Skeleton className="session-skeleton-row" />
+              <Skeleton className="session-skeleton-row" />
+            </div>
+          </section>
+          <section className="session-panel session-section history-section">
+            <div className="history-skeleton-heading">
+              <Skeleton className="session-skeleton-line session-skeleton-heading" />
+              <Skeleton className="session-skeleton-number" />
+            </div>
+            <div className="session-card-grid session-history-grid">
+              <SessionCardSkeleton />
+              <SessionCardSkeleton />
+            </div>
+          </section>
+        </aside>
+      </div>
+    </>
+  );
+}
+
+function SessionCardSkeleton() {
+  return (
+    <div className="session-card session-card-skeleton">
+      <Skeleton className="session-skeleton-card-icon" />
+      <div className="session-skeleton-card-main">
+        <Skeleton className="session-skeleton-line session-skeleton-card-title" />
+        <Skeleton className="session-skeleton-line session-skeleton-card-path" />
+      </div>
+      <Skeleton className="session-skeleton-pill" />
+      <Skeleton className="session-skeleton-pill" />
+      <div className="session-card-meta">
+        <Skeleton className="session-skeleton-chip" />
+        <Skeleton className="session-skeleton-chip session-skeleton-chip-wide" />
+        <Skeleton className="session-skeleton-chip" />
+      </div>
+      <Skeleton className="session-skeleton-line session-skeleton-card-id" />
+    </div>
+  );
+}
+
+function SessionCard({
+  session,
+  onStop,
+  target = 'control',
+  t
+}: {
+  session: Session;
+  onStop?: (sessionId: string) => void;
+  target?: 'control' | 'replay';
+  t: WebMessages;
+}) {
   const statusLabel = sessionStatusLabel(session.status, t);
   const transport = session.transport ?? t.fallbackTmuxTransport;
+  const sessionPath = `/remote/session/${encodeURIComponent(session.id)}${target === 'replay' ? '/replay' : ''}`;
 
   return (
     <div className={`session-card session-card-${statusTone(session.status)}`}>
-      <Link to={`/remote/session/${encodeURIComponent(session.id)}`} aria-label={`${t.openSession}: ${session.title || session.id}`}>
+      <Link className="session-card-link" to={sessionPath} aria-label={`${t.openSession}: ${session.title || session.id}`}>
         <span className="session-card-icon"><TerminalSquare aria-hidden="true" /></span>
         <span className="session-card-main">
           <span className="session-card-title">{session.title || session.provider}</span>
@@ -696,650 +800,6 @@ function SessionCard({ session, onStop, t }: { session: Session; onStop?: (sessi
         </Button>
       ) : null}
     </div>
-  );
-}
-
-function SessionView({
-  sessionId,
-  connectionSettings,
-  onConnectionSettingsChange
-}: {
-  sessionId: string;
-  connectionSettings: ConnectionSettings;
-  onConnectionSettingsChange: (settings: ConnectionSettings) => void;
-}) {
-  const { logoutNormal, normalAuth } = useAuth();
-  const { t } = useI18n();
-  const [snapshot, setSnapshot] = React.useState<Snapshot>({ text: '', capturedAt: Date.now() });
-  const [status, setStatus] = React.useState<string>(t.statusConnecting);
-  const [text, setText] = React.useState('');
-  const [transport, setTransport] = React.useState<string>();
-  const scrollRef = React.useRef<HTMLElement>(null);
-
-  const refresh = React.useCallback(async () => {
-    if (connectionSettings.connectionMode === 'relay') {
-      setTransport('pty-event-stream');
-      setStatus(t.relay);
-      return;
-    }
-    try {
-      const scrollport = scrollRef.current;
-      const wasNearBottom = scrollport
-        ? scrollport.scrollTop + scrollport.clientHeight >= scrollport.scrollHeight - 48
-        : true;
-      const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/snapshot`);
-      if (response.status === 401) {
-        logoutNormal();
-      }
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const data = (await response.json()) as Snapshot;
-      setTransport(data.session?.transport);
-      setSnapshot(data);
-      setStatus(new Date(data.capturedAt).toLocaleTimeString());
-      requestAnimationFrame(() => {
-        if (wasNearBottom && scrollport) {
-          scrollport.scrollTop = scrollport.scrollHeight;
-        }
-      });
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : t.statusDisconnected);
-    }
-  }, [connectionSettings.connectionMode, logoutNormal, normalAuth?.accessToken, sessionId, t]);
-
-  React.useEffect(() => {
-    refresh();
-    if (transport === 'pty-event-stream') {
-      return undefined;
-    }
-    const timer = window.setInterval(refresh, 1500);
-    return () => window.clearInterval(timer);
-  }, [refresh, transport]);
-
-  if (transport === 'pty-event-stream') {
-    return (
-      <PtySessionView
-        sessionId={sessionId}
-        initialStatus={status}
-        connectionSettings={connectionSettings}
-        onConnectionSettingsChange={onConnectionSettingsChange}
-      />
-    );
-  }
-
-  async function send(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const value = text.trim();
-    if (!value) return;
-    setText('');
-    setStatus(t.statusSending);
-    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/send`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...gatewayAuthHeaders()
-      },
-      body: JSON.stringify({ text: value })
-    });
-    if (!response.ok) {
-      if (response.status === 401) {
-        logoutNormal();
-      }
-      setStatus(`${t.sendFailedPrefix}: ${t.httpStatusPrefix} ${response.status}`);
-      setText(value);
-      return;
-    }
-    await refresh();
-  }
-
-  return (
-    <>
-      <header className="session-header">
-        <h1>{t.appTitle}</h1>
-        <div className="header-actions">
-          <WebHeaderPreferences />
-        </div>
-        <div className="status">{status}</div>
-      </header>
-      <main ref={scrollRef} className="scrollport">
-        <pre>{snapshot.text}</pre>
-      </main>
-      <form className="composer-form" onSubmit={send}>
-        <textarea
-          className="composer-input"
-          rows={1}
-          autoComplete="off"
-          placeholder={t.sendToAgent}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-        />
-        <Button type="submit">{t.send}</Button>
-      </form>
-    </>
-  );
-}
-
-type SessionEvent = {
-  id: number;
-  type: string;
-  payload: Record<string, unknown>;
-};
-
-type StreamFrame =
-  | { type: 'hello'; sessionId: string; clientId: string; latestEventId: number; controllerClientId: string | null }
-  | { type: 'replay.done'; latestEventId: number }
-  | { type: 'event'; event: SessionEvent }
-  | { type: 'error'; code: string; message: string };
-
-function PtySessionView({
-  sessionId,
-  initialStatus,
-  connectionSettings,
-  onConnectionSettingsChange
-}: {
-  sessionId: string;
-  initialStatus: string;
-  connectionSettings: ConnectionSettings;
-  onConnectionSettingsChange: (settings: ConnectionSettings) => void;
-}) {
-  const { logoutNormal, normalAuth } = useAuth();
-  const { t } = useI18n();
-  const { isDark } = useUiPreferences();
-  const terminalRef = React.useRef<HTMLDivElement>(null);
-  const terminal = React.useRef<Terminal | undefined>(undefined);
-  const socket = React.useRef<WebSocket | undefined>(undefined);
-  const transportMode = React.useMemo(readWebTransportMode, []);
-  const [clientMode, setClientMode] = React.useState<ClientMode>(readClientMode);
-  const [replayMode, setReplayMode] = React.useState<ReplayMode>(readReplayMode);
-  const [clients, setClients] = React.useState<ClientInfo[]>([]);
-  const [controllerClientId, setControllerClientId] = React.useState<string | null>(null);
-  const [status, setStatus] = React.useState(initialStatus);
-  const [text, setText] = React.useState('');
-
-  const refreshClients = React.useCallback(async () => {
-    if (connectionSettings.connectionMode === 'relay') {
-      return;
-    }
-    const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/clients`);
-    if (response.status === 401) {
-      logoutNormal();
-    }
-    if (!response.ok) {
-      return;
-    }
-    const data = (await response.json()) as { controllerClientId: string | null; clients: ClientInfo[] };
-    setControllerClientId(data.controllerClientId);
-    setClients(data.clients);
-  }, [connectionSettings.connectionMode, logoutNormal, normalAuth?.accessToken, sessionId]);
-
-  const changeClientMode = React.useCallback((mode: ClientMode) => {
-    window.localStorage.setItem(WEB_CLIENT_MODE_KEY, mode);
-    setClientMode(mode);
-  }, []);
-
-  const changeReplayMode = React.useCallback((mode: ReplayMode) => {
-    window.localStorage.setItem(WEB_REPLAY_MODE_KEY, mode);
-    setReplayMode(mode);
-  }, []);
-
-  const sendHttpInput = React.useCallback(async (data: string): Promise<boolean> => {
-    if (connectionSettings.connectionMode === 'relay') {
-      return false;
-    }
-    if (clientMode === 'observe') {
-      setStatus(t.statusObserveCannotInput);
-      return false;
-    }
-    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/input`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...gatewayAuthHeaders()
-      },
-      body: JSON.stringify({ data })
-    });
-    if (!response.ok) {
-      if (response.status === 401) {
-        logoutNormal();
-      }
-      setStatus(`${t.inputFailedPrefix}: ${t.httpStatusPrefix} ${response.status}`);
-      return false;
-    }
-    return true;
-  }, [clientMode, connectionSettings.connectionMode, logoutNormal, normalAuth?.accessToken, sessionId, t]);
-
-  const sendWsInput = React.useCallback((data: string): boolean => {
-    if (clientMode === 'observe') {
-      setStatus(t.statusObserveCannotInput);
-      return false;
-    }
-    const ws = socket.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      setStatus(t.statusWsUnavailable);
-      return false;
-    }
-    ws.send(JSON.stringify(
-      connectionSettings.connectionMode === 'relay'
-        ? { type: 'client.input', sessionId, data }
-        : { type: 'input', data }
-    ));
-    return true;
-  }, [clientMode, connectionSettings.connectionMode, sessionId, t]);
-
-  const sendTerminalInput = React.useCallback((data: string): void => {
-    if (connectionSettings.connectionMode === 'direct' && transportMode === 'http') {
-      sendHttpInput(data).catch(() => setStatus(t.statusInputFailed));
-      return;
-    }
-    sendWsInput(data);
-  }, [connectionSettings.connectionMode, sendHttpInput, sendWsInput, t.statusInputFailed, transportMode]);
-
-  const sendLine = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const value = text;
-    if (!value) {
-      return;
-    }
-    setStatus(t.statusSending);
-    const send = connectionSettings.connectionMode === 'direct' && transportMode === 'http'
-      ? sendHttpInput(`${value}\r`)
-      : Promise.resolve(sendWsInput(`${value}\r`));
-    send
-      .then((ok) => {
-        if (!ok) return;
-        setText('');
-        setStatus(connectionSettings.connectionMode === 'relay' ? t.statusRelaySent : transportMode === 'http' ? t.statusHttpSent : t.statusWsSent);
-        terminal.current?.focus();
-      })
-      .catch(() => setStatus(t.statusInputFailed));
-  }, [connectionSettings.connectionMode, sendHttpInput, sendWsInput, t, text, transportMode]);
-
-  React.useEffect(() => {
-    const root = terminalRef.current;
-    if (!root) {
-      return undefined;
-    }
-
-    const term = new Terminal({
-      cursorBlink: true,
-      convertEol: true,
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
-      fontSize: 13,
-      lineHeight: 1.25,
-      theme: isDark
-        ? {
-            background: '#0c0e10',
-            foreground: '#e8ecef',
-            cursor: '#8fd0ff'
-          }
-        : {
-            background: '#f8faf9',
-            foreground: '#111817',
-            cursor: '#047857'
-          }
-    });
-    const fitAddon = new FitAddon();
-    let lastSize = { cols: 0, rows: 0 };
-    let resizeFrame = 0;
-    let disposed = false;
-    let ws: WebSocket | undefined;
-    let replayComplete = false;
-    const sendResize = () => {
-      if (term.cols === lastSize.cols && term.rows === lastSize.rows) {
-        return;
-      }
-      lastSize = { cols: term.cols, rows: term.rows };
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(
-          connectionSettings.connectionMode === 'relay'
-            ? { type: 'client.resize', sessionId, cols: term.cols, rows: term.rows }
-            : { type: 'resize', cols: term.cols, rows: term.rows }
-        ));
-      }
-    };
-    const fitAndResize = () => {
-      window.cancelAnimationFrame(resizeFrame);
-      resizeFrame = window.requestAnimationFrame(() => {
-        fitAddon.fit();
-        sendResize();
-      });
-    };
-    terminal.current = term;
-    term.loadAddon(fitAddon);
-    term.open(root);
-    fitAddon.fit();
-    sendResize();
-    term.focus();
-
-    const cursorKey = `tether:${sessionId}:latestEventId`;
-    let after = 0;
-    let tailTimer: number | undefined;
-
-    const input = term.onData((data) => {
-      if (!disposed && replayComplete) {
-        sendTerminalInput(data);
-      }
-    });
-
-    const writeEvent = (event: SessionEvent) => {
-      if (event.id <= after) {
-        return;
-      }
-      window.localStorage.setItem(cursorKey, String(event.id));
-      after = Math.max(after, event.id);
-      if (event.type === 'terminal.output') {
-        const data = event.payload.data;
-        if (typeof data === 'string') {
-          term.write(data);
-        }
-        return;
-      }
-      if (event.type === 'session.exited') {
-        setStatus(t.statusExited);
-      }
-    };
-
-    const replayEvents = async () => {
-      if (connectionSettings.connectionMode === 'relay') {
-        replayComplete = false;
-        return;
-      }
-      setStatus(t.statusReplaying);
-      const replayQuery = replayMode === 'recent'
-        ? `after=0&tail=${RECENT_REPLAY_EVENT_LIMIT}`
-        : 'after=0&limit=5000';
-      const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/events?${replayQuery}`);
-      if (response.status === 401) {
-        logoutNormal();
-      }
-      if (!response.ok) {
-        throw new Error(`events HTTP ${response.status}`);
-      }
-      const data = (await response.json()) as { events: SessionEvent[] };
-      for (const event of data.events) {
-        writeEvent(event);
-      }
-      replayComplete = true;
-      fitAddon.fit();
-      sendResize();
-    };
-
-    const pollTail = async () => {
-      if (disposed) {
-        return;
-      }
-      try {
-        const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/events?after=${after}&limit=1000`);
-        if (response.status === 401) {
-          logoutNormal();
-        }
-        if (!response.ok) {
-          return;
-        }
-        const data = (await response.json()) as { events: SessionEvent[] };
-        for (const event of data.events) {
-          writeEvent(event);
-        }
-      } catch {
-        // WS is the primary live path; polling is a best-effort browser fallback.
-      }
-    };
-
-    const connectStream = async () => {
-      await replayEvents();
-      if (connectionSettings.connectionMode === 'direct' && transportMode === 'http') {
-        tailTimer = window.setInterval(pollTail, 500);
-        setStatus(t.statusSyncingHttp);
-        return;
-      }
-      const nextWs = await openStreamWebSocket();
-      ws = nextWs;
-      socket.current = nextWs;
-
-      nextWs.addEventListener('open', () => {
-        if (disposed || socket.current !== ws) {
-          return;
-        }
-        if (connectionSettings.connectionMode === 'relay') {
-          setStatus(t.statusRelayAuth);
-          nextWs.send(JSON.stringify(
-            normalAuth?.accessToken
-              ? { type: 'client.auth', token: normalAuth.accessToken }
-              : { type: 'client.auth', secret: connectionSettings.relaySecret }
-          ));
-          return;
-        }
-        setStatus(t.statusSyncingWs);
-        sendResize();
-      });
-      nextWs.addEventListener('message', (message) => {
-        if (disposed || socket.current !== ws) {
-          return;
-        }
-        const parsedFrame = parseWsFrame(message.data);
-        if (!parsedFrame || typeof parsedFrame.type !== 'string') {
-          setStatus(t.statusStreamBadFrame);
-          nextWs.close();
-          return;
-        }
-        if (connectionSettings.connectionMode === 'relay') {
-          const frame = parsedFrame as RelayServerToClientFrame;
-          if (frame.type === 'client.auth.ok') {
-            setStatus(`${t.relayClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
-            nextWs.send(JSON.stringify({
-              type: 'client.subscribe',
-              sessionId,
-              after,
-              tail: replayMode === 'recent' && after === 0 ? RECENT_REPLAY_EVENT_LIMIT : undefined,
-              mode: clientMode
-            }));
-            return;
-          }
-          if (frame.type === 'client.auth.failed') {
-            logoutNormal();
-            setStatus(displayMessage(frame.message, t));
-            nextWs.close();
-            return;
-          }
-          if (frame.type === 'hello') {
-            setStatus(`${t.relayClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
-            return;
-          }
-          if (frame.type === 'error') {
-            setStatus(displayMessage(frame.message, t));
-            return;
-          }
-          if (frame.type === 'replay.done') {
-            replayComplete = true;
-            after = Math.max(after, frame.latestEventId);
-            fitAddon.fit();
-            sendResize();
-            return;
-          }
-          if (frame.type === 'event') {
-            writeEvent(frame.event);
-          }
-          return;
-        }
-        const frame = parsedFrame as StreamFrame;
-        if (frame.type === 'hello') {
-          refreshClients().catch(() => undefined);
-          setStatus(`${t.streamClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
-          return;
-        }
-        if (frame.type === 'error') {
-          setStatus(displayMessage(frame.message, t));
-          return;
-        }
-        if (frame.type === 'replay.done') {
-          replayComplete = true;
-          fitAddon.fit();
-          sendResize();
-          return;
-        }
-        writeEvent(frame.event);
-        if (frame.event.type === 'session.exited') {
-          setStatus(t.statusExited);
-          nextWs.close();
-        }
-        if (frame.event.type === 'client.attached' || frame.event.type === 'client.detached' || frame.event.type === 'client.control_changed') {
-          refreshClients().catch(() => undefined);
-        }
-      });
-      nextWs.addEventListener('close', () => {
-        if (disposed || socket.current !== ws) {
-          return;
-        }
-        setStatus((current) => (current === t.statusExited ? current : t.statusDisconnected));
-      });
-      nextWs.addEventListener('error', () => {
-        if (disposed || socket.current !== ws) {
-          return;
-        }
-        setStatus(t.statusStreamError);
-      });
-    };
-    const openStreamWebSocket = async (): Promise<WebSocket> => {
-      if (connectionSettings.connectionMode === 'relay') {
-        return new WebSocket(buildRelayClientUrl(connectionSettings.relayUrl, t));
-      }
-      const { ticket } = await requestGatewayWsTicket({
-        sessionId,
-        mode: clientMode
-      });
-      const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
-      const tailQuery = replayMode === 'recent' && after === 0 ? `&tail=${RECENT_REPLAY_EVENT_LIMIT}` : '';
-      return new WebSocket(
-        `${scheme}://${window.location.host}/api/sessions/${encodeURIComponent(sessionId)}/stream?after=${after}&surface=web&mode=${clientMode}${tailQuery}`,
-        [`tether-ticket.${ticket}`]
-      );
-    };
-    connectStream().catch((error: unknown) => {
-      if (!disposed) {
-        setStatus(error instanceof Error ? error.message : t.statusStreamUnavailable);
-      }
-    });
-    const observer = new ResizeObserver(fitAndResize);
-    observer.observe(root);
-    const clientsTimer = connectionSettings.connectionMode === 'direct'
-      ? window.setInterval(() => refreshClients().catch(() => undefined), 3000)
-      : undefined;
-
-    return () => {
-      disposed = true;
-      window.cancelAnimationFrame(resizeFrame);
-      if (tailTimer) {
-        window.clearInterval(tailTimer);
-      }
-      observer.disconnect();
-      if (clientsTimer) {
-        window.clearInterval(clientsTimer);
-      }
-      input.dispose();
-      if (connectionSettings.connectionMode === 'relay' && ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'client.detach', sessionId }));
-      }
-      ws?.close();
-      term.dispose();
-    };
-  }, [
-    clientMode,
-    connectionSettings.connectionMode,
-    connectionSettings.relaySecret,
-    connectionSettings.relayUrl,
-    isDark,
-    logoutNormal,
-    normalAuth?.accessToken,
-    replayMode,
-    refreshClients,
-    sendTerminalInput,
-    sessionId,
-    t,
-    transportMode
-  ]);
-
-  async function stopSession(): Promise<void> {
-    if (connectionSettings.connectionMode === 'relay') {
-      const ws = socket.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        setStatus(t.statusRelayUnavailable);
-        return;
-      }
-      sendRelayFrame(ws, { type: 'client.subscribe', sessionId, mode: 'control' });
-      sendRelayFrame(ws, { type: 'client.stop', sessionId });
-      setStatus(t.statusStopRequested);
-      return;
-    }
-    setStatus(t.statusStopping);
-    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/stop`, {
-      method: 'POST',
-      headers: gatewayAuthHeaders()
-    });
-    if (response.status === 401) {
-      logoutNormal();
-    }
-    setStatus(response.ok ? t.sessionStopped : `${t.stopFailedPrefix}: ${t.httpStatusPrefix} ${response.status}`);
-  }
-
-  return (
-    <>
-      <header className="session-header">
-        <h1>{t.appTitle}</h1>
-        <div className="header-actions">
-          <WebHeaderPreferences />
-          <ConnectionSettingsControl settings={connectionSettings} onChange={onConnectionSettingsChange} />
-          <label className="mode-select">
-            {t.mode}
-            <select value={clientMode} onChange={(event) => changeClientMode(event.target.value as ClientMode)}>
-              <option value="control">{t.control}</option>
-              <option value="observe">{t.observe}</option>
-            </select>
-          </label>
-          <label className="mode-select">
-            {t.replay}
-            <select value={replayMode} onChange={(event) => changeReplayMode(event.target.value as ReplayMode)}>
-              <option value="recent">{t.replayRecent}</option>
-              <option value="all">{t.replayAll}</option>
-            </select>
-          </label>
-          <Button variant="outline" size="sm" type="button" onClick={() => stopSession()}>{t.stop}</Button>
-          <div className="status">{status}</div>
-        </div>
-      </header>
-      <main className="terminal-shell" onMouseDown={() => terminal.current?.focus()}>
-        <div ref={terminalRef} className="terminal-host" />
-        {clients.length > 0 ? (
-          <aside className="client-strip">
-            <span>{t.controllerLabel} {controllerClientId ? controllerClientId.slice(0, 8) : '-'}</span>
-            <span>{clients.length} {t.clients}</span>
-            <span>{transportMode.toUpperCase()}</span>
-          </aside>
-        ) : connectionSettings.connectionMode === 'relay' ? (
-          <aside className="client-strip">
-            <span>{t.relay}</span>
-            <span>{clientModeLabel(clientMode, t)}</span>
-          </aside>
-        ) : null}
-      </main>
-      <form className="composer-form" onSubmit={sendLine}>
-        <textarea
-          className="composer-input"
-          rows={1}
-          autoComplete="off"
-          placeholder={t.sendToAgent}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              event.currentTarget.form?.requestSubmit();
-            }
-          }}
-        />
-        <Button type="submit">{t.send}</Button>
-      </form>
-    </>
   );
 }
 
