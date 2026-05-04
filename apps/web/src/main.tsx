@@ -109,7 +109,8 @@ const CONNECTION_MODE_KEY = 'tether:connectionMode';
 const RELAY_URL_KEY = 'tether:relayUrl';
 const RELAY_SECRET_KEY = 'tether:relaySecret';
 const DEFAULT_CONNECTION_MODE = import.meta.env.VITE_TETHER_CONNECTION_MODE;
-const DEFAULT_RELAY_URL = import.meta.env.VITE_TETHER_RELAY_URL;
+const PRODUCT_DEFAULT_RELAY_URL = 'wss://tether.earntools.me';
+const DEFAULT_RELAY_URL = import.meta.env.VITE_TETHER_RELAY_URL ?? PRODUCT_DEFAULT_RELAY_URL;
 function readWebTransportMode(): WebTransportMode {
   return window.localStorage.getItem(WEB_TRANSPORT_KEY) === 'http' ? 'http' : 'ws';
 }

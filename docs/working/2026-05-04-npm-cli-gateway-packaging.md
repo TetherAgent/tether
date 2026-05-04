@@ -424,6 +424,126 @@ tether-cli
 9. `npm pack --dry-run` 检查包内只包含必要文件。
 10. 在一台没有 repo 的临时目录里测试 `npm install -g <tgz>`。
 
+## 自定义命令 / provider 白名单方案
+
+当前 `tether codex`、`tether claude`、`tether opencode` 是固定 provider 命令。
+这些命令只解析 Tether 自己的 `--project`、`--title`、`--no-attach`，并把剩余参数作为
+`providerArgs` 透传给 provider。它不能直接支持：
+
+```bash
+pnpm tether codex-proxy --title "flutter 方案"
+```
+
+原因是 `codex-proxy` 不是已注册 provider 命令，commander 会把它当作未知子命令。
+
+这个问题不应通过让 Gateway 接收任意 `command` / `args` / `env` / `shell` 来解决。
+Tether 的安全边界必须保持为：Gateway API 只允许启动本机白名单中的命令，远端客户端不能
+让用户电脑执行任意 shell 命令。
+
+### 短期可用：复用 provider command 覆盖
+
+如果只是想把 `codex` 的真实可执行文件替换成 `codex-proxy`，可以继续使用现有
+`providers.<name>.command` 配置：
+
+```json
+{
+  "providers": {
+    "codex": {
+      "command": "/absolute/path/to/codex-proxy"
+    }
+  }
+}
+```
+
+之后仍通过 provider 名启动：
+
+```bash
+tether codex --title "flutter 方案"
+```
+
+优点是改动小，符合当前安全模型。缺点是 UI 和 session metadata 里的 provider 仍然是
+`codex`，不是 `codex-proxy`。
+
+### 推荐方案：命令别名 / 自定义 provider 白名单
+
+正式方案是在本机配置中新增一层白名单别名，例如：
+
+```json
+{
+  "commands": {
+    "codex-proxy": {
+      "command": "/absolute/path/to/codex-proxy",
+      "defaultArgs": [],
+      "kind": "agent"
+    },
+    "flutter": {
+      "command": "flutter",
+      "defaultArgs": [],
+      "kind": "tool"
+    }
+  }
+}
+```
+
+CLI 根据 `commands` 动态注册本机命令：
+
+```bash
+tether codex-proxy --title "flutter 方案"
+tether flutter --title "flutter doctor" -- doctor
+```
+
+Gateway API 只接收别名，不接收真实命令：
+
+```json
+{
+  "commandId": "codex-proxy",
+  "title": "flutter 方案",
+  "providerArgs": []
+}
+```
+
+Gateway 在本机读取 `~/.tether/config.json`，把 `commandId` 解析成真实 `command` 和
+`defaultArgs`，再通过 PTY 启动。请求体继续禁止出现以下字段：
+
+```text
+command
+args
+argv
+env
+shell
+providerCommand
+```
+
+建议命名上不要把它叫“任意命令”，而叫“本机命令白名单”或“command alias”。这能同时满足
+开发者便利性和远端安全边界。
+
+### 可选开发者便利：本地-only exec
+
+可以另外提供一个只在本机 CLI 可用的开发者入口：
+
+```bash
+tether exec --title "flutter 方案" -- flutter doctor
+tether exec --title "proxy" -- codex-proxy --resume <session-id>
+```
+
+约束：
+
+- `exec` 只能由本机 CLI 直接触发。
+- `exec` 不进入 Gateway HTTP API、Relay API 或手机/Web 远端创建 session 的协议。
+- `exec` 不能被远端客户端调用。
+- 运行时仍必须使用 `spawn(command, args[])`，不能使用 `shell:true`。
+
+这个入口适合开发者临时包一条本机命令，但不应成为 Tether 多端控制面的默认能力。
+
+### 推荐实施顺序
+
+1. 先支持 `commands` 配置读取和类型定义。
+2. CLI 启动时把 `commands` 动态注册成顶层子命令。
+3. `POST /api/sessions` 增加 `commandId`，并只允许解析本机配置里的白名单别名。
+4. session metadata 增加 `commandId` / `displayName`，真实 `command` 继续只记录本机解析结果。
+5. `tether gateway providers` 扩展为同时展示内置 provider 和自定义 command alias。
+6. 增加测试：禁止 API 传 `command`，允许 API 传合法 `commandId`，非法 `commandId` 返回 400。
+
 ## 验收清单
 
 在干净环境执行：
