@@ -9,7 +9,7 @@ const GATEWAY_TOKEN = 'gateway-token';
 const CLIENT_TOKEN = 'client-token';
 const CLIENT_TICKET = 'client-ticket';
 
-function createRelay(options?: { allowLegacySecret?: boolean }) {
+function createRelay(options?: { allowLegacySecret?: boolean; omitGatewayIdInScope?: boolean }) {
   return startRelayServer({
     host: '127.0.0.1',
     port: 0,
@@ -20,7 +20,7 @@ function createRelay(options?: { allowLegacySecret?: boolean }) {
         return {
           accountId: 'acct_1',
           workspaceId: 'ws_1',
-          gatewayId: 'gateway-test',
+          gatewayId: options?.omitGatewayIdInScope ? undefined : 'gateway-test',
           tokenClass: 'gateway_access',
           expiresAt: Date.now() + 60_000,
           jti: 'jti_gateway'
@@ -110,6 +110,40 @@ test('relay forwards session list from gateway to client', async () => {
     client.send(JSON.stringify({ type: 'client.list' }));
     const listRequest = await waitForJson(gateway, (message) => message.type === 'client.list');
     assert.equal(listRequest.clientId, clientId);
+
+    gateway.send(JSON.stringify({ type: 'gateway.sessions', gatewayId: 'gateway-test', sessions }));
+    const sessionMessage = await waitForJson(client, (message) => message.type === 'sessions');
+    assert.deepEqual(sessionMessage.sessions, sessions);
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+  }
+});
+
+test('relay accepts gateway.sessions when gateway token has no gatewayId in scope', async () => {
+  const relay = await createRelay({ omitGatewayIdInScope: true });
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const sessions: RelaySession[] = [
+    {
+      id: 'tth_relay_scope_missing',
+      provider: 'codex',
+      title: 'Relay Scope Missing',
+      projectPath: process.cwd(),
+      accountId: 'acct_1',
+      workspaceId: 'ws_1',
+      gatewayId: 'gateway-test',
+      userId: 'user_1',
+      status: 'running',
+      transport: 'pty-event-stream',
+      lastActiveAt: Date.now()
+    }
+  ];
+
+  try {
+    await authenticateGateway(gateway);
+    await authenticateClient(client);
 
     gateway.send(JSON.stringify({ type: 'gateway.sessions', gatewayId: 'gateway-test', sessions }));
     const sessionMessage = await waitForJson(client, (message) => message.type === 'sessions');

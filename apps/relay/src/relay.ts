@@ -507,9 +507,15 @@ async function authenticateClientFrame(
 }
 
 function gatewayFrameWithinScope(frame: RelayGatewayToServerFrame, gatewayScope: RelayAuthScope): boolean {
+  // 兼容旧 token：历史上 `gatewayId` 可能缺失（例如早期发的 gateway_access token）。
+  // 在这种情况下不应强制做 gatewayId 绑定校验，否则会导致 Relay 收到 `gateway.sessions`
+  // 直接判定 out-of-scope 并关闭网关连接，进而让 Web 端会话列表一会儿有一会儿没有。
+  const scopedGatewayId = gatewayScope.gatewayId;
   switch (frame.type) {
     case 'gateway.sessions':
-      return frame.sessions.every((session) => session.gatewayId === undefined || session.gatewayId === gatewayScope.gatewayId);
+      return scopedGatewayId
+        ? frame.sessions.every((session) => session.gatewayId === undefined || session.gatewayId === scopedGatewayId)
+        : true;
     case 'gateway.replay':
       return gatewayScope.sessionId ? gatewayScope.sessionId === frame.sessionId : true;
     case 'gateway.event':
