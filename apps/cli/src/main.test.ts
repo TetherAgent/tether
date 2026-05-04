@@ -93,6 +93,16 @@ test('pty attach defaults to reconnect with fresh tickets and event cursor', () 
   assert.match(source, /params\.set\('after', String\(after\)\)/);
   assert.match(source, /Gateway 连接断开/);
   assert.match(source, /当前输入不会发送/);
+  assert.match(source, /退出本地 attach，session 继续运行/);
   assert.match(source, /TERMINAL_RESET_SEQUENCE/);
   assert.match(source, /\\x1b\[<u/);
+});
+
+test('stop prints success and can fall back to runner socket', () => {
+  const source = readFileSync(path.resolve(process.cwd(), 'src/main.ts'), 'utf8');
+  assert.match(source, /console\.log\(result === 'already-stopped'/);
+  assert.match(source, /已关闭 \$\{id\}/);
+  assert.match(source, /stopPtySessionViaGateway/);
+  assert.match(source, /stopPtySessionViaRunner\(session\.runnerSocketPath\)/);
+  assert.match(source, /new SessionRunnerClient\(\{ socketPath \}\)/);
 });

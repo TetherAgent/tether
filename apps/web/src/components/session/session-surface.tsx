@@ -78,7 +78,7 @@ type RelayServerToClientFrame =
   | { type: 'error'; sessionId?: string; code: string; message: string };
 
 type RelayClientToServerFrame =
-  | { type: 'client.subscribe'; sessionId: string; after?: number; tail?: number; mode: ClientMode }
+  | { type: 'client.subscribe'; sessionId: string; after?: number; tail?: number; mode: ClientMode; cols?: number; rows?: number }
   | { type: 'client.stop'; sessionId: string };
 
 const RECENT_REPLAY_EVENT_LIMIT = 100;
@@ -497,6 +497,19 @@ function PtySessionView({
         ));
       }
     };
+    const syncTerminalSize = async (): Promise<void> => {
+      if (connectionSettings.connectionMode !== 'direct' || term.cols <= 0 || term.rows <= 0) {
+        return;
+      }
+      const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/resize`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ cols: term.cols, rows: term.rows })
+      });
+      if (response.status === 401) {
+        logoutNormal();
+      }
+    };
     const fitAndResize = () => {
       window.cancelAnimationFrame(resizeFrame);
       resizeFrame = window.requestAnimationFrame(() => {
@@ -545,6 +558,9 @@ function PtySessionView({
         replayComplete = false;
         return;
       }
+      fitAddon.fit();
+      sendResize();
+      await syncTerminalSize();
       setStatus(t.statusReplaying);
       const shouldUseRecentReplay = replayOnly && replayMode === 'recent';
       const fetchReplayPage = async (query: string): Promise<SessionEvent[]> => {
@@ -728,7 +744,9 @@ function PtySessionView({
               sessionId,
               after,
               tail: replayOnly && replayMode === 'recent' && after === 0 ? RECENT_REPLAY_EVENT_LIMIT : undefined,
-              mode: effectiveClientMode
+              mode: effectiveClientMode,
+              cols: term.cols,
+              rows: term.rows
             }));
             return;
           }

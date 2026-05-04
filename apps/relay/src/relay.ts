@@ -285,7 +285,16 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           }
         }
         subscriptions.set(frame.sessionId, frame.mode);
-        forwardToGateway({ type: 'client.subscribe', clientId, sessionId: frame.sessionId, after: frame.after, tail: frame.tail, mode: frame.mode });
+        forwardToGateway({
+          type: 'client.subscribe',
+          clientId,
+          sessionId: frame.sessionId,
+          after: frame.after,
+          tail: frame.tail,
+          mode: frame.mode,
+          cols: frame.cols,
+          rows: frame.rows
+        });
         break;
       }
       case 'client.input':

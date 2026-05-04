@@ -284,6 +284,51 @@ test('gateway relay client forwards control resize to pty', async () => {
   }
 });
 
+test('gateway relay client applies subscribe resize before replay', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const sessionId = createSessionId();
+  const relay = await relayAuthServer({ gatewayId: 'gw_test_subscribe_resize' });
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24,
+    owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_subscribe_resize' }
+  });
+  const relayClient = startRelayClient({
+    url: relay.url,
+    secret: SECRET,
+    gatewayId: 'gw_test_subscribe_resize',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_subscribe_resize' },
+    store,
+    ptySessions
+  });
+  await waitForRelayClientConnected(relayClient);
+  const client = await connectRelayClient(relay.url);
+
+  try {
+    await waitForSessionList(client, sessionId);
+    const replayDonePromise = waitForFrame(client, (frame) => frame.type === 'replay.done' && frame.sessionId === sessionId);
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control', cols: 132, rows: 40 }));
+    await waitFor(() =>
+      store
+        .listEvents(sessionId, 0, 5000)
+        .some((event) => event.type === 'terminal.resize' && event.payload.cols === 132 && event.payload.rows === 40)
+    );
+    await replayDonePromise;
+  } finally {
+    client.close();
+    ptySessions.stop(sessionId);
+    await relayClient.close();
+    await relay.close();
+    cleanup();
+  }
+});
+
 test('gateway relay client forwards control stop to pty', async () => {
   const { store, cleanup } = tempStore();
   const ptySessions = new PtySessionManager(store);

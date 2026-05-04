@@ -32,6 +32,7 @@ import {
   PtySessionManager,
   startDaemon,
   Store,
+  SessionRunnerClient,
 } from '@tether/gateway';
 import { defaultDbPath } from '@tether/gateway/store';
 import { isProviderName, PROVIDERS, type ProviderDefinition } from '@tether/core';
@@ -520,10 +521,11 @@ program
   .action(async (id: string | undefined, options: { all?: boolean; host: string; port: number }) => {
     const store = new Store();
     if (options.all) {
-      const sessions = await fetchGatewaySessions(`http://${options.host}:${options.port}`).catch(() => store.listSessions());
+      const gatewayUrl = await stopGatewayUrl(options);
+      const sessions = gatewayUrl ? await fetchGatewaySessions(gatewayUrl).catch(() => store.listSessions()) : store.listSessions();
       const ids = runningSessionIds(sessions);
       for (const sessionId of ids) {
-        await stopSession(store, sessionId, options);
+        await stopSession(store, sessionId, options, gatewayUrl);
         console.log(`已关闭 ${sessionId}`);
       }
       console.log(`已关闭 ${ids.length} 个 session。`);
@@ -532,7 +534,8 @@ program
     if (!id) {
       throw new Error('missing session id; use `tether stop <id>` or `tether stop --all`');
     }
-    await stopSession(store, id, options);
+    const result = await stopSession(store, id, options, await stopGatewayUrl(options));
+    console.log(result === 'already-stopped' ? `${id} 已经不是 running 状态。` : `已关闭 ${id}`);
   });
 
 program.parseAsync().catch((error: unknown) => {
@@ -540,22 +543,64 @@ program.parseAsync().catch((error: unknown) => {
   process.exitCode = 1;
 });
 
-async function stopSession(store: Store, id: string, options: { host: string; port: number }): Promise<void> {
+async function stopGatewayUrl(options: { host: string; port: number }): Promise<string | undefined> {
+  return await findPersistentGateway().catch(() => undefined) ?? `http://${options.host}:${options.port}`;
+}
+
+async function stopSession(
+  store: Store,
+  id: string,
+  options: { host: string; port: number },
+  gatewayUrl = `http://${options.host}:${options.port}`
+): Promise<'stopped' | 'already-stopped'> {
   const session = store.getSession(id);
   if (!session) {
     throw new Error(`unknown session: ${id}`);
   }
+  if (session.status !== 'running') {
+    return 'already-stopped';
+  }
   if (session.transport === 'pty-event-stream') {
-    const response = await fetch(`http://${options.host}:${options.port}/api/sessions/${encodeURIComponent(id)}/stop`, {
+    const gatewayStopped = await stopPtySessionViaGateway(id, gatewayUrl);
+    if (gatewayStopped) {
+      return 'stopped';
+    }
+    if (session.runnerSocketPath) {
+      await stopPtySessionViaRunner(session.runnerSocketPath);
+      return 'stopped';
+    }
+    throw new Error('未检测到可用 Gateway，也没有本机 runner socket，无法停止这个 session。请先运行 `tether gateway` 后重试。');
+  }
+  await sendKeys(session.tmuxSessionName, 'C-c');
+  return 'stopped';
+}
+
+async function stopPtySessionViaGateway(id: string, gatewayUrl: string): Promise<boolean> {
+  let response: Response;
+  try {
+    response = await fetch(`${gatewayUrl}/api/sessions/${encodeURIComponent(id)}/stop`, {
       method: 'POST',
       headers: await gatewayAuthHeaders()
     });
-    if (!response.ok) {
-      throw new Error(`stop failed: HTTP ${response.status}`);
-    }
-    return;
+  } catch {
+    return false;
   }
-  await sendKeys(session.tmuxSessionName, 'C-c');
+  if (response.ok) {
+    return true;
+  }
+  if ([404, 410, 503].includes(response.status)) {
+    return false;
+  }
+  throw new Error(`stop failed: HTTP ${response.status}`);
+}
+
+async function stopPtySessionViaRunner(socketPath: string): Promise<void> {
+  const client = new SessionRunnerClient({ socketPath });
+  try {
+    await client.stop('cli-stop');
+  } finally {
+    await client.close().catch(() => undefined);
+  }
 }
 
 async function fetchGatewaySessions(gatewayUrl?: string): Promise<CliSession[]> {
@@ -1031,7 +1076,7 @@ async function attachPtySession(
     reconnectAttempt += 1;
     const delayMs = Math.min(500 * reconnectAttempt, 5000);
     const reason = attempt.message ? `：${attempt.message}` : '';
-    console.error(`\nGateway 连接断开${reason}。${delayMs}ms 后自动重连；当前输入不会发送。按 Ctrl-C 退出。`);
+    console.error(`\nGateway 连接断开${reason}。${delayMs}ms 后自动重连；当前输入不会发送。按 Ctrl-C 退出本地 attach，session 继续运行。`);
     await sleep(delayMs);
   }
 }

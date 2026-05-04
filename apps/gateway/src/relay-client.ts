@@ -149,7 +149,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         sendSessions();
         return;
       case 'client.subscribe':
-        void subscribeClient(frame.clientId, frame.sessionId, frame.after ?? 0, frame.mode, frame.tail);
+        void subscribeClient(frame.clientId, frame.sessionId, frame.after ?? 0, frame.mode, frame.tail, frame.cols, frame.rows);
         return;
       case 'client.input':
         void writeInput(frame.clientId, frame.sessionId, frame.data);
@@ -166,12 +166,36 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     }
   };
 
-  const subscribeClient = async (clientId: string, sessionId: string, after: number, mode: 'control' | 'observe', tail?: number) => {
+  const subscribeClient = async (
+    clientId: string,
+    sessionId: string,
+    after: number,
+    mode: 'control' | 'observe',
+    tail?: number,
+    cols?: number,
+    rows?: number
+  ) => {
     await removeSubscription(clientId, sessionId);
     const session = options.store.getSession(sessionId);
     if (!session) {
       sendError(clientId, sessionId, 'session_not_found', 'session not found');
       return;
+    }
+    const key = subscriptionKey(clientId, sessionId);
+    if (isValidTerminalSize(cols, rows) && mode === 'control') {
+      const nextCols = cols;
+      const nextRows = Number(rows);
+      const runnerClient = options.runnerClientForSession?.(session);
+      if (runnerClient) {
+        await runnerClient.resize(nextCols, nextRows, clientId).catch(() => {
+          sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
+        });
+      } else {
+        const ok = options.ptySessions?.resize(sessionId, clientId, nextCols, nextRows) ?? false;
+        if (!ok) {
+          sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
+        }
+      }
     }
 
     const events = tail && tail > 0 && after === 0
@@ -179,7 +203,6 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       : options.store.listEvents(sessionId, after, 5000).map(toRelayEvent);
     send({ type: 'gateway.replay', gatewayId: effectiveGatewayId, clientId, sessionId, events });
 
-    const key = subscriptionKey(clientId, sessionId);
     const runnerClient = options.runnerClientForSession?.(session);
     const unsubscribe = runnerClient
       ? await runnerClient.subscribeEvents((frame) => {

@@ -807,6 +807,72 @@ test('direct websocket controller can resize pty', async () => {
   }
 });
 
+test('http resize endpoint can resize pty before websocket replay', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const sessionId = createSessionId();
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24
+  });
+  const port = 5400 + Math.floor(Math.random() * 1000);
+  const daemon = await startDaemon({ host: '127.0.0.1', port, store, ptySessions });
+
+  try {
+    await withAuthFixture(async ({ authHeaders }) => {
+      const response = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/resize`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ cols: 132, rows: 40 })
+      });
+      assert.equal(response.status, 200);
+      await waitFor(
+        () => store.listEvents(sessionId).some((event) => event.type === 'terminal.resize' && event.payload.cols === 132 && event.payload.rows === 40),
+        1000
+      );
+    });
+  } finally {
+    ptySessions.stop(sessionId);
+    await daemon.close();
+    cleanup();
+  }
+});
+
+test('http resize endpoint rejects invalid dimensions', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const sessionId = createSessionId();
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24
+  });
+  const port = 5400 + Math.floor(Math.random() * 1000);
+  const daemon = await startDaemon({ host: '127.0.0.1', port, store, ptySessions });
+
+  try {
+    await withAuthFixture(async ({ authHeaders }) => {
+      const response = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/resize`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ cols: 0, rows: 40 })
+      });
+      assert.equal(response.status, 400);
+    });
+  } finally {
+    ptySessions.stop(sessionId);
+    await daemon.close();
+    cleanup();
+  }
+});
+
 test('ws ticket rejects same-account token for a different owner session', async () => {
   const { store, cleanup } = tempStore();
   const ptySessions = new PtySessionManager(store);

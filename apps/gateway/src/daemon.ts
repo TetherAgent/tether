@@ -491,6 +491,44 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     return c.json({ ok: true });
   });
 
+  app.post('/api/sessions/:id/resize', async (c) => {
+    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
+    if (!actor.ok) {
+      return c.json({ error: actor.error }, actor.status);
+    }
+    const session = options.store.getSession(c.req.param('id'));
+    if (!session) {
+      return c.json({ error: 'session not found' }, 404);
+    }
+    const ownership = authorizeSessionAccess(session, actor.payload);
+    if (!ownership.ok) {
+      return c.json({ error: ownership.error }, ownership.status);
+    }
+    if (session.transport !== 'pty-event-stream') {
+      return c.json({ error: 'session is not pty-backed' }, 409);
+    }
+    const body = await c.req.json<{ cols?: unknown; rows?: unknown }>().catch(() => undefined);
+    if (!body || typeof body.cols !== 'number' || typeof body.rows !== 'number' || !isValidTerminalSize(body.cols, body.rows)) {
+      return c.json({ error: 'invalid terminal size' }, 400);
+    }
+    const runnerClient = getRunnerClient(session);
+    if (runnerClient) {
+      try {
+        await runnerClient.resize(body.cols, body.rows, 'http-resize');
+        return c.json({ ok: true });
+      } catch {
+        markSessionLost(session, 'Gateway could not resize this session runner');
+        return c.json({ error: 'pty session is no longer running' }, 410);
+      }
+    }
+    const ok = options.ptySessions?.resize(session.id, 'http-resize', body.cols, body.rows) ?? false;
+    if (!ok) {
+      markSessionLost(session, 'Gateway no longer has a live PTY handle for this session');
+      return c.json({ error: 'pty session is no longer running' }, 410);
+    }
+    return c.json({ ok: true });
+  });
+
   app.post('/api/sessions/:id/stop', async (c) => {
     const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
     if (!actor.ok) {
@@ -583,6 +621,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     const live = session.runnerSocketPath ? await pingRunner(session) : livePtyIds.has(session.id);
     if (live) {
       livePtyIds.add(session.id);
+      if (session.attachState !== 'detached') {
+        options.store.updateAttachState(session.id, 'detached');
+        session.attachState = 'detached';
+      }
       continue;
     }
     markSessionLost(session, 'Gateway restarted without a live PTY runner');
