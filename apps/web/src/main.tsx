@@ -4,8 +4,10 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Link } from 'react-router-dom';
 import {
   Activity,
+  Check,
   Clock3,
   ArrowRight,
+  ClipboardCopy,
   LogOut,
   MonitorDot,
   Power,
@@ -65,6 +67,7 @@ type Session = {
   projectPath: string;
   status: string;
   transport?: string;
+  agentSessionId?: string;
   lastActiveAt: number;
 };
 
@@ -834,6 +837,28 @@ function SessionCardSkeleton() {
   );
 }
 
+function resumeCommand(provider: string, agentSessionId: string): string {
+  if (provider === 'claude' || provider === 'claude-proxy') return `claude --resume ${agentSessionId}`;
+  if (provider === 'codex' || provider === 'codex-proxy') return `codex exec resume ${agentSessionId}`;
+  if (provider === 'copilot') return `gh copilot resume ${agentSessionId}`;
+  return agentSessionId;
+}
+
+function AgentSessionBadge({ provider, agentSessionId, t }: { provider: string; agentSessionId: string; t: WebMessages }) {
+  const [copied, setCopied] = React.useState(false);
+  const copy = React.useCallback(() => {
+    void navigator.clipboard.writeText(resumeCommand(provider, agentSessionId)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [provider, agentSessionId]);
+  return (
+    <Button variant="outline" size="icon" type="button" title={`${agentSessionId.slice(0, 8)} · ${t.copyResumeCommand}`} onClick={copy}>
+      {copied ? <Check aria-hidden="true" /> : <ClipboardCopy aria-hidden="true" />}
+    </Button>
+  );
+}
+
 function SessionCard({
   session,
   onStop,
@@ -884,6 +909,9 @@ function SessionCard({
               </AlertDialogContent>
             </AlertDialog>
           ) : null}
+          {session.agentSessionId ? (
+            <AgentSessionBadge provider={session.provider} agentSessionId={session.agentSessionId} t={t} />
+          ) : null}
         </span>
         <span className="session-card-path">{session.projectPath || t.unknownProjectPath}</span>
         <span className="session-card-id">{session.id}</span>
@@ -895,7 +923,12 @@ function SessionCard({
       </span>
       <span className={`session-status-pill session-status-${statusTone(session.status)}`}>{statusLabel}</span>
       <div className="session-card-actions">
-        <Link className="session-card-open" to={sessionPath} aria-label={`${t.openSession}: ${session.title || session.id}`}>
+        <Link
+          className="session-card-open"
+          to={sessionPath}
+          state={{ agentSessionId: session.agentSessionId, provider: session.provider }}
+          aria-label={`${t.openSession}: ${session.title || session.id}`}
+        >
           {openLabel}
           <ArrowRight aria-hidden="true" />
         </Link>

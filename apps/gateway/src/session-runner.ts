@@ -1,4 +1,4 @@
-import { chmodSync, lstatSync, mkdirSync, unlinkSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, unlinkSync } from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -47,6 +47,7 @@ export type CreateSessionRunnerOptions = {
   provider: ProviderName;
   command: string;
   providerArgs?: string[];
+  providerEnv?: Record<string, string>;
   projectPath: string;
   title?: string;
   cols: number;
@@ -75,12 +76,14 @@ export class SessionRunner {
   async start(): Promise<Session> {
     ensureSafeRunnerSocket(this.options.id, this.socketPath);
     const providerArgs = this.options.providerArgs ?? [];
+    // Snapshot BEFORE spawn so the diff can detect the new session file (Codex/Copilot).
+    const preSpawnSnapshot = snapshotAgentDir(this.options.provider, this.options.projectPath);
     const term = pty.spawn(this.options.command, providerArgs, {
       name: 'xterm-256color',
       cols: this.options.cols,
       rows: this.options.rows,
       cwd: this.options.projectPath,
-      env: process.env
+      env: this.options.providerEnv ? { ...process.env, ...this.options.providerEnv } : process.env
     });
     this.term = term;
     const now = Date.now();
@@ -109,6 +112,13 @@ export class SessionRunner {
       lastActiveAt: now
     };
     this.store.insertSession(session);
+    pollAgentSessionId(this.options.provider, this.options.projectPath, term.pid, preSpawnSnapshot)
+      .then((agentSessionId) => {
+        if (agentSessionId) {
+          this.store.updateAgentSessionId(this.options.id, agentSessionId);
+        }
+      })
+      .catch(() => { /* detection failure is non-fatal */ });
     this.publishEvent(
       this.store.appendEvent(session.id, 'session.started', {
         provider: this.options.provider,
@@ -300,6 +310,95 @@ export class SessionRunner {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Agent session ID detection (spawn-before/after directory diff)
+// ---------------------------------------------------------------------------
+
+const DETECT_POLL_INTERVAL_MS = 500;
+const DETECT_MAX_POLLS = 20; // 10 seconds total
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Call this BEFORE pty.spawn() to capture a snapshot of existing session files.
+function snapshotAgentDir(provider: ProviderName, projectPath: string): Set<string> {
+  const home = os.homedir();
+  try {
+    if (provider === 'claude' || provider === 'claude-proxy') {
+      const encoded = projectPath.replaceAll('/', '-');
+      const dir = path.join(home, '.claude', 'projects', encoded);
+      return new Set(readdirSync(dir).filter((f) => f.endsWith('.jsonl')));
+    }
+    if (provider === 'codex' || provider === 'codex-proxy') {
+      const indexPath = path.join(home, '.codex', 'session_index.jsonl');
+      const lines = readFileSync(indexPath, 'utf8').split('\n').filter(Boolean);
+      return new Set([String(lines.length)]);
+    }
+    if (provider === 'copilot') {
+      const dir = path.join(home, '.copilot', 'session-state');
+      return new Set(readdirSync(dir));
+    }
+  } catch { /* dir/file may not exist yet */ }
+  return new Set();
+}
+
+// Call this AFTER pty.spawn() with the snapshot taken before spawn.
+async function pollAgentSessionId(
+  provider: ProviderName,
+  projectPath: string,
+  pid: number,
+  before: Set<string>
+): Promise<string | undefined> {
+  const home = os.homedir();
+
+  if (provider === 'claude' || provider === 'claude-proxy') {
+    // Claude writes ~/.claude/sessions/<pid>.json on startup — much more reliable than JSONL files.
+    const sessionFile = path.join(home, '.claude', 'sessions', `${pid}.json`);
+    for (let i = 0; i < DETECT_MAX_POLLS; i++) {
+      await sleep(DETECT_POLL_INTERVAL_MS);
+      try {
+        const data = JSON.parse(readFileSync(sessionFile, 'utf8')) as { sessionId?: string };
+        if (data.sessionId) return data.sessionId;
+      } catch { /* file not yet written */ }
+    }
+    return undefined;
+  }
+
+  if (provider === 'codex' || provider === 'codex-proxy') {
+    const indexPath = path.join(home, '.codex', 'session_index.jsonl');
+    const beforeCount = Number(before.values().next().value ?? 0);
+    for (let i = 0; i < DETECT_MAX_POLLS; i++) {
+      await sleep(DETECT_POLL_INTERVAL_MS);
+      try {
+        const lines = readFileSync(indexPath, 'utf8').split('\n').filter(Boolean);
+        if (lines.length > beforeCount) {
+          const obj = JSON.parse(lines[lines.length - 1]) as { id?: string };
+          if (obj.id) return obj.id;
+        }
+      } catch { /* file may not exist yet */ }
+    }
+    return undefined;
+  }
+
+  if (provider === 'copilot') {
+    const dir = path.join(home, '.copilot', 'session-state');
+    for (let i = 0; i < DETECT_MAX_POLLS; i++) {
+      await sleep(DETECT_POLL_INTERVAL_MS);
+      try {
+        for (const f of readdirSync(dir)) {
+          if (!before.has(f)) return f;
+        }
+      } catch { /* dir may not exist yet */ }
+    }
+    return undefined;
+  }
+
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
 
 export function runnerSocketPath(sessionId: string, socketDir = defaultRunnerSocketDir()): string {
   if (!isSafeSessionId(sessionId)) {

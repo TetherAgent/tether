@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { TerminalSquare } from 'lucide-react';
 import { Button, Textarea } from '@tether/design';
 
@@ -184,12 +184,16 @@ function displayMessage(message: string, t: WebMessages): string {
 export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessionSurfaceProps) {
   const { logoutNormal, normalAuth } = useAuth();
   const { t } = useI18n();
+  const location = useLocation();
+  const locationState = location.state as { agentSessionId?: string; provider?: string } | null;
 
   const [chatMessages, setChatMessages] = React.useState<ChatMsg[]>([]);
   const [liveAgentText, setLiveAgentText] = React.useState('');
   const [status, setStatus] = React.useState<string>(t.statusConnecting);
   const [isReady, setIsReady] = React.useState(false);
   const [inputText, setInputText] = React.useState('');
+  const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(locationState?.agentSessionId);
+  const [sessionProvider, setSessionProvider] = React.useState<string | undefined>(locationState?.provider);
 
   const socket = React.useRef<WebSocket | undefined>(undefined);
   const lineBuffer = React.useRef(new LineBuffer());
@@ -345,6 +349,9 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           setStatus(t.statusGatewayRestarting);
           return false;
         }
+        const data = (await response.json()) as { session?: { provider?: string; agentSessionId?: string } };
+        if (data.session?.agentSessionId) setAgentSessionId(data.session.agentSessionId);
+        if (data.session?.provider) setSessionProvider(data.session.provider);
         return true;
       } catch {
         setStatus(t.statusGatewayRestarting);
@@ -609,6 +616,8 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
         sessionId={sessionId}
         connectionMode={connectionSettings.connectionMode}
         status={status}
+        provider={sessionProvider}
+        agentSessionId={agentSessionId}
       >
         <Button asChild variant="outline" size="sm" type="button">
           <Link to={`/remote/session/${encodeURIComponent(sessionId)}`}>

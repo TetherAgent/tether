@@ -34,6 +34,7 @@ export type RelaySession = {
   workspaceId?: string;
   gatewayId?: string;
   userId?: string;
+  agentSessionId?: string;
   status: RelaySessionStatus;
   transport: 'pty-event-stream' | 'tmux';
   lastActiveAt: number;

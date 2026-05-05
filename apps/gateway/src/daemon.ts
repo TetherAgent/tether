@@ -11,7 +11,7 @@ import type { ServerType } from '@hono/node-server';
 import { WebSocketServer } from 'ws';
 import { readTetherConfig, type TetherConfig } from '@tether/config';
 import { isProviderName, PROVIDERS } from '@tether/core';
-import { ResponseCode, type AuthScopePayload, type AuthTokenClass, type ProviderName, type SessionAccessMode } from '@tether/core';
+import { ResponseCode, type AuthScopePayload, type AuthTokenClass, type ProviderDefinition, type ProviderName, type SessionAccessMode } from '@tether/core';
 import { createSessionId } from './ids.js';
 import { maskSensitiveOutput } from './mask.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
@@ -307,6 +307,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         provider,
         command,
         providerArgs,
+        providerEnv: providerEnv(provider),
         projectPath,
         title,
         cols,
@@ -903,6 +904,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
 function providerCommand(provider: ProviderName, config = readTetherConfig()): string {
   const command = config.providers?.[provider]?.command;
   return command && command.length > 0 ? command : PROVIDERS[provider].command;
+}
+
+function providerEnv(provider: ProviderName): Record<string, string> | undefined {
+  return (PROVIDERS[provider] as ProviderDefinition).env;
 }
 
 function pathListIncludes(value: string | undefined, needle: string): boolean {

@@ -28,6 +28,7 @@ export type Session = {
   runnerStartedAt?: number;
   runnerLastHeartbeatAt?: number;
   transport: SessionTransport;
+  agentSessionId?: string;
   createdAt: number;
   updatedAt: number;
   lastActiveAt: number;
@@ -78,6 +79,7 @@ type SessionRow = {
   runner_started_at?: number | null;
   runner_last_heartbeat_at?: number | null;
   transport?: SessionTransport;
+  agent_session_id?: string | null;
   created_at: number;
   updated_at: number;
   last_active_at: number;
@@ -343,6 +345,15 @@ export class Store {
     if (!columns.has('runner_last_heartbeat_at')) {
       this.db.exec('ALTER TABLE sessions ADD COLUMN runner_last_heartbeat_at INTEGER');
     }
+    if (!columns.has('agent_session_id')) {
+      this.db.exec('ALTER TABLE sessions ADD COLUMN agent_session_id TEXT');
+    }
+  }
+
+  updateAgentSessionId(id: string, agentSessionId: string, now = Date.now()): void {
+    this.db
+      .prepare('UPDATE sessions SET agent_session_id = ?, updated_at = ? WHERE id = ?')
+      .run(agentSessionId, now, id);
   }
 }
 
@@ -371,6 +382,7 @@ function fromRow(row: SessionRow): Session {
     runnerStartedAt: row.runner_started_at ?? undefined,
     runnerLastHeartbeatAt: row.runner_last_heartbeat_at ?? undefined,
     transport: row.transport ?? 'tmux',
+    agentSessionId: row.agent_session_id ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastActiveAt: row.last_active_at

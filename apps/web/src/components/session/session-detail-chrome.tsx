@@ -1,21 +1,32 @@
 import * as React from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Wifi, WifiOff } from 'lucide-react';
+import { ArrowLeft, Check, Copy, Wifi, WifiOff } from 'lucide-react';
 import { Button, Skeleton } from '@tether/design';
 
 import { useI18n } from '../../hooks/use-i18n.js';
 
 type ConnectionMode = 'direct' | 'relay';
 
+function resumeCommand(provider: string, agentSessionId: string): string {
+  if (provider === 'claude' || provider === 'claude-proxy') return `claude --resume ${agentSessionId}`;
+  if (provider === 'codex' || provider === 'codex-proxy') return `codex exec resume ${agentSessionId}`;
+  if (provider === 'copilot') return `gh copilot resume ${agentSessionId}`;
+  return agentSessionId;
+}
+
 export function SessionDetailHeader({
   sessionId,
   connectionMode,
   status,
+  provider,
+  agentSessionId,
   children
 }: {
   sessionId: string;
   connectionMode: ConnectionMode;
   status: string;
+  provider?: string;
+  agentSessionId?: string;
   children?: React.ReactNode;
 }) {
   const { t } = useI18n();
@@ -23,6 +34,15 @@ export function SessionDetailHeader({
   const statusIcon = status === t.statusDisconnected || status === t.statusStreamError || status === t.statusRelayClosed || status === t.statusRelayError
     ? <WifiOff aria-hidden="true" />
     : <Wifi aria-hidden="true" />;
+
+  const [copied, setCopied] = React.useState(false);
+  const copy = React.useCallback(() => {
+    if (!provider || !agentSessionId) return;
+    void navigator.clipboard.writeText(resumeCommand(provider, agentSessionId)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [provider, agentSessionId]);
 
   return (
     <header className="session-detail-header">
@@ -32,8 +52,13 @@ export function SessionDetailHeader({
             <ArrowLeft aria-hidden="true" />
           </Link>
         </Button>
-        <div>
+        <div className="flex items-center gap-2">
           <span>{sessionId} · {syncMode} {t.syncSuffix}</span>
+          {agentSessionId && provider ? (
+            <Button variant="outline" size="icon" type="button" title={`${agentSessionId.slice(0, 8)} · ${t.copyResumeCommand}`} onClick={copy}>
+              {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+            </Button>
+          ) : null}
         </div>
       </div>
       <div className="session-detail-actions">

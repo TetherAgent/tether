@@ -440,6 +440,7 @@ function toRelaySession(session: Session): RelaySession {
     workspaceId: session.workspaceId,
     gatewayId: session.gatewayId,
     userId: session.userId,
+    agentSessionId: session.agentSessionId,
     status: session.status,
     transport: session.transport,
     lastActiveAt: session.lastActiveAt

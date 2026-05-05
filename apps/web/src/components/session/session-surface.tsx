@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import { Maximize2, MessageSquare, Minimize2, Power } from 'lucide-react';
@@ -27,6 +27,7 @@ type Session = {
   projectPath: string;
   status: string;
   transport?: string;
+  agentSessionId?: string;
   lastActiveAt: number;
 };
 
@@ -295,6 +296,8 @@ export function SessionSurface({
         sessionId={sessionId}
         connectionMode={connectionSettings.connectionMode}
         status={status}
+        provider={snapshot.session?.provider}
+        agentSessionId={snapshot.session?.agentSessionId}
       />
       <main ref={scrollRef} className="scrollport terminal-panel" aria-label={t.terminalSurface}>
         {isSnapshotLoading ? <TerminalSurfaceSkeleton /> : <pre>{snapshot.text}</pre>}
@@ -330,6 +333,8 @@ function PtySessionView({
   const { logoutNormal, normalAuth } = useAuth();
   const { t } = useI18n();
   const { isDark } = useUiPreferences();
+  const location = useLocation();
+  const locationState = location.state as { agentSessionId?: string; provider?: string } | null;
   const terminalRef = React.useRef<HTMLDivElement>(null);
   const terminal = React.useRef<Terminal | undefined>(undefined);
   const socket = React.useRef<WebSocket | undefined>(undefined);
@@ -341,6 +346,8 @@ function PtySessionView({
   const [clients, setClients] = React.useState<ClientInfo[]>([]);
   const [controllerClientId, setControllerClientId] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState(initialStatus);
+  const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(locationState?.agentSessionId);
+  const [sessionProvider, setSessionProvider] = React.useState<string | undefined>(locationState?.provider);
   const [isTerminalReady, setTerminalReady] = React.useState(false);
   const [isInputReady, setInputReady] = React.useState(false);
   const [text, setText] = React.useState('');
@@ -736,6 +743,9 @@ function PtySessionView({
           setStatus(t.statusGatewayRestarting);
           return false;
         }
+        const data = (await response.json()) as { session?: { provider?: string; agentSessionId?: string } };
+        if (data.session?.agentSessionId) setAgentSessionId(data.session.agentSessionId);
+        if (data.session?.provider) setSessionProvider(data.session.provider);
         return true;
       } catch {
         setStatus(t.statusGatewayRestarting);
@@ -1026,6 +1036,8 @@ function PtySessionView({
         sessionId={sessionId}
         connectionMode={connectionSettings.connectionMode}
         status={status}
+        provider={sessionProvider}
+        agentSessionId={agentSessionId}
       >
         {replayOnly ? (
           <>
