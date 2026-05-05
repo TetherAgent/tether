@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { TerminalSquare } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import { Button, Textarea } from '@tether/design';
 
 import { useAuth } from '../../hooks/use-auth.js';
@@ -44,74 +45,22 @@ type RelayServerToClientFrame =
   | { type: 'replay.done'; sessionId: string; latestEventId: number }
   | { type: 'error'; sessionId?: string; code: string; message: string };
 
-type ChatMsg = { id: string; role: 'user' | 'agent'; text: string };
-
-// Matches: OSC (BEL or ST terminated), DCS/SOS/PM/APC (ST terminated),
-// CSI (extended params: digits ; : < = > ?), Fe 2-byte, G0/G1 charset
-const ANSI_RE = /\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|[P_X^][^\x1b]*\x1b\\|\[[0-9;:<=>?]*[a-zA-Z@]|[@-_]|[()][0-9A-Za-z])/g;
-
-let _msgIdCounter = 0;
-function genId(): string {
-  return `m${Date.now()}-${++_msgIdCounter}`;
-}
-
-class LineBuffer {
-  private lines: string[] = [''];
-  private col = 0;
-  // true after \r until first printable char — clears line on next write (not on \r\n)
-  private clearOnWrite = false;
-
-  push(data: string): void {
-    const stripped = data.replace(ANSI_RE, '');
-    for (const ch of stripped) {
-      if (ch === '\r') {
-        this.col = 0;
-        this.clearOnWrite = true;
-      } else if (ch === '\n') {
-        this.clearOnWrite = false;
-        this.lines.push('');
-        this.col = 0;
-      } else if (ch >= ' ' || ch === '\t') {
-        if (this.clearOnWrite) {
-          this.lines[this.lines.length - 1] = '';
-          this.clearOnWrite = false;
-        }
-        const last = this.lines.length - 1;
-        const line = this.lines[last];
-        if (this.col < line.length) {
-          this.lines[last] = line.slice(0, this.col) + ch + line.slice(this.col + 1);
-        } else {
-          this.lines[last] = line.padEnd(this.col) + ch;
-        }
-        this.col++;
-      }
-    }
-  }
-
-  snapshot(): string {
-    const lines = [...this.lines];
-    while (lines.length > 0 && lines[lines.length - 1].trim() === '') {
-      lines.pop();
-    }
-    return lines.join('\n');
-  }
-
-  reset(): void {
-    this.lines = [''];
-    this.col = 0;
-    this.clearOnWrite = false;
-  }
-}
+type ToolInfo = { name: string; inputSummary: string };
+type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string; tools: ToolInfo[] };
+type ConversationTurn = {
+  id: number;
+  sessionId: string;
+  turnIndex: number;
+  role: 'user' | 'assistant';
+  content: string;
+  tools: string | null;
+  createdAt: number;
+};
 
 const FULL_REPLAY_EVENT_PAGE_LIMIT = 5000;
-const COMPOSER_ENTER_DELAY_MS = 40;
-const TERMINAL_ENTER = '\r';
 const RELAY_VIRTUAL_COLS = 200;
 const RELAY_VIRTUAL_ROWS = 50;
-
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
+const genId = () => Math.random().toString(36).slice(2);
 
 function buildRelayClientUrl(relayUrl: string, fillRelayUrlMsg: string, protocolInvalidMsg: string): string {
   const value = relayUrl.trim();
@@ -187,27 +136,57 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
   const location = useLocation();
   const locationState = location.state as { agentSessionId?: string; provider?: string } | null;
 
-  const [chatMessages, setChatMessages] = React.useState<ChatMsg[]>([]);
-  const [liveAgentText, setLiveAgentText] = React.useState('');
+  const [chatMessages, setChatMessages] = React.useState<ChatMessage[]>([]);
+  const [typingVisible, setTypingVisible] = React.useState(false);
+  const [selectOptions, setSelectOptions] = React.useState<Array<{ index: number; label: string }>>([]);
+  const [selectRaw, setSelectRaw] = React.useState('');
+  const [inputText, setInputText] = React.useState('');
+  const [fallbackVisible, setFallbackVisible] = React.useState(false);
   const [status, setStatus] = React.useState<string>(t.statusConnecting);
   const [isReady, setIsReady] = React.useState(false);
-  const [inputText, setInputText] = React.useState('');
   const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(locationState?.agentSessionId);
   const [sessionProvider, setSessionProvider] = React.useState<string | undefined>(locationState?.provider);
 
   const socket = React.useRef<WebSocket | undefined>(undefined);
-  const lineBuffer = React.useRef(new LineBuffer());
-  const pendingInput = React.useRef('');
-  const pendingInputTimer = React.useRef<number | undefined>(undefined);
-  const liveRafRef = React.useRef(0);
   const chatScrollRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setFallbackVisible(true);
+    }, 30_000);
+    return () => window.clearTimeout(timer);
+  }, [sessionId]);
 
   React.useEffect(() => {
     const el = chatScrollRef.current;
     if (el) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [chatMessages, liveAgentText]);
+  }, [chatMessages, typingVisible, selectOptions, fallbackVisible]);
+
+  const sendChatText = React.useCallback(
+    (value: string) => {
+      const nextValue = value.trim();
+      if (!nextValue) {
+        return;
+      }
+      const ws = socket.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        setStatus(t.statusWsUnavailable);
+        return;
+      }
+      setChatMessages((prev) => [...prev, { id: genId(), role: 'user', content: nextValue, tools: [] }]);
+      setSelectOptions([]);
+      setSelectRaw('');
+      ws.send(JSON.stringify(
+        connectionSettings.connectionMode === 'relay'
+          ? { type: 'client.chat', sessionId, message: nextValue }
+          : { type: 'chat', message: nextValue }
+      ));
+      setInputText('');
+    },
+    [connectionSettings.connectionMode, sessionId, t]
+  );
 
   React.useEffect(() => {
     let disposed = false;
@@ -217,48 +196,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     let closeWasExpected = false;
     let reconnectTimer: number | undefined;
     let ws: WebSocket | undefined;
-    let after = 0;
-
-    const commitInput = () => {
-      if (pendingInputTimer.current !== undefined) {
-        window.clearTimeout(pendingInputTimer.current);
-        pendingInputTimer.current = undefined;
-      }
-      const agentText = lineBuffer.current.snapshot();
-      const userText = pendingInput.current
-        .replace(ANSI_RE, '')
-        .replace(/[\x00-\x1f\x7f]/g, '')
-        .trim();
-      pendingInput.current = '';
-      lineBuffer.current.reset();
-      window.cancelAnimationFrame(liveRafRef.current);
-      setLiveAgentText('');
-      setChatMessages((prev) => {
-        const next = [...prev];
-        if (agentText.trim()) {
-          next.push({ id: genId(), role: 'agent', text: agentText });
-        }
-        if (userText) {
-          next.push({ id: genId(), role: 'user', text: userText });
-        }
-        return next;
-      });
-    };
-
-    const handleUserInput = (data: string) => {
-      pendingInput.current += data;
-      if (pendingInput.current.includes('\r')) {
-        commitInput();
-      } else {
-        if (pendingInputTimer.current !== undefined) {
-          window.clearTimeout(pendingInputTimer.current);
-        }
-        pendingInputTimer.current = window.setTimeout(() => {
-          pendingInputTimer.current = undefined;
-          commitInput();
-        }, 1000);
-      }
-    };
+    let after = Number(window.localStorage.getItem(`tether:${sessionId}:latestEventId`) ?? 0);
 
     const handleEvent = (event: SessionEvent) => {
       if (event.id <= after) {
@@ -267,23 +205,26 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       window.localStorage.setItem(`tether:${sessionId}:latestEventId`, String(event.id));
       after = Math.max(after, event.id);
 
-      if (event.type === 'terminal.output') {
-        const data = event.payload.data;
-        if (typeof data === 'string') {
-          setIsReady(true);
-          lineBuffer.current.push(data);
-          window.cancelAnimationFrame(liveRafRef.current);
-          liveRafRef.current = window.requestAnimationFrame(() => {
-            setLiveAgentText(lineBuffer.current.snapshot());
-          });
-        }
+      if (event.type === 'agent.turn') {
+        setFallbackVisible(false);
+        const turn = event.payload as { role?: string; content?: string; tools?: ToolInfo[] };
+        setChatMessages((prev) => [...prev, {
+          id: genId(),
+          role: turn.role === 'user' ? 'user' : 'assistant',
+          content: typeof turn.content === 'string' ? turn.content : '',
+          tools: Array.isArray(turn.tools) ? turn.tools : []
+        }]);
+        setTypingVisible(false);
         return;
       }
-      if (event.type === 'user.input') {
-        const data = event.payload.data;
-        if (typeof data === 'string') {
-          handleUserInput(data);
-        }
+      if (event.type === 'agent.typing') {
+        setTypingVisible(true);
+        return;
+      }
+      if (event.type === 'agent.select') {
+        const payload = event.payload as { options?: Array<{ index: number; label: string }>; raw?: string };
+        setSelectOptions(Array.isArray(payload.options) ? payload.options : []);
+        setSelectRaw(typeof payload.raw === 'string' ? payload.raw : '');
         return;
       }
       if (event.type === 'session.exited') {
@@ -350,8 +291,12 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           return false;
         }
         const data = (await response.json()) as { session?: { provider?: string; agentSessionId?: string } };
-        if (data.session?.agentSessionId) setAgentSessionId(data.session.agentSessionId);
-        if (data.session?.provider) setSessionProvider(data.session.provider);
+        if (data.session?.agentSessionId) {
+          setAgentSessionId(data.session.agentSessionId);
+        }
+        if (data.session?.provider) {
+          setSessionProvider(data.session.provider);
+        }
         return true;
       } catch {
         setStatus(t.statusGatewayRestarting);
@@ -405,6 +350,30 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       return new WebSocket(buildGatewayStreamUrl(sessionId, streamQuery), [
         `tether-ticket.${ticket}`
       ]);
+    };
+
+    const loadHistory = async () => {
+      try {
+        const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/conversation`);
+        if (response.status === 401) {
+          logoutNormal();
+          return;
+        }
+        if (!response.ok) {
+          return;
+        }
+        const data = (await response.json()) as { turns: ConversationTurn[] };
+        setChatMessages(
+          data.turns.map((turn) => ({
+            id: genId(),
+            role: turn.role,
+            content: turn.content,
+            tools: turn.tools ? (JSON.parse(turn.tools) as ToolInfo[]) : []
+          }))
+        );
+      } catch {
+        // wait for websocket events
+      }
     };
 
     const connectStream = async (isReconnect = false) => {
@@ -537,6 +506,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       });
     };
 
+    void loadHistory();
     connectStream().catch((error: unknown) => {
       if (!disposed) {
         setStatus(error instanceof Error ? error.message : t.statusStreamUnavailable);
@@ -547,11 +517,6 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
 
     return () => {
       disposed = true;
-      window.cancelAnimationFrame(liveRafRef.current);
-      if (pendingInputTimer.current !== undefined) {
-        window.clearTimeout(pendingInputTimer.current);
-        pendingInputTimer.current = undefined;
-      }
       if (reconnectTimer) {
         window.clearTimeout(reconnectTimer);
       }
@@ -571,43 +536,12 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     t
   ]);
 
-  const sendLine = React.useCallback(
+  const sendChat = React.useCallback(
     (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      const value = inputText;
-      if (!value) {
-        return;
-      }
-      setStatus(t.statusSending);
-      const ws = socket.current;
-      const sendWs = (data: string): boolean => {
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
-          setStatus(t.statusWsUnavailable);
-          return false;
-        }
-        ws.send(
-          JSON.stringify(
-            connectionSettings.connectionMode === 'relay'
-              ? { type: 'client.input', sessionId, data }
-              : { type: 'input', data }
-          )
-        );
-        return true;
-      };
-      (async () => {
-        const sent = sendWs(value);
-        if (!sent) {
-          return;
-        }
-        await wait(COMPOSER_ENTER_DELAY_MS);
-        sendWs(TERMINAL_ENTER);
-        setInputText('');
-        setStatus(
-          connectionSettings.connectionMode === 'relay' ? t.statusRelaySent : t.statusWsSent
-        );
-      })().catch(() => setStatus(t.statusInputFailed));
+      sendChatText(inputText);
     },
-    [connectionSettings.connectionMode, inputText, sessionId, t]
+    [inputText, sendChatText]
   );
 
   return (
@@ -627,25 +561,52 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
         </Button>
       </SessionDetailHeader>
       <div ref={chatScrollRef} className="chat-panel">
-        {!isReady && chatMessages.length === 0 && !liveAgentText ? (
+        {!isReady && chatMessages.length === 0 ? (
           <TerminalSurfaceSkeleton />
         ) : null}
         {chatMessages.map((msg) => (
-          <div key={msg.id} className={`chat-bubble chat-bubble-${msg.role}`}>
+          <div key={msg.id} className={`chat-bubble chat-bubble-${msg.role === 'assistant' ? 'agent' : 'user'}`}>
             <div className="chat-bubble-content">
-              {msg.role === 'user' ? msg.text : <pre>{msg.text}</pre>}
+              {msg.role === 'assistant' ? (
+                <div className="space-y-2">
+                  {msg.content ? <ReactMarkdown>{msg.content}</ReactMarkdown> : null}
+                  {msg.tools.map((tool, index) => (
+                    <span key={`${msg.id}-tool-${index}`} className="inline-flex rounded-full border border-input px-2 py-0.5 text-xs text-foreground">
+                      {t.agentToolChip} · {tool.name}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                msg.content
+              )}
             </div>
           </div>
         ))}
-        {liveAgentText ? (
+        {typingVisible ? (
           <div className="chat-bubble chat-bubble-agent">
-            <div className="chat-bubble-content chat-bubble-live">
-              <pre>{liveAgentText}</pre>
-            </div>
+            <div className="chat-bubble-content">{t.agentTypingIndicator}</div>
+          </div>
+        ) : null}
+        {fallbackVisible ? (
+          <div className="chat-bubble chat-bubble-agent">
+            <div className="chat-bubble-content">{t.agentFallbackHint}</div>
           </div>
         ) : null}
       </div>
-      <form className="composer-form" onSubmit={sendLine}>
+      {selectOptions.length > 0 ? (
+        <div className="px-4 pb-2">
+          <p className="mb-2 text-sm text-foreground">{t.agentSelectPrompt}</p>
+          {selectRaw ? <pre className="mb-2 whitespace-pre-wrap rounded-md border border-input bg-card p-2 text-xs text-foreground">{selectRaw}</pre> : null}
+          <div className="flex flex-wrap gap-2">
+            {selectOptions.map((opt) => (
+              <Button key={`${opt.index}-${opt.label}`} type="button" variant="outline" size="sm" onClick={() => sendChatText(String(opt.index))}>
+                {opt.index}. {opt.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <form className="composer-form" onSubmit={sendChat}>
         <Textarea
           className="composer-input"
           rows={1}
@@ -654,7 +615,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           value={inputText}
           onChange={(event) => setInputText(event.target.value)}
         />
-        <Button type="submit">{t.send}</Button>
+        <Button type="submit">{t.agentChatSend}</Button>
       </form>
     </div>
   );

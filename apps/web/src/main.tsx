@@ -56,7 +56,7 @@ import { gatewayAuthHeaders } from './lib/api.js';
 import { WebChromeControls } from './components/console/web-chrome-controls.js';
 import { SessionControlPage } from './pages/session-control-page.js';
 import { SessionReplayPage } from './pages/session-replay-page.js';
-import { SessionSimplePage } from './pages/session-simple-page.js';
+import { SessionChatPage } from './pages/session-chat-page.js';
 import { WebRoutes } from './routes.js';
 import './styles.css';
 
@@ -308,9 +308,9 @@ function App() {
                   />
                 );
               }
-              if (mode === 'simple') {
+              if (mode === 'chat') {
                 return (
-                  <SessionSimplePage
+                  <SessionChatPage
                     sessionId={sessionId}
                     connectionSettings={connectionSettings}
                     onConnectionSettingsChange={updateConnectionSettings}
