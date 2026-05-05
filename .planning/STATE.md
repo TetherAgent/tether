@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.3
 milestone_name: milestone
 status: executing
-stopped_at: Phase 6 UI-SPEC approved
-last_updated: "2026-05-05T07:50:36.065Z"
+stopped_at: Completed 11-02-PLAN.md
+last_updated: "2026-05-05T08:45:01.106Z"
 last_activity: 2026-05-05 -- Phase 11 planning complete
 progress:
   total_phases: 11
   completed_phases: 4
   total_plans: 36
-  completed_plans: 23
-  percent: 64
+  completed_plans: 24
+  percent: 67
 ---
 
 # Project State
@@ -29,7 +29,7 @@ Phase: 06 (account-management-console) — COMPLETE
 Next: Phase 07 — Retention
 Last activity: 2026-05-05 -- Phase 11 planning complete
 
-Progress: [██████░░░░] 64%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Progress: [██████░░░░] 64%
 
 *Updated after each plan completion*
 | Phase 11 P01 | 6 min | 2 tasks | 3 files |
+| Phase 11 P02 | 7min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,7 @@ Recent decisions affecting current work:
 - launchd plist: absolute node path snapshotted at install time via `process.execPath`; `$HOME` not expanded — all paths must be literal strings
 - CLEAN-02 decision: retain `transport` column as extension point; remove `'tmux'` from active write types only; keep `'tmux'` in `fromRow` for historical reads
 - [Phase 11]: insertConversationTurn returns allocated turn_index — Avoids extra query for downstream caller flow
+- [Phase 11]: [Phase 11-02] handleChatMessage returns SessionEvent and callers publish via direct socket or relay gateway.event
 
 ### Pending Todos
 
@@ -126,6 +128,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-05T07:49:30.112Z
-Stopped at: Phase 6 UI-SPEC approved
+Last session: 2026-05-05T08:45:01.100Z
+Stopped at: Completed 11-02-PLAN.md
 Resume file: None
