@@ -96,17 +96,54 @@ flowchart TB
 
 ## 快速开始
 
-依赖：
+### 安装
 
-- Node.js 20+
-- pnpm
-- 本机已安装 Codex CLI 或 Claude CLI
+依赖：Node.js >= 22.13，macOS（Linux 实验性支持）
 
 ```bash
-pnpm install
-pnpm tether --help
-pnpm tether codex
-pnpm tether claude
+npm install -g @tether-labs/cli
+```
+
+### 使用
+
+```bash
+# （一次性）选择默认模式，写入 ~/.tether/config.json
+# 模式说明：
+#   local  — 仅本机，无需账号
+#   direct — 局域网访问，需要 tether 账号
+#   relay  — 任意网络远程访问，需要 tether 账号
+tether gateway init
+
+# 以系统服务方式启动后台 Gateway（首次运行自动安装 LaunchAgent）
+tether gateway start
+
+# 或在前台运行（适合调试）
+tether gateway
+
+# 启动 agent session
+tether codex
+tether claude
+
+# 常用参数：
+#   --project <path>   工作目录（默认：当前目录）
+#   --title <title>    session 标题，显示在 Web UI 中
+#   --no-attach        只启动 session，不接入当前终端
+#   --no-reconnect     本地 attach 断开后不自动重连
+#   [providerArgs...]  透传给底层 CLI 的额外参数
+
+# 示例：
+tether codex --title "修复 auth bug" --project ~/myrepo
+tether codex --no-attach                   # 后台运行，稍后 attach
+tether codex -- --model o3                 # 透传参数给 codex 本身
+
+# 查看所有 session
+tether ls
+
+# attach 到正在运行的 session
+tether attach <session-id>
+
+# 停止 session
+tether stop <session-id>
 ```
 
 默认情况下，Gateway 只监听本机：
@@ -118,28 +155,27 @@ pnpm tether claude
 如果要做可信局域网 demo，需要显式开放：
 
 ```bash
-pnpm tether codex --host 0.0.0.0
-pnpm tether claude --host 0.0.0.0
+tether codex --host 0.0.0.0
+tether claude --host 0.0.0.0
 ```
 
 局域网模式当前已有一次性 WebSocket ticket，但完整 device-token pairing 还没落地。
 只建议在可信网络里使用。
 
-常用命令：
+### 诊断
 
 ```bash
-pnpm tether gateway
-pnpm tether run codex --no-attach
-pnpm tether attach <session-id> --control
-pnpm tether attach <session-id> --observe
-pnpm tether clients <session-id>
-pnpm tether stop <session-id>
-pnpm tether codex --transport tmux   # 迁移期 fallback
+tether doctor          # 检查运行环境
+tether gateway status  # 查看 Gateway 状态
 ```
 
-当前本地限制：可以启动多个 `run --no-attach` session，但每个 PTY session
-仍由创建它的 CLI/Gateway 进程持有。完整 Gateway supervisor 落地前，并发 detached
-session 建议使用不同端口，或者保持创建它的进程不退出。
+### 开发者模式
+
+```bash
+pnpm install
+pnpm tether --help
+pnpm tether codex
+```
 
 ## 接入面
 

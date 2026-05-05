@@ -31,7 +31,6 @@
 
 | 文档路径 | 状态 | 内容描述 |
 | --- | --- | --- |
-| [2026-05-04-gateway-session-recovery.md](working/2026-05-04-gateway-session-recovery.md) | **Working** | Gateway 重启后 running session 恢复、失联标记、stream 明确错误和可重附着 supervisor 缺口 |
 | [2026-05-04-direct-relay-replay-consistency.md](working/2026-05-04-direct-relay-replay-consistency.md) | **Working** | Direct / Relay 两条 session 回放链路的一致性记录、5000 条分页根因和后续处理原则 |
 | [2026-05-04-unified-web-session-create.md](working/2026-05-04-unified-web-session-create.md) | **Working** | Direct / Relay 统一 Web 创建后台 session 的协议、权限、UI 和改动规模方案 |
 | [2026-05-04-npm-cli-gateway-packaging.md](working/2026-05-04-npm-cli-gateway-packaging.md) | **Working** | npm CLI 与本机 Gateway 打包发布给其他用户安装使用的方案 |

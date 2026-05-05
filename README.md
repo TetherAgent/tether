@@ -123,17 +123,54 @@ flowchart TB
 
 ## Quick Start
 
-Requirements:
+### Install
 
-- Node.js 20+
-- pnpm
-- Codex CLI or Claude CLI installed locally
+Requirements: Node.js >= 22.13, macOS (Linux experimental)
 
 ```bash
-pnpm install
-pnpm tether --help
-pnpm tether codex
-pnpm tether claude
+npm install -g @tether-labs/cli
+```
+
+### Usage
+
+```bash
+# (One-time) Set default mode and write config to ~/.tether/config.json
+# Modes:
+#   local  — localhost only, no account needed
+#   direct — LAN access, requires tether account
+#   relay  — remote access from anywhere, requires tether account
+tether gateway init
+
+# Start the background Gateway as a system service (auto-installs LaunchAgent)
+tether gateway start
+
+# Or run in foreground (useful for debugging)
+tether gateway
+
+# Run an agent session
+tether codex
+tether claude
+
+# Common options:
+#   --project <path>   working directory (default: current directory)
+#   --title <title>    session label shown in the web UI
+#   --no-attach        start session without attaching to the terminal
+#   --no-reconnect     do not auto-reconnect if local attach drops
+#   [providerArgs...]  extra args passed through to the underlying CLI
+
+# Examples:
+tether codex --title "fix auth bug" --project ~/myrepo
+tether codex --no-attach                   # run in background, attach later
+tether codex -- --model o3                 # pass flags to codex itself
+
+# List sessions
+tether ls
+
+# Attach to a running session
+tether attach <session-id>
+
+# Stop a session
+tether stop <session-id>
 ```
 
 By default, the Gateway only listens on localhost:
@@ -145,24 +182,26 @@ By default, the Gateway only listens on localhost:
 For a trusted LAN demo, explicitly expose it:
 
 ```bash
-pnpm tether codex --host 0.0.0.0
-pnpm tether claude --host 0.0.0.0
+tether codex --host 0.0.0.0
+tether claude --host 0.0.0.0
 ```
 
 LAN mode currently has one-time WebSocket tickets but does not yet have full
 device-token pairing. Use it only on a trusted network.
 
-Useful commands:
+### Diagnostics
 
 ```bash
-pnpm tether gateway
-pnpm tether run codex --no-attach
-pnpm tether attach <session-id> --control
-pnpm tether attach <session-id> --observe
-pnpm tether clients <session-id>
-pnpm tether stop <session-id>
-pnpm tether stop --all
-pnpm tether codex --transport tmux   # migration fallback
+tether doctor          # check runtime environment
+tether gateway status  # check Gateway status
+```
+
+### Development
+
+```bash
+pnpm install
+pnpm tether --help
+pnpm tether codex
 ```
 
 Current local limitation: multiple `run --no-attach` sessions are supported,

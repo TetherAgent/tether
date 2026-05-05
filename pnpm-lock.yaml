@@ -8,7 +8,7 @@ importers:
 
   .:
     dependencies:
-      '@tether/cli':
+      '@tether-labs/cli':
         specifier: workspace:*
         version: link:apps/cli
       '@tether/gateway':
