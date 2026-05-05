@@ -63,7 +63,8 @@ export type RelayServerToGatewayFrame =
   | { type: 'client.input'; clientId: string; sessionId: string; data: string }
   | { type: 'client.resize'; clientId: string; sessionId: string; cols: number; rows: number }
   | { type: 'client.stop'; clientId: string; sessionId: string }
-  | { type: 'client.detach'; clientId: string; sessionId: string };
+  | { type: 'client.detach'; clientId: string; sessionId: string }
+  | { type: 'client.chat'; clientId: string; sessionId: string; message: string };
 
 export type RelayClientToServerFrame =
   // `secret` is retained only for the personal-relay bootstrap fallback path.
@@ -73,7 +74,8 @@ export type RelayClientToServerFrame =
   | { type: 'client.input'; sessionId: string; data: string }
   | { type: 'client.resize'; sessionId: string; cols: number; rows: number }
   | { type: 'client.stop'; sessionId: string }
-  | { type: 'client.detach'; sessionId: string };
+  | { type: 'client.detach'; sessionId: string }
+  | { type: 'client.chat'; sessionId: string; message: string };
 
 export type RelayServerToClientFrame =
   | { type: 'client.auth.ok'; clientId: string }
