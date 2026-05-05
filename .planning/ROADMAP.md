@@ -238,7 +238,7 @@ Plans:
 **Goal:** JSONL-based structured conversation view alongside PTY stream: JournalWatcher reads Claude/Codex JSONL files, writes assistant turns to conversation_turns DB, pushes agent.turn events; mobile gets dual-bubble chat UI with history, option chips, and fallback hint.
 **Requirements**: AGENT-01
 **Depends on:** Phase 10
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
   - **Wave 1** (parallel):

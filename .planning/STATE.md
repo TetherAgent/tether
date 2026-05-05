@@ -4,14 +4,14 @@ milestone: v0.3
 milestone_name: milestone
 status: executing
 stopped_at: Phase 6 UI-SPEC approved
-last_updated: "2026-05-04T06:08:10.129Z"
-last_activity: 2026-05-04 -- Phase 9 planning complete
+last_updated: "2026-05-05T07:50:36.065Z"
+last_activity: 2026-05-05 -- Phase 11 planning complete
 progress:
-  total_phases: 10
+  total_phases: 11
   completed_phases: 4
-  total_plans: 32
-  completed_plans: 22
-  percent: 69
+  total_plans: 36
+  completed_plans: 23
+  percent: 64
 ---
 
 # Project State
@@ -27,9 +27,9 @@ See: .planning/PROJECT.md (updated 2026-05-01)
 
 Phase: 06 (account-management-console) — COMPLETE
 Next: Phase 07 — Retention
-Last activity: 2026-05-04 -- Phase 9 planning complete
+Last activity: 2026-05-05 -- Phase 11 planning complete
 
-Progress: [██████░░░░] 60%
+Progress: [██████░░░░] 64%
 
 ## Performance Metrics
 
@@ -54,6 +54,7 @@ Progress: [██████░░░░] 60%
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 11 P01 | 6 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,7 @@ Recent decisions affecting current work:
 - Retention is now Phase 7: DELETE WHERE ts < cutoff every 15 min; WAL checkpoint (RESTART) on 5-min cadence; no auto-VACUUM
 - launchd plist: absolute node path snapshotted at install time via `process.execPath`; `$HOME` not expanded — all paths must be literal strings
 - CLEAN-02 decision: retain `transport` column as extension point; remove `'tmux'` from active write types only; keep `'tmux'` in `fromRow` for historical reads
+- [Phase 11]: insertConversationTurn returns allocated turn_index — Avoids extra query for downstream caller flow
 
 ### Pending Todos
 
@@ -98,6 +100,7 @@ Recent decisions affecting current work:
 
 - Phase 9 added: Flutter Client App
 - Phase 10 added: Multi-workspace Expansion for WORKSPACE-01; use `$gsd-discuss-phase 10` when ready
+- Phase 11 added: Agent 实时对话视图
 - Phase 5 complete: Web-first Account Setup & Server Auth Runtime (2026-05-04)
 - Phase 6 complete: Account Management Console (2026-05-04, human verified)
 
@@ -123,6 +126,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-02T17:22:36.084Z
+Last session: 2026-05-05T07:49:30.112Z
 Stopped at: Phase 6 UI-SPEC approved
-Resume file: .planning/phases/06-account-management-console/06-UI-SPEC.md
+Resume file: None
