@@ -9,6 +9,7 @@ import type {
   RelaySession,
   RelayTerminalEvent
 } from '@tether/protocol';
+import { handleChatMessage } from './chat-handler.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import { replaySessionEvents } from './replay.js';
 import type { SessionRunnerClient } from './session-runner-client.js';
@@ -155,6 +156,21 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       case 'client.input':
         void writeInput(frame.clientId, frame.sessionId, frame.data);
         return;
+      case 'client.chat': {
+        const session = options.store.getSession(frame.sessionId);
+        if (!session) {
+          return;
+        }
+        const runnerClient = options.runnerClientForSession?.(session);
+        void handleChatMessage(frame.sessionId, frame.message, options.store, runnerClient)
+          .then((event) => {
+            send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(event) });
+          })
+          .catch(() => {
+            // PTY may have exited; suppress
+          });
+        return;
+      }
       case 'client.resize':
         void resizePty(frame.clientId, frame.sessionId, frame.cols, frame.rows);
         return;

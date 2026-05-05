@@ -17,6 +17,7 @@ import { maskSensitiveOutput } from './mask.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import { replaySessionEvents } from './replay.js';
 import { listGateways, registerGateway, touchGateway, unregisterGateway } from './registry.js';
+import { handleChatMessage } from './chat-handler.js';
 import { startRelayClient, type RunningRelayClient } from './relay-client.js';
 import { SessionRunnerClient } from './session-runner-client.js';
 import { spawnSessionRunnerProcess } from './session-runner-spawn.js';
@@ -359,6 +360,23 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     const raw = await capturePane(session.tmuxSessionName);
     const text = maskSensitiveOutput(raw);
     return c.json({ session, text, capturedAt: Date.now() });
+  });
+
+  app.get('/api/sessions/:id/conversation', async (c) => {
+    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
+    if (!actor.ok) {
+      return c.json({ error: actor.error }, actor.status);
+    }
+    const session = options.store.getSession(c.req.param('id'));
+    if (!session) {
+      return c.json({ error: 'session not found' }, 404);
+    }
+    const ownership = authorizeSessionAccess(session, actor.payload);
+    if (!ownership.ok) {
+      return c.json({ error: ownership.error }, ownership.status);
+    }
+    const conversationTurns = options.store.listConversationTurns(session.id);
+    return c.json({ turns: conversationTurns });
   });
 
   app.post('/api/sessions/:id/send', async (c) => {
@@ -825,6 +843,28 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         if (!ok) {
           socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));
         }
+        return;
+      }
+      if (frame.type === 'chat' && typeof frame.message === 'string') {
+        client.lastSeenAt = Date.now();
+        if (client.mode === 'observe' || controllers.get(session.id) !== clientId) {
+          socket.send(JSON.stringify({
+            type: 'error',
+            code: client.mode === 'observe' ? 'observe_only' : 'not_controller',
+            message: client.mode === 'observe' ? 'observer clients cannot send input' : 'client is not the active controller'
+          }));
+          return;
+        }
+        void handleChatMessage(session.id, frame.message, options.store, runnerClient ?? undefined)
+          .then((event) => {
+            if (socket.readyState === socket.OPEN) {
+              socket.send(JSON.stringify({ type: 'event', event }));
+            }
+          })
+          .catch(() => {
+            // PTY may have exited; suppress
+          });
+        return;
       }
     });
 
@@ -925,9 +965,9 @@ function parseIntegerQuery(value: string | undefined, fallback: number): number 
   return parsed;
 }
 
-function parseClientFrame(raw: string): { type?: unknown; data?: unknown; cols?: unknown; rows?: unknown } | undefined {
+function parseClientFrame(raw: string): { type?: unknown; data?: unknown; message?: unknown; cols?: unknown; rows?: unknown } | undefined {
   try {
-    return JSON.parse(raw) as { type?: unknown; data?: unknown; cols?: unknown; rows?: unknown };
+    return JSON.parse(raw) as { type?: unknown; data?: unknown; message?: unknown; cols?: unknown; rows?: unknown };
   } catch {
     return undefined;
   }
