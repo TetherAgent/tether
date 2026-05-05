@@ -283,6 +283,51 @@ test('relay forwards subscribed input and resize to gateway', async () => {
   }
 });
 
+test('relay forwards subscribed chat messages to gateway', async () => {
+  const relay = await createRelay();
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+
+  try {
+    await authenticateGateway(gateway);
+    const clientId = await authenticateClient(client);
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [{
+        id: 'tth_chat_test',
+        provider: 'codex',
+        title: 'Chat Test',
+        projectPath: process.cwd(),
+        accountId: 'acct_1',
+        workspaceId: 'ws_1',
+        gatewayId: 'gateway-test',
+        userId: 'user_1',
+        status: 'running',
+        transport: 'pty-event-stream',
+        lastActiveAt: Date.now()
+      }]
+    }));
+    await waitForJson(client, (message) => message.type === 'sessions');
+
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_chat_test', after: 0, mode: 'control' }));
+    await waitForJson(gateway, (message) => message.type === 'client.subscribe');
+
+    client.send(JSON.stringify({ type: 'client.chat', sessionId: 'tth_chat_test', message: 'hello world' }));
+    const chat = await waitForJson(gateway, (message) => message.type === 'client.chat');
+    assert.deepEqual(chat, {
+      type: 'client.chat',
+      clientId,
+      sessionId: 'tth_chat_test',
+      message: 'hello world'
+    });
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+  }
+});
+
 test('relay waits for final paged replay frame before replay.done', async () => {
   const relay = await createRelay();
   const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
