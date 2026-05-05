@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 import { Store } from './store.js';
 
 function tempStore(): { store: Store; cleanup: () => void } {
@@ -57,7 +57,7 @@ test('stores sessions and cursor-addressed events', () => {
 test('migrates legacy sessions table with runner metadata columns', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'tether-store-legacy-'));
   const dbPath = path.join(dir, 'tether.db');
-  const db = new Database(dbPath);
+  const db = new DatabaseSync(dbPath);
   try {
     db.exec(`
       CREATE TABLE sessions (
@@ -83,7 +83,7 @@ test('migrates legacy sessions table with runner metadata columns', () => {
     db.close();
 
     const store = new Store(dbPath);
-    const migratedDb = new Database(dbPath);
+    const migratedDb = new DatabaseSync(dbPath);
     const columns = new Set(
       (migratedDb.prepare('PRAGMA table_info(sessions)').all() as Array<{ name: string }>).map((column) => column.name)
     );

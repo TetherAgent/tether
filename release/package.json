@@ -1,0 +1,19 @@
+{
+  "name": "@tether/cli",
+  "version": "0.1.0-alpha.0",
+  "description": "Tether CLI - manage AI provider sessions across devices with persistent gateway",
+  "type": "module",
+  "bin": {
+    "tether": "./bin/tether"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "os": ["darwin", "linux"],
+  "files": ["bin", "dist", "README.md"],
+  "dependencies": {
+    "node-pty": "1.2.0-beta.12"
+  },
+  "license": "MIT",
+  "keywords": ["tether", "cli", "tmux", "ai", "codex", "claude", "agent"]
+}

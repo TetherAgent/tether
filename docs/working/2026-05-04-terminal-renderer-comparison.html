@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tether — PTY 渲染方案 A/B/C 对比</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" />
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0a0a0a;
+    --surface: #18181b;
+    --border: #27272a;
+    --text: #fafafa;
+    --text-2: #a1a1aa;
+    --text-3: #71717a;
+    --brand: #6366f1;
+    --term-bg: #1e1e1e;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+    background: var(--bg); color: var(--text); font-size: 13px;
+  }
+  .app {
+    height: 100vh; display: flex; flex-direction: column;
+  }
+  .header {
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    background: var(--surface); display: flex; gap: 10px; flex-wrap: wrap;
+    align-items: center;
+  }
+  .header h1 { font-size: 14px; font-weight: 600; margin: 0; }
+  .controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  select, button, label.file-btn {
+    background: var(--surface); border: 1px solid var(--border); color: var(--text);
+    padding: 5px 10px; border-radius: 5px; font-size: 12px; cursor: pointer;
+    font-family: inherit;
+  }
+  button.primary { background: var(--brand); border-color: var(--brand); font-weight: 600; }
+  textarea {
+    flex: 1; min-width: 280px;
+    background: #0f172a; border: 1px solid var(--border); color: #e2e8f0;
+    padding: 5px 8px; border-radius: 4px; font-family: 'SF Mono', Menlo, monospace;
+    font-size: 11.5px; min-height: 30px; max-height: 100px; resize: vertical;
+  }
+  .grid {
+    flex: 1; min-height: 0;
+    display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+    gap: 1px; background: var(--border);
+  }
+  .pane {
+    background: var(--term-bg); display: flex; flex-direction: column; min-height: 0;
+  }
+  .pane-header {
+    padding: 6px 12px; background: var(--surface); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  }
+  .pane-tag {
+    padding: 1px 7px; border-radius: 3px; font-size: 10px; font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  .pane-tag.raw  { background: #6b7280; color: white; }
+  .pane-tag.a    { background: #6366f1; color: white; }
+  .pane-tag.b    { background: #ec4899; color: white; }
+  .pane-tag.c    { background: #14b8a6; color: white; }
+  .pane-name { font-size: 12.5px; font-weight: 600; }
+  .pane-desc { font-size: 11px; color: var(--text-3); margin-left: auto; }
+  .pane-body { flex: 1; min-height: 0; padding: 4px; overflow: hidden; }
+  .pane-body .xterm,
+  .pane-body .xterm .xterm-viewport,
+  .pane-body .xterm .xterm-screen { height: 100% !important; }
+  .footer {
+    padding: 8px 14px; background: var(--surface); border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--text-2); display: flex; gap: 14px; flex-wrap: wrap;
+  }
+  .footer code {
+    background: rgba(255,255,255,0.06); padding: 1px 4px; border-radius: 3px;
+    font-family: 'SF Mono', Menlo, monospace; font-size: 10.5px;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <h1>PTY 渲染对比</h1>
+    <div class="controls">
+      <label style="font-size:12px; color:var(--text-3);">样本：</label>
+      <select id="sample">
+        <option value="claude-tool">Claude Code · 工具调用流程</option>
+        <option value="claude-spinner">Claude Code · spinner + 流式文本</option>
+        <option value="claude-tui">Claude Code · 含 TUI 框</option>
+        <option value="custom">— 自定义（粘贴/加载文件） —</option>
+      </select>
+      <label class="file-btn">
+        加载文件
+        <input type="file" id="file" style="display:none;" accept=".txt,.bin,.log,.cast" />
+      </label>
+      <button class="primary" id="render">▶ 渲染</button>
+      <button id="reset">↻ 重置</button>
+    </div>
+    <textarea id="input" placeholder="支持两种粘贴：(1) 真实 PTY 原始字节  (2) 转义文本如 \x1b[32m●\x1b[0m （会自动解码）"></textarea>
+  </div>
+
+  <div class="grid">
+    <div class="pane">
+      <div class="pane-header">
+        <span class="pane-tag raw">RAW</span>
+        <span class="pane-name">原始 (基线)</span>
+        <span class="pane-desc">term.write 原字节，今天的高级控制台</span>
+      </div>
+      <div class="pane-body" id="pane-raw"></div>
+    </div>
+    <div class="pane">
+      <div class="pane-header">
+        <span class="pane-tag a">A</span>
+        <span class="pane-name">美化型</span>
+        <span class="pane-desc">extractor 抽干净行 + 重排版</span>
+      </div>
+      <div class="pane-body" id="pane-a"></div>
+    </div>
+    <div class="pane">
+      <div class="pane-header">
+        <span class="pane-tag b">B</span>
+        <span class="pane-name">语义化</span>
+        <span class="pane-desc">识别 ●⎿ 模式 → 重画卡片样视觉</span>
+      </div>
+      <div class="pane-body" id="pane-b"></div>
+    </div>
+    <div class="pane">
+      <div class="pane-header">
+        <span class="pane-tag c">C</span>
+        <span class="pane-name">配置差异</span>
+        <span class="pane-desc">过滤 cursor 序列 / 强制行换行</span>
+      </div>
+      <div class="pane-body" id="pane-c"></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span><strong>左上 RAW</strong>：xterm 原样渲染（含 spinner / TUI / cursor 跳转）</span>
+    <span><strong>A</strong>：抽行 + 简单上色（spinner / cursor 噪音消除）</span>
+    <span><strong>B</strong>：正则识别 <code>● Tool(args)</code> / <code>⎿ result</code> 后用统一规则重画</span>
+    <span><strong>C</strong>：xterm 配置差异（禁 cursor positioning + 强制 \r→\n）</span>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+<script>
+// ============================================================
+// Sample data — 真实 Claude Code TUI 风格的 PTY 字节流
+// ============================================================
+const ESC = '\x1b';
+const CR = '\r', LF = '\n', CRLF = '\r\n';
+
+// 工具调用样本
+const SAMPLE_TOOL = [
+  // 用户 prompt 行
+  `${ESC}[2m> ${ESC}[0m帮我看看 apps/web 下面有几个路由${CRLF}`,
+  CRLF,
+  // assistant 文本
+  `好的，我先找一下路由定义文件。${CRLF}`,
+  CRLF,
+  // 工具调用 1
+  `${ESC}[1m${ESC}[32m●${ESC}[0m ${ESC}[1mGlob${ESC}[0m(${ESC}[2mpattern: "apps/web/**/routes*.tsx"${ESC}[0m)${CRLF}`,
+  // spinner 转 5 帧
+  ...['⠋', '⠙', '⠹', '⠸', '⠼'].map(f => `${CR}${ESC}[2K${ESC}[33m${f}${ESC}[0m ${ESC}[2mGlob 进行中…${ESC}[0m`),
+  // 清行写结果
+  `${CR}${ESC}[2K  ${ESC}[2m⎿${ESC}[0m ${ESC}[2mFound 2 files${ESC}[0m${CRLF}`,
+  CRLF,
+  // 工具调用 2
+  `${ESC}[1m${ESC}[32m●${ESC}[0m ${ESC}[1mRead${ESC}[0m(${ESC}[2mfile_path: "apps/web/src/routes.tsx"${ESC}[0m)${CRLF}`,
+  ...['⠋', '⠙', '⠹'].map(f => `${CR}${ESC}[2K${ESC}[33m${f}${ESC}[0m ${ESC}[2mRead 进行中…${ESC}[0m`),
+  `${CR}${ESC}[2K  ${ESC}[2m⎿${ESC}[0m ${ESC}[2mRead 48 lines${ESC}[0m${CRLF}`,
+  CRLF,
+  // 总结文本
+  `apps/web 共有 ${ESC}[1m6${ESC}[0m 个路由：${CRLF}`,
+  CRLF,
+  `  - ${ESC}[36m/${ESC}[0m                                 对外官网首页（公开）${CRLF}`,
+  `  - ${ESC}[36m/login${ESC}[0m                            登录页${CRLF}`,
+  `  - ${ESC}[36m/register${ESC}[0m                         注册页${CRLF}`,
+  `  - ${ESC}[36m/sessions${ESC}[0m                         登录后 session 列表${CRLF}`,
+  `  - ${ESC}[36m/remote/session/:sessionId${ESC}[0m        单个终端 session${CRLF}`,
+  `  - ${ESC}[36m/remote/session/:sessionId/simple${ESC}[0m 简洁聊天视图${CRLF}`,
+  CRLF,
+  `所有路由集中在 ${ESC}[33msrc/routes.tsx${ESC}[0m。${CRLF}`,
+].join('');
+
+// Spinner + 流式文本样本
+const SAMPLE_SPINNER = [
+  `${ESC}[2m> ${ESC}[0m写一个快速排序${CRLF}`,
+  CRLF,
+  // 长 spinner（10 帧）
+  ...Array.from({length: 12}, (_, i) => {
+    const frames = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
+    return `${CR}${ESC}[2K${ESC}[33m${frames[i % frames.length]}${ESC}[0m ${ESC}[2mThinking… (${i + 1}s)${ESC}[0m`;
+  }),
+  `${CR}${ESC}[2K`, // 清掉 spinner
+  // 流式 token
+  '好',  '的', '，', '快', '速', '排', '序', '的', '实', '现', '：',
+].join('') + CRLF + CRLF +
+  `${ESC}[33mfunction${ESC}[0m ${ESC}[36mquickSort${ESC}[0m(arr) {${CRLF}` +
+  `  ${ESC}[33mif${ESC}[0m (arr.length <= 1) ${ESC}[33mreturn${ESC}[0m arr;${CRLF}` +
+  `  ${ESC}[33mconst${ESC}[0m pivot = arr[0];${CRLF}` +
+  `  ${ESC}[33mconst${ESC}[0m left = arr.slice(1).filter(x => x < pivot);${CRLF}` +
+  `  ${ESC}[33mconst${ESC}[0m right = arr.slice(1).filter(x => x >= pivot);${CRLF}` +
+  `  ${ESC}[33mreturn${ESC}[0m [...quickSort(left), pivot, ...quickSort(right)];${CRLF}` +
+  `}${CRLF}`;
+
+// 含 TUI 框样本
+const SAMPLE_TUI = [
+  // 顶部欢迎框（Claude Code 启动时画的）
+  `${ESC}[36m╭───────────────────────────────────────────╮${ESC}[0m${CRLF}`,
+  `${ESC}[36m│${ESC}[0m  ${ESC}[1m✻ Welcome to Claude Code${ESC}[0m                  ${ESC}[36m│${ESC}[0m${CRLF}`,
+  `${ESC}[36m│${ESC}[0m  ${ESC}[2m/help for commands${ESC}[0m                       ${ESC}[36m│${ESC}[0m${CRLF}`,
+  `${ESC}[36m╰───────────────────────────────────────────╯${ESC}[0m${CRLF}`,
+  CRLF,
+  `${ESC}[2m> ${ESC}[0m列出当前目录${CRLF}`,
+  CRLF,
+  `${ESC}[1m${ESC}[32m●${ESC}[0m ${ESC}[1mBash${ESC}[0m(${ESC}[2mls -la${ESC}[0m)${CRLF}`,
+  ...['⠋','⠙','⠹'].map(f => `${CR}${ESC}[2K${ESC}[33m${f}${ESC}[0m ${ESC}[2mBash 进行中…${ESC}[0m`),
+  `${CR}${ESC}[2K  ${ESC}[2m⎿${ESC}[0m total 24${CRLF}`,
+  `     drwxr-xr-x  6 dream  staff   192 May  4 23:00 .${CRLF}`,
+  `     drwxr-xr-x 12 dream  staff   384 May  4 22:00 ..${CRLF}`,
+  `     -rw-r--r--  1 dream  staff   123 May  4 23:00 README.md${CRLF}`,
+  CRLF,
+  // 底部输入框
+  `${ESC}[36m╭─ Tether@dream ─────────────────────────────╮${ESC}[0m${CRLF}`,
+  `${ESC}[36m│${ESC}[0m ${ESC}[2m> 输入消息发送给 Claude…${ESC}[0m                ${ESC}[36m│${ESC}[0m${CRLF}`,
+  `${ESC}[36m╰────────────────────────────────────────────╯${ESC}[0m${CRLF}`,
+].join('');
+
+const SAMPLES = {
+  'claude-tool':    SAMPLE_TOOL,
+  'claude-spinner': SAMPLE_SPINNER,
+  'claude-tui':     SAMPLE_TUI,
+};
+
+// ============================================================
+// xterm 实例 ×4
+// ============================================================
+const THEME = {
+  background: '#1e1e1e', foreground: '#e5e5e5', cursor: '#e5e5e5',
+  black: '#1e1e1e', red: '#f87171', green: '#4ade80', yellow: '#fbbf24',
+  blue: '#60a5fa', magenta: '#c084fc', cyan: '#22d3ee', white: '#f5f5f5',
+  brightBlack: '#71717a', brightRed: '#fca5a5', brightGreen: '#86efac',
+  brightYellow: '#fde047', brightBlue: '#93c5fd', brightMagenta: '#d8b4fe',
+  brightCyan: '#67e8f9', brightWhite: '#fafafa'
+};
+
+function makeTerm() {
+  const t = new Terminal({
+    cols: 80, rows: 24, cursorBlink: false, scrollback: 1000,
+    fontFamily: 'SF Mono, Menlo, Consolas, monospace',
+    fontSize: 12, lineHeight: 1.3,
+    theme: THEME
+  });
+  return t;
+}
+
+const termRaw = makeTerm();
+const termA = makeTerm();
+const termB = makeTerm();
+const termC = makeTerm();
+
+const fitRaw = new FitAddon.FitAddon(); termRaw.loadAddon(fitRaw);
+const fitA   = new FitAddon.FitAddon(); termA.loadAddon(fitA);
+const fitB   = new FitAddon.FitAddon(); termB.loadAddon(fitB);
+const fitC   = new FitAddon.FitAddon(); termC.loadAddon(fitC);
+
+termRaw.open(document.getElementById('pane-raw')); fitRaw.fit();
+termA.open(document.getElementById('pane-a'));     fitA.fit();
+termB.open(document.getElementById('pane-b'));     fitB.fit();
+termC.open(document.getElementById('pane-c'));     fitC.fit();
+window.addEventListener('resize', () => { fitRaw.fit(); fitA.fit(); fitB.fit(); fitC.fit(); });
+
+// ============================================================
+// RAW 渲染（基线）
+// ============================================================
+function renderRaw(term, data) {
+  term.write(data);
+}
+
+// ============================================================
+// A: 美化型 — onLineFeed 抽行后写新 xterm，简单上色
+// ============================================================
+function renderA(term, data) {
+  // 用一个临时 hidden xterm 抽干净行
+  const parser = new Terminal({ cols: 200, rows: 50, scrollback: 0, convertEol: true });
+  const committedLines = [];
+  parser.onLineFeed(() => {
+    const buf = parser.buffer.active;
+    const y = buf.baseY + buf.cursorY - 1;
+    if (y < 0) return;
+    const text = buf.getLine(y)?.translateToString(true) ?? '';
+    committedLines.push(text);
+  });
+  parser.write(data, () => {
+    // 取最后一行（如果没换行）
+    const buf = parser.buffer.active;
+    const lastLine = buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true) ?? '';
+    if (lastLine.trim()) committedLines.push(lastLine);
+
+    // 折叠空行 + 简单上色
+    let prevEmpty = false;
+    for (const line of committedLines) {
+      const isEmpty = line.trim() === '';
+      if (isEmpty && prevEmpty) { continue; }
+      prevEmpty = isEmpty;
+      // 简单着色：● 绿点、⎿ 灰、> cyan、- 列表灰
+      let colored = line;
+      colored = colored.replace(/^(\s*)●(\s+\S+)/, `$1${ESC}[32m●${ESC}[0m${ESC}[1m$2${ESC}[0m`);
+      colored = colored.replace(/^(\s*)⎿(\s+)/, `$1${ESC}[2m⎿${ESC}[0m$2${ESC}[2m`);
+      if (/^\s*⎿/.test(line)) colored += `${ESC}[0m`;
+      colored = colored.replace(/^>/, `${ESC}[36m>${ESC}[0m`);
+      term.writeln(colored);
+    }
+    parser.dispose();
+  });
+}
+
+// ============================================================
+// B: 语义化 — 解析 ●⎿ 后用 SyntheticTerminalRenderer 风格重画
+// ============================================================
+function renderB(term, data) {
+  // 先用 A 的方法抽行，然后做模式识别
+  const parser = new Terminal({ cols: 200, rows: 50, scrollback: 0, convertEol: true });
+  const lines = [];
+  parser.onLineFeed(() => {
+    const buf = parser.buffer.active;
+    const y = buf.baseY + buf.cursorY - 1;
+    if (y < 0) return;
+    const text = buf.getLine(y)?.translateToString(true) ?? '';
+    lines.push(text);
+  });
+  parser.write(data, () => {
+    const buf = parser.buffer.active;
+    const lastLine = buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true) ?? '';
+    if (lastLine.trim()) lines.push(lastLine);
+
+    // 状态机：识别 ● Tool(args) → 接下来若干 ⎿ result 行 → 收纳成"工具卡"
+    const events = [];
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      // 用户 prompt
+      const userMatch = line.match(/^>\s+(.+)$/);
+      if (userMatch) {
+        events.push({ type: 'user', text: userMatch[1] });
+        i++; continue;
+      }
+      // 工具调用
+      const toolMatch = line.match(/^●\s+(\w+)\((.*)\)$/);
+      if (toolMatch) {
+        const name = toolMatch[1];
+        const args = toolMatch[2];
+        // 收集后续 ⎿ 缩进结果行
+        const results = [];
+        i++;
+        while (i < lines.length && (/^\s+⎿/.test(lines[i]) || /^\s{5,}/.test(lines[i]))) {
+          results.push(lines[i].replace(/^\s+(⎿\s*)?/, ''));
+          i++;
+        }
+        events.push({ type: 'tool', name, args, results });
+        continue;
+      }
+      // TUI 框线 / 空行 跳过
+      if (/^\s*[╭│╰─]/.test(line) || line.trim() === '') {
+        if (line.trim() === '') events.push({ type: 'blank' });
+        i++; continue;
+      }
+      // 普通文本
+      events.push({ type: 'text', text: line });
+      i++;
+    }
+
+    // 用 SyntheticTerminalRenderer 风格画
+    let lastWasBlank = false;
+    for (const ev of events) {
+      switch (ev.type) {
+        case 'user':
+          term.write(`${ESC}[36m${ESC}[1m>${ESC}[0m ${ev.text}${CRLF}${CRLF}`);
+          lastWasBlank = false;
+          break;
+        case 'tool': {
+          term.write(`${ESC}[32m●${ESC}[0m ${ESC}[1m${ev.name}${ESC}[0m(${ESC}[2m${ev.args}${ESC}[0m)${CRLF}`);
+          if (ev.results.length > 0) {
+            const summary = ev.results[0];
+            term.write(`  ${ESC}[2m⎿ ${summary}${ESC}[0m${CRLF}`);
+            for (const r of ev.results.slice(1)) {
+              term.write(`     ${ESC}[2m${r}${ESC}[0m${CRLF}`);
+            }
+          }
+          term.write(CRLF);
+          lastWasBlank = true;
+          break;
+        }
+        case 'text':
+          term.write(`${ev.text}${CRLF}`);
+          lastWasBlank = false;
+          break;
+        case 'blank':
+          if (!lastWasBlank) { term.write(CRLF); lastWasBlank = true; }
+          break;
+      }
+    }
+    parser.dispose();
+  });
+}
+
+// ============================================================
+// C: 配置差异 — 过滤 cursor positioning，强制 \r→\n（spinner 不覆写而是滚动）
+// ============================================================
+function renderC(term, data) {
+  // 过滤策略：
+  //   1. 删除 \x1b[2K (清行)
+  //   2. 删除 \x1b[?25l/?25h (cursor 显示)
+  //   3. 删除 \x1b[H, \x1b[<n>H, \x1b[<n>;<m>H (cursor 定位)
+  //   4. 删除 \x1b[?1049h/l (alt screen)
+  //   5. \r → \r\n 转换（spinner 帧从覆写改成新行）
+  let filtered = data
+    .replace(/\x1b\[2K/g, '')
+    .replace(/\x1b\[\?25[lh]/g, '')
+    .replace(/\x1b\[\?1049[lh]/g, '')
+    .replace(/\x1b\[\d*(;\d+)*[Hf]/g, '')  // cursor positioning
+    .replace(/\x1b\[\d*[ABCD]/g, '')        // cursor up/down/left/right
+    .replace(/\x1b\[\d*[GJ]/g, '')          // cursor col / clear screen
+    .replace(/\r(?!\n)/g, '\r\n');          // \r → \r\n（不是已经 \r\n 的）
+  term.write(filtered);
+}
+
+// ============================================================
+// 渲染入口
+// ============================================================
+function decodeEscapes(text) {
+  // 如果文本含字面 \x1b、\033、\e 等转义字符，解码
+  if (text.includes('\\x1b') || text.includes('\\033') || text.includes('\\e')) {
+    return text
+      .replace(/\\x1b/g, '\x1b')
+      .replace(/\\033/g, '\x1b')
+      .replace(/\\e/g, '\x1b')
+      .replace(/\\r/g, '\r')
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t');
+  }
+  return text;
+}
+
+function reset() {
+  termRaw.clear(); termRaw.reset();
+  termA.clear();   termA.reset();
+  termB.clear();   termB.reset();
+  termC.clear();   termC.reset();
+}
+
+function render() {
+  reset();
+  let data = document.getElementById('input').value;
+  if (!data) {
+    const sel = document.getElementById('sample').value;
+    if (sel !== 'custom') data = SAMPLES[sel];
+  }
+  data = decodeEscapes(data);
+  if (!data) return;
+
+  renderRaw(termRaw, data);
+  renderA(termA, data);
+  renderB(termB, data);
+  renderC(termC, data);
+}
+
+document.getElementById('render').addEventListener('click', render);
+document.getElementById('reset').addEventListener('click', reset);
+document.getElementById('sample').addEventListener('change', (e) => {
+  const sel = e.target.value;
+  if (sel !== 'custom') {
+    document.getElementById('input').value = '';
+    render();
+  }
+});
+document.getElementById('file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  document.getElementById('input').value = text;
+  document.getElementById('sample').value = 'custom';
+  render();
+});
+
+// 自动渲染初始样本
+window.addEventListener('load', () => setTimeout(render, 200));
+</script>
+</body>
+</html>

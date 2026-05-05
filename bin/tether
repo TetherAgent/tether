@@ -1,2 +1,40 @@
-#!/usr/bin/env -S node --import tsx
-import '../apps/cli/src/main.ts';
+#!/usr/bin/env node
+// Tether CLI launcher
+// 自动检测 dev / prod 模式并注入 NODE_RUNTIME_FLAGS。
+// prod: ../dist/cli/main.js 存在 → 直接跑
+// dev: ../apps/cli/src/main.ts 存在 → 通过 tsx 加载源码
+
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const FLAGS = ['--experimental-sqlite', '--no-warnings=ExperimentalWarning'];
+
+const distEntry = path.join(here, '..', 'dist', 'cli', 'main.js');
+const devEntry = path.join(here, '..', 'apps', 'cli', 'src', 'main.ts');
+
+let args;
+if (existsSync(distEntry)) {
+  args = [...FLAGS, distEntry];
+} else if (existsSync(devEntry)) {
+  args = [...FLAGS, '--import', 'tsx', devEntry];
+} else {
+  console.error('tether launcher: cannot find CLI entry');
+  console.error('  dist:', distEntry);
+  console.error('  dev:', devEntry);
+  process.exit(1);
+}
+
+const child = spawn(process.execPath, [...args, ...process.argv.slice(2)], {
+  stdio: 'inherit'
+});
+
+child.on('exit', (code, signal) => {
+  if (signal) {
+    process.kill(process.pid, signal);
+  } else {
+    process.exit(code ?? 0);
+  }
+});

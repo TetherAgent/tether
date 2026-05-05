@@ -9,11 +9,17 @@ export const LAUNCHD_LABEL = 'sh.tether.gateway';
 
 export type GatewayPlistOptions = {
   nodePath?: string;
-  tsxLoaderPath?: string;
-  cliMainPath?: string;
+  launcherPath?: string;
   stdoutPath?: string;
   stderrPath?: string;
   env?: NodeJS.ProcessEnv;
+};
+
+export type GatewayRuntimeInfo = {
+  nodePath: string;
+  nodeVersion: string;
+  launcherPath: string;
+  installedAt: number;
 };
 
 export type LaunchAgentStatus = {
@@ -76,6 +82,15 @@ export async function installLaunchAgent(options: GatewayPlistOptions = {}): Pro
   await mkdir(path.dirname(plistPath), { recursive: true });
   await mkdir(path.join(os.homedir(), '.tether', 'logs'), { recursive: true });
   await writeFile(plistPath, buildGatewayPlist(options), 'utf8');
+  // 记录当前 runtime 快照，供 doctor 检测 nodePath / launcher 是否仍存在
+  const nodePath = path.resolve(options.nodePath ?? process.execPath);
+  const launcherPath = resolveLauncherPath(options.launcherPath);
+  await writeGatewayRuntimeInfo({
+    nodePath,
+    nodeVersion: process.version,
+    launcherPath,
+    installedAt: Date.now()
+  });
   return plistPath;
 }
 
@@ -147,9 +162,42 @@ export async function launchAgentStatus(): Promise<LaunchAgentStatus> {
 
 function gatewayProgramArguments(options: GatewayPlistOptions): string[] {
   const nodePath = path.resolve(options.nodePath ?? process.execPath);
-  const tsxLoaderPath = path.resolve(options.tsxLoaderPath ?? path.join(__dirname, '../../../node_modules/tsx/dist/loader.mjs'));
-  const cliMainPath = path.resolve(options.cliMainPath ?? path.join(__dirname, 'main.ts'));
-  return [nodePath, '--import', tsxLoaderPath, cliMainPath, 'gateway'];
+  const launcherPath = resolveLauncherPath(options.launcherPath);
+  return [nodePath, launcherPath, 'gateway'];
+}
+
+export function resolveLauncherPath(override?: string): string {
+  if (override) return path.resolve(override);
+  // dev: __dirname = apps/cli/src/, launcher 在 repo 根 bin/tether (../../../bin/tether)
+  // prod: __dirname = dist/cli/, launcher 在包根 bin/tether (../../bin/tether)
+  const candidates = [
+    path.resolve(__dirname, '..', '..', 'bin', 'tether'),
+    path.resolve(__dirname, '..', '..', '..', 'bin', 'tether')
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  throw new Error(`tether launcher 路径未找到，候选：${candidates.join(', ')}`);
+}
+
+export function gatewayRuntimeJsonPath(): string {
+  return path.join(os.homedir(), '.tether', 'gateway-runtime.json');
+}
+
+export async function writeGatewayRuntimeInfo(info: GatewayRuntimeInfo): Promise<string> {
+  const filePath = gatewayRuntimeJsonPath();
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, `${JSON.stringify(info, null, 2)}\n`, 'utf8');
+  return filePath;
+}
+
+export function readGatewayRuntimeInfo(): GatewayRuntimeInfo | undefined {
+  try {
+    const raw = fs.readFileSync(gatewayRuntimeJsonPath(), 'utf8');
+    return JSON.parse(raw) as GatewayRuntimeInfo;
+  } catch {
+    return undefined;
+  }
 }
 
 function launchdEnvironment(env: NodeJS.ProcessEnv = process.env): Record<string, string> {

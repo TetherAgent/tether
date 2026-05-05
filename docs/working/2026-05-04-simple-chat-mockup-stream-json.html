@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tether Simple View — stream-json mockup</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f4f4f5;
+    --surface: #ffffff;
+    --surface-2: #fafafa;
+    --border: #e4e4e7;
+    --text: #18181b;
+    --text-2: #52525b;
+    --text-3: #a1a1aa;
+    --user-bubble: #95ec69;
+    --user-bubble-text: #1a1a1a;
+    --agent-bubble: #ffffff;
+    --tool-bg: #f8fafc;
+    --tool-border: #e2e8f0;
+    --tool-accent: #6366f1;
+    --tool-result-bg: #ecfdf5;
+    --tool-result-border: #a7f3d0;
+    --tool-result-accent: #059669;
+    --error-bg: #fef2f2;
+    --error-border: #fecaca;
+    --error-accent: #dc2626;
+    --cost-bg: #fafafa;
+    --code-bg: #f1f5f9;
+    --code-text: #0f172a;
+    --avatar-user: linear-gradient(135deg, #fbbf24, #f59e0b);
+    --avatar-agent: linear-gradient(135deg, #c084fc, #6366f1);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0a0a0a;
+      --surface: #18181b;
+      --surface-2: #1f1f23;
+      --border: #27272a;
+      --text: #fafafa;
+      --text-2: #a1a1aa;
+      --text-3: #71717a;
+      --user-bubble: #22c55e;
+      --user-bubble-text: #052e16;
+      --agent-bubble: #1f1f23;
+      --tool-bg: #1e1b3a;
+      --tool-border: #312e81;
+      --tool-accent: #818cf8;
+      --tool-result-bg: #052e1a;
+      --tool-result-border: #14532d;
+      --tool-result-accent: #34d399;
+      --error-bg: #2a0e0e;
+      --error-border: #7f1d1d;
+      --error-accent: #f87171;
+      --cost-bg: #18181b;
+      --code-bg: #0f172a;
+      --code-text: #e2e8f0;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .app {
+    max-width: 760px;
+    margin: 0 auto;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+  }
+  .header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--surface);
+    backdrop-filter: blur(10px);
+  }
+  .header h1 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0;
+  }
+  .header .meta {
+    font-size: 12px;
+    color: var(--text-3);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+  }
+  .stream {
+    flex: 1;
+    overflow-y: auto;
+    padding: 18px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    background: var(--bg);
+  }
+  .row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .row.user { flex-direction: row-reverse; }
+  .row.system { justify-content: center; }
+  .avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    color: white;
+  }
+  .avatar.user { background: var(--avatar-user); }
+  .avatar.agent { background: var(--avatar-agent); }
+  .bubble-col {
+    max-width: calc(100% - 48px);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .row.user .bubble-col { align-items: flex-end; }
+  .bubble {
+    padding: 9px 13px;
+    border-radius: 8px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    position: relative;
+  }
+  .bubble.user {
+    background: var(--user-bubble);
+    color: var(--user-bubble-text);
+    border-top-right-radius: 2px;
+  }
+  .bubble.agent {
+    background: var(--agent-bubble);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-top-left-radius: 2px;
+  }
+  .bubble.agent p { margin: 0 0 8px 0; }
+  .bubble.agent p:last-child { margin-bottom: 0; }
+  .bubble.agent code {
+    background: var(--code-bg);
+    color: var(--code-text);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 12.5px;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+  }
+  .bubble.agent pre {
+    background: var(--code-bg);
+    color: var(--code-text);
+    padding: 10px 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 8px 0;
+    font-size: 12.5px;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    line-height: 1.5;
+  }
+  .bubble.agent ul, .bubble.agent ol {
+    margin: 6px 0;
+    padding-left: 22px;
+  }
+  .bubble.agent li { margin: 2px 0; }
+  .bubble.agent strong { font-weight: 600; }
+
+  /* tool call card */
+  .tool-card {
+    background: var(--tool-bg);
+    border: 1px solid var(--tool-border);
+    border-radius: 8px;
+    overflow: hidden;
+    border-top-left-radius: 2px;
+  }
+  .tool-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .tool-card-header:hover { background: rgba(99, 102, 241, 0.06); }
+  .tool-icon {
+    font-family: 'SF Mono', Menlo, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--tool-accent);
+    background: rgba(99, 102, 241, 0.12);
+    padding: 2px 7px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .tool-name {
+    font-weight: 600;
+    color: var(--text);
+    font-size: 13px;
+  }
+  .tool-args-inline {
+    color: var(--text-2);
+    font-family: 'SF Mono', Menlo, monospace;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+  }
+  .tool-chevron {
+    color: var(--text-3);
+    transition: transform 0.15s;
+    flex-shrink: 0;
+  }
+  details[open] .tool-chevron { transform: rotate(90deg); }
+  .tool-card-body {
+    padding: 0 12px 10px;
+    border-top: 1px dashed var(--tool-border);
+    margin-top: 4px;
+    padding-top: 8px;
+  }
+  .tool-card-body pre {
+    margin: 0;
+    background: transparent;
+    padding: 0;
+    font-size: 12px;
+    color: var(--text-2);
+    font-family: 'SF Mono', Menlo, monospace;
+    white-space: pre-wrap;
+  }
+  .tool-result {
+    margin-top: 6px;
+    background: var(--tool-result-bg);
+    border: 1px solid var(--tool-result-border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: 'SF Mono', Menlo, monospace;
+    font-size: 12px;
+    color: var(--text-2);
+    max-height: 180px;
+    overflow-y: auto;
+  }
+  .tool-result-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--tool-result-accent);
+    font-weight: 600;
+    font-size: 11px;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  /* error tool result */
+  .tool-result.error {
+    background: var(--error-bg);
+    border-color: var(--error-border);
+  }
+  .tool-result.error .tool-result-header { color: var(--error-accent); }
+
+  /* permission prompt */
+  .permission {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), rgba(217, 119, 6, 0.04));
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    border-radius: 8px;
+    padding: 12px;
+    border-top-left-radius: 2px;
+  }
+  .permission-title {
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 4px;
+    color: var(--text);
+  }
+  .permission-desc {
+    color: var(--text-2);
+    font-size: 12.5px;
+    margin-bottom: 10px;
+  }
+  .permission-actions {
+    display: flex;
+    gap: 6px;
+  }
+  .btn {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    padding: 5px 12px;
+    font-size: 12.5px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .btn.primary {
+    background: #f59e0b;
+    color: #1a1a1a;
+    border-color: #f59e0b;
+  }
+  .btn:hover { opacity: 0.85; }
+
+  /* system / divider */
+  .system-msg {
+    text-align: center;
+    color: var(--text-3);
+    font-size: 11.5px;
+    padding: 4px 12px;
+    background: rgba(0,0,0,0.04);
+    border-radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    .system-msg { background: rgba(255,255,255,0.05); }
+  }
+
+  /* streaming cursor */
+  .cursor {
+    display: inline-block;
+    width: 2px;
+    height: 14px;
+    background: var(--text);
+    margin-left: 1px;
+    vertical-align: text-bottom;
+    animation: blink 1s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* thinking */
+  .thinking {
+    display: inline-flex;
+    gap: 3px;
+    padding: 4px 0;
+  }
+  .thinking span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-3);
+    animation: bounce 1.4s infinite ease-in-out;
+  }
+  .thinking span:nth-child(2) { animation-delay: 0.16s; }
+  .thinking span:nth-child(3) { animation-delay: 0.32s; }
+  @keyframes bounce {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+    40% { transform: scale(1); opacity: 1; }
+  }
+
+  /* result */
+  .result-card {
+    background: var(--cost-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 11.5px;
+    color: var(--text-2);
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .result-card .item {
+    display: flex;
+    flex-direction: column;
+  }
+  .result-card .label {
+    color: var(--text-3);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .result-card .value {
+    font-family: 'SF Mono', Menlo, monospace;
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  /* composer */
+  .composer {
+    border-top: 1px solid var(--border);
+    padding: 10px 12px;
+    background: var(--surface);
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+  }
+  .composer textarea {
+    flex: 1;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: none;
+    min-height: 36px;
+    max-height: 120px;
+    outline: none;
+  }
+  .composer textarea:focus { border-color: var(--tool-accent); }
+  .composer .send {
+    background: var(--tool-accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 13px;
+  }
+
+  .label-tag {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--tool-accent);
+    margin-right: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <h1>Tether · Claude Code</h1>
+    <div class="meta">
+      <span class="status-dot"></span>
+      <span>session a8f2c1 · sonnet 4.6</span>
+    </div>
+  </div>
+
+  <div class="stream">
+
+    <!-- system init -->
+    <div class="row system">
+      <div class="system-msg">会话已开始 · 工具：Read, Write, Edit, Bash, Grep, Glob</div>
+    </div>
+
+    <!-- user message -->
+    <div class="row user">
+      <div class="avatar user">我</div>
+      <div class="bubble-col">
+        <div class="bubble user">帮我看看 apps/web 下面有几个路由，分别是什么作用</div>
+      </div>
+    </div>
+
+    <!-- assistant text -->
+    <div class="row">
+      <div class="avatar agent">C</div>
+      <div class="bubble-col">
+        <div class="bubble agent">
+          <p>好的，我先找一下路由定义文件。</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- tool call: Glob (collapsed by default) -->
+    <div class="row">
+      <div class="avatar agent">C</div>
+      <div class="bubble-col">
+        <details class="tool-card">
+          <summary class="tool-card-header" style="list-style:none;">
+            <span class="tool-icon">GLOB</span>
+            <span class="tool-name">Glob</span>
+            <span class="tool-args-inline">pattern: "apps/web/**/routes*.tsx"</span>
+            <span class="tool-chevron">›</span>
+          </summary>
+          <div class="tool-card-body">
+            <pre>{
+  "pattern": "apps/web/**/routes*.tsx"
+}</pre>
+            <div class="tool-result">
+              <div class="tool-result-header">✓ result · 2 files</div>apps/web/src/routes.tsx
+apps/web/src/main.tsx
+            </div>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <!-- tool call: Read (expanded by default for demo) -->
+    <div class="row">
+      <div class="avatar agent">C</div>
+      <div class="bubble-col">
+        <details class="tool-card" open>
+          <summary class="tool-card-header" style="list-style:none;">
+            <span class="tool-icon">READ</span>
+            <span class="tool-name">Read</span>
+            <span class="tool-args-inline">file_path: "apps/web/src/routes.tsx"</span>
+            <span class="tool-chevron">›</span>
+          </summary>
+          <div class="tool-card-body">
+            <pre>{
+  "file_path": "apps/web/src/routes.tsx"
+}</pre>
+            <div class="tool-result">
+              <div class="tool-result-header">✓ result · 48 lines</div>import { Routes, Route, Navigate } from 'react-router-dom';
+import { LandingPage } from './pages/landing-page';
+import { LoginPage } from './pages/login-page';
+import { SessionListPage } from './pages/session-list-page';
+import { SessionDetailPage } from './pages/session-detail-page';
+import { ChatSessionPage } from './pages/chat-session-page';
+
+export function AppRoutes() {
+  return (
+    &lt;Routes&gt;
+      &lt;Route path="/" element={&lt;LandingPage /&gt;} /&gt;
+      &lt;Route path="/login" element={&lt;LoginPage /&gt;} /&gt;
+      ...
+            </div>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <!-- permission prompt -->
+    <div class="row">
+      <div class="avatar agent">C</div>
+      <div class="bubble-col">
+        <div class="permission">
+          <div class="permission-title">允许执行 Bash 命令？</div>
+          <div class="permission-desc">
+            <code>pnpm --filter @tether/web build</code>
+          </div>
+          <div class="permission-actions">
+            <button class="btn primary">允许一次</button>
+            <button class="btn">本次会话允许</button>
+            <button class="btn">拒绝</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- tool with error -->
+    <div class="row">
+      <div class="avatar agent">C</div>
+      <div class="bubble-col">
+        <details class="tool-card" open>
+          <summary class="tool-card-header" style="list-style:none;">
+            <span class="tool-icon" style="color:var(--error-accent); background:rgba(220,38,38,0.12);">BASH</span>
+            <span class="tool-name">Bash</span>
+            <span class="tool-args-inline">cat apps/web/src/routes-old.tsx</span>
+            <span class="tool-chevron">›</span>
+          </summary>
+          <div class="tool-card-body">
+            <div class="tool-result error">
+              <div class="tool-result-header">✗ error · exit 1</div>cat: apps/web/src/routes-old.tsx: No such file or directory
+            </div>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <!-- assistant final text with markdown -->
+    <div class="row">
+      <div class="avatar agent">C</div>
+      <div class="bubble-col">
+        <div class="bubble agent">
+          <p><span class="label-tag">总结</span><strong>apps/web 共有 6 个路由：</strong></p>
+          <ul>
+            <li><code>/</code> — 对外官网首页（公开）</li>
+            <li><code>/login</code> — 登录页</li>
+            <li><code>/register</code> — 注册页</li>
+            <li><code>/sessions</code> — 登录后 session 列表</li>
+            <li><code>/remote/session/:sessionId</code> — 单个终端 session（高级视图）</li>
+            <li><code>/remote/session/:sessionId/simple</code> — 简洁聊天视图</li>
+          </ul>
+          <p>所有路由集中在 <code>src/routes.tsx</code>，<code>main.tsx</code> 只负责把 Provider 和 session surface 传给路由层 —— 这与 <code>apps/web/CLAUDE.md</code> 里"路由必须先进入 routes.tsx"的规范是一致的。</p>
+        </div>
+
+        <!-- result card with cost / usage -->
+        <div class="result-card">
+          <div class="item"><span class="label">耗时</span><span class="value">3.2s</span></div>
+          <div class="item"><span class="label">输入 token</span><span class="value">2,841</span></div>
+          <div class="item"><span class="label">输出 token</span><span class="value">412</span></div>
+          <div class="item"><span class="label">缓存命中</span><span class="value">2,560</span></div>
+          <div class="item"><span class="label">花费</span><span class="value">$0.012</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- streaming in progress -->
+    <div class="row user">
+      <div class="avatar user">我</div>
+      <div class="bubble-col">
+        <div class="bubble user">把 chat 路由改成 /chat/:sessionId</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="avatar agent">C</div>
+      <div class="bubble-col">
+        <div class="bubble agent">
+          <p>明白了。我先确认一下当前的写法，再决定改动范围<span class="cursor"></span></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- in-flight tool call -->
+    <div class="row">
+      <div class="avatar agent">C</div>
+      <div class="bubble-col">
+        <div class="tool-card" style="display:flex; align-items:center; gap:8px; padding:8px 12px;">
+          <span class="tool-icon">GREP</span>
+          <span class="tool-name">Grep</span>
+          <span class="tool-args-inline">pattern: "remote/session/:sessionId/simple"</span>
+          <span class="thinking" style="margin-left:auto;"><span></span><span></span><span></span></span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="composer">
+    <textarea placeholder="发送给 Claude Code…" rows="1"></textarea>
+    <button class="send">发送</button>
+  </div>
+</div>
+
+<script>
+  // auto-scroll to bottom on load so we land on the active turn
+  window.addEventListener('load', () => {
+    const stream = document.querySelector('.stream');
+    stream.scrollTop = stream.scrollHeight;
+  });
+  // textarea auto-grow
+  document.querySelector('.composer textarea').addEventListener('input', (e) => {
+    e.target.style.height = 'auto';
+    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+  });
+</script>
+</body>
+</html>

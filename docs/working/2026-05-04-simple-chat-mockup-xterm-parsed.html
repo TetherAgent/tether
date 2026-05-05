@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tether Simple View — xterm-parsed (Solution A) mockup</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f4f4f5;
+    --surface: #ffffff;
+    --border: #e4e4e7;
+    --text: #18181b;
+    --text-2: #52525b;
+    --text-3: #a1a1aa;
+    --brand: #22c55e;
+    --user-bubble: #22c55e;
+    --user-bubble-text: #ffffff;
+    --card: #ffffff;
+    --foreground: #18181b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0a0a0a;
+      --surface: #18181b;
+      --border: #27272a;
+      --text: #fafafa;
+      --text-2: #a1a1aa;
+      --text-3: #71717a;
+      --brand: #22c55e;
+      --user-bubble: #22c55e;
+      --user-bubble-text: #052e16;
+      --card: #1f1f23;
+      --foreground: #fafafa;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .app {
+    max-width: 760px;
+    margin: 0 auto;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+  }
+  .header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .header h1 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0;
+  }
+  .header .meta {
+    font-size: 12px;
+    color: var(--text-3);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+  }
+  .badge {
+    background: rgba(99,102,241,0.12);
+    color: #6366f1;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  /* match real chat-panel from styles.css line 3894 */
+  .chat-panel {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px clamp(14px, 2.5vw, 28px);
+    background: var(--bg);
+  }
+  .chat-bubble {
+    display: flex;
+    max-width: 85%;
+  }
+  .chat-bubble-user {
+    align-self: flex-end;
+  }
+  .chat-bubble-agent {
+    align-self: flex-start;
+  }
+  .chat-bubble-user .chat-bubble-content {
+    padding: 9px 14px;
+    border-radius: 18px 18px 4px 18px;
+    background: var(--brand);
+    color: #fff;
+    font-size: 14px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .chat-bubble-agent .chat-bubble-content {
+    max-height: min(60vh, 480px);
+    overflow-y: auto;
+    padding: 10px 14px;
+    border-radius: 18px 18px 18px 4px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--foreground);
+  }
+  .chat-bubble-agent .chat-bubble-content pre {
+    margin: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  @keyframes chat-cursor-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+  .chat-bubble-live::after {
+    content: '▍';
+    display: inline-block;
+    margin-left: 2px;
+    color: var(--brand);
+    animation: chat-cursor-blink 1s step-start infinite;
+  }
+
+  /* annotations only for this mockup (not in real product) */
+  .annotation {
+    background: rgba(245, 158, 11, 0.08);
+    border-left: 3px solid #f59e0b;
+    padding: 6px 10px;
+    margin: 4px 0;
+    font-size: 11.5px;
+    color: var(--text-2);
+    border-radius: 0 4px 4px 0;
+  }
+  .annotation strong { color: #f59e0b; font-weight: 600; }
+
+  .composer {
+    border-top: 1px solid var(--border);
+    padding: 10px 12px;
+    background: var(--surface);
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+  }
+  .composer textarea {
+    flex: 1;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: none;
+    min-height: 36px;
+    outline: none;
+  }
+  .composer .send {
+    background: var(--brand);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <h1>Tether · Claude Code</h1>
+    <div class="meta">
+      <span class="badge">PTY</span>
+      <span class="status-dot"></span>
+      <span>session a8f2c1</span>
+    </div>
+  </div>
+
+  <div class="chat-panel">
+
+    <!-- 用户气泡（绿色右侧） -->
+    <div class="chat-bubble chat-bubble-user">
+      <div class="chat-bubble-content">帮我看看 apps/web 下面有几个路由，分别是什么作用</div>
+    </div>
+
+    <!-- agent 气泡：完整一坨 <pre>，全是 monospace -->
+    <div class="chat-bubble chat-bubble-agent">
+      <div class="chat-bubble-content">
+<pre>好的，我先找一下路由定义文件。
+
+● Glob(apps/web/**/routes*.tsx)
+  ⎿ Found 2 files
+    apps/web/src/routes.tsx
+    apps/web/src/main.tsx
+
+● Read(apps/web/src/routes.tsx)
+  ⎿ Read 48 lines
+
+apps/web 共有 6 个路由：
+
+- /                                 对外官网首页（公开）
+- /login                            登录页
+- /register                         注册页
+- /sessions                         登录后 session 列表
+- /remote/session/:sessionId        单个终端 session（高级视图）
+- /remote/session/:sessionId/simple 简洁聊天视图
+
+所有路由集中在 src/routes.tsx，main.tsx 只负责把 Provider
+和 session surface 传给路由层 — 这与 apps/web/CLAUDE.md 里
+"路由必须先进入 routes.tsx" 的规范是一致的。</pre>
+      </div>
+    </div>
+
+    <!-- 第二个用户气泡 -->
+    <div class="chat-bubble chat-bubble-user">
+      <div class="chat-bubble-content">把 chat 路由改成 /chat/:sessionId</div>
+    </div>
+
+    <!-- 进行中的 live 气泡：带闪烁光标 -->
+    <div class="chat-bubble chat-bubble-agent">
+      <div class="chat-bubble-content chat-bubble-live">
+<pre>明白了。我先确认一下当前的写法，再决定改动范围。
+
+● Grep(remote/session/:sessionId/simple)
+  ⎿ Found 3 matches in 2 files
+
+● Read(apps/web/src/routes.tsx)</pre>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 下面是这份草图独有的标注，真产品里没有 -->
+    <!-- ========================================== -->
+    <div class="annotation">
+      <strong>📝 标注（不在真产品中）：</strong> 上面就是 Solution A 的真实呈现。注意几个细节：
+      <ul style="margin: 6px 0 0 20px; padding: 0;">
+        <li>整段 agent 输出渲染为单个 <code>&lt;pre&gt;</code>，等宽字体、无 markdown 解析</li>
+        <li>"● Read(...)" 是 Claude Code TUI 的工具调用文本，<strong>不是卡片</strong>，无法折叠</li>
+        <li>列表 / 标题 / 代码块全是纯文字，没有视觉层级</li>
+        <li>spinner 帧已被 onLineFeed 过滤掉，看不到（这是 A 方案的优势）</li>
+        <li>没有 token / cost / 耗时统计</li>
+        <li>错误也只是文本输出，没有红色卡片</li>
+        <li>权限确认在 PTY 终端里弹，简洁视图无法响应（要切回高级视图）</li>
+      </ul>
+    </div>
+
+    <div class="annotation" style="border-left-color: #6366f1; background: rgba(99,102,241,0.08);">
+      <strong style="color:#6366f1;">📐 和 F 方案对比：</strong>
+      把这份打开旁边那份 <code>2026-05-04-simple-chat-mockup-stream-json.html</code>，
+      同样的对话内容，F 方案有：可折叠工具卡 / markdown 标题列表 / 代码语法 / cost 统计 / 错误红卡 / 权限按钮。
+    </div>
+
+  </div>
+
+  <div class="composer">
+    <textarea placeholder="发送给 Claude Code…" rows="1"></textarea>
+    <button class="send">发送</button>
+  </div>
+</div>
+</body>
+</html>

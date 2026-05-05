@@ -25,7 +25,9 @@
     "dev:codex": "tsx apps/cli/src/main.ts codex --host 0.0.0.0",
     "dev:relay": "[ -f env.sh ] && . env.sh; tsx apps/relay/src/main.ts",
     "test": "pnpm -r --if-present run test",
-    "tether": "tsx apps/cli/src/main.ts"
+    "tether": "tsx apps/cli/src/main.ts",
+    "build:release": "tsup --config tsup.release.config.ts && node scripts/fix-node-prefix.mjs",
+    "pack:release": "pnpm build:release && cp README.md release/ && cd release && npm pack --dry-run"
   },
   "dependencies": {
     "@tether/cli": "workspace:*",
@@ -33,6 +35,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.15.29",
+    "tsup": "^8.5.1",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3"
   },
@@ -41,7 +44,6 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "better-sqlite3",
       "esbuild",
       "node-pty"
     ]

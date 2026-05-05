@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tether — Stream-JSON 回放（真实 Codex + 合成 Claude）</title>
+<style>
+  :root { color-scheme: dark; --bg:#0a0a0a; --surface:#18181b; --border:#27272a;
+    --text:#fafafa; --text-2:#a1a1aa; --text-3:#71717a; --brand:#6366f1; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%;
+    font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;
+    background:var(--bg); color:var(--text); font-size:13px; line-height:1.55; }
+  .app { height: 100vh; display: flex; flex-direction: column; }
+  .header { padding:10px 14px; border-bottom:1px solid var(--border);
+    background:var(--surface); display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .header h1 { font-size:14px; font-weight:600; margin:0; }
+  .badge { background:rgba(99,102,241,0.15); color:var(--brand);
+    padding:2px 8px; border-radius:10px; font-size:10.5px; font-weight:600;
+    text-transform:uppercase; letter-spacing:0.04em; }
+  button, label.file-btn { background:var(--brand); border:none; color:white;
+    padding:6px 12px; border-radius:5px; font-size:12px; font-weight:600; cursor:pointer;
+    font-family:inherit; }
+  button.secondary { background:transparent; border:1px solid var(--border); color:var(--text-2); }
+  select { background:var(--surface); border:1px solid var(--border); color:var(--text);
+    padding:5px 8px; border-radius:4px; font-size:12px; font-family:inherit; }
+  .grid { flex:1; min-height:0; display:grid;
+    grid-template-columns: 1fr 1.4fr; gap:1px; background:var(--border); }
+  .pane { background:var(--surface); display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+  .pane-header { padding:6px 12px; background:#23232a; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:8px; flex-shrink:0; font-size:11.5px; }
+  .pane-tag { padding:1px 7px; border-radius:3px; font-size:10px; font-weight:700;
+    letter-spacing:0.04em; color:white; }
+  .pane-tag.s1 { background:#10b981; }
+  .pane-tag.s2 { background:#6366f1; }
+  .pane-name { font-weight:600; }
+  .pane-desc { font-size:10.5px; color:var(--text-3); margin-left:auto; }
+  .pane-body { flex:1; min-height:0; overflow-y:auto; padding:10px 12px; }
+
+  /* JSON 流 */
+  .ndjson-list { font-family:'SF Mono',Menlo,Consolas,monospace;
+    font-size:10.5px; line-height:1.6; white-space:pre-wrap; word-break:break-all; }
+  .ndjson-line { padding:4px 6px; margin-bottom:3px; border-radius:3px;
+    background:rgba(255,255,255,0.03); border-left:3px solid var(--text-3); opacity:0.4;
+    transition:opacity 0.2s; }
+  .ndjson-line.active { opacity:1; background:rgba(99,102,241,0.08); }
+  .ndjson-line .k { color:#94a3b8; }
+  .ndjson-line .s { color:#fbbf24; }
+  .ndjson-line .n { color:#34d399; }
+  .ndjson-line .b { color:#f472b6; }
+  .ndjson-line .type-tag { display:inline-block; padding:0 5px; border-radius:2px;
+    font-weight:700; font-size:9.5px; margin-right:4px; vertical-align:middle; }
+
+  /* 草图 F */
+  .chat-stream { display:flex; flex-direction:column; gap:12px; padding-bottom:20px; }
+  .row { display:flex; gap:8px; align-items:flex-start; }
+  .row.user { flex-direction:row-reverse; }
+  .row.system { justify-content:center; }
+  .avatar { width:30px; height:30px; border-radius:6px; flex-shrink:0; display:flex;
+    align-items:center; justify-content:center; font-size:13px; font-weight:600; color:white; }
+  .avatar.user { background:linear-gradient(135deg,#fbbf24,#f59e0b); }
+  .avatar.agent { background:linear-gradient(135deg,#c084fc,#6366f1); }
+  .bubble-col { max-width:calc(100% - 40px); display:flex; flex-direction:column; gap:5px; }
+  .row.user .bubble-col { align-items:flex-end; }
+  .bubble { padding:9px 13px; border-radius:8px; word-wrap:break-word; font-size:13px; }
+  .bubble.user { background:#22c55e; color:#052e16; border-top-right-radius:2px; }
+  .bubble.agent { background:#1f1f23; color:var(--text); border:1px solid var(--border);
+    border-top-left-radius:2px; }
+  .bubble.agent p { margin:0 0 6px 0; }
+  .bubble.agent p:last-child { margin-bottom:0; }
+  .bubble.agent ul { margin:5px 0; padding-left:20px; }
+  .bubble.agent li { margin:1px 0; }
+  .bubble.agent code { background:#0f172a; color:#e2e8f0; padding:1px 5px;
+    border-radius:3px; font-size:11.5px; font-family:'SF Mono',Menlo,monospace; }
+  .bubble.agent strong { font-weight:600; }
+  .bubble.thinking { background:rgba(202,84,252,0.08); border:1px dashed rgba(202,84,252,0.3);
+    font-size:11.5px; color:var(--text-2); font-style:italic; max-height:120px; overflow-y:auto; }
+  .bubble.thinking::before { content:"💭 reasoning · "; color:#c084fc; font-weight:600; font-style:normal; }
+  .tool-card { background:#1e1b3a; border:1px solid #312e81; border-radius:8px;
+    overflow:hidden; border-top-left-radius:2px; }
+  .tool-card.in-progress { border-color:#fbbf24; background:#1f1a0a; }
+  .tool-card-header { display:flex; align-items:center; gap:8px; padding:8px 12px;
+    cursor:pointer; user-select:none; }
+  .tool-icon { font-family:'SF Mono',Menlo,monospace; font-size:10px; font-weight:700;
+    color:#818cf8; background:rgba(99,102,241,0.12);
+    padding:2px 7px; border-radius:3px; flex-shrink:0; }
+  .in-progress .tool-icon { color:#fbbf24; background:rgba(251,191,36,0.15); }
+  .tool-name { font-weight:600; font-size:12.5px; }
+  .tool-args-inline { color:var(--text-2); font-family:'SF Mono',Menlo,monospace;
+    font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    flex:1; min-width:0; }
+  details[open] .tool-chevron { transform:rotate(90deg); }
+  .tool-chevron { color:var(--text-3); transition:transform 0.15s; flex-shrink:0; font-size:12px; }
+  .tool-card-body { padding:0 12px 10px; border-top:1px dashed #312e81;
+    margin-top:3px; padding-top:8px; }
+  .tool-result { background:#052e1a; border:1px solid #14532d; border-radius:6px;
+    padding:8px 10px; font-family:'SF Mono',Menlo,monospace; font-size:11px;
+    color:var(--text-2); max-height:180px; overflow-y:auto; white-space:pre-wrap; }
+  .tool-result.error { background:#2a0e0e; border-color:#7f1d1d; }
+  .tool-result-header { color:#34d399; font-weight:600; font-size:10px;
+    margin-bottom:4px; text-transform:uppercase; letter-spacing:0.04em; }
+  .tool-result.error .tool-result-header { color:#f87171; }
+  .spinner { display:inline-flex; gap:3px; padding:6px 0; }
+  .spinner span { width:5px; height:5px; border-radius:50%; background:#fbbf24;
+    animation:bounce 1.4s infinite ease-in-out; }
+  .spinner span:nth-child(2) { animation-delay:0.16s; }
+  .spinner span:nth-child(3) { animation-delay:0.32s; }
+  @keyframes bounce { 0%,80%,100% { transform:scale(0.6); opacity:0.4; }
+    40% { transform:scale(1); opacity:1; } }
+  .system-msg { text-align:center; color:var(--text-3); font-size:11px;
+    padding:3px 12px; background:rgba(255,255,255,0.05); border-radius:11px; }
+  .result-card { background:#18181b; border:1px solid var(--border); border-radius:6px;
+    padding:8px 12px; font-size:11px; color:var(--text-2);
+    display:flex; gap:14px; flex-wrap:wrap; }
+  .result-card .label { color:var(--text-3); font-size:10px;
+    text-transform:uppercase; letter-spacing:0.04em; }
+  .result-card .value { font-family:'SF Mono',Menlo,monospace; color:var(--text);
+    font-weight:500; font-size:11px; }
+  .result-card .item { display:flex; flex-direction:column; }
+
+  .stats { padding:8px 14px; background:rgba(99,102,241,0.08);
+    border-top:1px solid var(--border); font-size:11px; color:var(--text-2);
+    font-family:'SF Mono',Menlo,monospace; }
+  .stats strong { color:var(--brand); }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <h1>Stream-JSON 回放</h1>
+    <span class="badge">F 模式真实数据</span>
+    <div style="display:flex; gap:5px; flex-wrap:wrap;">
+      <button data-sample="codex-hello">Codex hello</button>
+      <button data-sample="codex-readme">Codex 读 README</button>
+      <button data-sample="codex-multitool">Codex 多工具</button>
+      <button data-sample="claude-synthetic">Claude (合成)</button>
+    </div>
+    <div style="margin-left:auto; display:flex; gap:6px; align-items:center;">
+      速度 <select id="speed">
+        <option value="0">瞬时</option>
+        <option value="1" selected>1x</option>
+        <option value="2">2x</option>
+        <option value="0.5">慢放</option>
+      </select>
+      <label class="file-btn">📁 .jsonl<input type="file" id="file" style="display:none;" accept=".jsonl,.txt" /></label>
+      <button class="secondary" id="reset">↻</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="pane">
+      <div class="pane-header">
+        <span class="pane-tag s1">1</span>
+        <span class="pane-name">原始 NDJSON</span>
+        <span class="pane-desc">Gateway 从 stdout 收到的</span>
+      </div>
+      <div class="pane-body" id="pane-ndjson"></div>
+    </div>
+    <div class="pane">
+      <div class="pane-header">
+        <span class="pane-tag s2">2</span>
+        <span class="pane-name">草图 F 渲染</span>
+        <span class="pane-desc">→ 手机/网页最终看到</span>
+      </div>
+      <div class="pane-body" id="pane-chat"></div>
+    </div>
+  </div>
+
+  <div class="stats" id="stats"></div>
+</div>
+
+<script>
+const SAMPLES = {"codex-hello": "{\"type\":\"thread.started\",\"thread_id\":\"019df3be-bb90-78b0-9ff2-4d4169de696d\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"hello\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":28691,\"cached_input_tokens\":7424,\"output_tokens\":5,\"reasoning_output_tokens\":0}}\n", "codex-readme": "{\"type\":\"thread.started\",\"thread_id\":\"019df3c6-843c-7511-a4e7-4d3f9022e68d\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"reasoning\",\"text\":\"**Deciding on response language**\\n\\nI need to read the file, so I'll use the exec_command with cat or head. The user asked in English, but my instructions default to Chinese unless specified.\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_1\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc 'head -n 1 /Users/dream/code/tether/README.md'\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_1\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc 'head -n 1 /Users/dream/code/tether/README.md'\",\"aggregated_output\":\"# Tether\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_2\",\"type\":\"agent_message\",\"text\":\"`/Users/dream/code/tether/README.md` 的第一行是：`# Tether`\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":57541,\"cached_input_tokens\":35840,\"output_tokens\":130,\"reasoning_output_tokens\":63}}\n", "codex-multitool": "Reading prompt from stdin...\n{\"type\":\"thread.started\",\"thread_id\":\"019df3d8-6d8a-7c23-9fba-ddafd0f7c5c8\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_0\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc \\\"cd /Users/dream/code/tether && find docs/working -type f -name '*.md' | sort\\\"\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc \\\"cd /Users/dream/code/tether && find docs/working -type f -name '*.md' | sort\\\"\",\"aggregated_output\":\"docs/working/2026-05-04-direct-relay-replay-consistency.md\\ndocs/working/2026-05-04-gateway-session-recovery.md\\ndocs/working/2026-05-04-npm-cli-gateway-packaging.md\\ndocs/working/2026-05-04-simple-chat-view-clean-text.md\\ndocs/working/2026-05-04-token-auth-unfinished-items.md\\ndocs/working/2026-05-04-unified-web-session-create.md\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_1\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc \\\"cd /Users/dream/code/tether && find docs/working -type f -name '*.md' | wc -l | tr -d ' '\\\"\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_1\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc \\\"cd /Users/dream/code/tether && find docs/working -type f -name '*.md' | wc -l | tr -d ' '\\\"\",\"aggregated_output\":\"6\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_2\",\"type\":\"agent_message\",\"text\":\"`docs/working` 下面的 `.md` 文件有：\\n\\n- `docs/working/2026-05-04-direct-relay-replay-consistency.md`\\n- `docs/working/2026-05-04-gateway-session-recovery.md`\\n- `docs/working/2026-05-04-npm-cli-gateway-packaging.md`\\n- `docs/working/2026-05-04-simple-chat-view-clean-text.md`\\n- `docs/working/2026-05-04-token-auth-unfinished-items.md`\\n- `docs/working/2026-05-04-unified-web-session-create.md`\\n\\n一共 `6` 个。\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":88235,\"cached_input_tokens\":65792,\"output_tokens\":344,\"reasoning_output_tokens\":83}}\n", "claude-synthetic": "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"sess_abc123\",\"tools\":[\"Read\",\"Write\",\"Edit\",\"Bash\",\"Grep\",\"Glob\"]}\n{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"列出 docs/working 下的 .md 文件\"}]}}\n{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"我来找一下。\"}]}}\n{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_01\",\"name\":\"Glob\",\"input\":{\"pattern\":\"docs/working/*.md\"}}]}}\n{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"toolu_01\",\"content\":\"docs/working/2026-05-04-direct-relay-replay-consistency.md\\ndocs/working/2026-05-04-gateway-session-recovery.md\\ndocs/working/2026-05-04-npm-cli-gateway-packaging.md\\ndocs/working/2026-05-04-simple-chat-view-clean-text.md\\ndocs/working/2026-05-04-token-auth-unfinished-items.md\\ndocs/working/2026-05-04-unified-web-session-create.md\"}]}}\n{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"找到了 **6 个 .md 文件**：\\n\\n- `2026-05-04-direct-relay-replay-consistency.md`\\n- `2026-05-04-gateway-session-recovery.md`\\n- `2026-05-04-npm-cli-gateway-packaging.md`\\n- `2026-05-04-simple-chat-view-clean-text.md`\\n- `2026-05-04-token-auth-unfinished-items.md`\\n- `2026-05-04-unified-web-session-create.md`\"}]}}\n{\"type\":\"result\",\"subtype\":\"success\",\"total_cost_usd\":0.0085,\"duration_ms\":2400,\"usage\":{\"input_tokens\":4521,\"cache_read_input_tokens\":3200,\"output_tokens\":156}}\n"};
+
+// ============================================================
+// 内部统一事件 schema（Tether Gateway agent.* 事件）
+// ============================================================
+// type: 'session' | 'message' | 'reasoning' | 'tool_started' | 'tool_completed' | 'turn_completed'
+
+// ============================================================
+// Codex Adapter: NDJSON line → unified event
+// ============================================================
+function codexAdapter(msg) {
+  switch (msg.type) {
+    case 'thread.started':
+      return { type: 'session', id: msg.thread_id, agent: 'codex' };
+    case 'turn.started':
+      return null;  // 不需要单独事件
+    case 'item.started': {
+      const it = msg.item;
+      if (it.type === 'command_execution') {
+        return { type: 'tool_started', id: it.id, name: 'Bash',
+                 args: { command: it.command } };
+      }
+      return null;
+    }
+    case 'item.completed': {
+      const it = msg.item;
+      if (it.type === 'agent_message')
+        return { type: 'message', role: 'assistant', text: it.text };
+      if (it.type === 'reasoning')
+        return { type: 'reasoning', text: it.text };
+      if (it.type === 'command_execution')
+        return { type: 'tool_completed', id: it.id, name: 'Bash',
+                 args: { command: it.command }, output: it.aggregated_output,
+                 exitCode: it.exit_code, isError: it.exit_code !== 0 };
+      return null;
+    }
+    case 'turn.completed':
+      return { type: 'turn_completed',
+               usage: { input: msg.usage.input_tokens,
+                        output: msg.usage.output_tokens,
+                        cached: msg.usage.cached_input_tokens || 0,
+                        reasoning: msg.usage.reasoning_output_tokens || 0 } };
+    default:
+      return null;
+  }
+}
+
+// ============================================================
+// Claude Adapter
+// ============================================================
+function claudeAdapter(msg) {
+  switch (msg.type) {
+    case 'system':
+      return msg.subtype === 'init'
+        ? { type: 'session', id: msg.session_id, agent: 'claude', tools: msg.tools }
+        : null;
+    case 'user': {
+      const content = msg.message?.content;
+      if (Array.isArray(content)) {
+        const events = [];
+        for (const c of content) {
+          if (c.type === 'text')
+            events.push({ type: 'message', role: 'user', text: c.text });
+          else if (c.type === 'tool_result')
+            events.push({ type: 'tool_completed', id: c.tool_use_id,
+                          output: typeof c.content === 'string' ? c.content : JSON.stringify(c.content),
+                          isError: !!c.is_error });
+        }
+        return events.length === 1 ? events[0] : events;
+      }
+      return { type: 'message', role: 'user', text: typeof content === 'string' ? content : '' };
+    }
+    case 'assistant': {
+      const content = msg.message?.content || [];
+      const events = [];
+      for (const c of content) {
+        if (c.type === 'text')
+          events.push({ type: 'message', role: 'assistant', text: c.text });
+        else if (c.type === 'tool_use')
+          events.push({ type: 'tool_started', id: c.id, name: c.name, args: c.input });
+      }
+      return events.length === 1 ? events[0] : events;
+    }
+    case 'result':
+      return { type: 'turn_completed',
+               usage: { input: msg.usage?.input_tokens || 0,
+                        output: msg.usage?.output_tokens || 0,
+                        cached: msg.usage?.cache_read_input_tokens || 0 },
+               cost: msg.total_cost_usd, duration: msg.duration_ms };
+    default:
+      return null;
+  }
+}
+
+function detectAdapter(firstLine) {
+  try {
+    const msg = JSON.parse(firstLine);
+    if (msg.type === 'thread.started') return codexAdapter;
+    if (msg.type === 'system' && msg.subtype === 'init') return claudeAdapter;
+  } catch {}
+  return codexAdapter;
+}
+
+// ============================================================
+// 渲染器: unified event → DOM
+// ============================================================
+const state = { toolCards: new Map() };
+
+function chatStream() { return document.getElementById('pane-chat'); }
+
+function appendRow(role, content) {
+  const wrap = chatStream().firstChild || (() => {
+    const c = document.createElement('div');
+    c.className = 'chat-stream';
+    chatStream().appendChild(c);
+    return c;
+  })();
+  const row = document.createElement('div');
+  row.className = `row ${role}`;
+  if (role !== 'system') {
+    const av = document.createElement('div');
+    av.className = `avatar ${role === 'user' ? 'user' : 'agent'}`;
+    av.textContent = role === 'user' ? '我' : 'C';
+    row.appendChild(av);
+    const col = document.createElement('div');
+    col.className = 'bubble-col';
+    col.appendChild(content);
+    row.appendChild(col);
+  } else {
+    row.appendChild(content);
+  }
+  wrap.appendChild(row);
+  chatStream().scrollTop = chatStream().scrollHeight;
+  return row;
+}
+
+function renderMarkdown(text) {
+  // 简化 markdown：粗体 + 行内代码 + 列表
+  let html = text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+  const lines = html.split('\n');
+  let out = '', inList = false;
+  for (const line of lines) {
+    if (/^\s*-\s+/.test(line)) {
+      if (!inList) { out += '<ul>'; inList = true; }
+      out += '<li>' + line.replace(/^\s*-\s+/, '') + '</li>';
+    } else {
+      if (inList) { out += '</ul>'; inList = false; }
+      if (line.trim()) out += '<p>' + line + '</p>';
+    }
+  }
+  if (inList) out += '</ul>';
+  return out;
+}
+
+function applyEvent(ev) {
+  if (Array.isArray(ev)) { ev.forEach(applyEvent); return; }
+  if (!ev) return;
+  switch (ev.type) {
+    case 'session': {
+      const m = document.createElement('div');
+      m.className = 'system-msg';
+      m.textContent = `会话已开始 · ${ev.agent}` +
+        (ev.tools ? ` · 工具：${ev.tools.join(', ')}` : '');
+      appendRow('system', m);
+      break;
+    }
+    case 'message': {
+      const b = document.createElement('div');
+      b.className = `bubble ${ev.role === 'user' ? 'user' : 'agent'}`;
+      if (ev.role === 'user') b.textContent = ev.text;
+      else b.innerHTML = renderMarkdown(ev.text);
+      appendRow(ev.role === 'user' ? 'user' : 'agent', b);
+      break;
+    }
+    case 'reasoning': {
+      const b = document.createElement('div');
+      b.className = 'bubble agent thinking';
+      b.textContent = ev.text;
+      appendRow('agent', b);
+      break;
+    }
+    case 'tool_started': {
+      const card = document.createElement('details');
+      card.className = 'tool-card in-progress';
+      card.open = true;
+      const argStr = formatArgs(ev.args);
+      card.innerHTML = `
+        <summary class="tool-card-header" style="list-style:none;">
+          <span class="tool-icon">${ev.name.toUpperCase()}</span>
+          <span class="tool-name">${ev.name}</span>
+          <span class="tool-args-inline">${escapeHtml(argStr)}</span>
+          <span class="tool-chevron">›</span>
+        </summary>
+        <div class="tool-card-body">
+          <div class="spinner"><span></span><span></span><span></span></div>
+        </div>`;
+      appendRow('agent', card);
+      state.toolCards.set(ev.id, card);
+      break;
+    }
+    case 'tool_completed': {
+      const card = state.toolCards.get(ev.id);
+      if (!card) {
+        // 没匹配到先前的 tool_started，独立创建一个完成态卡片
+        const c = document.createElement('details');
+        c.className = 'tool-card';
+        c.open = true;
+        c.innerHTML = `
+          <summary class="tool-card-header" style="list-style:none;">
+            <span class="tool-icon">${(ev.name||'TOOL').toUpperCase()}</span>
+            <span class="tool-name">${ev.name||'tool'}</span>
+            <span class="tool-args-inline"></span>
+            <span class="tool-chevron">›</span>
+          </summary>
+          <div class="tool-card-body">
+            <div class="tool-result ${ev.isError?'error':''}">
+              <div class="tool-result-header">${ev.isError?'✗ error':'✓ result'}</div>${escapeHtml(ev.output||'')}
+            </div>
+          </div>`;
+        appendRow('agent', c);
+        break;
+      }
+      card.classList.remove('in-progress');
+      const body = card.querySelector('.tool-card-body');
+      const exitInfo = ev.exitCode != null ? ` · exit ${ev.exitCode}` : '';
+      body.innerHTML = `
+        <div class="tool-result ${ev.isError?'error':''}">
+          <div class="tool-result-header">${ev.isError?'✗ error':'✓ result'}${exitInfo}</div>${escapeHtml(ev.output||'')}
+        </div>`;
+      state.toolCards.delete(ev.id);
+      break;
+    }
+    case 'turn_completed': {
+      const card = document.createElement('div');
+      card.className = 'result-card';
+      const items = [];
+      if (ev.usage) {
+        if (ev.usage.input != null) items.push(['输入', ev.usage.input.toLocaleString()]);
+        if (ev.usage.output != null) items.push(['输出', ev.usage.output.toLocaleString()]);
+        if (ev.usage.cached) items.push(['缓存', ev.usage.cached.toLocaleString()]);
+        if (ev.usage.reasoning) items.push(['推理', ev.usage.reasoning.toLocaleString()]);
+      }
+      if (ev.cost) items.push(['花费', '$' + ev.cost.toFixed(4)]);
+      if (ev.duration) items.push(['耗时', (ev.duration/1000).toFixed(2) + 's']);
+      card.innerHTML = items.map(([l, v]) =>
+        `<div class="item"><span class="label">${l}</span><span class="value">${v}</span></div>`
+      ).join('');
+      appendRow('agent', card);
+      break;
+    }
+  }
+}
+
+function formatArgs(args) {
+  if (!args) return '';
+  if (typeof args === 'string') return args;
+  if (args.command) return args.command;
+  return Object.entries(args).map(([k,v]) =>
+    `${k}: ${typeof v === 'string' ? '"' + v + '"' : JSON.stringify(v)}`
+  ).join(', ');
+}
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ============================================================
+// NDJSON 显示 + 高亮
+// ============================================================
+function showNdjsonLines(lines) {
+  const pane = document.getElementById('pane-ndjson');
+  pane.innerHTML = '';
+  const list = document.createElement('div');
+  list.className = 'ndjson-list';
+  lines.forEach((line, i) => {
+    const div = document.createElement('div');
+    div.className = 'ndjson-line';
+    div.dataset.idx = i;
+    let html = escapeHtml(line);
+    html = html.replace(/&quot;([^&]+?)&quot;:/g, '<span class="k">"$1"</span>:')
+               .replace(/:&quot;([^&]*?)&quot;/g, ':<span class="s">"$1"</span>')
+               .replace(/:(-?\d+(?:\.\d+)?)/g, ':<span class="n">$1</span>')
+               .replace(/:(true|false|null)/g, ':<span class="b">$1</span>');
+    // 高亮事件类型
+    let typeColor = '#6b7280';
+    try {
+      const m = JSON.parse(line);
+      const t = m.type || '';
+      if (t.includes('thread') || t.includes('system')) typeColor = '#6b7280';
+      else if (t === 'turn.started') typeColor = '#fbbf24';
+      else if (t === 'turn.completed') typeColor = '#f472b6';
+      else if (t === 'item.started') typeColor = '#fbbf24';
+      else if (t === 'item.completed' || t === 'assistant') typeColor = '#c084fc';
+      else if (t === 'user') typeColor = '#22c55e';
+      else if (t === 'result') typeColor = '#f472b6';
+      div.style.borderLeftColor = typeColor;
+    } catch {}
+    div.innerHTML = html;
+    list.appendChild(div);
+  });
+  pane.appendChild(list);
+}
+
+function highlightLine(idx) {
+  document.querySelectorAll('.ndjson-line').forEach(el => el.classList.remove('active'));
+  const el = document.querySelector(`.ndjson-line[data-idx="${idx}"]`);
+  if (el) {
+    el.classList.add('active');
+    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+}
+
+// ============================================================
+// Playback driver
+// ============================================================
+let playState = null;
+
+async function play(jsonl, sourceName) {
+  reset();
+  const lines = jsonl.split('\n').filter(l => l.trim());
+  const adapter = detectAdapter(lines[0]);
+  showNdjsonLines(lines);
+
+  const speed = parseFloat(document.getElementById('speed').value);
+  playState = { cancelled: false };
+
+  const t0 = performance.now();
+  let parsed = 0, eventsCount = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (playState?.cancelled) return;
+    const line = lines[i];
+    try {
+      const msg = JSON.parse(line);
+      const ev = adapter(msg);
+      if (ev) eventsCount += Array.isArray(ev) ? ev.length : 1;
+      highlightLine(i);
+      applyEvent(ev);
+      parsed++;
+    } catch (e) {
+      console.error('parse fail', line, e);
+    }
+    if (speed > 0) {
+      const baseDelay = i === 0 ? 200 : (lines[i-1]?.includes('reasoning') ? 1000 : 400);
+      await new Promise(r => setTimeout(r, baseDelay / speed));
+    }
+  }
+  const t1 = performance.now();
+  document.getElementById('stats').innerHTML = `
+    <strong>${sourceName}</strong> · ${lines.length} NDJSON 行 → ${parsed} 解析成功 · ${eventsCount} 内部事件
+    · ${(t1-t0).toFixed(0)}ms
+  `;
+}
+
+function reset() {
+  if (playState) playState.cancelled = true;
+  document.getElementById('pane-ndjson').innerHTML = '';
+  document.getElementById('pane-chat').innerHTML = '';
+  document.getElementById('stats').innerHTML = '';
+  state.toolCards.clear();
+}
+
+document.querySelectorAll('button[data-sample]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const k = btn.dataset.sample;
+    play(SAMPLES[k], k);
+  });
+});
+document.getElementById('reset').addEventListener('click', reset);
+document.getElementById('file').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const text = await f.text();
+  play(text, f.name);
+});
+
+window.addEventListener('load', () => setTimeout(() =>
+  document.querySelector('button[data-sample="codex-multitool"]').click(), 200));
+</script>
+</body>
+</html>

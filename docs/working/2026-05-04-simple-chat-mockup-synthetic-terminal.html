@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tether — SyntheticTerminalRenderer spike</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" />
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0a0a0a;
+    --surface: #18181b;
+    --border: #27272a;
+    --text: #fafafa;
+    --text-2: #a1a1aa;
+    --text-3: #71717a;
+    --brand: #6366f1;
+    --term-bg: #1e1e1e;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+  }
+  .app {
+    max-width: 880px;
+    margin: 0 auto;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+  }
+  .header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .header h1 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0;
+  }
+  .badge {
+    background: rgba(99,102,241,0.15);
+    color: var(--brand);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+    padding: 0 16px;
+    background: var(--surface);
+  }
+  .tab {
+    padding: 8px 14px;
+    font-size: 13px;
+    color: var(--text-2);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    user-select: none;
+  }
+  .tab.active {
+    color: var(--text);
+    border-bottom-color: var(--brand);
+  }
+  .tab.disabled { opacity: 0.4; cursor: not-allowed; }
+  .view-host {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+  }
+  .view {
+    position: absolute;
+    inset: 0;
+    display: none;
+    overflow-y: auto;
+  }
+  .view.active { display: block; }
+  .view.terminal-host {
+    background: var(--term-bg);
+    padding: 10px;
+    overflow: hidden;
+  }
+  .view.terminal-host .xterm,
+  .view.terminal-host .xterm .xterm-viewport,
+  .view.terminal-host .xterm .xterm-screen {
+    height: 100% !important;
+  }
+
+  /* chat view (F-mode) */
+  .chat-stream {
+    padding: 18px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    background: var(--bg);
+    min-height: 100%;
+  }
+  .chat-row { display: flex; gap: 8px; align-items: flex-start; }
+  .chat-row.user { flex-direction: row-reverse; }
+  .chat-row.system { justify-content: center; }
+  .chat-avatar {
+    width: 32px; height: 32px; border-radius: 6px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 600; color: white;
+  }
+  .chat-avatar.user { background: linear-gradient(135deg, #fbbf24, #f59e0b); }
+  .chat-avatar.agent { background: linear-gradient(135deg, #c084fc, #6366f1); }
+  .chat-bubble-col { max-width: calc(100% - 48px); display: flex; flex-direction: column; gap: 4px; }
+  .chat-row.user .chat-bubble-col { align-items: flex-end; }
+  .chat-bubble {
+    padding: 9px 13px; border-radius: 8px; word-wrap: break-word;
+  }
+  .chat-bubble.user {
+    background: #22c55e; color: #052e16; border-top-right-radius: 2px;
+  }
+  .chat-bubble.agent {
+    background: #1f1f23; color: var(--text); border: 1px solid var(--border);
+    border-top-left-radius: 2px;
+  }
+  .chat-bubble.agent p { margin: 0 0 8px 0; }
+  .chat-bubble.agent p:last-child { margin-bottom: 0; }
+  .chat-bubble.agent code {
+    background: #0f172a; color: #e2e8f0; padding: 1px 5px; border-radius: 3px;
+    font-size: 12.5px; font-family: 'SF Mono', Menlo, monospace;
+  }
+  .chat-bubble.agent ul { margin: 6px 0; padding-left: 22px; }
+  .chat-bubble.agent li { margin: 2px 0; }
+  .chat-bubble.agent strong { font-weight: 600; }
+  .tool-card {
+    background: #1e1b3a; border: 1px solid #312e81; border-radius: 8px;
+    overflow: hidden; border-top-left-radius: 2px;
+  }
+  .tool-card-header {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    cursor: pointer; user-select: none;
+  }
+  .tool-icon {
+    font-family: 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 700;
+    color: #818cf8; background: rgba(99,102,241,0.12);
+    padding: 2px 7px; border-radius: 3px; flex-shrink: 0;
+  }
+  .tool-name { font-weight: 600; color: var(--text); font-size: 13px; }
+  .tool-args-inline {
+    color: var(--text-2); font-family: 'SF Mono', Menlo, monospace; font-size: 12px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;
+  }
+  .tool-chevron { color: var(--text-3); transition: transform 0.15s; flex-shrink: 0; }
+  details[open] .tool-chevron { transform: rotate(90deg); }
+  .tool-card-body {
+    padding: 0 12px 10px; border-top: 1px dashed #312e81; margin-top: 4px; padding-top: 8px;
+  }
+  .tool-result {
+    margin-top: 6px; background: #052e1a; border: 1px solid #14532d;
+    border-radius: 6px; padding: 8px 10px;
+    font-family: 'SF Mono', Menlo, monospace; font-size: 12px; color: var(--text-2);
+  }
+  .tool-result-header {
+    color: #34d399; font-weight: 600; font-size: 11px; margin-bottom: 4px;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .system-msg {
+    text-align: center; color: var(--text-3); font-size: 11.5px;
+    padding: 4px 12px; background: rgba(255,255,255,0.05); border-radius: 12px;
+  }
+  .result-card {
+    background: #18181b; border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 12px; font-size: 11.5px; color: var(--text-2);
+    display: flex; gap: 14px; flex-wrap: wrap;
+  }
+  .result-card .item { display: flex; flex-direction: column; }
+  .result-card .label { color: var(--text-3); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .result-card .value { font-family: 'SF Mono', Menlo, monospace; color: var(--text); font-weight: 500; }
+  .cursor {
+    display: inline-block; width: 2px; height: 14px; background: var(--text);
+    margin-left: 1px; vertical-align: text-bottom; animation: blink 1s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .thinking { display: inline-flex; gap: 3px; padding: 4px 0; }
+  .thinking span {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--text-3);
+    animation: bounce 1.4s infinite ease-in-out;
+  }
+  .thinking span:nth-child(2) { animation-delay: 0.16s; }
+  .thinking span:nth-child(3) { animation-delay: 0.32s; }
+  @keyframes bounce { 0%,80%,100% { transform: scale(0.6); opacity: 0.4; } 40% { transform: scale(1); opacity: 1; } }
+
+  /* raw event view */
+  .raw-stream {
+    padding: 12px 14px;
+    background: #0f172a;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    line-height: 1.7;
+    min-height: 100%;
+  }
+  .raw-line {
+    display: flex; gap: 10px; padding: 3px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .raw-time { color: #64748b; flex-shrink: 0; width: 90px; }
+  .raw-type { font-weight: 600; flex-shrink: 0; width: 180px; }
+  .raw-type.system { color: #64748b; }
+  .raw-type.user { color: #fbbf24; }
+  .raw-type.assistant { color: #c084fc; }
+  .raw-type.tool-use { color: #34d399; }
+  .raw-type.tool-result { color: #60a5fa; }
+  .raw-type.result { color: #f472b6; }
+  .raw-payload { color: #cbd5e1; word-break: break-all; }
+  .raw-payload .k { color: #94a3b8; }
+  .raw-payload .s { color: #fbbf24; }
+  .raw-payload .n { color: #34d399; }
+  .controls {
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  button {
+    background: var(--brand);
+    color: white;
+    border: none;
+    padding: 7px 14px;
+    border-radius: 5px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-2);
+  }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .speed {
+    color: var(--text-3);
+    font-size: 12px;
+    margin-left: auto;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  select {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+  .note {
+    padding: 10px 16px;
+    background: rgba(99,102,241,0.08);
+    border-top: 1px solid var(--border);
+    font-size: 11.5px;
+    color: var(--text-2);
+    line-height: 1.6;
+  }
+  .note strong { color: var(--brand); }
+  .note code {
+    background: rgba(255,255,255,0.06);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: 'SF Mono', Menlo, monospace;
+    font-size: 11px;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div class="header-left">
+      <h1>Tether · Claude Code</h1>
+      <span class="badge">AGENT (stream-json)</span>
+    </div>
+    <div style="font-size:12px; color:var(--text-3);">session a8f2c1 · sonnet 4.6</div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab" data-view="chat">💬 聊天</div>
+    <div class="tab active" data-view="terminal">⌨ 终端（合成）</div>
+    <div class="tab" data-view="raw">📋 事件流</div>
+  </div>
+
+  <div class="view-host">
+    <!-- 视图 1：聊天（草图 F 样式）-->
+    <div class="view" id="view-chat">
+      <div class="chat-stream" id="chat-stream"></div>
+    </div>
+
+    <!-- 视图 2：合成终端（默认显示）-->
+    <div class="view terminal-host active" id="view-terminal"></div>
+
+    <!-- 视图 3：原始事件流 -->
+    <div class="view" id="view-raw">
+      <div class="raw-stream" id="raw-stream"></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="play">▶ 播放回放</button>
+    <button class="secondary" id="reset">↻ 重置</button>
+    <div class="speed">
+      速度
+      <select id="speed">
+        <option value="3">3x</option>
+        <option value="2">2x</option>
+        <option value="1" selected>1x</option>
+        <option value="0.5">0.5x</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>SyntheticTerminalRenderer spike：</strong>
+    上面跑的是真实 <code>@xterm/xterm</code>。
+    渲染源是模拟的 <code>agent.*</code> 事件流（见下方代码 <code>EVENTS</code> 数组），
+    每条事件按规则 <code>renderEvent()</code> 转成 ANSI 字节流写入 xterm。
+    <br>
+    <strong>所有视觉元素都是前端合成的</strong>：● 圆点、⎿ 缩进、spinner 帧、cost 统计条、颜色。
+    没有真 PTY、没有真 Claude TUI 进程。
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+<script>
+// ============================================================
+// Sample event stream (这是 stream-json 模式 Gateway 会发的东西)
+// ============================================================
+const EVENTS = [
+  { delay: 0,    type: 'system.init',   tools: ['Read','Write','Edit','Bash','Grep','Glob'] },
+  { delay: 100,  type: 'user.message',  text: '帮我看看 apps/web 下面有几个路由，分别是什么作用' },
+  { delay: 800,  type: 'assistant.delta', text: '好的，我' },
+  { delay: 80,   type: 'assistant.delta', text: '先找一下' },
+  { delay: 80,   type: 'assistant.delta', text: '路由定义文件。' },
+  { delay: 200,  type: 'assistant.end' },
+
+  { delay: 300,  type: 'tool.use.start',   id: 't1', name: 'Glob',  input: { pattern: 'apps/web/**/routes*.tsx' } },
+  { delay: 1200, type: 'tool.use.result',  id: 't1', summary: 'Found 2 files', body: 'apps/web/src/routes.tsx\napps/web/src/main.tsx' },
+
+  { delay: 200,  type: 'tool.use.start',   id: 't2', name: 'Read',  input: { file_path: 'apps/web/src/routes.tsx' } },
+  { delay: 800,  type: 'tool.use.result',  id: 't2', summary: 'Read 48 lines' },
+
+  { delay: 400,  type: 'assistant.delta', text: '\napps/web 共有 ' },
+  { delay: 60,   type: 'assistant.delta', text: '6 个路由：\n\n' },
+  { delay: 100,  type: 'assistant.delta', text: '  - /                                 对外官网首页（公开）\n' },
+  { delay: 60,   type: 'assistant.delta', text: '  - /login                            登录页\n' },
+  { delay: 60,   type: 'assistant.delta', text: '  - /register                         注册页\n' },
+  { delay: 60,   type: 'assistant.delta', text: '  - /sessions                         登录后 session 列表\n' },
+  { delay: 60,   type: 'assistant.delta', text: '  - /remote/session/:sessionId        单个终端 session（高级视图）\n' },
+  { delay: 60,   type: 'assistant.delta', text: '  - /remote/session/:sessionId/simple 简洁聊天视图\n\n' },
+  { delay: 120,  type: 'assistant.delta', text: '所有路由集中在 src/routes.tsx，main.tsx 只负责把 Provider\n' },
+  { delay: 80,   type: 'assistant.delta', text: '和 session surface 传给路由层。' },
+  { delay: 200,  type: 'assistant.end' },
+
+  { delay: 300,  type: 'result', duration: 3.2, cost: 0.012, tokensIn: 2841, tokensOut: 412 },
+
+  { delay: 800,  type: 'user.message', text: '把 chat 路由改成 /chat/:sessionId' },
+  { delay: 600,  type: 'assistant.delta', text: '明白了。我先确认一下当前的写法，再决定改动范围。' },
+  { delay: 200,  type: 'assistant.end' },
+  { delay: 300,  type: 'tool.use.start',  id: 't3', name: 'Grep',  input: { pattern: 'remote/session/:sessionId/simple' } },
+  // 故意不发 tool.use.result，让 spinner 一直转
+];
+
+// ============================================================
+// Render rules: agent.* event → ANSI bytes
+// ============================================================
+const ESC = '\x1b';
+const RESET   = ESC + '[0m';
+const BOLD    = ESC + '[1m';
+const DIM     = ESC + '[2m';
+const RED     = ESC + '[31m';
+const GREEN   = ESC + '[32m';
+const YELLOW  = ESC + '[33m';
+const BLUE    = ESC + '[34m';
+const MAGENTA = ESC + '[35m';
+const CYAN    = ESC + '[36m';
+const WHITE   = ESC + '[37m';
+const GRAY    = ESC + '[90m';
+
+const SPINNER_FRAMES = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
+
+function formatArgs(input) {
+  const entries = Object.entries(input);
+  if (entries.length === 0) return '';
+  return entries.map(([k, v]) => `${k}: ${typeof v === 'string' ? `"${v}"` : JSON.stringify(v)}`).join(', ');
+}
+
+// 每条事件返回要写入 xterm 的 ANSI 字符串
+function renderEvent(term, ev, state) {
+  switch (ev.type) {
+    case 'system.init':
+      term.write(`${DIM}─── 会话已开始 · 工具：${ev.tools.join(', ')} ───${RESET}\r\n\r\n`);
+      break;
+
+    case 'user.message':
+      term.write(`\r\n${CYAN}${BOLD}>${RESET} ${ev.text}\r\n\r\n`);
+      break;
+
+    case 'assistant.delta':
+      // 流式，逐字 write
+      term.write(ev.text.replace(/\n/g, '\r\n'));
+      break;
+
+    case 'assistant.end':
+      term.write('\r\n');
+      break;
+
+    case 'tool.use.start': {
+      // ● ToolName(args)  —— 绿点 + 加粗工具名 + 灰色参数
+      const args = formatArgs(ev.input);
+      term.write(`${GREEN}●${RESET} ${BOLD}${ev.name}${RESET}(${DIM}${args}${RESET})\r\n`);
+      // 启动 spinner（写在下一行，spinner 用 \r 覆写）
+      state.runningTools.set(ev.id, { name: ev.name, frame: 0 });
+      startSpinnerIfNeeded(term, state);
+      break;
+    }
+
+    case 'tool.use.result': {
+      stopSpinnerIfNeeded(term, state);
+      state.runningTools.delete(ev.id);
+      // 清掉 spinner 那行再写结果
+      term.write(`\r\x1b[K`); // \x1b[K = 清到行尾
+      term.write(`  ${DIM}⎿${RESET} ${DIM}${ev.summary}${RESET}\r\n`);
+      if (ev.body) {
+        const lines = ev.body.split('\n');
+        for (const line of lines) {
+          term.write(`     ${DIM}${line}${RESET}\r\n`);
+        }
+      }
+      // 还有别的工具在跑？继续转
+      startSpinnerIfNeeded(term, state);
+      break;
+    }
+
+    case 'tool.use.error': {
+      stopSpinnerIfNeeded(term, state);
+      state.runningTools.delete(ev.id);
+      term.write(`\r\x1b[K`);
+      term.write(`  ${RED}✗${RESET} ${RED}${ev.message}${RESET}\r\n`);
+      startSpinnerIfNeeded(term, state);
+      break;
+    }
+
+    case 'permission.request':
+      term.write(`\r\n${YELLOW}⚠ 需要权限：${ev.tool}${RESET}\r\n`);
+      term.write(`${DIM}  请在网页按钮中确认 →${RESET}\r\n\r\n`);
+      break;
+
+    case 'result': {
+      const cost = `$${ev.cost.toFixed(3)}`;
+      const footer = `${ev.duration}s · ${cost} · in ${ev.tokensIn} / out ${ev.tokensOut} tok`;
+      term.write(`\r\n${DIM}──── ${footer} ────${RESET}\r\n`);
+      break;
+    }
+  }
+}
+
+// ============================================================
+// Spinner: 用 setInterval + \r 覆写
+// ============================================================
+function startSpinnerIfNeeded(term, state) {
+  if (state.spinnerTimer || state.runningTools.size === 0) return;
+  state.spinnerTimer = setInterval(() => {
+    const tools = [...state.runningTools.values()];
+    if (tools.length === 0) return;
+    const t = tools[0];
+    const frame = SPINNER_FRAMES[t.frame % SPINNER_FRAMES.length];
+    t.frame++;
+    term.write(`\r${YELLOW}${frame}${RESET} ${DIM}${t.name} 进行中…${RESET}\x1b[K`);
+  }, 80);
+}
+function stopSpinnerIfNeeded(term, state) {
+  if (!state.spinnerTimer) return;
+  clearInterval(state.spinnerTimer);
+  state.spinnerTimer = null;
+}
+
+// ============================================================
+// Boot xterm
+// ============================================================
+const term = new Terminal({
+  cols: 100,
+  rows: 32,
+  cursorBlink: true,
+  fontFamily: 'SF Mono, Menlo, Consolas, "Liberation Mono", monospace',
+  fontSize: 13,
+  lineHeight: 1.3,
+  theme: {
+    background: '#1e1e1e', foreground: '#e5e5e5', cursor: '#e5e5e5',
+    black: '#1e1e1e', red: '#f87171', green: '#4ade80', yellow: '#fbbf24',
+    blue: '#60a5fa', magenta: '#c084fc', cyan: '#22d3ee', white: '#f5f5f5',
+    brightBlack: '#71717a', brightRed: '#fca5a5', brightGreen: '#86efac',
+    brightYellow: '#fde047', brightBlue: '#93c5fd', brightMagenta: '#d8b4fe',
+    brightCyan: '#67e8f9', brightWhite: '#fafafa'
+  }
+});
+const fitAddon = new FitAddon.FitAddon();
+term.loadAddon(fitAddon);
+term.open(document.getElementById('view-terminal'));
+fitAddon.fit();
+window.addEventListener('resize', () => fitAddon.fit());
+
+// ============================================================
+// Chat renderer (F-mode) — 独立的渲染器，订阅同一事件流
+// ============================================================
+const chatStream = document.getElementById('chat-stream');
+const chatState = { currentAssistantBubble: null, openTools: new Map() };
+
+function chatAppendRow(role, content) {
+  const row = document.createElement('div');
+  row.className = `chat-row ${role}`;
+  const av = document.createElement('div');
+  av.className = `chat-avatar ${role}`;
+  av.textContent = role === 'user' ? '我' : 'C';
+  const col = document.createElement('div');
+  col.className = 'chat-bubble-col';
+  col.appendChild(content);
+  row.appendChild(av);
+  row.appendChild(col);
+  chatStream.appendChild(row);
+  return col;
+}
+
+function chatRenderEvent(ev) {
+  switch (ev.type) {
+    case 'system.init': {
+      const row = document.createElement('div');
+      row.className = 'chat-row system';
+      const msg = document.createElement('div');
+      msg.className = 'system-msg';
+      msg.textContent = `会话已开始 · 工具：${ev.tools.join(', ')}`;
+      row.appendChild(msg);
+      chatStream.appendChild(row);
+      break;
+    }
+    case 'user.message': {
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-bubble user';
+      bubble.textContent = ev.text;
+      chatAppendRow('user', bubble);
+      chatState.currentAssistantBubble = null;
+      break;
+    }
+    case 'assistant.delta': {
+      if (!chatState.currentAssistantBubble) {
+        const bubble = document.createElement('div');
+        bubble.className = 'chat-bubble agent';
+        bubble.innerHTML = '<p></p>';
+        chatAppendRow('agent', bubble);
+        chatState.currentAssistantBubble = bubble.querySelector('p');
+      }
+      // 简单 markdown 渲染：list 行另起 li
+      const text = ev.text;
+      chatState.currentAssistantBubble.append(document.createTextNode(text));
+      break;
+    }
+    case 'assistant.end': {
+      if (chatState.currentAssistantBubble) {
+        // markdown 后处理：把 "  - " 行转 ul
+        const p = chatState.currentAssistantBubble;
+        const html = p.innerHTML;
+        const lines = html.split('\n');
+        let result = '';
+        let inList = false;
+        for (const line of lines) {
+          const m = line.match(/^\s*-\s+(.+)$/);
+          if (m) {
+            if (!inList) { result += '<ul>'; inList = true; }
+            // 把首个连续大小写/数字+空格 当 code
+            const li = m[1].replace(/^(\S+)\s+/, '<code>$1</code> ');
+            result += `<li>${li}</li>`;
+          } else {
+            if (inList) { result += '</ul>'; inList = false; }
+            result += line + '\n';
+          }
+        }
+        if (inList) result += '</ul>';
+        p.innerHTML = result;
+      }
+      chatState.currentAssistantBubble = null;
+      break;
+    }
+    case 'tool.use.start': {
+      const card = document.createElement('details');
+      card.className = 'tool-card';
+      card.open = true;
+      const args = formatArgs(ev.input);
+      card.innerHTML = `
+        <summary class="tool-card-header" style="list-style:none;">
+          <span class="tool-icon">${ev.name.toUpperCase()}</span>
+          <span class="tool-name">${ev.name}</span>
+          <span class="tool-args-inline">${args}</span>
+          <span class="tool-chevron">›</span>
+        </summary>
+        <div class="tool-card-body">
+          <div class="tool-result tool-result-pending">
+            <div class="tool-result-header" style="color:#fbbf24;">⠋ 进行中…</div>
+          </div>
+        </div>
+      `;
+      const col = chatAppendRow('agent', card);
+      chatState.openTools.set(ev.id, card);
+      chatState.currentAssistantBubble = null;
+      break;
+    }
+    case 'tool.use.result': {
+      const card = chatState.openTools.get(ev.id);
+      if (!card) break;
+      const body = card.querySelector('.tool-card-body');
+      body.innerHTML = `
+        <div class="tool-result">
+          <div class="tool-result-header">✓ result · ${ev.summary}</div>
+          ${ev.body ? ev.body.replace(/</g, '&lt;') : ''}
+        </div>
+      `;
+      chatState.openTools.delete(ev.id);
+      break;
+    }
+    case 'result': {
+      const card = document.createElement('div');
+      card.className = 'result-card';
+      card.innerHTML = `
+        <div class="item"><span class="label">耗时</span><span class="value">${ev.duration}s</span></div>
+        <div class="item"><span class="label">输入</span><span class="value">${ev.tokensIn}</span></div>
+        <div class="item"><span class="label">输出</span><span class="value">${ev.tokensOut}</span></div>
+        <div class="item"><span class="label">花费</span><span class="value">$${ev.cost}</span></div>
+      `;
+      chatAppendRow('agent', card);
+      break;
+    }
+  }
+  // 自动滚到底
+  const view = document.getElementById('view-chat');
+  view.scrollTop = view.scrollHeight;
+}
+
+function chatReset() {
+  chatStream.innerHTML = '';
+  chatState.currentAssistantBubble = null;
+  chatState.openTools.clear();
+}
+
+// ============================================================
+// Raw event renderer — NDJSON-style log
+// ============================================================
+const rawStream = document.getElementById('raw-stream');
+let rawStartTs = 0;
+
+function rawRenderEvent(ev) {
+  const now = performance.now();
+  const elapsed = ((now - rawStartTs) / 1000).toFixed(3);
+  const line = document.createElement('div');
+  line.className = 'raw-line';
+
+  let typeClass = ev.type.split('.')[0];
+  if (ev.type.startsWith('tool.use.start')) typeClass = 'tool-use';
+  if (ev.type.startsWith('tool.use.result')) typeClass = 'tool-result';
+
+  const { type, ...payload } = ev;
+  // 忽略 'delay' 字段
+  delete payload.delay;
+  const json = JSON.stringify(payload).replace(/"([^"]+)":/g, '<span class="k">"$1"</span>:').replace(/:"([^"]+)"/g, ':<span class="s">"$1"</span>').replace(/:(-?\d+(?:\.\d+)?)/g, ':<span class="n">$1</span>');
+
+  line.innerHTML = `
+    <span class="raw-time">+${elapsed}s</span>
+    <span class="raw-type ${typeClass}">${ev.type}</span>
+    <span class="raw-payload">${json}</span>
+  `;
+  rawStream.appendChild(line);
+  const view = document.getElementById('view-raw');
+  view.scrollTop = view.scrollHeight;
+}
+
+function rawReset() {
+  rawStream.innerHTML = '';
+  rawStartTs = performance.now();
+}
+
+// ============================================================
+// Tab switching
+// ============================================================
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    tab.classList.add('active');
+    const view = tab.dataset.view;
+    document.getElementById(`view-${view}`).classList.add('active');
+    if (view === 'terminal') fitAddon.fit();
+  });
+});
+
+// ============================================================
+// Playback driver — 一份事件，分发给三个渲染器
+// ============================================================
+let playState = null;
+
+function play() {
+  reset();
+  const state = { runningTools: new Map(), spinnerTimer: null };
+  playState = { state, cancelled: false };
+  const speed = parseFloat(document.getElementById('speed').value);
+  let idx = 0;
+  rawStartTs = performance.now();
+  function next() {
+    if (playState?.cancelled) return;
+    if (idx >= EVENTS.length) return;
+    const ev = EVENTS[idx++];
+    setTimeout(() => {
+      if (playState?.cancelled) return;
+      // 同一事件，同时喂给三个渲染器
+      renderEvent(term, ev, state);   // 终端
+      chatRenderEvent(ev);             // 聊天
+      rawRenderEvent(ev);              // 事件流
+      next();
+    }, ev.delay / speed);
+  }
+  next();
+}
+
+function reset() {
+  if (playState) {
+    playState.cancelled = true;
+    if (playState.state.spinnerTimer) clearInterval(playState.state.spinnerTimer);
+  }
+  term.clear();
+  term.reset();
+  chatReset();
+  rawReset();
+}
+
+document.getElementById('play').addEventListener('click', play);
+document.getElementById('reset').addEventListener('click', reset);
+
+// 自动播放一次
+window.addEventListener('load', () => setTimeout(play, 300));
+</script>
+</body>
+</html>

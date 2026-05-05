@@ -10,20 +10,18 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/*.test.ts"
+    "test": "node --experimental-sqlite --no-warnings=ExperimentalWarning --import tsx --test src/*.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.4",
     "@tether/config": "workspace:*",
     "@tether/core": "workspace:*",
     "@tether/protocol": "workspace:*",
-    "better-sqlite3": "^11.10.0",
     "hono": "^4.7.11",
     "node-pty": "1.2.0-beta.12",
     "ws": "^8.20.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.15.29",
     "@types/ws": "^8.18.1",
     "typescript": "^5.8.3"

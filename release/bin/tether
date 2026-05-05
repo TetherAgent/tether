@@ -1,0 +1,23 @@
+#!/usr/bin/env node
+// Tether CLI launcher (release build)
+// 注入 NODE_RUNTIME_FLAGS 后 spawn dist/cli/main.js。
+
+import { spawn } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const main = path.join(here, '..', 'dist', 'cli', 'main.js');
+const FLAGS = ['--experimental-sqlite', '--no-warnings=ExperimentalWarning'];
+
+const child = spawn(process.execPath, [...FLAGS, main, ...process.argv.slice(2)], {
+  stdio: 'inherit'
+});
+
+child.on('exit', (code, signal) => {
+  if (signal) {
+    process.kill(process.pid, signal);
+  } else {
+    process.exit(code ?? 0);
+  }
+});

@@ -1,3 +1,13 @@
+// Node 版本兜底检查。launcher (M3) 会在更早阶段检查；此处兜底用于直接通过 tsx 跑源码的场景。
+{
+  const [maj, min] = process.versions.node.split('.').map(Number);
+  if (maj < 22 || (maj === 22 && min < 13)) {
+    console.error(`Tether 需要 Node.js 22.13 或更高版本，当前 ${process.versions.node}`);
+    console.error('建议：nvm install 22 && nvm use 22');
+    process.exit(1);
+  }
+}
+
 import fs from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
@@ -38,9 +48,11 @@ import { defaultDbPath } from '@tether/gateway/store';
 import { isProviderName, PROVIDERS, type ProviderDefinition } from '@tether/core';
 import { buildCreateSessionPayload } from './forwarding.js';
 import {
+  gatewayRuntimeJsonPath,
   installLaunchAgent,
   launchAgentPath,
   launchAgentStatus,
+  readGatewayRuntimeInfo,
   restartLaunchAgent,
   startLaunchAgent,
   stopLaunchAgent,
@@ -303,6 +315,13 @@ gatewayCommand
   .option('--provider <provider>', '要验证的 provider', 'codex')
   .action(async (options: { provider: string }) => {
     await verifyGatewaySession(options.provider);
+  });
+
+program
+  .command('doctor')
+  .description('全面诊断 Tether 运行环境（Node、sqlite、node-pty、launchd、Gateway、provider）')
+  .action(async () => {
+    await runGatewayDoctor();
   });
 
 program
@@ -863,6 +882,21 @@ async function runGatewayDoctor(): Promise<void> {
   const pushCheck = (name: string, ok: boolean, detail: string) => {
     checks.push({ name, status: ok ? 'ok' : 'fail', detail });
   };
+  // runtime 基础检查（先做，与 Gateway 状态无关）
+  const nodeVersion = process.versions.node;
+  const [maj, min] = nodeVersion.split('.').map(Number);
+  const nodeOk = maj > 22 || (maj === 22 && min >= 13);
+  pushCheck('Node 版本', nodeOk, `${nodeVersion}（要求 >= 22.13）`);
+  pushCheck('runtime 模式', true, detectRuntimeMode());
+  const sqliteCheck = await checkNodeSqlite();
+  checks.push({ name: 'node:sqlite', status: sqliteCheck.ok ? 'ok' : 'fail', detail: sqliteCheck.detail });
+  const ptyCheck = checkNodePty();
+  checks.push({ name: 'node-pty', status: ptyCheck.ok ? 'ok' : 'fail', detail: ptyCheck.detail });
+  for (const runtime of checkGatewayRuntimeInfo()) {
+    checks.push(runtime);
+  }
+  checks.push({ name: 'Gateway DB', status: 'ok', detail: gatewayDbSummary() });
+  // 配置 & launchd
   pushCheck('配置文件', fs.existsSync(configPath()), configPath());
   pushCheck('LaunchAgent 已安装', launchd.installed, launchd.path);
   pushCheck('LaunchAgent 已加载', launchd.loaded, launchd.error ?? `PID ${launchd.pid ?? '-'}`);
@@ -890,6 +924,68 @@ async function runGatewayDoctor(): Promise<void> {
   }
   if (failed > 0) {
     process.exitCode = 1;
+  }
+}
+
+function detectRuntimeMode(): string {
+  return import.meta.url.includes('/dist/') ? 'prod (dist bundle)' : 'dev (源码 + tsx)';
+}
+
+async function checkNodeSqlite(): Promise<{ ok: boolean; detail: string }> {
+  try {
+    const mod = await import('node:sqlite');
+    const db = new mod.DatabaseSync(':memory:');
+    db.exec('SELECT 1');
+    db.close();
+    return { ok: true, detail: 'in-memory db open/close OK' };
+  } catch (err) {
+    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+function checkNodePty(): { ok: boolean; detail: string } {
+  // PtySessionManager 是 gateway 对 node-pty 的封装。能 import 到说明 gateway 已加载 node-pty。
+  // 不直接 import('node-pty')，因为 cli 本身没有 node-pty 直接依赖，dynamic import 会失败。
+  if (typeof PtySessionManager === 'function') {
+    return { ok: true, detail: 'PtySessionManager 可用（gateway 已加载 node-pty）' };
+  }
+  return {
+    ok: false,
+    detail: 'PtySessionManager 未导出，可能 node-pty 加载失败。运行 npm rebuild node-pty 或确认已装 Xcode CLT'
+  };
+}
+
+function checkGatewayRuntimeInfo(): Array<{ name: string; status: 'ok' | 'warn' | 'fail'; detail: string }> {
+  const info = readGatewayRuntimeInfo();
+  if (!info) {
+    return [{
+      name: 'gateway-runtime.json',
+      status: 'warn',
+      detail: `未找到 ${gatewayRuntimeJsonPath()}（运行 tether gateway install 后会写入）`
+    }];
+  }
+  return [
+    {
+      name: 'plist nodePath',
+      status: fs.existsSync(info.nodePath) ? 'ok' : 'fail',
+      detail: `${info.nodePath}（plist 安装时记录 ${info.nodeVersion}）`
+    },
+    {
+      name: 'plist launcher',
+      status: fs.existsSync(info.launcherPath) ? 'ok' : 'fail',
+      detail: info.launcherPath
+    }
+  ];
+}
+
+function gatewayDbSummary(): string {
+  const dbPath = defaultDbPath();
+  try {
+    const stat = fs.statSync(dbPath);
+    const sizeMb = (stat.size / 1024 / 1024).toFixed(1);
+    return `${dbPath} (${sizeMb} MB)`;
+  } catch {
+    return `${dbPath}（不存在）`;
   }
 }
 

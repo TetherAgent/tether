@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { mkdirSync } from 'node:fs';
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 import type { ProviderName } from '@tether/core';
 
 export type SessionStatus = 'running' | 'stopped' | 'completed' | 'failed' | 'lost';
@@ -92,13 +92,13 @@ type SessionEventRow = {
 };
 
 export class Store {
-  private readonly db: Database.Database;
+  private readonly db: DatabaseSync;
 
   constructor(readonly dbPath = defaultDbPath()) {
     mkdirSync(path.dirname(dbPath), { recursive: true });
-    this.db = new Database(dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('busy_timeout = 5000');
+    this.db = new DatabaseSync(dbPath);
+    this.db.exec('PRAGMA journal_mode = WAL');
+    this.db.exec('PRAGMA busy_timeout = 5000');
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY,
