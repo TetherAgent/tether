@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.3
 milestone_name: milestone
 status: executing
-stopped_at: Completed 11-02-PLAN.md
-last_updated: "2026-05-05T08:45:01.106Z"
+stopped_at: Completed 11-03-PLAN.md
+last_updated: "2026-05-05T09:02:27.699Z"
 last_activity: 2026-05-05 -- Phase 11 planning complete
 progress:
   total_phases: 11
   completed_phases: 4
   total_plans: 36
-  completed_plans: 24
-  percent: 67
+  completed_plans: 25
+  percent: 69
 ---
 
 # Project State
@@ -29,7 +29,7 @@ Phase: 06 (account-management-console) — COMPLETE
 Next: Phase 07 — Retention
 Last activity: 2026-05-05 -- Phase 11 planning complete
 
-Progress: [███████░░░] 67%
+Progress: [███████░░░] 69%
 
 ## Performance Metrics
 
@@ -56,6 +56,7 @@ Progress: [███████░░░] 67%
 *Updated after each plan completion*
 | Phase 11 P01 | 6 min | 2 tasks | 3 files |
 | Phase 11 P02 | 7min | 2 tasks | 5 files |
+| Phase 11 P03 | 4min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,8 @@ Recent decisions affecting current work:
 - CLEAN-02 decision: retain `transport` column as extension point; remove `'tmux'` from active write types only; keep `'tmux'` in `fromRow` for historical reads
 - [Phase 11]: insertConversationTurn returns allocated turn_index — Avoids extra query for downstream caller flow
 - [Phase 11]: [Phase 11-02] handleChatMessage returns SessionEvent and callers publish via direct socket or relay gateway.event
+- [Phase 11]: JournalWatcher handles Codex completion markers task_completed/task_complete for compatibility. — Design doc and observed logs differ on completion token naming.
+- [Phase 11]: agent.turn turnIndex is taken directly from insertConversationTurn return value. — Removes race risk from follow-up list query.
 
 ### Pending Todos
 
@@ -128,6 +131,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-05T08:45:01.100Z
-Stopped at: Completed 11-02-PLAN.md
+Last session: 2026-05-05T09:02:27.694Z
+Stopped at: Completed 11-03-PLAN.md
 Resume file: None
