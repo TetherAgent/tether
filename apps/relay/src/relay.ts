@@ -349,6 +349,22 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         }
         forwardToGateway({ type: 'client.stop', clientId, sessionId: frame.sessionId });
         break;
+      case 'client.chat':
+        if (!clientCanAccessSession(clientScope, authMethod, frame.sessionId, 'control')) {
+          sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });
+          break;
+        }
+        if (subscriptions.get(frame.sessionId) !== 'control') {
+          sendToClient(clientId, {
+            type: 'error',
+            sessionId: frame.sessionId,
+            code: subscriptions.has(frame.sessionId) ? 'observe_only' : 'not_subscribed',
+            message: subscriptions.has(frame.sessionId) ? 'observer clients cannot send input' : 'client is not subscribed to this session'
+          });
+          break;
+        }
+        forwardToGateway({ type: 'client.chat', clientId, sessionId: frame.sessionId, message: frame.message });
+        break;
       case 'client.detach':
         if (!clientCanAccessSession(clientScope, authMethod, frame.sessionId)) {
           sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });
