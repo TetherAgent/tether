@@ -18,6 +18,7 @@ import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import { replaySessionEvents } from './replay.js';
 import { listGateways, registerGateway, touchGateway, unregisterGateway } from './registry.js';
 import { handleChatMessage } from './chat-handler.js';
+import { detectSelectOptions } from './agent-select-detect.js';
 import { startRelayClient, type RunningRelayClient } from './relay-client.js';
 import { SessionRunnerClient } from './session-runner-client.js';
 import { spawnSessionRunnerProcess } from './session-runner-spawn.js';
@@ -765,12 +766,54 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
 
     const runnerClient = getRunnerClient(session);
     let unsubscribe: (() => void | Promise<void>) | undefined;
+    // agent.select detection state (per WS connection)
+    let recentOutputBuf = '';
+    let selectEmitted = false;
+    let selectDebounceTimer: NodeJS.Timeout | undefined;
+    const detectAndEmitAgentSelect = (event: { type: string; payload: Record<string, unknown> }) => {
+      if (
+        event.type !== 'terminal.output' ||
+        (session.provider !== 'claude' && session.provider !== 'claude-proxy')
+      ) {
+        return;
+      }
+      if (selectEmitted) {
+        selectEmitted = false;
+      }
+      const data = (event.payload as { data?: string }).data ?? '';
+      recentOutputBuf += stripAnsi(data);
+      const bufLines = recentOutputBuf.split('\n');
+      if (bufLines.length > 50) {
+        recentOutputBuf = bufLines.slice(-50).join('\n');
+      }
+      clearTimeout(selectDebounceTimer);
+      selectDebounceTimer = setTimeout(() => {
+        if (selectEmitted) {
+          return;
+        }
+        const lines = recentOutputBuf.split('\n');
+        const matchedOptions = detectSelectOptions(lines);
+        if (!matchedOptions) {
+          return;
+        }
+        const raw = lines.filter((line) => /^\s*\d+\.\s+/.test(line)).join('\n');
+        const selectEvent = options.store.appendEvent(session.id, 'agent.select', {
+          options: matchedOptions,
+          raw
+        });
+        if (socket.readyState === socket.OPEN) {
+          socket.send(JSON.stringify({ type: 'event', event: selectEvent }));
+        }
+        selectEmitted = true;
+      }, 300);
+    };
     if (runnerClient) {
       try {
         unsubscribe = await runnerClient.subscribeEvents((frame) => {
           const event = options.store.listEvents(frame.sessionId, frame.eventId - 1, 1)[0];
           if (event && socket.readyState === socket.OPEN) {
             socket.send(JSON.stringify({ type: 'event', event }));
+            detectAndEmitAgentSelect(event);
           }
         }, replayCursor);
       } catch {
@@ -783,6 +826,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       unsubscribe = options.ptySessions?.subscribe(sessionId, (event) => {
         if (socket.readyState === socket.OPEN) {
           socket.send(JSON.stringify({ type: 'event', event }));
+          detectAndEmitAgentSelect(event);
         }
       });
     }
@@ -869,6 +913,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     });
 
     socket.on('close', () => {
+      clearTimeout(selectDebounceTimer);
       unsubscribe?.();
       sessionClients?.delete(clientId);
       if (controllers.get(session.id) === clientId) {

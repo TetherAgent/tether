@@ -9,6 +9,7 @@ import type {
   RelaySession,
   RelayTerminalEvent
 } from '@tether/protocol';
+import { detectSelectOptions } from './agent-select-detect.js';
 import { handleChatMessage } from './chat-handler.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import { replaySessionEvents } from './replay.js';
@@ -232,6 +233,50 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       }
     }
 
+    // agent.select detection state (per relay subscription)
+    let relayRecentOutputBuf = '';
+    let relaySelectEmitted = false;
+    let relaySelectDebounceTimer: NodeJS.Timeout | undefined;
+    const detectAndEmitRelaySelect = (event: SessionEvent) => {
+      if (
+        event.type !== 'terminal.output' ||
+        (session.provider !== 'claude' && session.provider !== 'claude-proxy')
+      ) {
+        return;
+      }
+      if (relaySelectEmitted) {
+        relaySelectEmitted = false;
+      }
+      const data = (event.payload as { data?: string }).data ?? '';
+      relayRecentOutputBuf += data.replace(/\x1b\[[0-9;]*m/g, '');
+      const bufLines = relayRecentOutputBuf.split('\n');
+      if (bufLines.length > 50) {
+        relayRecentOutputBuf = bufLines.slice(-50).join('\n');
+      }
+      clearTimeout(relaySelectDebounceTimer);
+      relaySelectDebounceTimer = setTimeout(() => {
+        if (relaySelectEmitted) {
+          return;
+        }
+        const lines = relayRecentOutputBuf.split('\n');
+        const matchedOptions = detectSelectOptions(lines);
+        if (!matchedOptions) {
+          return;
+        }
+        const subSession = options.store.getSession(session.id);
+        if (!subSession) {
+          return;
+        }
+        const raw = lines.filter((line) => /^\s*\d+\.\s+/.test(line)).join('\n');
+        const selectEvent = options.store.appendEvent(subSession.id, 'agent.select', {
+          options: matchedOptions,
+          raw
+        });
+        send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(selectEvent) });
+        relaySelectEmitted = true;
+      }, 300);
+    };
+
     const replayCursor = replayEvents(clientId, sessionId, after, tail);
 
     const runnerClient = options.runnerClientForSession?.(session);
@@ -242,6 +287,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
           const event = options.store.listEvents(frame.sessionId, frame.eventId - 1, 1)[0];
           if (event) {
             send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(event) });
+            detectAndEmitRelaySelect(event);
           }
         }, replayCursor);
       } catch {
@@ -253,9 +299,14 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     } else {
       unsubscribe = options.ptySessions?.subscribe(sessionId, (event) => {
         send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(event) });
+        detectAndEmitRelaySelect(event);
       });
     }
-    subscriptions.set(key, { mode, unsubscribe });
+    const wrappedUnsubscribe = async () => {
+      clearTimeout(relaySelectDebounceTimer);
+      await unsubscribe?.();
+    };
+    subscriptions.set(key, { mode, unsubscribe: wrappedUnsubscribe });
   };
 
   const markSessionLost = (sessionId: string): void => {
