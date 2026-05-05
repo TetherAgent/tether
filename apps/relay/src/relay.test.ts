@@ -211,6 +211,125 @@ test('relay clears visible sessions when gateway disconnects', async () => {
   }
 });
 
+test('relay keeps cached running sessions when gateway sends a transient empty list', async () => {
+  const relay = await createRelay();
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const sessions: RelaySession[] = [{
+    id: 'tth_transient_empty',
+    provider: 'codex',
+    title: 'Transient Empty',
+    projectPath: process.cwd(),
+    accountId: 'acct_1',
+    workspaceId: 'ws_1',
+    gatewayId: 'gateway-test',
+    userId: 'user_1',
+    status: 'running',
+    transport: 'pty-event-stream',
+    lastActiveAt: Date.now()
+  }];
+
+  try {
+    await authenticateGateway(gateway);
+    await authenticateClient(client);
+
+    gateway.send(JSON.stringify({ type: 'gateway.sessions', gatewayId: 'gateway-test', sessions }));
+    const initialSessions = await waitForJson(client, (message) => message.type === 'sessions');
+    assert.deepEqual(initialSessions.sessions, sessions);
+
+    const cachedSessionsPromise = waitForJson(
+      client,
+      (message) => message.type === 'sessions' && Array.isArray(message.sessions)
+    );
+    gateway.send(JSON.stringify({ type: 'gateway.sessions', gatewayId: 'gateway-test', sessions: [] }));
+    const cachedSessions = await cachedSessionsPromise;
+    assert.deepEqual(cachedSessions.sessions, sessions);
+
+    client.send(JSON.stringify({ type: 'client.list' }));
+    const listRequest = await waitForJson(gateway, (message) => message.type === 'client.list');
+    assert.equal(typeof listRequest.clientId, 'string');
+    const listSessionsPromise = waitForJson(
+      client,
+      (message) => message.type === 'sessions' && Array.isArray(message.sessions)
+    );
+    gateway.send(JSON.stringify({ type: 'gateway.sessions', gatewayId: 'gateway-test', sessions: [] }));
+    const listSessions = await listSessionsPromise;
+    assert.deepEqual(listSessions.sessions, sessions);
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+  }
+});
+
+test('relay does not clear one gateway sessions when another gateway disconnects', async () => {
+  const relay = await createRelay({ omitGatewayIdInScope: true });
+  const gatewayOne = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const gatewayTwo = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const sessionOne: RelaySession = {
+    id: 'tth_gateway_one',
+    provider: 'codex',
+    title: 'Gateway One',
+    projectPath: process.cwd(),
+    accountId: 'acct_1',
+    workspaceId: 'ws_1',
+    gatewayId: 'gateway-test',
+    userId: 'user_1',
+    status: 'running',
+    transport: 'pty-event-stream',
+    lastActiveAt: Date.now()
+  };
+  const sessionTwo: RelaySession = {
+    id: 'tth_gateway_two',
+    provider: 'codex',
+    title: 'Gateway Two',
+    projectPath: process.cwd(),
+    accountId: 'acct_1',
+    workspaceId: 'ws_1',
+    gatewayId: 'gateway-two',
+    userId: 'user_1',
+    status: 'running',
+    transport: 'pty-event-stream',
+    lastActiveAt: Date.now()
+  };
+
+  try {
+    await authenticateGateway(gatewayOne);
+    await authenticateGateway(gatewayTwo, 'gateway-two');
+    await authenticateClient(client);
+
+    const firstSessionsPromise = waitForJson(
+      client,
+      (message) => message.type === 'sessions' && Array.isArray(message.sessions)
+    );
+    gatewayOne.send(JSON.stringify({ type: 'gateway.sessions', gatewayId: 'gateway-test', sessions: [sessionOne] }));
+    const firstSessions = await firstSessionsPromise;
+    assert.deepEqual(firstSessions.sessions, [sessionOne]);
+
+    const bothSessionsPromise = waitForJson(
+      client,
+      (message) => message.type === 'sessions' && Array.isArray(message.sessions)
+    );
+    gatewayTwo.send(JSON.stringify({ type: 'gateway.sessions', gatewayId: 'gateway-two', sessions: [sessionTwo] }));
+    const bothSessions = await bothSessionsPromise;
+    assert.deepEqual(new Set((bothSessions.sessions as RelaySession[]).map((session) => session.id)), new Set([sessionOne.id, sessionTwo.id]));
+
+    const remainingSessionsPromise = waitForJson(
+      client,
+      (message) => message.type === 'sessions' && Array.isArray(message.sessions)
+    );
+    gatewayTwo.terminate();
+    const remainingSessions = await remainingSessionsPromise;
+    assert.deepEqual(remainingSessions.sessions, [sessionOne]);
+  } finally {
+    gatewayOne.close();
+    gatewayTwo.close();
+    client.close();
+    await relay.close();
+  }
+});
+
 test('relay forwards subscribed input and resize to gateway', async () => {
   const relay = await createRelay();
   const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
@@ -684,6 +803,7 @@ test('relay allows unscoped sessions only for legacy secret clients', async () =
     await authenticateGateway(gateway);
     const clientId = await authenticateLegacyClient(client, legacyScope);
 
+    const sessionsPromise = waitForJson(client, (message) => message.type === 'sessions');
     gateway.send(JSON.stringify({
       type: 'gateway.sessions',
       gatewayId: 'gateway-test',
@@ -692,11 +812,12 @@ test('relay allows unscoped sessions only for legacy secret clients', async () =
       ]
     }));
 
-    const sessions = await waitForJson(client, (message) => message.type === 'sessions');
+    const sessions = await sessionsPromise;
     assert.equal((sessions.sessions as RelaySession[]).some((session) => session.id === 'tth_legacy_unscoped'), true);
 
+    const subscribePromise = waitForJson(gateway, (message) => message.type === 'client.subscribe');
     client.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_legacy_unscoped', after: 0, mode: 'control' }));
-    const subscribe = await waitForJson(gateway, (message) => message.type === 'client.subscribe');
+    const subscribe = await subscribePromise;
     assert.equal(subscribe.clientId, clientId);
   } finally {
     gateway.close();
@@ -736,9 +857,9 @@ test('relay rejects observe tickets that send control frames', async () => {
   }
 });
 
-async function authenticateGateway(ws: WebSocket): Promise<void> {
+async function authenticateGateway(ws: WebSocket, gatewayId = 'gateway-test'): Promise<void> {
   await waitForOpen(ws);
-  ws.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-test', token: GATEWAY_TOKEN }));
+  ws.send(JSON.stringify({ type: 'gateway.auth', gatewayId, token: GATEWAY_TOKEN }));
   await waitForJson(ws, (message) => message.type === 'gateway.auth.ok');
 }
 
@@ -774,8 +895,10 @@ async function waitForOpen(ws: WebSocket): Promise<void> {
 
 async function waitForJson(ws: WebSocket, predicate: (message: Record<string, unknown>) => boolean): Promise<Record<string, unknown>> {
   return await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('timed out waiting for websocket message')), 1000);
+    let lastMessage = '';
+    const timer = setTimeout(() => reject(new Error(`timed out waiting for websocket message; last=${lastMessage}`)), 1000);
     ws.on('message', (raw) => {
+      lastMessage = raw.toString();
       const message = JSON.parse(raw.toString()) as Record<string, unknown>;
       if (predicate(message)) {
         clearTimeout(timer);
