@@ -1,12 +1,13 @@
 import * as React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { TerminalSquare } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
 import { Button, Textarea } from '@tether/design';
 
 import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { gatewayAuthHeaders, requestGatewayWsTicket } from '../../lib/api.js';
+import { ChatBubble } from './chat-bubble.js';
+import { ChatMarkdown } from './chat-markdown.js';
 import { SessionDetailHeader, TerminalSurfaceSkeleton } from './session-detail-chrome.js';
 
 type ConnectionMode = 'direct' | 'relay';
@@ -790,54 +791,66 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
         {!isReady && chatMessages.length === 0 ? (
           <TerminalSurfaceSkeleton />
         ) : null}
-        {chatMessages.map((msg) => {
-          const isUser = msg.role !== 'assistant';
-          const status = msg.status ?? 'delivered';
-          return (
-            <div
-              key={msg.id}
-              className={`chat-bubble chat-bubble-${isUser ? 'user' : 'agent'}`}
-              data-status={isUser ? status : undefined}
-            >
-              <div className="chat-bubble-content">
-                {isUser ? (
-                  msg.content
-                ) : (
-                  <div className="space-y-2">
-                    {msg.content ? <ReactMarkdown>{msg.content}</ReactMarkdown> : null}
-                    {msg.tools.map((tool, index) => (
-                      <span key={`${msg.id}-tool-${index}`} className="inline-flex rounded-full border border-input px-2 py-0.5 text-xs text-foreground">
-                        {t.agentToolChip} · {tool.name}
-                        {tool.inputSummary ? <span className="ml-1 opacity-70">{tool.inputSummary}</span> : null}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {isUser && status !== 'delivered' ? (
-                <span className={`chat-bubble-tick chat-bubble-tick-${status}`} aria-hidden="true">
-                  {status === 'pending' ? '⋯' : status === 'sent' ? '✓' : '!'}
-                  {status === 'failed' ? (
-                    <button
-                      type="button"
-                      className="chat-bubble-retry"
-                      onClick={() => {
+        {chatMessages.map((msg, index) => {
+          const previous = index > 0 ? chatMessages[index - 1] : undefined;
+          const folded = previous?.role === msg.role;
+          const status = (msg.status ?? 'delivered') as ChatMessageStatus;
+          if (msg.role === 'user') {
+            return (
+              <ChatBubble
+                key={msg.id}
+                role="user"
+                folded={folded}
+                status={status}
+                onRetry={
+                  status === 'failed'
+                    ? () => {
                         setChatMessages((prev) => prev.filter((item) => item.id !== msg.id));
                         void sendChatText(msg.content);
-                      }}
-                    >
-                      {t.chatRetry}
-                    </button>
-                  ) : null}
-                </span>
+                      }
+                    : undefined
+                }
+              >
+                {msg.content}
+              </ChatBubble>
+            );
+          }
+          return (
+            <ChatBubble
+              key={msg.id}
+              role="assistant"
+              folded={folded}
+              provider={sessionProvider}
+              rawContent={msg.content}
+            >
+              {msg.content ? <ChatMarkdown content={msg.content} /> : null}
+              {msg.tools.length > 0 ? (
+                <div className="chat-tool-chips">
+                  {msg.tools.map((tool, toolIndex) => (
+                    <span key={`${msg.id}-tool-${toolIndex}`} className="chat-tool-chip">
+                      <span className="chat-tool-chip-name">{tool.name}</span>
+                      {tool.inputSummary ? (
+                        <span className="chat-tool-chip-args">{tool.inputSummary}</span>
+                      ) : null}
+                    </span>
+                  ))}
+                </div>
               ) : null}
-            </div>
+            </ChatBubble>
           );
         })}
         {typingVisible ? (
-          <div className="chat-bubble chat-bubble-agent">
-            <div className="chat-bubble-content">{t.agentTypingIndicator}</div>
-          </div>
+          <ChatBubble
+            role="assistant"
+            folded={chatMessages[chatMessages.length - 1]?.role === 'assistant'}
+            provider={sessionProvider}
+          >
+            <span className="chat-typing-dots" aria-label={t.agentTypingIndicator}>
+              <span />
+              <span />
+              <span />
+            </span>
+          </ChatBubble>
         ) : null}
         {unreadCount > 0 ? (
           <button
@@ -891,15 +904,16 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           <span className={`composer-status${isAgentThinking ? ' composer-status-thinking' : ''}`} title={composerSubmitTitle}>
             {isAgentThinking ? t.agentTypingIndicator : status}
           </span>
-          <button
-            className="composer-submit"
+          <Button
             type="button"
+            size="sm"
+            className="composer-submit"
             disabled={isComposerSubmitDisabled}
             title={composerSubmitTitle}
             onClick={() => sendChatText(inputText)}
           >
             {t.agentChatSend}
-          </button>
+          </Button>
         </div>
       </form>
     </div>
