@@ -370,26 +370,17 @@ test('gateway relay client forwards control input to pty', async () => {
 
 test('gateway relay client forwards chat as agent.typing event', async () => {
   const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_chat' });
-  const now = Date.now();
-  store.insertSession({
+  ptySessions.create({
     id: sessionId,
     provider: 'codex',
-    title: 'chat relay',
-    projectPath: process.cwd(),
-    accountId: 'acct_test',
-    workspaceId: 'ws_test',
-    userId: 'user_test',
-    gatewayId: 'gw_test_chat',
-    status: 'running',
-    attachState: 'detached',
-    tmuxSessionName: '',
     command: '/bin/cat',
-    transport: 'pty-event-stream',
-    createdAt: now,
-    updatedAt: now,
-    lastActiveAt: now
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24,
+    owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_chat' }
   });
   const relayClient = startRelayClient({
     url: relay.url,
@@ -397,7 +388,8 @@ test('gateway relay client forwards chat as agent.typing event', async () => {
     gatewayId: 'gw_test_chat',
     token: 'gateway-token',
     scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_chat' },
-    store
+    store,
+    ptySessions
   });
   await waitForRelayClientConnected(relayClient);
   const client = await connectRelayClient(relay.url);
@@ -407,6 +399,14 @@ test('gateway relay client forwards chat as agent.typing event', async () => {
     client.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control' }));
     await waitForFrame(client, (frame) => frame.type === 'replay.done' && frame.sessionId === sessionId);
 
+    const outputPromise = waitForFrame(
+      client,
+      (frame) =>
+        frame.type === 'event' &&
+        frame.event.type === 'terminal.output' &&
+        typeof frame.event.payload.data === 'string' &&
+        frame.event.payload.data.includes('hello relay chat')
+    );
     client.send(JSON.stringify({ type: 'client.chat', sessionId, message: 'hello relay chat' }));
     const event = await waitForFrame(
       client,
@@ -416,11 +416,13 @@ test('gateway relay client forwards chat as agent.typing event', async () => {
         frame.event.sessionId === sessionId
     );
     assert.equal(event.type, 'event');
+    assert.equal((await outputPromise).type, 'event');
     const turns = store.listConversationTurns(sessionId);
     assert.equal(turns.at(-1)?.role, 'user');
     assert.equal(turns.at(-1)?.content, 'hello relay chat');
   } finally {
     client.close();
+    ptySessions.stop(sessionId);
     await relayClient.close();
     await relay.close();
     cleanup();

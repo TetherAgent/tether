@@ -4042,7 +4042,8 @@ pre {
   padding: 10px;
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 8px;
+  gap: 10px;
+  align-items: center;
   border-top: 1px solid var(--border);
   background: color-mix(in srgb, var(--background) 92%, transparent);
 }
@@ -4064,6 +4065,39 @@ pre {
 
 textarea.composer-input {
   field-sizing: fixed;
+}
+
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.composer-status {
+  max-width: 160px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-submit {
+  min-height: 40px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 12px;
+  color: #001d12;
+  background: var(--brand);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.composer-submit:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--brand) 40%, transparent);
+  outline-offset: 2px;
 }
 
 .empty h2 {
@@ -4451,8 +4485,17 @@ textarea.composer-input {
   white-space: nowrap;
 }
 
+.session-card-simple {
+  color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+}
+
 .session-card-open:hover {
   background: color-mix(in srgb, var(--brand) 86%, white);
+}
+
+.session-card-simple:hover {
+  background: color-mix(in srgb, var(--brand) 16%, transparent);
 }
 
 .session-card-open svg {

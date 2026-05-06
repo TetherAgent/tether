@@ -29,7 +29,10 @@ test('handleChatMessage inserts user turn, writes PTY and emits agent.typing', a
     assert.equal(event.sessionId, 'sess_chat');
     assert.equal(event.type, 'agent.typing');
     assert.deepEqual(event.payload, {});
-    assert.deepEqual(writes, [{ data: 'hello world\n', clientId: 'chat' }]);
+    assert.deepEqual(writes, [
+      { data: 'hello world', clientId: 'chat' },
+      { data: '\r', clientId: 'chat' }
+    ]);
 
     const turns = store.listConversationTurns('sess_chat');
     assert.equal(turns.length, 1);

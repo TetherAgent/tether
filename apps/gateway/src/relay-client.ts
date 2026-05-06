@@ -163,12 +163,17 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
           return;
         }
         const runnerClient = options.runnerClientForSession?.(session);
-        void handleChatMessage(frame.sessionId, frame.message, options.store, runnerClient)
+        void handleChatMessage(frame.sessionId, frame.message, options.store, runnerClient, (data, clientId) => {
+          const ok = options.ptySessions?.write(frame.sessionId, { clientId, data }) ?? false;
+          if (!ok) {
+            throw new Error('PTY session is no longer running');
+          }
+        })
           .then((event) => {
             send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(event) });
           })
           .catch(() => {
-            // PTY may have exited; suppress
+            sendError(frame.clientId, frame.sessionId, 'session_lost', 'PTY session is no longer running');
           });
         return;
       }

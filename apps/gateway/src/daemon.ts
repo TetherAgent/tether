@@ -904,14 +904,19 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           }));
           return;
         }
-        void handleChatMessage(session.id, frame.message, options.store, runnerClient ?? undefined)
+        void handleChatMessage(session.id, frame.message, options.store, runnerClient ?? undefined, (data, clientId) => {
+          const ok = options.ptySessions?.write(session.id, { clientId, data }) ?? false;
+          if (!ok) {
+            throw new Error('PTY session is no longer running');
+          }
+        })
           .then((event) => {
             if (socket.readyState === socket.OPEN) {
               socket.send(JSON.stringify({ type: 'event', event }));
             }
           })
           .catch(() => {
-            // PTY may have exited; suppress
+            socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));
           });
         return;
       }

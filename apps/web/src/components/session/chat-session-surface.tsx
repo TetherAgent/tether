@@ -27,6 +27,7 @@ export type ChatSessionSurfaceProps = {
 
 type SessionEvent = {
   id: number;
+  sessionId: string;
   type: string;
   payload: Record<string, unknown>;
 };
@@ -62,18 +63,14 @@ const RELAY_VIRTUAL_COLS = 200;
 const RELAY_VIRTUAL_ROWS = 50;
 const genId = () => Math.random().toString(36).slice(2);
 
-function sessionCursorKey(
-  sessionId: string,
-  identity: { accountId?: string; workspaceId?: string; userId?: string } | undefined,
-  connectionSettings: { connectionMode: ConnectionMode; relayUrl: string }
-): string {
-  const accountId = identity?.accountId ?? 'anonymous';
-  const workspaceId = identity?.workspaceId ?? 'default-workspace';
-  const userId = identity?.userId ?? 'default-user';
-  const gatewayHint = connectionSettings.connectionMode === 'relay'
-    ? connectionSettings.relayUrl.trim() || 'relay'
-    : window.location.host;
-  return `tether:${accountId}:${workspaceId}:${userId}:${connectionSettings.connectionMode}:${gatewayHint}:${sessionId}:latestEventId`;
+function upsertChatMessage(messages: ChatMessage[], message: ChatMessage): ChatMessage[] {
+  const existingIndex = messages.findIndex((item) => item.id === message.id);
+  if (existingIndex === -1) {
+    return [...messages, message];
+  }
+  const next = [...messages];
+  next[existingIndex] = message;
+  return next;
 }
 
 function buildRelayClientUrl(relayUrl: string, fillRelayUrlMsg: string, protocolInvalidMsg: string): string {
@@ -163,10 +160,6 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
 
   const socket = React.useRef<WebSocket | undefined>(undefined);
   const chatScrollRef = React.useRef<HTMLDivElement>(null);
-  const cursorKey = React.useMemo(
-    () => sessionCursorKey(sessionId, normalAuth?.identity, connectionSettings),
-    [connectionSettings, normalAuth?.identity, sessionId]
-  );
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -182,9 +175,40 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     }
   }, [chatMessages, typingVisible, selectOptions, fallbackVisible]);
 
+  const refreshConversation = React.useCallback(async () => {
+    try {
+      const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/conversation`);
+      if (response.status === 401) {
+        logoutNormal();
+        return;
+      }
+      if (!response.ok) {
+        return;
+      }
+      const data = (await response.json()) as { turns: ConversationTurn[] };
+      if (data.turns.length > 0) {
+        setFallbackVisible(false);
+      }
+      setChatMessages((prev) => {
+        let next = prev;
+        for (const turn of data.turns) {
+          next = upsertChatMessage(next, {
+            id: `turn:${turn.turnIndex}`,
+            role: turn.role,
+            content: turn.content,
+            tools: turn.tools ? (JSON.parse(turn.tools) as ToolInfo[]) : []
+          });
+        }
+        return next;
+      });
+    } catch {
+      // WebSocket replay remains the primary live path.
+    }
+  }, [logoutNormal, sessionId]);
+
   const sendChatText = React.useCallback(
     (value: string) => {
-      const nextValue = value.trim();
+      const nextValue = value.trim().replace(/\s*\r?\n\s*/g, ' ');
       if (!nextValue) {
         return;
       }
@@ -193,17 +217,24 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
         setStatus(t.statusWsUnavailable);
         return;
       }
-      setChatMessages((prev) => [...prev, { id: genId(), role: 'user', content: nextValue, tools: [] }]);
       setSelectOptions([]);
       setSelectRaw('');
       ws.send(JSON.stringify(
         connectionSettings.connectionMode === 'relay'
-          ? { type: 'client.chat', sessionId, message: nextValue }
-          : { type: 'chat', message: nextValue }
+          ? { type: 'client.input', sessionId, data: nextValue }
+          : { type: 'input', data: nextValue }
+      ));
+      ws.send(JSON.stringify(
+        connectionSettings.connectionMode === 'relay'
+          ? { type: 'client.input', sessionId, data: '\r' }
+          : { type: 'input', data: '\r' }
       ));
       setInputText('');
+      window.setTimeout(() => void refreshConversation(), 250);
+      window.setTimeout(() => void refreshConversation(), 1250);
+      window.setTimeout(() => void refreshConversation(), 3000);
     },
-    [connectionSettings.connectionMode, sessionId, t]
+    [connectionSettings.connectionMode, refreshConversation, sessionId, t]
   );
 
   React.useEffect(() => {
@@ -214,24 +245,27 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     let closeWasExpected = false;
     let reconnectTimer: number | undefined;
     let ws: WebSocket | undefined;
-    let after = Number(window.localStorage.getItem(cursorKey) ?? 0);
+    let after = 0;
 
     const handleEvent = (event: SessionEvent) => {
+      if (event.sessionId !== sessionId) {
+        return;
+      }
       if (event.id <= after) {
         return;
       }
-      window.localStorage.setItem(cursorKey, String(event.id));
       after = Math.max(after, event.id);
 
       if (event.type === 'agent.turn') {
         setFallbackVisible(false);
-        const turn = event.payload as { role?: string; content?: string; tools?: ToolInfo[] };
-        setChatMessages((prev) => [...prev, {
-          id: genId(),
+        const turn = event.payload as { role?: string; content?: string; tools?: ToolInfo[]; turnIndex?: number };
+        const message: ChatMessage = {
+          id: typeof turn.turnIndex === 'number' ? `turn:${turn.turnIndex}` : `event:${event.id}`,
           role: turn.role === 'user' ? 'user' : 'assistant',
           content: typeof turn.content === 'string' ? turn.content : '',
           tools: Array.isArray(turn.tools) ? turn.tools : []
-        }]);
+        };
+        setChatMessages((prev) => upsertChatMessage(prev, message));
         setTypingVisible(false);
         return;
       }
@@ -258,7 +292,9 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
         logoutNormal();
       }
       if (response.status === 404) {
-        reconnectStopped = true;
+        if (connectionSettings.connectionMode !== 'relay') {
+          reconnectStopped = true;
+        }
         throw new Error(t.statusSessionDetached);
       }
       if (!response.ok) {
@@ -269,19 +305,23 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     };
 
     const replayEvents = async () => {
-      if (connectionSettings.connectionMode === 'relay') {
-        replayComplete = false;
-        return;
-      }
       setStatus(t.statusReplaying);
       let keepLoading = true;
-      while (!disposed && keepLoading) {
-        const beforePageCursor = after;
-        const events = await fetchReplayPage(`after=${after}&limit=${FULL_REPLAY_EVENT_PAGE_LIMIT}`);
-        for (const event of events) {
-          handleEvent(event);
+      try {
+        while (!disposed && keepLoading) {
+          const beforePageCursor = after;
+          const events = await fetchReplayPage(`after=${after}&limit=${FULL_REPLAY_EVENT_PAGE_LIMIT}`);
+          for (const event of events) {
+            handleEvent(event);
+          }
+          keepLoading = events.length === FULL_REPLAY_EVENT_PAGE_LIMIT && after > beforePageCursor;
         }
-        keepLoading = events.length === FULL_REPLAY_EVENT_PAGE_LIMIT && after > beforePageCursor;
+      } catch (error) {
+        if (connectionSettings.connectionMode === 'relay') {
+          replayComplete = false;
+          return;
+        }
+        throw error;
       }
       replayComplete = true;
       setIsReady(true);
@@ -370,30 +410,6 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       ]);
     };
 
-    const loadHistory = async () => {
-      try {
-        const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/conversation`);
-        if (response.status === 401) {
-          logoutNormal();
-          return;
-        }
-        if (!response.ok) {
-          return;
-        }
-        const data = (await response.json()) as { turns: ConversationTurn[] };
-        setChatMessages(
-          data.turns.map((turn) => ({
-            id: genId(),
-            role: turn.role,
-            content: turn.content,
-            tools: turn.tools ? (JSON.parse(turn.tools) as ToolInfo[]) : []
-          }))
-        );
-      } catch {
-        // wait for websocket events
-      }
-    };
-
     const connectStream = async (isReconnect = false) => {
       closeWasExpected = false;
       if (isReconnect) {
@@ -472,6 +488,9 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
             return;
           }
           if (frame.type === 'replay.done') {
+            if (frame.sessionId !== sessionId) {
+              return;
+            }
             replayComplete = true;
             after = Math.max(after, frame.latestEventId);
             setIsReady(true);
@@ -524,7 +543,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       });
     };
 
-    void loadHistory();
+    void refreshConversation();
     connectStream().catch((error: unknown) => {
       if (!disposed) {
         setStatus(error instanceof Error ? error.message : t.statusStreamUnavailable);
@@ -548,9 +567,9 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     connectionSettings.connectionMode,
     connectionSettings.relaySecret,
     connectionSettings.relayUrl,
-    cursorKey,
     logoutNormal,
     normalAuth?.accessToken,
+    refreshConversation,
     sessionId,
     t
   ]);
@@ -634,7 +653,12 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           value={inputText}
           onChange={(event) => setInputText(event.target.value)}
         />
-        <Button type="submit">{t.agentChatSend}</Button>
+        <div className="composer-actions">
+          <span className="composer-status">{status}</span>
+          <button className="composer-submit" type="button" onClick={() => sendChatText(inputText)}>
+            {t.agentChatSend}
+          </button>
+        </div>
       </form>
     </div>
   );

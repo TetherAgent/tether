@@ -1,4 +1,4 @@
-import { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, unlinkSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -114,7 +114,13 @@ export class SessionRunner {
       lastActiveAt: now
     };
     this.store.insertSession(session);
-    pollAgentSessionId(this.options.provider, this.options.projectPath, term.pid, preSpawnSnapshot)
+    pollAgentSessionId(
+      this.options.provider,
+      this.options.projectPath,
+      term.pid,
+      preSpawnSnapshot,
+      () => this.exited || Boolean(this.store.getSession(this.options.id)?.agentSessionId)
+    )
       .then((agentSessionId) => {
         if (agentSessionId) {
           this.store.updateAgentSessionId(this.options.id, agentSessionId);
@@ -335,6 +341,63 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function codexSessionsDir(home = os.homedir()): string {
+  return path.join(home, '.codex', 'sessions');
+}
+
+function listCodexSessionFiles(home = os.homedir()): string[] {
+  const base = codexSessionsDir(home);
+  const files: string[] = [];
+  try {
+    for (const year of readdirSync(base)) {
+      const yearDir = path.join(base, year);
+      if (!statSync(yearDir).isDirectory()) continue;
+      for (const month of readdirSync(yearDir)) {
+        const monthDir = path.join(yearDir, month);
+        if (!statSync(monthDir).isDirectory()) continue;
+        for (const day of readdirSync(monthDir)) {
+          const dayDir = path.join(monthDir, day);
+          if (!statSync(dayDir).isDirectory()) continue;
+          for (const file of readdirSync(dayDir)) {
+            if (file.endsWith('.jsonl')) {
+              files.push(path.join(dayDir, file));
+            }
+          }
+        }
+      }
+    }
+  } catch { /* Codex sessions dir may not exist yet */ }
+  return files;
+}
+
+export function readCodexSessionId(filePath: string): string | undefined {
+  try {
+    const firstLine = readFileSync(filePath, 'utf8').split('\n').find((line) => line.trim());
+    if (!firstLine) return undefined;
+    const entry = JSON.parse(firstLine) as { type?: string; payload?: { id?: string } };
+    if (entry.type === 'session_meta' && typeof entry.payload?.id === 'string') {
+      return entry.payload.id;
+    }
+  } catch { /* Fall back to filename parsing below */ }
+
+  const match = path.basename(filePath).match(/-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i);
+  return match?.[1];
+}
+
+export function latestNewCodexSessionId(before: Set<string>, home = os.homedir()): string | undefined {
+  const newFiles = listCodexSessionFiles(home)
+    .filter((file) => !before.has(`codex-file:${file}`))
+    .map((file) => ({ file, mtimeMs: statSync(file).mtimeMs }))
+    .sort((left, right) => right.mtimeMs - left.mtimeMs);
+
+  for (const { file } of newFiles) {
+    const id = readCodexSessionId(file);
+    if (id) return id;
+  }
+
+  return undefined;
+}
+
 // Call this BEFORE pty.spawn() to capture a snapshot of existing session files.
 function snapshotAgentDir(provider: ProviderName, projectPath: string): Set<string> {
   const home = os.homedir();
@@ -346,8 +409,12 @@ function snapshotAgentDir(provider: ProviderName, projectPath: string): Set<stri
     }
     if (provider === 'codex' || provider === 'codex-proxy') {
       const indexPath = path.join(home, '.codex', 'session_index.jsonl');
-      const lines = readFileSync(indexPath, 'utf8').split('\n').filter(Boolean);
-      return new Set([String(lines.length)]);
+      const snapshot = new Set(listCodexSessionFiles(home).map((file) => `codex-file:${file}`));
+      try {
+        const lines = readFileSync(indexPath, 'utf8').split('\n').filter(Boolean);
+        snapshot.add(`codex-index-count:${lines.length}`);
+      } catch { /* session_index.jsonl is legacy and may be stale or absent */ }
+      return snapshot;
     }
     if (provider === 'copilot') {
       const dir = path.join(home, '.copilot', 'session-state');
@@ -362,14 +429,17 @@ async function pollAgentSessionId(
   provider: ProviderName,
   projectPath: string,
   pid: number,
-  before: Set<string>
+  before: Set<string>,
+  shouldStop?: () => boolean
 ): Promise<string | undefined> {
   const home = os.homedir();
+  const shouldContinue = (attempt: number) =>
+    shouldStop ? !shouldStop() : attempt < DETECT_MAX_POLLS;
 
   if (provider === 'claude' || provider === 'claude-proxy') {
     // Claude writes ~/.claude/sessions/<pid>.json on startup — much more reliable than JSONL files.
     const sessionFile = path.join(home, '.claude', 'sessions', `${pid}.json`);
-    for (let i = 0; i < DETECT_MAX_POLLS; i++) {
+    for (let i = 0; shouldContinue(i); i++) {
       await sleep(DETECT_POLL_INTERVAL_MS);
       try {
         const data = JSON.parse(readFileSync(sessionFile, 'utf8')) as { sessionId?: string };
@@ -381,9 +451,14 @@ async function pollAgentSessionId(
 
   if (provider === 'codex' || provider === 'codex-proxy') {
     const indexPath = path.join(home, '.codex', 'session_index.jsonl');
-    const beforeCount = Number(before.values().next().value ?? 0);
-    for (let i = 0; i < DETECT_MAX_POLLS; i++) {
+    const beforeIndexEntry = [...before].find((entry) => entry.startsWith('codex-index-count:'));
+    const beforeCount = Number(beforeIndexEntry?.slice('codex-index-count:'.length) ?? 0);
+    for (let i = 0; shouldContinue(i); i++) {
       await sleep(DETECT_POLL_INTERVAL_MS);
+      const sessionId = latestNewCodexSessionId(before, home);
+      if (sessionId) {
+        return sessionId;
+      }
       try {
         const lines = readFileSync(indexPath, 'utf8').split('\n').filter(Boolean);
         if (lines.length > beforeCount) {
@@ -397,7 +472,7 @@ async function pollAgentSessionId(
 
   if (provider === 'copilot') {
     const dir = path.join(home, '.copilot', 'session-state');
-    for (let i = 0; i < DETECT_MAX_POLLS; i++) {
+    for (let i = 0; shouldContinue(i); i++) {
       await sleep(DETECT_POLL_INTERVAL_MS);
       try {
         for (const f of readdirSync(dir)) {

@@ -833,9 +833,11 @@ test('direct websocket chat emits agent.typing and conversation API returns turn
       const ticket = await requestTicket(port, sessionId, 'control', authHeaders());
       const ws = new WebSocket(`ws://127.0.0.1:${port}/api/sessions/${sessionId}/stream?mode=control&surface=test`, [`tether-ticket.${ticket}`]);
       await waitForMessage(ws, (text) => text.includes('replay.done'));
+      const ptyOutput = waitForMessage(ws, (text) => text.includes('hello direct chat'));
       ws.send(JSON.stringify({ type: 'chat', message: 'hello direct chat' }));
       const event = await waitForMessage(ws, (text) => text.includes('"agent.typing"'));
       assert.match(event, /"agent\.typing"/);
+      await ptyOutput;
       await waitFor(() => store.listConversationTurns(sessionId).some((turn) => turn.role === 'user' && turn.content === 'hello direct chat'), 1000);
 
       const response = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/conversation`, {

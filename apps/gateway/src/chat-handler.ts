@@ -1,6 +1,8 @@
 import type { SessionRunnerClient } from './session-runner-client.js';
 import type { SessionEvent, Store } from './store.js';
 
+export type ChatPtyWriter = (data: string, clientId: string) => Promise<void> | void;
+
 /**
  * Handle a client.chat message: insert user turn, write to PTY, emit agent.typing.
  * Returns the agent.typing SessionEvent so callers can publish it to WS clients.
@@ -14,14 +16,17 @@ export async function handleChatMessage(
   sessionId: string,
   message: string,
   store: Store,
-  runnerClient: SessionRunnerClient | undefined
+  runnerClient: SessionRunnerClient | undefined,
+  ptyWriter?: ChatPtyWriter
 ): Promise<SessionEvent> {
   const safeMessage = message.slice(0, 4000);
   store.insertConversationTurn(sessionId, 'user', safeMessage);
   if (runnerClient) {
-    await runnerClient.write(`${safeMessage}\n`, 'chat').catch(() => {
-      // PTY may have exited
-    });
+    await runnerClient.write(safeMessage, 'chat');
+    await runnerClient.write('\r', 'chat');
+  } else if (ptyWriter) {
+    await ptyWriter(safeMessage, 'chat');
+    await ptyWriter('\r', 'chat');
   }
   return store.appendEvent(sessionId, 'agent.typing', {});
 }

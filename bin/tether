@@ -5,15 +5,16 @@
 // dev: ../apps/cli/src/main.ts 存在 → 通过 tsx 加载源码
 
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
+const here = path.dirname(realpathSync(fileURLToPath(import.meta.url)));
+const root = path.join(here, '..');
 const FLAGS = ['--experimental-sqlite', '--no-warnings=ExperimentalWarning'];
 
-const distEntry = path.join(here, '..', 'dist', 'cli', 'main.js');
-const devEntry = path.join(here, '..', 'apps', 'cli', 'src', 'main.ts');
+const distEntry = path.join(root, 'dist', 'cli', 'main.js');
+const devEntry = path.join(root, 'apps', 'cli', 'src', 'main.ts');
 
 let args;
 if (existsSync(distEntry)) {
@@ -28,6 +29,7 @@ if (existsSync(distEntry)) {
 }
 
 const child = spawn(process.execPath, [...args, ...process.argv.slice(2)], {
+  cwd: root,
   stdio: 'inherit'
 });
 

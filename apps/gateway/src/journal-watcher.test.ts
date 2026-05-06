@@ -95,13 +95,19 @@ test('processCodexEntry builds one turn on task completion', () => {
   watcher.processCodexEntry({ type: 'event_msg', payload: { type: 'task_started' } });
   watcher.processCodexEntry({
     type: 'response_item',
-    role: 'assistant',
-    content: [{ type: 'output_text', text: 'Part 1' }]
+    payload: {
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'output_text', text: 'Part 1' }]
+    }
   });
   watcher.processCodexEntry({
     type: 'response_item',
-    role: 'assistant',
-    content: [{ type: 'output_text', text: 'Part 2' }]
+    payload: {
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'output_text', text: 'Part 2' }]
+    }
   });
   watcher.processCodexEntry({ type: 'event_msg', payload: { type: 'task_completed' } });
 
@@ -111,14 +117,38 @@ test('processCodexEntry builds one turn on task completion', () => {
   assert.equal(store.eventCalls[0]?.payload.turnIndex, 0);
 });
 
+test('processCodexEntry stores Codex user messages as user turns', () => {
+  const store = makeMockStore();
+  const watcher = new JournalWatcher('tth_test', 'codex', 'agent-id', '/test/project', store, () => undefined);
+
+  watcher.processCodexEntry({ type: 'event_msg', payload: { type: 'user_message', message: 'hello from user' } });
+
+  assert.equal(store.insertCalls.length, 1);
+  assert.equal(store.insertCalls[0]?.role, 'user');
+  assert.equal(store.insertCalls[0]?.content, 'hello from user');
+  assert.equal(store.eventCalls[0]?.payload.role, 'user');
+});
+
+test('processCodexEntry ignores empty Codex user messages', () => {
+  const store = makeMockStore();
+  const watcher = new JournalWatcher('tth_test', 'codex', 'agent-id', '/test/project', store, () => undefined);
+
+  watcher.processCodexEntry({ type: 'event_msg', payload: { type: 'user_message', message: '   ' } });
+
+  assert.equal(store.insertCalls.length, 0);
+});
+
 test('processCodexEntry ignores assistant response before task_started', () => {
   const store = makeMockStore();
   const watcher = new JournalWatcher('tth_test', 'codex', 'agent-id', '/test/project', store, () => undefined);
 
   watcher.processCodexEntry({
     type: 'response_item',
-    role: 'assistant',
-    content: [{ type: 'output_text', text: 'orphan' }]
+    payload: {
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'output_text', text: 'orphan' }]
+    }
   });
 
   assert.equal(store.insertCalls.length, 0);

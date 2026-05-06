@@ -140,12 +140,15 @@ export class JournalWatcher {
         }
         this.codexInTask = false;
         this.codexPendingTexts = [];
+      } else if (eventType === 'user_message' && typeof payload?.message === 'string' && payload.message.trim()) {
+        this.emitUserTurn(payload.message);
       }
       return;
     }
 
-    if (type !== 'response_item' || !this.codexInTask || entry.role !== 'assistant') return;
-    const content = entry.content as unknown[] | undefined;
+    const payload = entry.payload as Record<string, unknown> | undefined;
+    if (type !== 'response_item' || !this.codexInTask || payload?.role !== 'assistant') return;
+    const content = payload.content as unknown[] | undefined;
     if (!Array.isArray(content)) return;
     for (const block of content) {
       const item = block as Record<string, unknown>;
@@ -203,6 +206,17 @@ export class JournalWatcher {
       role: 'assistant',
       content,
       tools,
+      turnIndex
+    });
+    this.publishEvent(event);
+  }
+
+  private emitUserTurn(content: string): void {
+    const turnIndex = this.store.insertConversationTurn(this.sessionId, 'user', content);
+    const event = this.store.appendEvent(this.sessionId, 'agent.turn', {
+      role: 'user',
+      content,
+      tools: [],
       turnIndex
     });
     this.publishEvent(event);
