@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Bot, Copy, Terminal } from 'lucide-react';
+import { Bot, Copy, Terminal, X } from 'lucide-react';
 
 import { useI18n } from '../../hooks/use-i18n.js';
 
@@ -136,6 +136,63 @@ export function ChatBubble({
           <UserAvatar initial={userInitial} />
         )
       ) : null}
+    </div>
+  );
+}
+
+export type ChatThinkingBubbleProps = {
+  folded?: boolean;
+  provider?: string;
+  onCancel?: () => void;
+};
+
+const CANCEL_VISIBLE_AFTER_S = 5;
+const DEEP_THINKING_AFTER_S = 10;
+const SHOW_TIMER_AFTER_S = 3;
+
+export function ChatThinkingBubble({ folded = false, provider, onCancel }: ChatThinkingBubbleProps) {
+  const { t } = useI18n();
+  const [seconds, setSeconds] = React.useState(0);
+
+  React.useEffect(() => {
+    const start = Date.now();
+    const id = window.setInterval(() => {
+      setSeconds(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const text = seconds < DEEP_THINKING_AFTER_S ? t.chatThinking : t.chatThinkingDeep;
+  const showCancel = seconds >= CANCEL_VISIBLE_AFTER_S && Boolean(onCancel);
+
+  return (
+    <div className={`chat-row chat-row-agent${folded ? ' chat-row-folded' : ''}`}>
+      {folded ? (
+        <span className="chat-avatar chat-avatar-spacer" aria-hidden="true" />
+      ) : (
+        <AgentAvatar provider={provider} />
+      )}
+      <div className="chat-row-bubbles">
+        <div className="chat-bubble chat-bubble-agent chat-bubble-thinking">
+          <div className="chat-bubble-content">
+            <span className="chat-typing-dots" aria-label={t.agentTypingIndicator}>
+              <span />
+              <span />
+              <span />
+            </span>
+            <span className="chat-thinking-text">{text}</span>
+            {seconds >= SHOW_TIMER_AFTER_S ? (
+              <span className="chat-thinking-timer">· {seconds}s</span>
+            ) : null}
+            {showCancel ? (
+              <button type="button" className="chat-thinking-cancel" onClick={onCancel}>
+                <X aria-hidden="true" />
+                <span>{t.chatStopGen}</span>
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -4493,6 +4493,160 @@ html.dark .hljs-deletion {
   }
 }
 
+/* Thinking bubble (placeholder while agent processes) */
+.chat-bubble-thinking .chat-bubble-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+}
+
+.chat-thinking-text {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+.chat-thinking-timer {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-thinking-cancel {
+  margin-left: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.chat-thinking-cancel:hover {
+  color: var(--destructive, #dc2626);
+  border-color: var(--destructive, #dc2626);
+}
+
+.chat-thinking-cancel svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* Time separator */
+.chat-time-sep {
+  align-self: center;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  margin: 4px 0 -4px;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Persistent agent.select prompt */
+.chat-select-raw {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--muted-foreground) 10%, transparent);
+  font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-select-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.chat-select-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.chat-select-option:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.chat-select-option-selected {
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+  border-color: var(--brand);
+  color: var(--brand);
+  opacity: 0.7;
+}
+
+.chat-select-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--muted-foreground) 18%, transparent);
+  color: var(--muted-foreground);
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  padding: 0 4px;
+}
+
+.chat-select-tag {
+  margin-left: 4px;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: #fff;
+  text-transform: lowercase;
+}
+
+/* Error banner above composer */
+.chat-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px clamp(14px, 2.5vw, 28px);
+  border-bottom: 1px solid var(--destructive, #dc2626);
+  background: color-mix(in srgb, var(--destructive, #dc2626) 10%, transparent);
+  color: var(--destructive, #dc2626);
+  font-size: 13px;
+}
+
+.chat-error-banner-detached {
+  background: color-mix(in srgb, var(--muted-foreground) 12%, transparent);
+  color: var(--muted-foreground);
+  border-bottom-color: var(--border);
+}
+
+.chat-error-banner-action {
+  margin-left: auto;
+  padding: 3px 12px;
+  border-radius: 6px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chat-error-banner-action:hover {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
 @keyframes chat-cursor-blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }

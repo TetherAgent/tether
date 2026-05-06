@@ -6,7 +6,7 @@ import { Button, Textarea } from '@tether/design';
 import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { gatewayAuthHeaders, requestGatewayWsTicket } from '../../lib/api.js';
-import { ChatBubble } from './chat-bubble.js';
+import { ChatBubble, ChatThinkingBubble } from './chat-bubble.js';
 import { ChatMarkdown } from './chat-markdown.js';
 import { SessionDetailHeader, TerminalSurfaceSkeleton } from './session-detail-chrome.js';
 
@@ -50,12 +50,20 @@ type RelayServerToClientFrame =
 
 type ToolInfo = { name: string; inputSummary: string };
 type ChatMessageStatus = 'pending' | 'sent' | 'delivered' | 'failed';
+type SelectOption = { index: number; label: string };
+type SelectPayload = {
+  options: SelectOption[];
+  raw: string;
+  selectedIndex?: number;
+};
 type ChatMessage = {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   tools: ToolInfo[];
   status?: ChatMessageStatus;
+  selectPayload?: SelectPayload;
+  createdAt?: number;
 };
 type AgentRuntimeStatus = 'idle' | 'submitted' | 'running' | 'responding' | 'done' | 'exited' | 'disconnected';
 type ConversationTurn = {
@@ -74,6 +82,29 @@ const RELAY_VIRTUAL_ROWS = 50;
 const CHAT_ENTER_DELAY_MS = 120;
 const PENDING_TIMEOUT_MS = 5000;
 const SCROLL_FOLLOW_THRESHOLD_PX = 80;
+const TIME_SEPARATOR_GAP_MS = 5 * 60 * 1000;
+
+function formatTimeSeparator(ts: number, locale: 'zh' | 'en'): string {
+  const d = new Date(ts);
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  const time = new Intl.DateTimeFormat(locale, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(d);
+  if (sameDay) {
+    return time;
+  }
+  const date = new Intl.DateTimeFormat(locale, {
+    month: 'short',
+    day: 'numeric'
+  }).format(d);
+  return `${date} ${time}`;
+}
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -202,14 +233,12 @@ function displayMessage(message: string, t: WebMessages): string {
 
 export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessionSurfaceProps) {
   const { logoutNormal, normalAuth } = useAuth();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const location = useLocation();
   const locationState = location.state as { agentSessionId?: string; provider?: string } | null;
 
   const [chatMessages, setChatMessages] = React.useState<ChatMessage[]>([]);
   const [typingVisible, setTypingVisible] = React.useState(false);
-  const [selectOptions, setSelectOptions] = React.useState<Array<{ index: number; label: string }>>([]);
-  const [selectRaw, setSelectRaw] = React.useState('');
   const [inputText, setInputText] = React.useState('');
   const [status, setStatus] = React.useState<string>(t.statusConnecting);
   const [agentRuntimeStatus, setAgentRuntimeStatus] = React.useState<AgentRuntimeStatus>('idle');
@@ -218,6 +247,13 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
   const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(locationState?.agentSessionId);
   const [sessionProvider, setSessionProvider] = React.useState<string | undefined>(locationState?.provider);
   const [unreadCount, setUnreadCount] = React.useState(0);
+  const [connectionHealth, setConnectionHealth] = React.useState<
+    'connecting' | 'ok' | 'reconnecting' | 'detached'
+  >('connecting');
+  const [reconnectKey, setReconnectKey] = React.useState(0);
+  const triggerReconnect = React.useCallback(() => {
+    setReconnectKey((k) => k + 1);
+  }, []);
 
   const socket = React.useRef<WebSocket | undefined>(undefined);
   const chatScrollRef = React.useRef<HTMLDivElement>(null);
@@ -277,7 +313,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     if (el && isNearBottomRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [typingVisible, selectOptions]);
+  }, [typingVisible]);
 
   const scrollToBottom = React.useCallback(() => {
     const el = chatScrollRef.current;
@@ -307,7 +343,8 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
             id: `turn:${turn.turnIndex}`,
             role: turn.role,
             content: turn.content,
-            tools: turn.tools ? (JSON.parse(turn.tools) as ToolInfo[]) : []
+            tools: turn.tools ? (JSON.parse(turn.tools) as ToolInfo[]) : [],
+            createdAt: turn.createdAt
           });
         }
         return next;
@@ -329,6 +366,28 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     },
     []
   );
+
+  const sendInputFrame = React.useCallback(
+    (data: string): boolean => {
+      const ws = socket.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        return false;
+      }
+      ws.send(
+        JSON.stringify(
+          connectionSettings.connectionMode === 'relay'
+            ? { type: 'client.input', sessionId, data }
+            : { type: 'input', data }
+        )
+      );
+      return true;
+    },
+    [connectionSettings.connectionMode, sessionId]
+  );
+
+  const cancelGeneration = React.useCallback(() => {
+    sendInputFrame('\x03');
+  }, [sendInputFrame]);
 
   const sendChatText = React.useCallback(
     async (value: string) => {
@@ -352,15 +411,6 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       // Display preserves newlines so user sees what they typed; wire flattens to
       // single-line so PTY agents (notably Codex) don't enter multi-line edit mode.
       const wireValue = displayValue.replace(/\s*\r?\n\s*/g, ' ');
-      setSelectOptions([]);
-      setSelectRaw('');
-      const sendFrame = (data: string) => {
-        ws.send(JSON.stringify(
-          connectionSettings.connectionMode === 'relay'
-            ? { type: 'client.input', sessionId, data }
-            : { type: 'input', data }
-        ));
-      };
       const localId = `pending:${
         typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
           ? crypto.randomUUID()
@@ -373,15 +423,16 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           role: 'user',
           content: displayValue,
           tools: [],
-          status: 'pending'
+          status: 'pending',
+          createdAt: Date.now()
         }
       ]);
       setInputText('');
       setIsSending(true);
       try {
-        sendFrame(wireValue);
+        sendInputFrame(wireValue);
         await wait(CHAT_ENTER_DELAY_MS);
-        sendFrame('\r');
+        sendInputFrame('\r');
         updateMessageStatus(localId, 'sent', (m) => m.status === 'pending');
       } catch {
         updateMessageStatus(localId, 'failed', (m) => m.status !== 'delivered');
@@ -394,7 +445,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
         );
       }, PENDING_TIMEOUT_MS);
     },
-    [agentRuntimeStatus, connectionSettings.connectionMode, isSending, sessionId, t, updateMessageStatus]
+    [agentRuntimeStatus, isSending, sendInputFrame, t, updateMessageStatus]
   );
 
   React.useEffect(() => {
@@ -428,12 +479,19 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       }
 
       if (event.type === 'agent.turn') {
-        const turn = event.payload as { role?: string; content?: string; tools?: ToolInfo[]; turnIndex?: number };
+        const turn = event.payload as {
+          role?: string;
+          content?: string;
+          tools?: ToolInfo[];
+          turnIndex?: number;
+          createdAt?: number;
+        };
         const message: ChatMessage = {
           id: typeof turn.turnIndex === 'number' ? `turn:${turn.turnIndex}` : `event:${event.id}`,
           role: turn.role === 'user' ? 'user' : 'assistant',
           content: typeof turn.content === 'string' ? turn.content : '',
-          tools: Array.isArray(turn.tools) ? turn.tools : []
+          tools: Array.isArray(turn.tools) ? turn.tools : [],
+          createdAt: turn.createdAt ?? Date.now()
         };
         setChatMessages((prev) => upsertChatMessage(prev, message));
         setTypingVisible(false);
@@ -444,9 +502,20 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
         return;
       }
       if (event.type === 'agent.select') {
-        const payload = event.payload as { options?: Array<{ index: number; label: string }>; raw?: string };
-        setSelectOptions(Array.isArray(payload.options) ? payload.options : []);
-        setSelectRaw(typeof payload.raw === 'string' ? payload.raw : '');
+        const payload = event.payload as { options?: SelectOption[]; raw?: string };
+        const options = Array.isArray(payload.options) ? payload.options : [];
+        const raw = typeof payload.raw === 'string' ? payload.raw : '';
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: `select:${event.id}`,
+            role: 'assistant',
+            content: '',
+            tools: [],
+            createdAt: Date.now(),
+            selectPayload: { options, raw }
+          }
+        ]);
         return;
       }
       if (event.type === 'session.exited') {
@@ -496,6 +565,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       }
       replayComplete = true;
       setIsReady(true);
+      setConnectionHealth('ok');
     };
 
     const probeGatewaySession = async (): Promise<boolean> => {
@@ -513,6 +583,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           reconnectStopped = true;
           setStatus(tRef.current.statusSessionDetached);
           setIsReady(true);
+          setConnectionHealth('detached');
           return false;
         }
         if (!response.ok) {
@@ -543,6 +614,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       replayComplete = false;
       socket.current = undefined;
       setIsReady(false);
+      setConnectionHealth('reconnecting');
       setStatus(tRef.current.statusReconnecting);
       reconnectAttempt += 1;
       if (reconnectTimer) {
@@ -647,6 +719,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           if (frame.type === 'client.auth.failed') {
             reconnectStopped = true;
             logoutNormal();
+            setConnectionHealth('detached');
             setStatus(displayMessage(frame.message, tRef.current));
             nextWs.close();
             return;
@@ -666,6 +739,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
             replayComplete = true;
             after = Math.max(after, frame.latestEventId);
             setIsReady(true);
+            setConnectionHealth('ok');
             return;
           }
           if (frame.type === 'event') {
@@ -685,6 +759,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
         if (frame.type === 'replay.done') {
           replayComplete = true;
           setIsReady(true);
+          setConnectionHealth('ok');
           return;
         }
         if (frame.type === 'event') {
@@ -742,6 +817,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     connectionSettings.relayUrl,
     logoutNormal,
     normalAuth?.accessToken,
+    reconnectKey,
     refreshConversation,
     sessionId
   ]);
@@ -787,70 +863,139 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           </Link>
         </Button>
       </SessionDetailHeader>
+      {connectionHealth === 'reconnecting' || connectionHealth === 'detached' ? (
+        <div className={`chat-error-banner chat-error-banner-${connectionHealth}`} role="alert">
+          <span>
+            {connectionHealth === 'reconnecting'
+              ? t.chatErrorReconnect
+              : t.statusSessionDetached}
+          </span>
+          {connectionHealth === 'reconnecting' ? (
+            <button type="button" className="chat-error-banner-action" onClick={triggerReconnect}>
+              {t.chatErrorReconnectNow}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <div ref={chatScrollRef} className="chat-panel">
         {!isReady && chatMessages.length === 0 ? (
           <TerminalSurfaceSkeleton />
         ) : null}
         {chatMessages.map((msg, index) => {
           const previous = index > 0 ? chatMessages[index - 1] : undefined;
-          const folded = previous?.role === msg.role;
+          const folded = previous?.role === msg.role && !msg.selectPayload && !previous?.selectPayload;
           const status = (msg.status ?? 'delivered') as ChatMessageStatus;
+          const showSeparator =
+            !previous ||
+            (typeof msg.createdAt === 'number' &&
+              typeof previous.createdAt === 'number' &&
+              msg.createdAt - previous.createdAt > TIME_SEPARATOR_GAP_MS);
+          const separator =
+            showSeparator && typeof msg.createdAt === 'number' ? (
+              <div key={`sep:${msg.id}`} className="chat-time-sep" role="separator">
+                {formatTimeSeparator(msg.createdAt, locale)}
+              </div>
+            ) : null;
+
+          if (msg.selectPayload) {
+            return (
+              <React.Fragment key={msg.id}>
+                {separator}
+                <ChatBubble role="assistant" folded={false} provider={sessionProvider}>
+                  {msg.content ? <ChatMarkdown content={msg.content} /> : null}
+                  {msg.selectPayload.raw ? (
+                    <pre className="chat-select-raw">{msg.selectPayload.raw}</pre>
+                  ) : null}
+                  <div className="chat-select-options">
+                    {msg.selectPayload.options.map((opt) => {
+                      const isSelected = msg.selectPayload?.selectedIndex === opt.index;
+                      return (
+                        <button
+                          key={`${msg.id}-opt-${opt.index}`}
+                          type="button"
+                          className={`chat-select-option${isSelected ? ' chat-select-option-selected' : ''}`}
+                          onClick={() => {
+                            setChatMessages((prev) =>
+                              prev.map((item) =>
+                                item.id === msg.id && item.selectPayload
+                                  ? {
+                                      ...item,
+                                      selectPayload: { ...item.selectPayload, selectedIndex: opt.index }
+                                    }
+                                  : item
+                              )
+                            );
+                            void sendChatText(String(opt.index));
+                          }}
+                        >
+                          <span className="chat-select-num">{opt.index}</span>
+                          <span>{opt.label}</span>
+                          {isSelected ? (
+                            <span className="chat-select-tag">{t.chatSelectSelected}</span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </ChatBubble>
+              </React.Fragment>
+            );
+          }
+
           if (msg.role === 'user') {
             return (
-              <ChatBubble
-                key={msg.id}
-                role="user"
-                folded={folded}
-                status={status}
-                onRetry={
-                  status === 'failed'
-                    ? () => {
-                        setChatMessages((prev) => prev.filter((item) => item.id !== msg.id));
-                        void sendChatText(msg.content);
-                      }
-                    : undefined
-                }
-              >
-                {msg.content}
-              </ChatBubble>
+              <React.Fragment key={msg.id}>
+                {separator}
+                <ChatBubble
+                  role="user"
+                  folded={folded}
+                  status={status}
+                  onRetry={
+                    status === 'failed'
+                      ? () => {
+                          setChatMessages((prev) => prev.filter((item) => item.id !== msg.id));
+                          void sendChatText(msg.content);
+                        }
+                      : undefined
+                  }
+                >
+                  {msg.content}
+                </ChatBubble>
+              </React.Fragment>
             );
           }
           return (
-            <ChatBubble
-              key={msg.id}
-              role="assistant"
-              folded={folded}
-              provider={sessionProvider}
-              rawContent={msg.content}
-            >
-              {msg.content ? <ChatMarkdown content={msg.content} /> : null}
-              {msg.tools.length > 0 ? (
-                <div className="chat-tool-chips">
-                  {msg.tools.map((tool, toolIndex) => (
-                    <span key={`${msg.id}-tool-${toolIndex}`} className="chat-tool-chip">
-                      <span className="chat-tool-chip-name">{tool.name}</span>
-                      {tool.inputSummary ? (
-                        <span className="chat-tool-chip-args">{tool.inputSummary}</span>
-                      ) : null}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </ChatBubble>
+            <React.Fragment key={msg.id}>
+              {separator}
+              <ChatBubble
+                role="assistant"
+                folded={folded}
+                provider={sessionProvider}
+                rawContent={msg.content}
+              >
+                {msg.content ? <ChatMarkdown content={msg.content} /> : null}
+                {msg.tools.length > 0 ? (
+                  <div className="chat-tool-chips">
+                    {msg.tools.map((tool, toolIndex) => (
+                      <span key={`${msg.id}-tool-${toolIndex}`} className="chat-tool-chip">
+                        <span className="chat-tool-chip-name">{tool.name}</span>
+                        {tool.inputSummary ? (
+                          <span className="chat-tool-chip-args">{tool.inputSummary}</span>
+                        ) : null}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </ChatBubble>
+            </React.Fragment>
           );
         })}
         {typingVisible ? (
-          <ChatBubble
-            role="assistant"
+          <ChatThinkingBubble
             folded={chatMessages[chatMessages.length - 1]?.role === 'assistant'}
             provider={sessionProvider}
-          >
-            <span className="chat-typing-dots" aria-label={t.agentTypingIndicator}>
-              <span />
-              <span />
-              <span />
-            </span>
-          </ChatBubble>
+            onCancel={cancelGeneration}
+          />
         ) : null}
         {unreadCount > 0 ? (
           <button
@@ -864,19 +1009,6 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           </button>
         ) : null}
       </div>
-      {selectOptions.length > 0 ? (
-        <div className="px-4 pb-2">
-          <p className="mb-2 text-sm text-foreground">{t.agentSelectPrompt}</p>
-          {selectRaw ? <pre className="mb-2 whitespace-pre-wrap rounded-md border border-input bg-card p-2 text-xs text-foreground">{selectRaw}</pre> : null}
-          <div className="flex flex-wrap gap-2">
-            {selectOptions.map((opt) => (
-              <Button key={`${opt.index}-${opt.label}`} type="button" variant="outline" size="sm" onClick={() => sendChatText(String(opt.index))}>
-                {opt.index}. {opt.label}
-              </Button>
-            ))}
-          </div>
-        </div>
-      ) : null}
       <form className="composer-form" onSubmit={sendChat}>
         <Textarea
           className={`composer-input${isAgentThinking ? ' composer-input-thinking' : ''}`}
