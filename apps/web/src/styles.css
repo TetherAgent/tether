@@ -3898,15 +3898,19 @@ a {
   flex-direction: column;
   gap: 12px;
   padding: 16px clamp(14px, 2.5vw, 28px);
+  position: relative;
 }
 
 .chat-bubble {
   display: flex;
   max-width: 85%;
+  position: relative;
 }
 
 .chat-bubble-user {
   align-self: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
 }
 
 .chat-bubble-agent {
@@ -3922,11 +3926,68 @@ a {
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
+  transition: opacity 120ms ease;
+}
+
+.chat-bubble-user[data-status="pending"] .chat-bubble-content {
+  opacity: 0.55;
+}
+
+.chat-bubble-user[data-status="failed"] .chat-bubble-content {
+  border: 1.5px solid var(--destructive, #dc2626);
+}
+
+.chat-bubble-tick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  padding-right: 4px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+
+.chat-bubble-tick-failed {
+  color: var(--destructive, #dc2626);
+}
+
+.chat-bubble-retry {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--destructive, #dc2626);
+  color: var(--destructive, #dc2626);
+  background: transparent;
+  cursor: pointer;
+}
+
+.chat-bubble-retry:hover {
+  background: color-mix(in srgb, var(--destructive, #dc2626) 12%, transparent);
+}
+
+.chat-scroll-fab {
+  position: sticky;
+  bottom: 12px;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.08);
+}
+
+.chat-scroll-fab:hover {
+  border-color: var(--brand);
+  color: var(--brand);
 }
 
 .chat-bubble-agent .chat-bubble-content {
-  max-height: min(60vh, 480px);
-  overflow-y: auto;
   padding: 10px 14px;
   border-radius: 18px 18px 18px 4px;
   background: var(--card);
