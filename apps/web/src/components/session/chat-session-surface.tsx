@@ -237,9 +237,25 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
   const location = useLocation();
   const locationState = location.state as { agentSessionId?: string; provider?: string } | null;
 
+  const draftKey = `tether:draft:${sessionId}`;
   const [chatMessages, setChatMessages] = React.useState<ChatMessage[]>([]);
   const [typingVisible, setTypingVisible] = React.useState(false);
-  const [inputText, setInputText] = React.useState('');
+  const [inputText, setInputText] = React.useState<string>(() => {
+    try {
+      return sessionStorage.getItem(draftKey) ?? '';
+    } catch {
+      return '';
+    }
+  });
+  const historyIndexRef = React.useRef<number | null>(null);
+  const composerRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const userHistory = React.useMemo(
+    () =>
+      chatMessages
+        .filter((m) => m.role === 'user' && !m.id.startsWith('pending:'))
+        .map((m) => m.content),
+    [chatMessages]
+  );
   const [status, setStatus] = React.useState<string>(t.statusConnecting);
   const [agentRuntimeStatus, setAgentRuntimeStatus] = React.useState<AgentRuntimeStatus>('idle');
   const [isReady, setIsReady] = React.useState(false);
@@ -323,6 +339,68 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     isNearBottomRef.current = true;
     setUnreadCount(0);
+  }, []);
+
+  React.useEffect(() => {
+    try {
+      if (inputText) {
+        sessionStorage.setItem(draftKey, inputText);
+      } else {
+        sessionStorage.removeItem(draftKey);
+      }
+    } catch {
+      // ignore (private mode / storage full)
+    }
+  }, [draftKey, inputText]);
+
+  // Auto-grow composer for browsers that don't honor `field-sizing: content`.
+  React.useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    const supportsFieldSizing =
+      typeof CSS !== 'undefined' && typeof CSS.supports === 'function'
+        ? CSS.supports('field-sizing: content')
+        : false;
+    if (supportsFieldSizing) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+  }, [inputText]);
+
+  // Tab-title unread counter for assistant replies that arrive while the page is hidden.
+  const [tabUnread, setTabUnread] = React.useState(0);
+  const lastSeenAssistantIdRef = React.useRef<string | null>(null);
+  const baseTitleRef = React.useRef<string>('');
+  React.useEffect(() => {
+    baseTitleRef.current = document.title.replace(/^\(\d+\)\s*/, '');
+  }, []);
+  React.useEffect(() => {
+    const lastAssistant = [...chatMessages]
+      .reverse()
+      .find((m) => m.role === 'assistant' && !m.selectPayload);
+    if (!lastAssistant) return;
+    if (lastSeenAssistantIdRef.current === null) {
+      lastSeenAssistantIdRef.current = lastAssistant.id;
+      return;
+    }
+    if (lastAssistant.id !== lastSeenAssistantIdRef.current) {
+      lastSeenAssistantIdRef.current = lastAssistant.id;
+      if (document.hidden) {
+        setTabUnread((n) => n + 1);
+      }
+    }
+  }, [chatMessages]);
+  React.useEffect(() => {
+    const base = baseTitleRef.current || document.title.replace(/^\(\d+\)\s*/, '');
+    document.title = tabUnread > 0 ? `(${tabUnread}) ${base}` : base;
+  }, [tabUnread]);
+  React.useEffect(() => {
+    const handler = () => {
+      if (!document.hidden) {
+        setTabUnread(0);
+      }
+    };
+    document.addEventListener('visibilitychange', handler);
+    return () => document.removeEventListener('visibilitychange', handler);
   }, []);
 
   const refreshConversation = React.useCallback(async () => {
@@ -877,7 +955,14 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           ) : null}
         </div>
       ) : null}
-      <div ref={chatScrollRef} className="chat-panel">
+      <div
+        ref={chatScrollRef}
+        className="chat-panel"
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions text"
+        aria-label={t.chatLogLabel}
+      >
         {!isReady && chatMessages.length === 0 ? (
           <TerminalSurfaceSkeleton />
         ) : null}
@@ -1011,25 +1096,61 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       </div>
       <form className="composer-form" onSubmit={sendChat}>
         <Textarea
+          ref={composerRef}
           className={`composer-input${isAgentThinking ? ' composer-input-thinking' : ''}`}
           rows={1}
           autoComplete="off"
           placeholder={composerPlaceholder}
           value={inputText}
           disabled={isComposerInputDisabled}
-          onChange={(event) => setInputText(event.target.value)}
+          onChange={(event) => {
+            setInputText(event.target.value);
+            historyIndexRef.current = null;
+          }}
           onKeyDown={(event) => {
-            if (event.key !== 'Enter' || event.shiftKey) {
-              return;
-            }
             const composing =
               event.nativeEvent.isComposing ||
               (event as unknown as { keyCode?: number }).keyCode === 229;
-            if (composing) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              if (composing) {
+                return;
+              }
+              event.preventDefault();
+              sendChatText(inputText);
               return;
             }
-            event.preventDefault();
-            sendChatText(inputText);
+            if (event.key === 'ArrowUp' && !inputText && !composing && userHistory.length > 0) {
+              event.preventDefault();
+              const idx =
+                historyIndexRef.current === null
+                  ? userHistory.length - 1
+                  : Math.max(0, historyIndexRef.current - 1);
+              historyIndexRef.current = idx;
+              setInputText(userHistory[idx]);
+              return;
+            }
+            if (event.key === 'ArrowDown' && historyIndexRef.current !== null && !composing) {
+              event.preventDefault();
+              const next = historyIndexRef.current + 1;
+              if (next >= userHistory.length) {
+                historyIndexRef.current = null;
+                setInputText('');
+              } else {
+                historyIndexRef.current = next;
+                setInputText(userHistory[next]);
+              }
+              return;
+            }
+            if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+              event.preventDefault();
+              setInputText('');
+              historyIndexRef.current = null;
+              return;
+            }
+            if (event.key === 'Escape' && (typingVisible || isAgentThinking)) {
+              event.preventDefault();
+              cancelGeneration();
+            }
           }}
         />
         <div className="composer-actions">

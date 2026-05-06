@@ -4647,6 +4647,39 @@ html.dark .hljs-deletion {
   background: color-mix(in srgb, currentColor 12%, transparent);
 }
 
+/* Header: session id click-to-copy */
+.session-id-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.session-id-copy:hover {
+  background: color-mix(in srgb, var(--muted-foreground) 10%, transparent);
+  border-color: var(--border);
+}
+
+.session-id-copy-icon {
+  width: 12px;
+  height: 12px;
+  opacity: 0.6;
+}
+
+.session-id-copy:hover .session-id-copy-icon {
+  opacity: 1;
+}
+
+.session-id-suffix {
+  color: var(--muted-foreground);
+}
+
 @keyframes chat-cursor-blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
@@ -4754,8 +4787,8 @@ pre {
 
 .composer-input {
   min-width: 0;
-  height: 40px;
   min-height: 40px;
+  max-height: 200px;
   resize: none;
   font: inherit;
   color: var(--foreground);
@@ -4764,7 +4797,7 @@ pre {
   border-radius: var(--radius);
   padding: 8px 12px;
   line-height: 22px;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .composer-input-thinking {
@@ -4773,7 +4806,7 @@ pre {
 }
 
 textarea.composer-input {
-  field-sizing: fixed;
+  field-sizing: content;
 }
 
 .composer-actions {
