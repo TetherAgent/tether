@@ -233,6 +233,23 @@ Plans:
 | 9. Flutter Client App | 0/6 | Not started | - |
 | 10. Multi-workspace Expansion | 0/TBD | Not started | - |
 
+### Phase 11: Agent 实时对话视图
+
+**Goal:** JSONL-based structured conversation view alongside PTY stream: JournalWatcher reads Claude/Codex JSONL files, writes assistant turns to conversation_turns DB, pushes agent.turn events; mobile gets dual-bubble chat UI with history, option chips, and fallback hint.
+**Requirements**: AGENT-01
+**Depends on:** Phase 10
+**Plans:** 4/4 plans complete
+
+Plans:
+  - **Wave 1** (parallel):
+    - [ ] `11-01-PLAN.md` — Protocol client.chat types + conversation_turns DB table + Store methods + unit tests
+  - **Wave 2** *(depends on Plan 01)*:
+    - [ ] `11-02-PLAN.md` — Relay forwarding + chat-handler.ts + relay-client.ts + daemon.ts chat case + GET /api/sessions/:id/conversation
+  - **Wave 3** *(depends on Plan 02)*:
+    - [ ] `11-03-PLAN.md` — JournalWatcher class + SessionRunner lifecycle wiring
+  - **Wave 4** *(depends on Plan 03)*:
+    - [ ] `11-04-PLAN.md` — agent.select detection + i18n keys + /chat route + ChatSessionSurface rewrite + human verify
+
 ---
 *Roadmap created: 2026-05-01*
 *Milestone reordered: 2026-05-01 — personal Relay MVP moved to Phase 1*
@@ -241,4 +258,5 @@ Plans:
 *Scope update: 2026-05-02 — Account Management Console split out as Phase 6; Retention moved to Phase 7; pulled-forward Supervisor recorded as completed foundation*
 *Scope update: 2026-05-02 — Phase 5 changed to Web-first setup/login plus dedicated apps/server; Relay remains routing-only and management UI remains Phase 6*
 *Scope update: 2026-05-02 — WORKSPACE-01 promoted to Phase 10 for future discuss/plan flow*
+*Scope update: 2026-05-05 — Phase 11 Agent 实时对话视图 planned: 4 plans across 4 waves*
 *Coverage: 40/40 v1 requirements mapped*

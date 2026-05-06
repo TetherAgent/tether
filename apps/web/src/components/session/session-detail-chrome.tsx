@@ -44,6 +44,14 @@ export function SessionDetailHeader({
     });
   }, [provider, agentSessionId]);
 
+  const [sessionIdCopied, setSessionIdCopied] = React.useState(false);
+  const copySessionId = React.useCallback(() => {
+    void navigator.clipboard.writeText(sessionId).then(() => {
+      setSessionIdCopied(true);
+      setTimeout(() => setSessionIdCopied(false), 1200);
+    });
+  }, [sessionId]);
+
   return (
     <header className="session-detail-header">
       <div className="session-detail-title">
@@ -53,7 +61,21 @@ export function SessionDetailHeader({
           </Link>
         </Button>
         <div className="flex items-center gap-2">
-          <span>{sessionId} · {syncMode} {t.syncSuffix}</span>
+          <button
+            type="button"
+            className="session-id-copy"
+            onClick={copySessionId}
+            title={sessionIdCopied ? t.copiedResumeCommand : t.copySessionId}
+            aria-label={sessionIdCopied ? t.copiedResumeCommand : t.copySessionId}
+          >
+            {sessionId}
+            {sessionIdCopied ? (
+              <Check aria-hidden="true" className="session-id-copy-icon" />
+            ) : (
+              <Copy aria-hidden="true" className="session-id-copy-icon" />
+            )}
+          </button>
+          <span className="session-id-suffix">· {syncMode} {t.syncSuffix}</span>
           {agentSessionId && provider ? (
             <Button variant="outline" size="icon" type="button" title={`${agentSessionId.slice(0, 8)} · ${t.copyResumeCommand}`} onClick={copy}>
               {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}

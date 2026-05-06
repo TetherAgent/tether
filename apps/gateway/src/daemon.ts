@@ -17,6 +17,8 @@ import { maskSensitiveOutput } from './mask.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import { replaySessionEvents } from './replay.js';
 import { listGateways, registerGateway, touchGateway, unregisterGateway } from './registry.js';
+import { handleChatMessage } from './chat-handler.js';
+import { detectSelectOptions } from './agent-select-detect.js';
 import { startRelayClient, type RunningRelayClient } from './relay-client.js';
 import { SessionRunnerClient } from './session-runner-client.js';
 import { spawnSessionRunnerProcess } from './session-runner-spawn.js';
@@ -152,7 +154,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
-    const ownership = authorizeSessionAccess(session, actor.payload);
+    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
     if (!ownership.ok) {
       return c.json({ error: ownership.error }, ownership.status);
     }
@@ -238,7 +240,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         session.status = 'running';
       }
       if (alive || includeStopped) {
-        const ownership = authorizeSessionAccess(session, actor.payload);
+        const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
         if (!ownership.ok) {
           continue;
         }
@@ -317,7 +319,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           workspaceId: actor.payload.workspaceId,
           userId: actor.payload.userId,
           deviceId: actor.payload.deviceId,
-          gatewayId: actor.payload.gatewayId
+          gatewayId: actor.payload.gatewayId ?? actor.gatewayId
         }
       }
     });
@@ -341,7 +343,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
-    const ownership = authorizeSessionAccess(session, actor.payload);
+    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
     if (!ownership.ok) {
       return c.json({ error: ownership.error }, ownership.status);
     }
@@ -361,6 +363,23 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     return c.json({ session, text, capturedAt: Date.now() });
   });
 
+  app.get('/api/sessions/:id/conversation', async (c) => {
+    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
+    if (!actor.ok) {
+      return c.json({ error: actor.error }, actor.status);
+    }
+    const session = options.store.getSession(c.req.param('id'));
+    if (!session) {
+      return c.json({ error: 'session not found' }, 404);
+    }
+    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
+    if (!ownership.ok) {
+      return c.json({ error: ownership.error }, ownership.status);
+    }
+    const conversationTurns = options.store.listConversationTurns(session.id);
+    return c.json({ turns: conversationTurns });
+  });
+
   app.post('/api/sessions/:id/send', async (c) => {
     const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
     if (!actor.ok) {
@@ -370,7 +389,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
-    const ownership = authorizeSessionAccess(session, actor.payload);
+    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
     if (!ownership.ok) {
       return c.json({ error: ownership.error }, ownership.status);
     }
@@ -422,7 +441,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
-    const ownership = authorizeSessionAccess(session, actor.payload);
+    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
     if (!ownership.ok) {
       return c.json({ error: ownership.error }, ownership.status);
     }
@@ -444,7 +463,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
-    const ownership = authorizeSessionAccess(session, actor.payload);
+    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
     if (!ownership.ok) {
       return c.json({ error: ownership.error }, ownership.status);
     }
@@ -464,7 +483,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
-    const ownership = authorizeSessionAccess(session, actor.payload);
+    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
     if (!ownership.ok) {
       return c.json({ error: ownership.error }, ownership.status);
     }
@@ -502,7 +521,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
-    const ownership = authorizeSessionAccess(session, actor.payload);
+    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
     if (!ownership.ok) {
       return c.json({ error: ownership.error }, ownership.status);
     }
@@ -540,7 +559,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
-    const ownership = authorizeSessionAccess(session, actor.payload);
+    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
     if (!ownership.ok) {
       return c.json({ error: ownership.error }, ownership.status);
     }
@@ -662,6 +681,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       socket.close(1008, ticketPayload.error);
       return;
     }
+    const ticketOwnership = authorizeSessionAccess(session, ticketPayload.payload, authState.value.gatewayId);
+    if (!ticketOwnership.ok) {
+      socket.close(1008, ticketOwnership.error);
+      return;
+    }
 
     const clientId = `cli_${randomUUID()}`;
     const after = parseIntegerQuery(parsedUrl.searchParams.get('after') ?? undefined, 0);
@@ -747,12 +771,54 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
 
     const runnerClient = getRunnerClient(session);
     let unsubscribe: (() => void | Promise<void>) | undefined;
+    // agent.select detection state (per WS connection)
+    let recentOutputBuf = '';
+    let selectEmitted = false;
+    let selectDebounceTimer: NodeJS.Timeout | undefined;
+    const detectAndEmitAgentSelect = (event: { type: string; payload: Record<string, unknown> }) => {
+      if (
+        event.type !== 'terminal.output' ||
+        (session.provider !== 'claude' && session.provider !== 'claude-proxy')
+      ) {
+        return;
+      }
+      if (selectEmitted) {
+        selectEmitted = false;
+      }
+      const data = (event.payload as { data?: string }).data ?? '';
+      recentOutputBuf += stripAnsi(data);
+      const bufLines = recentOutputBuf.split('\n');
+      if (bufLines.length > 50) {
+        recentOutputBuf = bufLines.slice(-50).join('\n');
+      }
+      clearTimeout(selectDebounceTimer);
+      selectDebounceTimer = setTimeout(() => {
+        if (selectEmitted) {
+          return;
+        }
+        const lines = recentOutputBuf.split('\n');
+        const matchedOptions = detectSelectOptions(lines);
+        if (!matchedOptions) {
+          return;
+        }
+        const raw = lines.filter((line) => /^\s*\d+\.\s+/.test(line)).join('\n');
+        const selectEvent = options.store.appendEvent(session.id, 'agent.select', {
+          options: matchedOptions,
+          raw
+        });
+        if (socket.readyState === socket.OPEN) {
+          socket.send(JSON.stringify({ type: 'event', event: selectEvent }));
+        }
+        selectEmitted = true;
+      }, 300);
+    };
     if (runnerClient) {
       try {
         unsubscribe = await runnerClient.subscribeEvents((frame) => {
           const event = options.store.listEvents(frame.sessionId, frame.eventId - 1, 1)[0];
           if (event && socket.readyState === socket.OPEN) {
             socket.send(JSON.stringify({ type: 'event', event }));
+            detectAndEmitAgentSelect(event);
           }
         }, replayCursor);
       } catch {
@@ -765,6 +831,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       unsubscribe = options.ptySessions?.subscribe(sessionId, (event) => {
         if (socket.readyState === socket.OPEN) {
           socket.send(JSON.stringify({ type: 'event', event }));
+          detectAndEmitAgentSelect(event);
         }
       });
     }
@@ -825,10 +892,38 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         if (!ok) {
           socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));
         }
+        return;
+      }
+      if (frame.type === 'chat' && typeof frame.message === 'string') {
+        client.lastSeenAt = Date.now();
+        if (client.mode === 'observe' || controllers.get(session.id) !== clientId) {
+          socket.send(JSON.stringify({
+            type: 'error',
+            code: client.mode === 'observe' ? 'observe_only' : 'not_controller',
+            message: client.mode === 'observe' ? 'observer clients cannot send input' : 'client is not the active controller'
+          }));
+          return;
+        }
+        void handleChatMessage(session.id, frame.message, options.store, runnerClient ?? undefined, (data, clientId) => {
+          const ok = options.ptySessions?.write(session.id, { clientId, data }) ?? false;
+          if (!ok) {
+            throw new Error('PTY session is no longer running');
+          }
+        })
+          .then((event) => {
+            if (socket.readyState === socket.OPEN) {
+              socket.send(JSON.stringify({ type: 'event', event }));
+            }
+          })
+          .catch(() => {
+            socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));
+          });
+        return;
       }
     });
 
     socket.on('close', () => {
+      clearTimeout(selectDebounceTimer);
       unsubscribe?.();
       sessionClients?.delete(clientId);
       if (controllers.get(session.id) === clientId) {
@@ -925,9 +1020,9 @@ function parseIntegerQuery(value: string | undefined, fallback: number): number 
   return parsed;
 }
 
-function parseClientFrame(raw: string): { type?: unknown; data?: unknown; cols?: unknown; rows?: unknown } | undefined {
+function parseClientFrame(raw: string): { type?: unknown; data?: unknown; message?: unknown; cols?: unknown; rows?: unknown } | undefined {
   try {
-    return JSON.parse(raw) as { type?: unknown; data?: unknown; cols?: unknown; rows?: unknown };
+    return JSON.parse(raw) as { type?: unknown; data?: unknown; message?: unknown; cols?: unknown; rows?: unknown };
   } catch {
     return undefined;
   }
@@ -989,7 +1084,7 @@ async function authorizeRequest(
   authorization: string | undefined,
   allowedTokenClasses: AuthTokenClass[]
 ): Promise<
-  | { ok: true; payload: AuthenticatedActor }
+  | { ok: true; payload: AuthenticatedActor; gatewayId: string }
   | { ok: false; status: 401 | 403 | 500; error: string }
 > {
   const token = bearerTokenFromHeader(authorization);
@@ -1007,12 +1102,13 @@ async function authorizeRequest(
   if (!allowedTokenClasses.includes(payload.tokenClass)) {
     return { ok: false, status: 403, error: 'wrong_token_class' };
   }
-  return { ok: true, payload };
+  return { ok: true, payload, gatewayId: authState.value.gatewayId };
 }
 
 function authorizeSessionAccess(
   session: Session,
-  actor: AuthenticatedActor
+  actor: AuthenticatedActor,
+  currentGatewayId?: string
 ): { ok: true } | { ok: false; status: 403; error: string } {
   if (session.accountId && session.accountId !== actor.accountId) {
     return { ok: false, status: 403, error: 'forbidden_account' };
@@ -1023,7 +1119,8 @@ function authorizeSessionAccess(
   if (session.userId && actor.userId && session.userId !== actor.userId) {
     return { ok: false, status: 403, error: 'forbidden_owner' };
   }
-  if (session.gatewayId && actor.gatewayId && session.gatewayId !== actor.gatewayId) {
+  const effectiveGatewayId = actor.gatewayId ?? currentGatewayId;
+  if (session.gatewayId && effectiveGatewayId && session.gatewayId !== effectiveGatewayId) {
     return { ok: false, status: 403, error: 'forbidden_gateway' };
   }
   if (session.userId && !actor.userId) {
