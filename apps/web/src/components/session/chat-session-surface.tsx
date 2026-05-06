@@ -61,7 +61,12 @@ type ConversationTurn = {
 const FULL_REPLAY_EVENT_PAGE_LIMIT = 5000;
 const RELAY_VIRTUAL_COLS = 200;
 const RELAY_VIRTUAL_ROWS = 50;
+const CHAT_ENTER_DELAY_MS = 40;
 const genId = () => Math.random().toString(36).slice(2);
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
 
 function upsertChatMessage(messages: ChatMessage[], message: ChatMessage): ChatMessage[] {
   const existingIndex = messages.findIndex((item) => item.id === message.id);
@@ -207,7 +212,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
   }, [logoutNormal, sessionId]);
 
   const sendChatText = React.useCallback(
-    (value: string) => {
+    async (value: string) => {
       const nextValue = value.trim().replace(/\s*\r?\n\s*/g, ' ');
       if (!nextValue) {
         return;
@@ -224,6 +229,11 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           ? { type: 'client.input', sessionId, data: nextValue }
           : { type: 'input', data: nextValue }
       ));
+      await wait(CHAT_ENTER_DELAY_MS);
+      if (ws.readyState !== WebSocket.OPEN) {
+        setStatus(t.statusWsUnavailable);
+        return;
+      }
       ws.send(JSON.stringify(
         connectionSettings.connectionMode === 'relay'
           ? { type: 'client.input', sessionId, data: '\r' }

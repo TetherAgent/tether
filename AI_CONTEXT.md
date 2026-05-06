@@ -233,6 +233,25 @@ user input、client attach/detach、resize、control change 都走 append-only e
 WebSocket 使用 HTTP 换一次性 ticket，再通过 query 连接 stream；浏览器不依赖
 自定义 Authorization header。Gateway 在 `hello` 分配 `clientId`。
 
+### Web/PTY 输入提交注意点
+
+Codex TUI 对远程 PTY 输入的提交语义很敏感。Web 控制面、Relay 控制面、简洁聊天视图
+向 Codex 写入一行输入时，必须保持和真实终端按键一致：
+
+1. 先发送文本：`client.input` / `input` 的 `data` 为纯文本。
+2. 等待一个很短的按键间隔，当前 Web composer 使用约 `40ms`。
+3. 再单独发送 Enter：`client.input` / `input` 的 `data` 为 `"\r"`。
+
+不要把两者合并成单个 `data: "text\r"` frame。实测 Codex `v0.128.0` 会把这种合并
+写入显示到输入区，但不一定触发提交；事件库里会表现为一条 `user.input`：`'text^M'`。
+正确路径应落成两条 `user.input`：`'text'` 和 `'^M'`。实测简洁视图同步连续发送两帧
+也可能不稳定，必须保留和控制页一致的短延迟。
+
+外置 composer（控制页底部输入框、简洁聊天输入框）可以在发送前把 textarea 内部换行归一成
+空格，避免多行 textarea 把 Codex 带入多行编辑状态；但归一化后仍必须按“两帧提交”发送。
+这条规则也适用于后续 Claude / Copilot / OpenCode 的外置输入框，除非对应 provider
+实测证明支持合并帧提交。
+
 当前实现限制：
 
 - Phase 6 后，常驻 Gateway 是正常路径：`tether gateway` 前台运行，或

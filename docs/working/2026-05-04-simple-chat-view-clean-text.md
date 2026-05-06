@@ -34,6 +34,24 @@ agent 输出 = 一条 agent 气泡，用户文字 = 一条用户气泡。
 Composer 会先发文字再发 `\r`（间隔 ~40ms），处理逻辑：收到 `\r` 时立即提交；
 否则等待 1 秒超时兜底。
 
+### 1.3 Codex PTY 提交约束（2026-05-06 补充）
+
+简洁视图如果要直接向 Codex PTY 发送用户输入，必须沿用控制页 terminal composer
+已经验证过的两帧提交方式：
+
+1. `client.input` / `input`：`data` 为用户文本。
+2. 等待约 `40ms`，保持和控制页 terminal composer 一致的按键间隔。
+3. `client.input` / `input`：`data` 为 `"\r"`。
+
+不要合并为单帧 `data: "用户文本\r"`。实测 Codex `v0.128.0` 会把合并帧显示到
+输入区，但不稳定触发提交；DB 中会落成一条 `user.input`（例如 `'111^M'`），而成功路径
+应是两条 `user.input`（例如 `'111'`、`'^M'`）。
+简洁页同步连续发送两帧也实测不稳，必须保留这个短延迟。
+
+简洁页 textarea 可以在发送前把内部换行压成空格，避免误入 Codex 多行编辑；但压平后仍必须
+按“两帧提交”发送。后续如果简洁页从 `client.chat` 切回 `client.input`，必须先按这个规则
+实现并验证 Relay 和 Direct 两种连接模式。
+
 ---
 
 ## 2. 方案全景

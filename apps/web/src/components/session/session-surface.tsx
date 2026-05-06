@@ -447,9 +447,8 @@ function PtySessionView({
     sendWsInput(data);
   }, [connectionSettings.connectionMode, sendHttpInput, sendWsInput, t.statusInputFailed, transportMode]);
 
-  const sendLine = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const value = text;
+  const submitComposerText = React.useCallback(() => {
+    const value = text.trim().replace(/\s*\r?\n\s*/g, ' ');
     if (!value) {
       return;
     }
@@ -472,10 +471,16 @@ function PtySessionView({
         if (!ok) return;
         setText('');
         setStatus(connectionSettings.connectionMode === 'relay' ? t.statusRelaySent : transportMode === 'http' ? t.statusHttpSent : t.statusWsSent);
+        terminal.current?.scrollToBottom();
         terminal.current?.focus();
       })
       .catch(() => setStatus(t.statusInputFailed));
   }, [connectionSettings.connectionMode, isInputReady, sendHttpInput, sendWsInput, t, text, transportMode]);
+
+  const sendLine = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    submitComposerText();
+  }, [submitComposerText]);
 
   React.useEffect(() => {
     const root = terminalRef.current;
@@ -578,7 +583,7 @@ function PtySessionView({
         const data = event.payload.data;
         if (typeof data === 'string') {
           setTerminalReady(true);
-          term.write(data);
+          term.write(data, () => term.scrollToBottom());
         }
         return;
       }
@@ -609,7 +614,7 @@ function PtySessionView({
         const chunk = replayOutputBuffer.slice(0, REPLAY_FLUSH_MAX_CHARS);
         replayOutputBuffer = replayOutputBuffer.slice(chunk.length);
         setTerminalReady(true);
-        term.write(chunk);
+        term.write(chunk, () => term.scrollToBottom());
       }
       if (replayOutputBuffer.length > 0) {
         replayFlushFrame = window.requestAnimationFrame(flushReplayQueue);
@@ -652,7 +657,7 @@ function PtySessionView({
           after = latestEventId;
         }
         setTerminalReady(true);
-        term.write(data);
+        term.write(data, () => term.scrollToBottom());
         return;
       }
       if (latestEventId <= after && data.length === 0) {
@@ -1144,6 +1149,12 @@ function PtySessionView({
             value={text}
             disabled={!isInputReady}
             onChange={(event) => setText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                submitComposerText();
+              }
+            }}
           />
           <Button type="submit" disabled={!isInputReady}>{t.send}</Button>
         </form>
