@@ -52,6 +52,10 @@ Composer 会先发文字再发 `\r`（间隔 ~40ms），处理逻辑：收到 `\
 按“两帧提交”发送。后续如果简洁页从 `client.chat` 切回 `client.input`，必须先按这个规则
 实现并验证 Relay 和 Direct 两种连接模式。
 
+状态展示不要从 ANSI / OSC 控制码里直接猜。Gateway/runner 会派生 `agent.status`
+事件，简洁页应消费该事件展示“空闲 / 已发送 / 处理中 / 回复中 / 已完成 / 已断开”。
+`\u001b[I`、`\u001b[O` 等 focus tracking，以及 OSC 颜色查询，只能作为 PTY 内部控制输入。
+
 ---
 
 ## 2. 方案全景

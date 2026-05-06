@@ -51,6 +51,7 @@ export type SessionEventType =
   | 'diff.detected'
   | 'agent.handoff'
   | 'agent.typing'
+  | 'agent.status'
   | 'agent.turn'
   | 'agent.select';
 

@@ -10,6 +10,7 @@ import { gatewayAuthHeaders, requestGatewayWsTicket } from '../../lib/api.js';
 import { SessionDetailHeader, TerminalSurfaceSkeleton } from './session-detail-chrome.js';
 
 type ConnectionMode = 'direct' | 'relay';
+type WebMessages = ReturnType<typeof useI18n>['t'];
 
 export type ChatSessionSurfaceProps = {
   sessionId: string;
@@ -48,6 +49,7 @@ type RelayServerToClientFrame =
 
 type ToolInfo = { name: string; inputSummary: string };
 type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string; tools: ToolInfo[] };
+type AgentRuntimeStatus = 'idle' | 'submitted' | 'running' | 'responding' | 'done' | 'exited' | 'disconnected';
 type ConversationTurn = {
   id: number;
   sessionId: string;
@@ -61,7 +63,7 @@ type ConversationTurn = {
 const FULL_REPLAY_EVENT_PAGE_LIMIT = 5000;
 const RELAY_VIRTUAL_COLS = 200;
 const RELAY_VIRTUAL_ROWS = 50;
-const CHAT_ENTER_DELAY_MS = 40;
+const CHAT_ENTER_DELAY_MS = 120;
 const genId = () => Math.random().toString(36).slice(2);
 
 function wait(ms: number): Promise<void> {
@@ -76,6 +78,38 @@ function upsertChatMessage(messages: ChatMessage[], message: ChatMessage): ChatM
   const next = [...messages];
   next[existingIndex] = message;
   return next;
+}
+
+function agentStatusLabel(status: unknown, t: WebMessages): string | undefined {
+  switch (status) {
+    case 'idle':
+      return t.agentStatusIdle;
+    case 'submitted':
+      return t.agentStatusSubmitted;
+    case 'running':
+      return t.agentStatusRunning;
+    case 'responding':
+      return t.agentStatusResponding;
+    case 'done':
+      return t.agentStatusDone;
+    case 'exited':
+    case 'disconnected':
+      return t.agentStatusDisconnected;
+    default:
+      return undefined;
+  }
+}
+
+function isAgentRuntimeStatus(status: unknown): status is AgentRuntimeStatus {
+  return (
+    status === 'idle' ||
+    status === 'submitted' ||
+    status === 'running' ||
+    status === 'responding' ||
+    status === 'done' ||
+    status === 'exited' ||
+    status === 'disconnected'
+  );
 }
 
 function buildRelayClientUrl(relayUrl: string, fillRelayUrlMsg: string, protocolInvalidMsg: string): string {
@@ -129,8 +163,6 @@ function gatewayRequest(input: RequestInfo | URL, init: RequestInit = {}): Promi
   return fetch(input, { ...init, headers });
 }
 
-type WebMessages = ReturnType<typeof useI18n>['t'];
-
 function displayMessage(message: string, t: WebMessages): string {
   switch (message) {
     case 'authentication failed':
@@ -157,9 +189,10 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
   const [selectOptions, setSelectOptions] = React.useState<Array<{ index: number; label: string }>>([]);
   const [selectRaw, setSelectRaw] = React.useState('');
   const [inputText, setInputText] = React.useState('');
-  const [fallbackVisible, setFallbackVisible] = React.useState(false);
   const [status, setStatus] = React.useState<string>(t.statusConnecting);
+  const [agentRuntimeStatus, setAgentRuntimeStatus] = React.useState<AgentRuntimeStatus>('idle');
   const [isReady, setIsReady] = React.useState(false);
+  const [isSending, setIsSending] = React.useState(false);
   const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(locationState?.agentSessionId);
   const [sessionProvider, setSessionProvider] = React.useState<string | undefined>(locationState?.provider);
 
@@ -168,7 +201,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
-      setFallbackVisible(true);
+      console.info('[tether] structured chat reply not available yet', { sessionId });
     }, 30_000);
     return () => window.clearTimeout(timer);
   }, [sessionId]);
@@ -178,7 +211,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     if (el) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [chatMessages, typingVisible, selectOptions, fallbackVisible]);
+  }, [chatMessages, typingVisible, selectOptions]);
 
   const refreshConversation = React.useCallback(async () => {
     try {
@@ -191,9 +224,6 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
         return;
       }
       const data = (await response.json()) as { turns: ConversationTurn[] };
-      if (data.turns.length > 0) {
-        setFallbackVisible(false);
-      }
       setChatMessages((prev) => {
         let next = prev;
         for (const turn of data.turns) {
@@ -217,6 +247,14 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       if (!nextValue) {
         return;
       }
+      if (agentRuntimeStatus === 'exited' || agentRuntimeStatus === 'disconnected') {
+        setStatus(t.composerDisabledSessionClosed);
+        return;
+      }
+      if (isSending) {
+        setStatus(t.composerDisabledSending);
+        return;
+      }
       const ws = socket.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         setStatus(t.statusWsUnavailable);
@@ -224,27 +262,27 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       }
       setSelectOptions([]);
       setSelectRaw('');
-      ws.send(JSON.stringify(
-        connectionSettings.connectionMode === 'relay'
-          ? { type: 'client.input', sessionId, data: nextValue }
-          : { type: 'input', data: nextValue }
-      ));
-      await wait(CHAT_ENTER_DELAY_MS);
-      if (ws.readyState !== WebSocket.OPEN) {
-        setStatus(t.statusWsUnavailable);
-        return;
+      const sendFrame = (data: string) => {
+        ws.send(JSON.stringify(
+          connectionSettings.connectionMode === 'relay'
+            ? { type: 'client.input', sessionId, data }
+            : { type: 'input', data }
+        ));
+      };
+      setIsSending(true);
+      try {
+        sendFrame(nextValue);
+        await wait(CHAT_ENTER_DELAY_MS);
+        sendFrame('\r');
+        setInputText('');
+        window.setTimeout(() => void refreshConversation(), 250);
+        window.setTimeout(() => void refreshConversation(), 1250);
+        window.setTimeout(() => void refreshConversation(), 3000);
+      } finally {
+        setIsSending(false);
       }
-      ws.send(JSON.stringify(
-        connectionSettings.connectionMode === 'relay'
-          ? { type: 'client.input', sessionId, data: '\r' }
-          : { type: 'input', data: '\r' }
-      ));
-      setInputText('');
-      window.setTimeout(() => void refreshConversation(), 250);
-      window.setTimeout(() => void refreshConversation(), 1250);
-      window.setTimeout(() => void refreshConversation(), 3000);
     },
-    [connectionSettings.connectionMode, refreshConversation, sessionId, t]
+    [agentRuntimeStatus, connectionSettings.connectionMode, isReady, isSending, refreshConversation, sessionId, t]
   );
 
   React.useEffect(() => {
@@ -266,8 +304,18 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       }
       after = Math.max(after, event.id);
 
+      if (event.type === 'agent.status') {
+        if (isAgentRuntimeStatus(event.payload.status)) {
+          setAgentRuntimeStatus(event.payload.status);
+        }
+        const label = agentStatusLabel(event.payload.status, t);
+        if (label) {
+          setStatus(label);
+        }
+        return;
+      }
+
       if (event.type === 'agent.turn') {
-        setFallbackVisible(false);
         const turn = event.payload as { role?: string; content?: string; tools?: ToolInfo[]; turnIndex?: number };
         const message: ChatMessage = {
           id: typeof turn.turnIndex === 'number' ? `turn:${turn.turnIndex}` : `event:${event.id}`,
@@ -290,6 +338,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
         return;
       }
       if (event.type === 'session.exited') {
+        setAgentRuntimeStatus('exited');
         setStatus(t.statusExited);
       }
     };
@@ -381,6 +430,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       }
       replayComplete = false;
       socket.current = undefined;
+      setIsReady(false);
       setStatus(t.statusReconnecting);
       reconnectAttempt += 1;
       if (reconnectTimer) {
@@ -539,6 +589,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           return;
         }
         if (closeWasExpected) {
+          setAgentRuntimeStatus('exited');
           setStatus(t.statusExited);
           return;
         }
@@ -592,6 +643,23 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     [inputText, sendChatText]
   );
 
+  const inputTextValue = inputText.trim();
+  const isSessionClosed = agentRuntimeStatus === 'exited' || agentRuntimeStatus === 'disconnected';
+  const composerDisabledReason = isSessionClosed
+    ? t.composerDisabledSessionClosed
+    : isSending
+      ? t.composerDisabledSending
+      : undefined;
+  const isComposerInputDisabled = Boolean(composerDisabledReason);
+  const isComposerSubmitDisabled = isComposerInputDisabled || inputTextValue.length === 0;
+  const composerSubmitTitle = composerDisabledReason ?? (inputTextValue.length === 0 ? t.composerDisabledEmpty : t.agentChatSend);
+  const composerPlaceholder =
+    agentRuntimeStatus === 'submitted' || agentRuntimeStatus === 'running' || agentRuntimeStatus === 'responding'
+      ? t.composerPlaceholderThinking
+      : t.sendToAgent;
+  const isAgentThinking =
+    agentRuntimeStatus === 'submitted' || agentRuntimeStatus === 'running' || agentRuntimeStatus === 'responding';
+
   return (
     <div className="session-detail-page">
       <SessionDetailHeader
@@ -635,11 +703,6 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
             <div className="chat-bubble-content">{t.agentTypingIndicator}</div>
           </div>
         ) : null}
-        {fallbackVisible ? (
-          <div className="chat-bubble chat-bubble-agent">
-            <div className="chat-bubble-content">{t.agentFallbackHint}</div>
-          </div>
-        ) : null}
       </div>
       {selectOptions.length > 0 ? (
         <div className="px-4 pb-2">
@@ -656,16 +719,31 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       ) : null}
       <form className="composer-form" onSubmit={sendChat}>
         <Textarea
-          className="composer-input"
+          className={`composer-input${isAgentThinking ? ' composer-input-thinking' : ''}`}
           rows={1}
           autoComplete="off"
-          placeholder={t.sendToAgent}
+          placeholder={composerPlaceholder}
           value={inputText}
+          disabled={isComposerInputDisabled}
           onChange={(event) => setInputText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              sendChatText(inputText);
+            }
+          }}
         />
         <div className="composer-actions">
-          <span className="composer-status">{status}</span>
-          <button className="composer-submit" type="button" onClick={() => sendChatText(inputText)}>
+          <span className={`composer-status${isAgentThinking ? ' composer-status-thinking' : ''}`} title={composerSubmitTitle}>
+            {isAgentThinking ? t.agentTypingIndicator : status}
+          </span>
+          <button
+            className="composer-submit"
+            type="button"
+            disabled={isComposerSubmitDisabled}
+            title={composerSubmitTitle}
+            onClick={() => sendChatText(inputText)}
+          >
             {t.agentChatSend}
           </button>
         </div>

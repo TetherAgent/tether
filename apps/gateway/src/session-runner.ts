@@ -8,6 +8,7 @@ import type { AuthScopePayload, ProviderName } from '@tether/core';
 import { JournalWatcher } from './journal-watcher.js';
 import { maskSensitiveOutput } from './mask.js';
 import { isValidTerminalSize } from './pty.js';
+import { AgentStatusPublisher } from './session-status-deriver.js';
 import { Store, type Session, type SessionEvent } from './store.js';
 
 export const RUNNER_MAX_FRAME_BYTES = 1024 * 1024;
@@ -68,6 +69,7 @@ export class SessionRunner {
   private heartbeat?: NodeJS.Timeout;
   private exited = false;
   private journalWatcher?: JournalWatcher;
+  private statusPublisher?: AgentStatusPublisher;
   private readonly clients = new Set<RunnerClientConnection>();
   readonly socketPath: string;
 
@@ -114,6 +116,8 @@ export class SessionRunner {
       lastActiveAt: now
     };
     this.store.insertSession(session);
+    this.statusPublisher = new AgentStatusPublisher(session.id, this.store, (event) => this.publishEvent(event));
+    this.statusPublisher.emit('idle', 'session_started', 'runner');
     pollAgentSessionId(
       this.options.provider,
       this.options.projectPath,
@@ -130,7 +134,8 @@ export class SessionRunner {
             agentSessionId,
             this.options.projectPath,
             this.store,
-            (event) => this.publishEvent(event)
+            (event) => this.publishEvent(event),
+            this.statusPublisher
           );
           this.journalWatcher.start();
         }
@@ -161,6 +166,7 @@ export class SessionRunner {
       });
       this.store.touchSession(session.id);
       this.publishEvent(event);
+      this.statusPublisher?.onTerminalOutput(data);
     });
 
     term.onExit(({ exitCode, signal }) => {
@@ -260,6 +266,7 @@ export class SessionRunner {
         encoding: 'utf8'
       });
       this.publishEvent(event);
+      this.statusPublisher?.onUserInput(request.data);
       this.term.write(request.data);
       this.store.touchSession(this.options.id);
       sendFrame(client.socket, { id: request.id, ok: true, result: { sessionId: this.options.id } });
@@ -298,6 +305,7 @@ export class SessionRunner {
     }
     this.store.updateSessionStatus(sessionId, exitCode === 0 ? 'completed' : 'failed');
     this.publishEvent(this.store.appendEvent(sessionId, 'session.exited', { exitCode, signal }));
+    this.statusPublisher?.onExited();
     this.publishEvent(this.store.appendEvent(sessionId, 'runner.exited', { pid: process.pid, exitCode, signal }));
     this.closeServer().catch(() => undefined);
   }

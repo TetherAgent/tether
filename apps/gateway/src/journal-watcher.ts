@@ -2,6 +2,7 @@ import { closeSync, openSync, readdirSync, readSync, statSync, watch, type FSWat
 import os from 'node:os';
 import path from 'node:path';
 import type { ProviderName } from '@tether/core';
+import type { AgentStatusPublisher } from './session-status-deriver.js';
 import type { SessionEvent, Store } from './store.js';
 
 function truncateInput(input: unknown): string {
@@ -66,7 +67,8 @@ export class JournalWatcher {
     private readonly agentSessionId: string,
     private readonly projectPath: string,
     private readonly store: Store,
-    private readonly publishEvent: (event: SessionEvent) => void
+    private readonly publishEvent: (event: SessionEvent) => void,
+    private readonly statusPublisher?: AgentStatusPublisher
   ) {}
 
   start(): void {
@@ -134,12 +136,14 @@ export class JournalWatcher {
       if (eventType === 'task_started') {
         this.codexInTask = true;
         this.codexPendingTexts = [];
+        this.statusPublisher?.onTaskStarted();
       } else if (eventType === 'task_completed' || eventType === 'task_complete') {
         if (this.codexInTask && this.codexPendingTexts.length > 0) {
           this.emitAssistantTurn(this.codexPendingTexts.join('\n\n'), []);
         }
         this.codexInTask = false;
         this.codexPendingTexts = [];
+        this.statusPublisher?.onTaskCompleted();
       } else if (eventType === 'user_message' && typeof payload?.message === 'string' && payload.message.trim()) {
         this.emitUserTurn(payload.message);
       }
@@ -209,6 +213,7 @@ export class JournalWatcher {
       turnIndex
     });
     this.publishEvent(event);
+    this.statusPublisher?.onAgentTurn('assistant');
   }
 
   private emitUserTurn(content: string): void {
@@ -220,5 +225,6 @@ export class JournalWatcher {
       turnIndex
     });
     this.publishEvent(event);
+    this.statusPublisher?.onAgentTurn('user');
   }
 }

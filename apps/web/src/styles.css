@@ -4063,6 +4063,11 @@ pre {
   overflow: hidden;
 }
 
+.composer-input-thinking {
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--border));
+  animation: composer-thinking-ring 1.6s ease-in-out infinite;
+}
+
 textarea.composer-input {
   field-sizing: fixed;
 }
@@ -4083,6 +4088,18 @@ textarea.composer-input {
   white-space: nowrap;
 }
 
+.composer-status-thinking {
+  color: var(--brand);
+}
+
+.composer-status-thinking::after {
+  content: '';
+  display: inline-block;
+  width: 1.2em;
+  text-align: left;
+  animation: composer-thinking-dots 1.2s steps(4, end) infinite;
+}
+
 .composer-submit {
   min-height: 40px;
   padding: 0 18px;
@@ -4093,6 +4110,41 @@ textarea.composer-input {
   font: inherit;
   font-weight: 800;
   cursor: pointer;
+}
+
+@keyframes composer-thinking-ring {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand) 0%, transparent);
+  }
+
+  50% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent);
+  }
+}
+
+@keyframes composer-thinking-dots {
+  0% {
+    content: '';
+  }
+
+  25% {
+    content: '.';
+  }
+
+  50% {
+    content: '..';
+  }
+
+  75%,
+  100% {
+    content: '...';
+  }
+}
+
+.composer-submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .composer-submit:focus-visible {

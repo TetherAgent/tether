@@ -57,6 +57,8 @@ type ClientInfo = {
   lastSeenAt: number;
 };
 
+type AgentRuntimeStatus = 'idle' | 'submitted' | 'running' | 'responding' | 'done' | 'exited' | 'disconnected';
+
 type SessionEvent = {
   id: number;
   type: string;
@@ -89,7 +91,7 @@ const FULL_REPLAY_EVENT_PAGE_LIMIT = 5000;
 const WEB_TRANSPORT_KEY = 'tether:webTransportMode';
 const WEB_CLIENT_MODE_KEY = 'tether:webClientMode';
 const WEB_REPLAY_MODE_KEY = 'tether:webReplayMode';
-const COMPOSER_ENTER_DELAY_MS = 40;
+const COMPOSER_ENTER_DELAY_MS = 120;
 const TERMINAL_ENTER = '\r';
 const REPLAY_FLUSH_BUDGET_MS = 8;
 const REPLAY_FLUSH_MAX_CHARS = 128 * 1024;
@@ -200,6 +202,38 @@ function displayMessage(message: string, t: WebMessages): string {
     default:
       return message;
   }
+}
+
+function agentStatusLabel(status: unknown, t: WebMessages): string | undefined {
+  switch (status) {
+    case 'idle':
+      return t.agentStatusIdle;
+    case 'submitted':
+      return t.agentStatusSubmitted;
+    case 'running':
+      return t.agentStatusRunning;
+    case 'responding':
+      return t.agentStatusResponding;
+    case 'done':
+      return t.agentStatusDone;
+    case 'exited':
+    case 'disconnected':
+      return t.agentStatusDisconnected;
+    default:
+      return undefined;
+  }
+}
+
+function isAgentRuntimeStatus(status: unknown): status is AgentRuntimeStatus {
+  return (
+    status === 'idle' ||
+    status === 'submitted' ||
+    status === 'running' ||
+    status === 'responding' ||
+    status === 'done' ||
+    status === 'exited' ||
+    status === 'disconnected'
+  );
 }
 
 export type SessionSurfaceMode = 'control' | 'replay';
@@ -360,10 +394,12 @@ function PtySessionView({
   const [clients, setClients] = React.useState<ClientInfo[]>([]);
   const [controllerClientId, setControllerClientId] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState(initialStatus);
+  const [agentRuntimeStatus, setAgentRuntimeStatus] = React.useState<AgentRuntimeStatus>('idle');
   const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(locationState?.agentSessionId);
   const [sessionProvider, setSessionProvider] = React.useState<string | undefined>(locationState?.provider);
   const [isTerminalReady, setTerminalReady] = React.useState(false);
   const [isInputReady, setInputReady] = React.useState(false);
+  const [isComposerSending, setComposerSending] = React.useState(false);
   const [text, setText] = React.useState('');
   const cursorKey = React.useMemo(
     () => sessionCursorKey(sessionId, normalAuth?.identity, connectionSettings),
@@ -447,16 +483,37 @@ function PtySessionView({
     sendWsInput(data);
   }, [connectionSettings.connectionMode, sendHttpInput, sendWsInput, t.statusInputFailed, transportMode]);
 
+  const isSessionClosed = agentRuntimeStatus === 'exited' || agentRuntimeStatus === 'disconnected';
+  const composerDisabledReason = replayOnly
+    ? t.composerDisabledReplay
+    : effectiveClientMode === 'observe'
+      ? t.composerDisabledObserve
+      : isSessionClosed
+        ? t.composerDisabledSessionClosed
+        : isComposerSending
+          ? t.composerDisabledSending
+          : undefined;
+  const isComposerInputDisabled = Boolean(composerDisabledReason);
+  const isComposerSubmitDisabled = isComposerInputDisabled || text.trim().length === 0;
+  const composerSubmitTitle = composerDisabledReason ?? (text.trim().length === 0 ? t.composerDisabledEmpty : t.send);
+  const composerPlaceholder =
+    agentRuntimeStatus === 'submitted' || agentRuntimeStatus === 'running' || agentRuntimeStatus === 'responding'
+      ? t.composerPlaceholderThinking
+      : t.sendToAgent;
+  const isAgentThinking =
+    agentRuntimeStatus === 'submitted' || agentRuntimeStatus === 'running' || agentRuntimeStatus === 'responding';
+
   const submitComposerText = React.useCallback(() => {
     const value = text.trim().replace(/\s*\r?\n\s*/g, ' ');
     if (!value) {
       return;
     }
-    if (!isInputReady) {
-      setStatus(t.statusReplaying);
+    if (composerDisabledReason) {
+      setStatus(composerDisabledReason);
       return;
     }
     setStatus(t.statusSending);
+    setComposerSending(true);
     const isHttpFallback = connectionSettings.connectionMode === 'direct' && transportMode === 'http';
     const send = (async () => {
       const textSent = isHttpFallback ? await sendHttpInput(value) : sendWsInput(value);
@@ -474,8 +531,9 @@ function PtySessionView({
         terminal.current?.scrollToBottom();
         terminal.current?.focus();
       })
-      .catch(() => setStatus(t.statusInputFailed));
-  }, [connectionSettings.connectionMode, isInputReady, sendHttpInput, sendWsInput, t, text, transportMode]);
+      .catch(() => setStatus(t.statusInputFailed))
+      .finally(() => setComposerSending(false));
+  }, [composerDisabledReason, connectionSettings.connectionMode, sendHttpInput, sendWsInput, t, text, transportMode]);
 
   const sendLine = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -579,6 +637,16 @@ function PtySessionView({
       }
       window.localStorage.setItem(cursorKey, String(event.id));
       after = Math.max(after, event.id);
+      if (event.type === 'agent.status') {
+        if (isAgentRuntimeStatus(event.payload.status)) {
+          setAgentRuntimeStatus(event.payload.status);
+        }
+        const label = agentStatusLabel(event.payload.status, t);
+        if (label) {
+          setStatus(label);
+        }
+        return;
+      }
       if (event.type === 'terminal.output') {
         const data = event.payload.data;
         if (typeof data === 'string') {
@@ -588,6 +656,7 @@ function PtySessionView({
         return;
       }
       if (event.type === 'session.exited') {
+        setAgentRuntimeStatus('exited');
         setStatus(t.statusExited);
       }
     };
@@ -783,6 +852,7 @@ function PtySessionView({
       }
       replayComplete = false;
       socket.current = undefined;
+      setInputReady(false);
       setStatus(t.statusReconnecting);
       const delay = reconnectDelay();
       reconnectAttempt += 1;
@@ -949,6 +1019,7 @@ function PtySessionView({
           return;
         }
         if (closeWasExpected) {
+          setAgentRuntimeStatus('exited');
           setStatus(t.statusExited);
           return;
         }
@@ -1142,12 +1213,13 @@ function PtySessionView({
       {!replayOnly ? (
         <form className="composer-form" onSubmit={sendLine}>
           <Textarea
-            className="composer-input"
+            className={`composer-input${isAgentThinking ? ' composer-input-thinking' : ''}`}
             rows={1}
             autoComplete="off"
-            placeholder={t.sendToAgent}
+            placeholder={composerPlaceholder}
             value={text}
-            disabled={!isInputReady}
+            disabled={isComposerInputDisabled}
+            title={composerSubmitTitle}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
@@ -1156,7 +1228,7 @@ function PtySessionView({
               }
             }}
           />
-          <Button type="submit" disabled={!isInputReady}>{t.send}</Button>
+          <Button type="submit" disabled={isComposerSubmitDisabled} title={composerSubmitTitle}>{t.send}</Button>
         </form>
       ) : null}
     </div>
