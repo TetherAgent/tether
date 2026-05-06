@@ -112,6 +112,20 @@ function readReplayMode(): ReplayMode {
   return window.localStorage.getItem(WEB_REPLAY_MODE_KEY) === 'all' ? 'all' : 'recent';
 }
 
+function sessionCursorKey(
+  sessionId: string,
+  identity: { accountId?: string; workspaceId?: string; userId?: string } | undefined,
+  connectionSettings: { connectionMode: ConnectionMode; relayUrl: string }
+): string {
+  const accountId = identity?.accountId ?? 'anonymous';
+  const workspaceId = identity?.workspaceId ?? 'default-workspace';
+  const userId = identity?.userId ?? 'default-user';
+  const gatewayHint = connectionSettings.connectionMode === 'relay'
+    ? connectionSettings.relayUrl.trim() || 'relay'
+    : window.location.host;
+  return `tether:${accountId}:${workspaceId}:${userId}:${connectionSettings.connectionMode}:${gatewayHint}:${sessionId}:latestEventId`;
+}
+
 function buildRelayClientUrl(relayUrl: string, t: WebMessages): string {
   const value = relayUrl.trim();
   if (!value) {
@@ -351,6 +365,10 @@ function PtySessionView({
   const [isTerminalReady, setTerminalReady] = React.useState(false);
   const [isInputReady, setInputReady] = React.useState(false);
   const [text, setText] = React.useState('');
+  const cursorKey = React.useMemo(
+    () => sessionCursorKey(sessionId, normalAuth?.identity, connectionSettings),
+    [connectionSettings, normalAuth?.identity, sessionId]
+  );
   const refreshClients = React.useCallback(async () => {
     if (connectionSettings.connectionMode === 'relay') {
       return;
@@ -537,7 +555,6 @@ function PtySessionView({
     setTerminalReady(true);
     setStatus(t.statusReplaying);
 
-    const cursorKey = `tether:${sessionId}:latestEventId`;
     let after = 0;
     let tailTimer: number | undefined;
     let replayDoneCursor: number | undefined;
@@ -995,6 +1012,7 @@ function PtySessionView({
     connectionSettings.connectionMode,
     connectionSettings.relaySecret,
     connectionSettings.relayUrl,
+    cursorKey,
     effectiveClientMode,
     isDark,
     logoutNormal,
@@ -1069,7 +1087,7 @@ function PtySessionView({
               </Select>
             </div>
             <Button asChild variant="outline" size="sm" type="button">
-              <Link to={`/remote/session/${encodeURIComponent(sessionId)}/simple`}>
+              <Link to={`/remote/session/${encodeURIComponent(sessionId)}/chat`}>
                 <MessageSquare aria-hidden="true" />
                 {t.simpleView}
               </Link>

@@ -62,6 +62,20 @@ const RELAY_VIRTUAL_COLS = 200;
 const RELAY_VIRTUAL_ROWS = 50;
 const genId = () => Math.random().toString(36).slice(2);
 
+function sessionCursorKey(
+  sessionId: string,
+  identity: { accountId?: string; workspaceId?: string; userId?: string } | undefined,
+  connectionSettings: { connectionMode: ConnectionMode; relayUrl: string }
+): string {
+  const accountId = identity?.accountId ?? 'anonymous';
+  const workspaceId = identity?.workspaceId ?? 'default-workspace';
+  const userId = identity?.userId ?? 'default-user';
+  const gatewayHint = connectionSettings.connectionMode === 'relay'
+    ? connectionSettings.relayUrl.trim() || 'relay'
+    : window.location.host;
+  return `tether:${accountId}:${workspaceId}:${userId}:${connectionSettings.connectionMode}:${gatewayHint}:${sessionId}:latestEventId`;
+}
+
 function buildRelayClientUrl(relayUrl: string, fillRelayUrlMsg: string, protocolInvalidMsg: string): string {
   const value = relayUrl.trim();
   if (!value) {
@@ -149,6 +163,10 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
 
   const socket = React.useRef<WebSocket | undefined>(undefined);
   const chatScrollRef = React.useRef<HTMLDivElement>(null);
+  const cursorKey = React.useMemo(
+    () => sessionCursorKey(sessionId, normalAuth?.identity, connectionSettings),
+    [connectionSettings, normalAuth?.identity, sessionId]
+  );
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -196,13 +214,13 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     let closeWasExpected = false;
     let reconnectTimer: number | undefined;
     let ws: WebSocket | undefined;
-    let after = Number(window.localStorage.getItem(`tether:${sessionId}:latestEventId`) ?? 0);
+    let after = Number(window.localStorage.getItem(cursorKey) ?? 0);
 
     const handleEvent = (event: SessionEvent) => {
       if (event.id <= after) {
         return;
       }
-      window.localStorage.setItem(`tether:${sessionId}:latestEventId`, String(event.id));
+      window.localStorage.setItem(cursorKey, String(event.id));
       after = Math.max(after, event.id);
 
       if (event.type === 'agent.turn') {
@@ -530,6 +548,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     connectionSettings.connectionMode,
     connectionSettings.relaySecret,
     connectionSettings.relayUrl,
+    cursorKey,
     logoutNormal,
     normalAuth?.accessToken,
     sessionId,

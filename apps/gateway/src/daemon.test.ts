@@ -957,6 +957,45 @@ test('ws ticket rejects same-account token for a different owner session', async
   }
 });
 
+test('ws ticket rejects sessions owned by a different gateway', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const port = 5400 + Math.floor(Math.random() * 1000);
+  const sessionId = createSessionId();
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24,
+    owner: {
+      accountId: 'acct_test',
+      workspaceId: 'ws_test',
+      userId: 'user_test',
+      deviceId: 'device_test',
+      gatewayId: 'gw_other'
+    }
+  });
+  const daemon = await startDaemon({ host: '127.0.0.1', port, store, ptySessions });
+
+  try {
+    await withAuthFixture(async ({ authHeaders }) => {
+      const response = await fetch(`http://127.0.0.1:${port}/api/ws-ticket`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders(TOKEN_NORMAL) },
+        body: JSON.stringify({ sessionId, mode: 'observe' })
+      });
+      assert.equal(response.status, 403);
+      assert.deepEqual(await response.json(), { error: 'forbidden_gateway' });
+    });
+  } finally {
+    ptySessions.stop(sessionId);
+    await daemon.close();
+    cleanup();
+  }
+});
+
 test('direct websocket rejects invalid resize dimensions', async () => {
   const { store, cleanup } = tempStore();
   const ptySessions = new PtySessionManager(store);

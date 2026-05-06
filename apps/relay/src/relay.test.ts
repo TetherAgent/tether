@@ -307,13 +307,18 @@ test('relay does not clear one gateway sessions when another gateway disconnects
     const firstSessions = await firstSessionsPromise;
     assert.deepEqual(firstSessions.sessions, [sessionOne]);
 
-    const bothSessionsPromise = waitForJson(
+    const scopedSessionsPromise = waitForJson(
       client,
       (message) => message.type === 'sessions' && Array.isArray(message.sessions)
     );
     gatewayTwo.send(JSON.stringify({ type: 'gateway.sessions', gatewayId: 'gateway-two', sessions: [sessionTwo] }));
-    const bothSessions = await bothSessionsPromise;
-    assert.deepEqual(new Set((bothSessions.sessions as RelaySession[]).map((session) => session.id)), new Set([sessionOne.id, sessionTwo.id]));
+    const scopedSessions = await scopedSessionsPromise;
+    assert.deepEqual(scopedSessions.sessions, [sessionOne]);
+
+    const listRequestPromise = waitForJson(gatewayOne, (message) => message.type === 'client.list');
+    client.send(JSON.stringify({ type: 'client.list' }));
+    const listRequest = await listRequestPromise;
+    assert.equal(typeof listRequest.clientId, 'string');
 
     const remainingSessionsPromise = waitForJson(
       client,

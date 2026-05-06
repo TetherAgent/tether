@@ -154,7 +154,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
-    const ownership = authorizeSessionAccess(session, actor.payload);
+    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
     if (!ownership.ok) {
       return c.json({ error: ownership.error }, ownership.status);
     }
@@ -240,7 +240,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         session.status = 'running';
       }
       if (alive || includeStopped) {
-        const ownership = authorizeSessionAccess(session, actor.payload);
+        const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
         if (!ownership.ok) {
           continue;
         }
@@ -319,7 +319,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           workspaceId: actor.payload.workspaceId,
           userId: actor.payload.userId,
           deviceId: actor.payload.deviceId,
-          gatewayId: actor.payload.gatewayId
+          gatewayId: actor.payload.gatewayId ?? actor.gatewayId
         }
       }
     });
@@ -343,7 +343,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
-    const ownership = authorizeSessionAccess(session, actor.payload);
+    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
     if (!ownership.ok) {
       return c.json({ error: ownership.error }, ownership.status);
     }
@@ -372,7 +372,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
-    const ownership = authorizeSessionAccess(session, actor.payload);
+    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
     if (!ownership.ok) {
       return c.json({ error: ownership.error }, ownership.status);
     }
@@ -389,7 +389,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
-    const ownership = authorizeSessionAccess(session, actor.payload);
+    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
     if (!ownership.ok) {
       return c.json({ error: ownership.error }, ownership.status);
     }
@@ -441,7 +441,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
-    const ownership = authorizeSessionAccess(session, actor.payload);
+    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
     if (!ownership.ok) {
       return c.json({ error: ownership.error }, ownership.status);
     }
@@ -463,7 +463,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
-    const ownership = authorizeSessionAccess(session, actor.payload);
+    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
     if (!ownership.ok) {
       return c.json({ error: ownership.error }, ownership.status);
     }
@@ -483,7 +483,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
-    const ownership = authorizeSessionAccess(session, actor.payload);
+    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
     if (!ownership.ok) {
       return c.json({ error: ownership.error }, ownership.status);
     }
@@ -521,7 +521,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
-    const ownership = authorizeSessionAccess(session, actor.payload);
+    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
     if (!ownership.ok) {
       return c.json({ error: ownership.error }, ownership.status);
     }
@@ -559,7 +559,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
-    const ownership = authorizeSessionAccess(session, actor.payload);
+    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
     if (!ownership.ok) {
       return c.json({ error: ownership.error }, ownership.status);
     }
@@ -679,6 +679,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     const ticketPayload = consumeTicket(consumedTicketJtis, ticket, sessionId, mode, authState.value.refreshToken);
     if (!ticketPayload.ok) {
       socket.close(1008, ticketPayload.error);
+      return;
+    }
+    const ticketOwnership = authorizeSessionAccess(session, ticketPayload.payload, authState.value.gatewayId);
+    if (!ticketOwnership.ok) {
+      socket.close(1008, ticketOwnership.error);
       return;
     }
 
@@ -1074,7 +1079,7 @@ async function authorizeRequest(
   authorization: string | undefined,
   allowedTokenClasses: AuthTokenClass[]
 ): Promise<
-  | { ok: true; payload: AuthenticatedActor }
+  | { ok: true; payload: AuthenticatedActor; gatewayId: string }
   | { ok: false; status: 401 | 403 | 500; error: string }
 > {
   const token = bearerTokenFromHeader(authorization);
@@ -1092,12 +1097,13 @@ async function authorizeRequest(
   if (!allowedTokenClasses.includes(payload.tokenClass)) {
     return { ok: false, status: 403, error: 'wrong_token_class' };
   }
-  return { ok: true, payload };
+  return { ok: true, payload, gatewayId: authState.value.gatewayId };
 }
 
 function authorizeSessionAccess(
   session: Session,
-  actor: AuthenticatedActor
+  actor: AuthenticatedActor,
+  currentGatewayId?: string
 ): { ok: true } | { ok: false; status: 403; error: string } {
   if (session.accountId && session.accountId !== actor.accountId) {
     return { ok: false, status: 403, error: 'forbidden_account' };
@@ -1108,7 +1114,8 @@ function authorizeSessionAccess(
   if (session.userId && actor.userId && session.userId !== actor.userId) {
     return { ok: false, status: 403, error: 'forbidden_owner' };
   }
-  if (session.gatewayId && actor.gatewayId && session.gatewayId !== actor.gatewayId) {
+  const effectiveGatewayId = actor.gatewayId ?? currentGatewayId;
+  if (session.gatewayId && effectiveGatewayId && session.gatewayId !== effectiveGatewayId) {
     return { ok: false, status: 403, error: 'forbidden_gateway' };
   }
   if (session.userId && !actor.userId) {
