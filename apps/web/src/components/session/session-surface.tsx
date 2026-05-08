@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
+import type { ITheme } from '@xterm/xterm';
 import { Maximize2, MessageSquare, Minimize2, Power } from 'lucide-react';
 import {
   Button,
@@ -58,6 +59,7 @@ type ClientInfo = {
 };
 
 type AgentRuntimeStatus = 'idle' | 'submitted' | 'running' | 'responding' | 'done' | 'exited' | 'disconnected';
+type TerminalThemeOverride = Pick<ITheme, 'foreground' | 'background' | 'cursor'>;
 
 type SessionEvent = {
   id: number;
@@ -199,6 +201,10 @@ function displayMessage(message: string, t: WebMessages): string {
       return t.observeCannotSend;
     case 'observer clients cannot resize':
       return t.observeCannotResize;
+    case 'PTY session is no longer running':
+    case 'pty session is no longer running':
+    case 'session runner no longer has a live PTY':
+      return t.sessionEnded;
     default:
       return message;
   }
@@ -234,6 +240,40 @@ function isAgentRuntimeStatus(status: unknown): status is AgentRuntimeStatus {
     status === 'exited' ||
     status === 'disconnected'
   );
+}
+
+function isCssColor(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= 64;
+}
+
+function terminalThemeFromPayload(payload: Record<string, unknown>): TerminalThemeOverride | undefined {
+  const foreground = isCssColor(payload.foreground) ? payload.foreground.trim() : undefined;
+  const background = isCssColor(payload.background) ? payload.background.trim() : undefined;
+  const cursor = isCssColor(payload.cursor) ? payload.cursor.trim() : undefined;
+  if (!foreground && !background && !cursor) {
+    return undefined;
+  }
+  return { foreground, background, cursor };
+}
+
+function buildTerminalTheme(isDark: boolean, override?: TerminalThemeOverride): ITheme {
+  const base = isDark
+    ? {
+        background: '#0c0e10',
+        foreground: '#e8ecef',
+        cursor: '#8fd0ff',
+        selectionBackground: '#24403a'
+      }
+    : {
+        background: '#f8faf9',
+        foreground: '#111817',
+        cursor: '#047857',
+        selectionBackground: '#d8ede5'
+      };
+  return {
+    ...base,
+    ...override
+  };
 }
 
 export type SessionSurfaceMode = 'control' | 'replay';
@@ -395,6 +435,7 @@ function PtySessionView({
   const [controllerClientId, setControllerClientId] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState(initialStatus);
   const [agentRuntimeStatus, setAgentRuntimeStatus] = React.useState<AgentRuntimeStatus>('idle');
+  const [terminalThemeOverride, setTerminalThemeOverride] = React.useState<TerminalThemeOverride | undefined>();
   const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(locationState?.agentSessionId);
   const [sessionProvider, setSessionProvider] = React.useState<string | undefined>(locationState?.provider);
   const [isTerminalReady, setTerminalReady] = React.useState(false);
@@ -503,6 +544,12 @@ function PtySessionView({
   const isAgentThinking =
     agentRuntimeStatus === 'submitted' || agentRuntimeStatus === 'running' || agentRuntimeStatus === 'responding';
 
+  React.useEffect(() => {
+    if (terminal.current) {
+      terminal.current.options.theme = buildTerminalTheme(isDark, terminalThemeOverride);
+    }
+  }, [isDark, terminalThemeOverride]);
+
   const submitComposerText = React.useCallback(() => {
     const value = text.trim().replace(/\s*\r?\n\s*/g, ' ');
     if (!value) {
@@ -554,17 +601,7 @@ function PtySessionView({
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
       fontSize: 13,
       lineHeight: 1.25,
-      theme: isDark
-        ? {
-            background: '#0c0e10',
-            foreground: '#e8ecef',
-            cursor: '#8fd0ff'
-          }
-        : {
-            background: '#f8faf9',
-            foreground: '#111817',
-            cursor: '#047857'
-          }
+      theme: buildTerminalTheme(isDark)
     });
     const fitAddon = new FitAddon();
     let lastSize = { cols: 0, rows: 0 };
@@ -647,6 +684,14 @@ function PtySessionView({
         }
         return;
       }
+      if (event.type === 'terminal.theme.detected') {
+        const theme = terminalThemeFromPayload(event.payload);
+        if (theme) {
+          setTerminalThemeOverride(theme);
+          term.options.theme = buildTerminalTheme(isDark, theme);
+        }
+        return;
+      }
       if (event.type === 'terminal.output') {
         const data = event.payload.data;
         if (typeof data === 'string') {
@@ -702,6 +747,12 @@ function PtySessionView({
         const data = event.payload.data;
         if (typeof data === 'string') {
           replayOutputBuffer += data;
+        }
+      } else if (event.type === 'terminal.theme.detected') {
+        const theme = terminalThemeFromPayload(event.payload);
+        if (theme) {
+          setTerminalThemeOverride(theme);
+          term.options.theme = buildTerminalTheme(isDark, theme);
         }
       } else if (event.type === 'session.exited') {
         setStatus(t.statusExited);

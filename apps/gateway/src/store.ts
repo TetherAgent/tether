@@ -39,6 +39,7 @@ export type SessionEventType =
   | 'session.exited'
   | 'session.error'
   | 'terminal.output'
+  | 'terminal.theme.detected'
   | 'user.input'
   | 'client.attached'
   | 'client.detached'

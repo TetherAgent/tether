@@ -248,6 +248,10 @@ function displayMessage(message: string, t: WebMessages): string {
       return t.observeCannotSend;
     case 'observer clients cannot resize':
       return t.observeCannotResize;
+    case 'PTY session is no longer running':
+    case 'pty session is no longer running':
+    case 'session runner no longer has a live PTY':
+      return t.sessionEnded;
     default:
       return message;
   }

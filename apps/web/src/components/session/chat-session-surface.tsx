@@ -1,14 +1,15 @@
 import * as React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { TerminalSquare } from 'lucide-react';
+import { ArrowLeft, Bot, Check, ChevronDown, Copy, MessageSquare, Moon, Send, Sun, TerminalSquare } from 'lucide-react';
 import { Button, Textarea } from '@tether/design';
 
 import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
+import { useUiPreferences } from '../../hooks/use-ui-preferences.js';
 import { gatewayAuthHeaders, requestGatewayWsTicket } from '../../lib/api.js';
 import { ChatBubble, ChatThinkingBubble } from './chat-bubble.js';
 import { ChatMarkdown } from './chat-markdown.js';
-import { SessionDetailHeader, TerminalSurfaceSkeleton } from './session-detail-chrome.js';
+import { TerminalSurfaceSkeleton } from './session-detail-chrome.js';
 
 type ConnectionMode = 'direct' | 'relay';
 type WebMessages = ReturnType<typeof useI18n>['t'];
@@ -66,6 +67,7 @@ type ChatMessage = {
   createdAt?: number;
 };
 type AgentRuntimeStatus = 'idle' | 'submitted' | 'running' | 'responding' | 'done' | 'exited' | 'disconnected';
+type ChatActivityState = 'idle' | 'submitted' | 'processing' | 'thinking' | 'responding' | 'waiting' | 'done';
 type ConversationTurn = {
   id: number;
   sessionId: string;
@@ -226,14 +228,39 @@ function displayMessage(message: string, t: WebMessages): string {
       return t.sessionNotSubscribed;
     case 'observer clients cannot send input':
       return t.observeCannotSend;
+    case 'PTY session is no longer running':
+    case 'pty session is no longer running':
+    case 'session runner no longer has a live PTY':
+      return t.sessionEnded;
     default:
       return message;
   }
 }
 
+function isThinkingStatus(status: AgentRuntimeStatus): boolean {
+  return status === 'responding';
+}
+
+function ChatToolCard({ tool }: { tool: ToolInfo }) {
+  return (
+    <div className="chat-tool-card chat-tool-card-ok">
+      <div className="chat-tool-head">
+        <span className="chat-tool-icon" aria-hidden="true">
+          <Check />
+        </span>
+        <span className="chat-tool-name">{tool.name}</span>
+        {tool.inputSummary ? <span className="chat-tool-args">{tool.inputSummary}</span> : null}
+        <span className="chat-tool-meta">完成</span>
+        <ChevronDown className="chat-tool-chev" aria-hidden="true" />
+      </div>
+    </div>
+  );
+}
+
 export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessionSurfaceProps) {
   const { logoutNormal, normalAuth } = useAuth();
   const { t, locale } = useI18n();
+  const { isDark, toggleTheme } = useUiPreferences();
   const location = useLocation();
   const locationState = location.state as { agentSessionId?: string; provider?: string } | null;
 
@@ -258,6 +285,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
   );
   const [status, setStatus] = React.useState<string>(t.statusConnecting);
   const [agentRuntimeStatus, setAgentRuntimeStatus] = React.useState<AgentRuntimeStatus>('idle');
+  const [activityState, setActivityState] = React.useState<ChatActivityState>('idle');
   const [isReady, setIsReady] = React.useState(false);
   const [isSending, setIsSending] = React.useState(false);
   const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(locationState?.agentSessionId);
@@ -536,6 +564,11 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     let ws: WebSocket | undefined;
     let after = 0;
 
+    const clearActivity = () => {
+      setTypingVisible(false);
+      setActivityState('done');
+    };
+
     const handleEvent = (event: SessionEvent) => {
       if (event.sessionId !== sessionId) {
         return;
@@ -547,7 +580,19 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
 
       if (event.type === 'agent.status') {
         if (isAgentRuntimeStatus(event.payload.status)) {
-          setAgentRuntimeStatus(event.payload.status);
+          const nextStatus = event.payload.status;
+          setAgentRuntimeStatus(nextStatus);
+          if (nextStatus === 'submitted') {
+            setActivityState('submitted');
+          } else if (nextStatus === 'running') {
+            setActivityState((current) => current === 'thinking' || current === 'responding' ? current : 'processing');
+          } else if (nextStatus === 'responding') {
+            setActivityState('responding');
+          } else if (nextStatus === 'done' || nextStatus === 'idle') {
+            setActivityState('done');
+          } else if (nextStatus === 'exited' || nextStatus === 'disconnected') {
+            setActivityState('done');
+          }
         }
         const label = agentStatusLabel(event.payload.status, tRef.current);
         if (label) {
@@ -572,11 +617,23 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           createdAt: turn.createdAt ?? Date.now()
         };
         setChatMessages((prev) => upsertChatMessage(prev, message));
-        setTypingVisible(false);
+        if (message.role === 'assistant') {
+          setTypingVisible(false);
+          setActivityState('done');
+          setAgentRuntimeStatus('done');
+        } else {
+          setActivityState('submitted');
+        }
         return;
       }
       if (event.type === 'agent.typing') {
         setTypingVisible(true);
+        setActivityState('thinking');
+        setAgentRuntimeStatus('responding');
+        return;
+      }
+      if (event.type === 'terminal.output') {
+        setActivityState((current) => current === 'thinking' || current === 'responding' ? current : 'processing');
         return;
       }
       if (event.type === 'agent.select') {
@@ -598,6 +655,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       }
       if (event.type === 'session.exited') {
         setAgentRuntimeStatus('exited');
+        clearActivity();
         setStatus(tRef.current.statusExited);
       }
     };
@@ -662,6 +720,8 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           setStatus(tRef.current.statusSessionDetached);
           setIsReady(true);
           setConnectionHealth('detached');
+          setAgentRuntimeStatus('disconnected');
+          clearActivity();
           return false;
         }
         if (!response.ok) {
@@ -693,6 +753,8 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       socket.current = undefined;
       setIsReady(false);
       setConnectionHealth('reconnecting');
+      setAgentRuntimeStatus('disconnected');
+      clearActivity();
       setStatus(tRef.current.statusReconnecting);
       reconnectAttempt += 1;
       if (reconnectTimer) {
@@ -707,6 +769,9 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           if (reconnectStopped) {
             setStatus(error instanceof Error ? error.message : tRef.current.statusSessionDetached);
             setIsReady(true);
+            setConnectionHealth('detached');
+            setAgentRuntimeStatus('disconnected');
+            clearActivity();
             return;
           }
           setStatus(tRef.current.statusGatewayRestarting);
@@ -798,6 +863,8 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
             reconnectStopped = true;
             logoutNormal();
             setConnectionHealth('detached');
+            setAgentRuntimeStatus('disconnected');
+            clearActivity();
             setStatus(displayMessage(frame.message, tRef.current));
             nextWs.close();
             return;
@@ -855,6 +922,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
         }
         if (closeWasExpected) {
           setAgentRuntimeStatus('exited');
+          clearActivity();
           setStatus(tRef.current.statusExited);
           return;
         }
@@ -865,6 +933,8 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
         if (disposed || socket.current !== ws) {
           return;
         }
+        setAgentRuntimeStatus('disconnected');
+        clearActivity();
         setStatus(tRef.current.statusStreamError);
       });
     };
@@ -874,6 +944,8 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       if (!disposed) {
         setStatus(error instanceof Error ? error.message : tRef.current.statusStreamUnavailable);
         setIsReady(true);
+        setAgentRuntimeStatus('disconnected');
+        clearActivity();
         scheduleReconnect();
       }
     });
@@ -918,29 +990,82 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
   const isComposerInputDisabled = Boolean(composerDisabledReason);
   const isComposerSubmitDisabled = isComposerInputDisabled || inputTextValue.length === 0;
   const composerSubmitTitle = composerDisabledReason ?? (inputTextValue.length === 0 ? t.composerDisabledEmpty : t.agentChatSend);
-  const composerPlaceholder =
-    agentRuntimeStatus === 'submitted' || agentRuntimeStatus === 'running' || agentRuntimeStatus === 'responding'
-      ? t.composerPlaceholderThinking
-      : t.sendToAgent;
-  const isAgentThinking =
-    agentRuntimeStatus === 'submitted' || agentRuntimeStatus === 'running' || agentRuntimeStatus === 'responding';
+  const isAgentThinking = activityState === 'thinking' || activityState === 'responding' || isThinkingStatus(agentRuntimeStatus);
+  const isAgentProcessing = activityState === 'submitted' || activityState === 'processing';
+  const hasConnectionProblem = connectionHealth === 'reconnecting' || connectionHealth === 'detached';
+  const showActivityBubble = !hasConnectionProblem && (isAgentThinking || isAgentProcessing);
+  const activityBubbleMode = isAgentThinking ? 'thinking' : activityState === 'submitted' ? 'waiting' : 'processing';
+  const composerPlaceholder = isAgentThinking ? t.composerPlaceholderThinking : t.sendToAgent;
+  const headerStatus = connectionHealth === 'detached'
+    ? t.statusSessionDetached
+    : connectionHealth === 'reconnecting'
+      ? t.statusReconnecting
+      : isAgentThinking
+        ? t.chatThinking
+        : isAgentProcessing
+          ? t.chatProcessing
+          : status;
 
   return (
-    <div className="session-detail-page">
-      <SessionDetailHeader
-        sessionId={sessionId}
-        connectionMode={connectionSettings.connectionMode}
-        status={status}
-        provider={sessionProvider}
-        agentSessionId={agentSessionId}
-      >
-        <Button asChild variant="outline" size="sm" type="button">
-          <Link to={`/remote/session/${encodeURIComponent(sessionId)}`}>
-            <TerminalSquare aria-hidden="true" />
-            {t.terminalView}
+    <div className="session-detail-page chat-session-page">
+      <header className="chat-header">
+        <Button asChild variant="ghost" size="icon" type="button" className="chat-icon-button" title={t.backToSessions}>
+          <Link to="/sessions">
+            <ArrowLeft aria-hidden="true" />
           </Link>
         </Button>
-      </SessionDetailHeader>
+        <button
+          type="button"
+          className="chat-header-title"
+          onClick={() => {
+            void navigator.clipboard?.writeText(sessionId);
+          }}
+          title={t.sessionIdLabel}
+        >
+          {sessionId}
+          <Copy aria-hidden="true" />
+        </button>
+        <div className="chat-header-meta">
+          <span className={`chat-chip${showActivityBubble ? ' chat-chip-running' : ''}`}>
+            {showActivityBubble ? <span className="chat-chip-dot" aria-hidden="true" /> : null}
+            {headerStatus}
+          </span>
+          {sessionProvider ? (
+            <span className="chat-chip chat-provider-chip">
+              <Bot aria-hidden="true" />
+              {sessionProvider}
+            </span>
+          ) : null}
+          <div className="chat-view-toggle" aria-label={t.currentMode}>
+            <Button asChild variant="ghost" size="sm" type="button">
+              <Link to={`/remote/session/${encodeURIComponent(sessionId)}`}>
+                <TerminalSquare aria-hidden="true" />
+                {t.terminalView}
+              </Link>
+            </Button>
+            <Button variant="secondary" size="sm" type="button">
+              <MessageSquare aria-hidden="true" />
+              {t.chatView}
+            </Button>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            type="button"
+            className="chat-icon-button"
+            aria-label={`${t.themeLabel}: ${isDark ? t.light : t.dark}`}
+            title={`${t.themeLabel}: ${isDark ? t.light : t.dark}`}
+            onClick={toggleTheme}
+          >
+            {isDark ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
+          </Button>
+        </div>
+      </header>
+      {agentSessionId ? (
+        <div className="chat-session-subtitle">
+          {t.agentSessionLabel}: {agentSessionId}
+        </div>
+      ) : null}
       {connectionHealth === 'reconnecting' || connectionHealth === 'detached' ? (
         <div className={`chat-error-banner chat-error-banner-${connectionHealth}`} role="alert">
           <span>
@@ -1056,30 +1181,25 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
                 role="assistant"
                 folded={folded}
                 provider={sessionProvider}
-                rawContent={msg.content}
               >
-                {msg.content ? <ChatMarkdown content={msg.content} /> : null}
                 {msg.tools.length > 0 ? (
-                  <div className="chat-tool-chips">
+                  <div className="chat-tool-cards">
                     {msg.tools.map((tool, toolIndex) => (
-                      <span key={`${msg.id}-tool-${toolIndex}`} className="chat-tool-chip">
-                        <span className="chat-tool-chip-name">{tool.name}</span>
-                        {tool.inputSummary ? (
-                          <span className="chat-tool-chip-args">{tool.inputSummary}</span>
-                        ) : null}
-                      </span>
+                      <ChatToolCard key={`${msg.id}-tool-${toolIndex}`} tool={tool} />
                     ))}
                   </div>
                 ) : null}
+                {msg.content ? <ChatMarkdown content={msg.content} /> : null}
               </ChatBubble>
             </React.Fragment>
           );
         })}
-        {typingVisible ? (
+        {typingVisible || showActivityBubble ? (
           <ChatThinkingBubble
             folded={chatMessages[chatMessages.length - 1]?.role === 'assistant'}
             provider={sessionProvider}
             onCancel={cancelGeneration}
+            mode={activityBubbleMode}
           />
         ) : null}
         {unreadCount > 0 ? (
@@ -1094,69 +1214,66 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           </button>
         ) : null}
       </div>
-      <form className="composer-form" onSubmit={sendChat}>
-        <Textarea
-          ref={composerRef}
-          className={`composer-input${isAgentThinking ? ' composer-input-thinking' : ''}`}
-          rows={1}
-          autoComplete="off"
-          placeholder={composerPlaceholder}
-          value={inputText}
-          disabled={isComposerInputDisabled}
-          onChange={(event) => {
-            setInputText(event.target.value);
-            historyIndexRef.current = null;
-          }}
-          onKeyDown={(event) => {
-            const composing =
-              event.nativeEvent.isComposing ||
-              (event as unknown as { keyCode?: number }).keyCode === 229;
-            if (event.key === 'Enter' && !event.shiftKey) {
-              if (composing) {
+      <form className="composer-form chat-composer" onSubmit={sendChat}>
+        <div className="chat-composer-row">
+          <Textarea
+            ref={composerRef}
+            className={`composer-input${isAgentThinking ? ' composer-input-thinking' : ''}`}
+            rows={1}
+            autoComplete="off"
+            placeholder={composerPlaceholder}
+            value={inputText}
+            disabled={isComposerInputDisabled}
+            onChange={(event) => {
+              setInputText(event.target.value);
+              historyIndexRef.current = null;
+            }}
+            onKeyDown={(event) => {
+              const composing =
+                event.nativeEvent.isComposing ||
+                (event as unknown as { keyCode?: number }).keyCode === 229;
+              if (event.key === 'Enter' && !event.shiftKey) {
+                if (composing) {
+                  return;
+                }
+                event.preventDefault();
+                sendChatText(inputText);
                 return;
               }
-              event.preventDefault();
-              sendChatText(inputText);
-              return;
-            }
-            if (event.key === 'ArrowUp' && !inputText && !composing && userHistory.length > 0) {
-              event.preventDefault();
-              const idx =
-                historyIndexRef.current === null
-                  ? userHistory.length - 1
-                  : Math.max(0, historyIndexRef.current - 1);
-              historyIndexRef.current = idx;
-              setInputText(userHistory[idx]);
-              return;
-            }
-            if (event.key === 'ArrowDown' && historyIndexRef.current !== null && !composing) {
-              event.preventDefault();
-              const next = historyIndexRef.current + 1;
-              if (next >= userHistory.length) {
-                historyIndexRef.current = null;
-                setInputText('');
-              } else {
-                historyIndexRef.current = next;
-                setInputText(userHistory[next]);
+              if (event.key === 'ArrowUp' && !inputText && !composing && userHistory.length > 0) {
+                event.preventDefault();
+                const idx =
+                  historyIndexRef.current === null
+                    ? userHistory.length - 1
+                    : Math.max(0, historyIndexRef.current - 1);
+                historyIndexRef.current = idx;
+                setInputText(userHistory[idx]);
+                return;
               }
-              return;
-            }
-            if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-              event.preventDefault();
-              setInputText('');
-              historyIndexRef.current = null;
-              return;
-            }
-            if (event.key === 'Escape' && (typingVisible || isAgentThinking)) {
-              event.preventDefault();
-              cancelGeneration();
-            }
-          }}
-        />
-        <div className="composer-actions">
-          <span className={`composer-status${isAgentThinking ? ' composer-status-thinking' : ''}`} title={composerSubmitTitle}>
-            {isAgentThinking ? t.agentTypingIndicator : status}
-          </span>
+              if (event.key === 'ArrowDown' && historyIndexRef.current !== null && !composing) {
+                event.preventDefault();
+                const next = historyIndexRef.current + 1;
+                if (next >= userHistory.length) {
+                  historyIndexRef.current = null;
+                  setInputText('');
+                } else {
+                  historyIndexRef.current = next;
+                  setInputText(userHistory[next]);
+                }
+                return;
+              }
+              if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+                event.preventDefault();
+                setInputText('');
+                historyIndexRef.current = null;
+                return;
+              }
+              if (event.key === 'Escape' && (typingVisible || isAgentThinking)) {
+                event.preventDefault();
+                cancelGeneration();
+              }
+            }}
+          />
           <Button
             type="button"
             size="sm"
@@ -1166,6 +1283,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
             onClick={() => sendChatText(inputText)}
           >
             {t.agentChatSend}
+            <Send aria-hidden="true" />
           </Button>
         </div>
       </form>
