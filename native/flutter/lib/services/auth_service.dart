@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../models/protocol.dart';
+
 const String kDefaultServerUrl = 'https://tether.earntools.me';
 const String kDefaultRelayUrl = 'wss://tether.earntools.me/client';
 
@@ -133,6 +135,64 @@ class AuthService extends ChangeNotifier {
 
   Future<String?> readRelayUrl() async =>
       (await _storage.read(key: relayUrlKey)) ?? kDefaultRelayUrl;
+
+  Future<Map<String, dynamic>> getSessionConversation(String sessionId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/sessions/$sessionId/conversation',
+      options: await _authOptions(),
+    );
+    return response.data ?? const <String, dynamic>{};
+  }
+
+  Future<List<RelaySession>> getSessions() async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/sessions',
+      options: await _authOptions(),
+    );
+    final rawSessions =
+        response.data?['sessions'] as List<dynamic>? ?? const [];
+    return rawSessions
+        .map((entry) => RelaySession.fromJson(entry as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> getSessionEvents(
+    String sessionId, {
+    int after = 0,
+    int limit = 1000,
+  }) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/api/sessions/$sessionId/events',
+      queryParameters: {'after': after, 'limit': limit},
+      options: await _authOptions(),
+    );
+    return response.data ?? const <String, dynamic>{};
+  }
+
+  Future<void> sendSessionInput(String sessionId, String data) async {
+    await _dio.post<Map<String, dynamic>>(
+      '/api/sessions/$sessionId/input',
+      data: {'data': data},
+      options: await _authOptions(),
+    );
+  }
+
+  Future<void> stopSession(String sessionId) async {
+    await _dio.post<Map<String, dynamic>>(
+      '/api/sessions/$sessionId/stop',
+      options: await _authOptions(),
+    );
+  }
+
+  Future<Options> _authOptions() async {
+    final accessToken = await readAccessToken();
+    return Options(
+      headers: {
+        if (accessToken != null && accessToken.isNotEmpty)
+          'Authorization': 'Bearer $accessToken',
+      },
+    );
+  }
 
   Future<void> _persistAuth(Map<String, dynamic> data) async {
     final accessToken = data['accessToken'] as String?;

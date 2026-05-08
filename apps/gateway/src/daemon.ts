@@ -911,6 +911,12 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           }
         })
           .then((events) => {
+            if (!runnerClient) {
+              for (const event of events) {
+                options.ptySessions?.publishEvent(event);
+              }
+              return;
+            }
             if (socket.readyState === socket.OPEN) {
               for (const event of events) {
                 socket.send(JSON.stringify({ type: 'event', event }));

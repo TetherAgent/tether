@@ -309,6 +309,63 @@ test('gateway relay client serves structured conversation on request', async () 
   }
 });
 
+test('gateway relay client serves HTTP RPC conversation, events, input and stop without subscription', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const sessionId = createSessionId();
+  const relay = await relayAuthServer({ gatewayId: 'gw_test_http_rpc' });
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24,
+    owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_http_rpc' }
+  });
+  store.insertConversationTurn(sessionId, 'user', 'hello http', undefined, Date.now() - 1000);
+  store.appendEvent(sessionId, 'agent.turn', { role: 'user', content: 'hello http', tools: [], turnIndex: 0 });
+  const relayClient = startRelayClient({
+    url: relay.url,
+    secret: SECRET,
+    gatewayId: 'gw_test_http_rpc',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_http_rpc' },
+    store,
+    ptySessions
+  });
+  await waitForRelayClientConnected(relayClient);
+
+  try {
+    const headers = { Authorization: 'Bearer client-token' };
+    const conversation = await fetch(`${relay.url}/api/sessions/${sessionId}/conversation`, { headers });
+    assert.equal(conversation.status, 200);
+    const conversationBody = (await conversation.json()) as { turns?: Array<{ content?: string }> };
+    assert.equal(conversationBody.turns?.[0]?.content, 'hello http');
+
+    const events = await fetch(`${relay.url}/api/sessions/${sessionId}/events?after=0&limit=10`, { headers });
+    assert.equal(events.status, 200);
+    const eventsBody = (await events.json()) as { events?: Array<{ type?: string }> };
+    assert.equal(eventsBody.events?.some((event) => event.type === 'agent.turn'), true);
+
+    const input = await fetch(`${relay.url}/api/sessions/${sessionId}/input`, {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ data: 'http input\r' })
+    });
+    assert.equal(input.status, 200);
+    await waitFor(() => store.listEvents(sessionId, 0, 100).some((event) => event.type === 'user.input' && event.payload.data === 'http input\r'));
+
+    const stop = await fetch(`${relay.url}/api/sessions/${sessionId}/stop`, { method: 'POST', headers });
+    assert.equal(stop.status, 200);
+  } finally {
+    ptySessions.stop(sessionId);
+    await relayClient.close();
+    await relay.close();
+    cleanup();
+  }
+});
+
 test('gateway relay client paginates full relay replay before live subscription cursor', async () => {
   const { store, cleanup } = tempStore();
   const sessionId = createSessionId();

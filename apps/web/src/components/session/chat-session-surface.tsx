@@ -46,6 +46,7 @@ type RelayServerToClientFrame =
   | { type: 'client.auth.failed'; code: string; message: string }
   | { type: 'hello'; clientId: string; gatewayId?: string }
   | { type: 'event'; event: SessionEvent }
+  | { type: 'conversation'; sessionId: string; turns: RelayConversationTurn[] }
   | { type: 'replay.done'; sessionId: string; latestEventId: number }
   | { type: 'error'; sessionId?: string; code: string; message: string };
 
@@ -76,6 +77,9 @@ type ConversationTurn = {
   content: string;
   tools: string | null;
   createdAt: number;
+};
+type RelayConversationTurn = Omit<ConversationTurn, 'tools'> & {
+  tools: ToolInfo[];
 };
 
 const FULL_REPLAY_EVENT_PAGE_LIMIT = 5000;

@@ -6,6 +6,8 @@ import '../models/conversation.dart';
 import '../models/protocol.dart';
 import 'relay_client.dart';
 
+const _chatEnterDelay = Duration(milliseconds: 20);
+
 class ConversationService extends ChangeNotifier {
   final List<ConversationTurn> _turns = <ConversationTurn>[];
 
@@ -53,7 +55,7 @@ class ConversationService extends ChangeNotifier {
     if (relayClient == null || sessionId == null) {
       return;
     }
-    relayClient.requestConversation(sessionId);
+    unawaited(_refreshConversationSnapshot(relayClient, sessionId));
     relayClient.subscribe(sessionId, mode: RelayClientMode.control, after: 0);
   }
 
@@ -77,7 +79,10 @@ class ConversationService extends ChangeNotifier {
     );
     notifyListeners();
     try {
-      relayClient.sendChat(sessionId, trimmed);
+      final wireValue = trimmed.replaceAll(RegExp(r'\s*\r?\n\s*'), ' ');
+      await relayClient.authService.sendSessionInput(sessionId, wireValue);
+      await Future<void>.delayed(_chatEnterDelay);
+      await relayClient.authService.sendSessionInput(sessionId, '\r');
       _updateUserStatus(localId, ChatMessageStatus.sent);
       _errorBanner = null;
     } catch (_) {
@@ -196,6 +201,27 @@ class ConversationService extends ChangeNotifier {
         status: ChatMessageStatus.delivered,
       ),
     );
+  }
+
+  Future<void> _refreshConversationSnapshot(
+    RelayClient relayClient,
+    String sessionId,
+  ) async {
+    try {
+      final data = await relayClient.authService.getSessionConversation(
+        sessionId,
+      );
+      final turns = (data['turns'] as List<dynamic>? ?? const [])
+          .map(
+            (entry) => RelayConversationTurn.fromJson(
+              entry as Map<String, dynamic>,
+            ),
+          )
+          .toList();
+      _replaceWithConversation(turns);
+    } catch (_) {
+      relayClient.requestConversation(sessionId);
+    }
   }
 
   void _replaceWithConversation(List<RelayConversationTurn> turns) {

@@ -7,15 +7,36 @@ import 'package:tether/services/auth_service.dart';
 import 'package:tether/services/conversation_service.dart';
 import 'package:tether/services/relay_client.dart';
 
+class _AuthServiceStub extends AuthService {
+  final List<(String, String)> sentInputs = <(String, String)>[];
+  Map<String, dynamic>? conversation;
+
+  @override
+  Future<Map<String, dynamic>> getSessionConversation(String sessionId) async {
+    final value = conversation;
+    if (value == null) {
+      throw Exception('conversation unavailable');
+    }
+    return value;
+  }
+
+  @override
+  Future<void> sendSessionInput(String sessionId, String data) async {
+    sentInputs.add((sessionId, data));
+  }
+}
+
 class _RelayClientStub extends RelayClient {
-  _RelayClientStub()
+  _RelayClientStub() : this._(_AuthServiceStub());
+
+  _RelayClientStub._(this.auth)
       : _eventController = StreamController<RelayTerminalEvent>.broadcast(),
         _conversationController = StreamController<ConversationFrame>.broadcast(),
-        super(authService: AuthService());
+        super(authService: auth);
 
+  final _AuthServiceStub auth;
   final StreamController<RelayTerminalEvent> _eventController;
   final StreamController<ConversationFrame> _conversationController;
-  final List<(String, String)> sentMessages = <(String, String)>[];
   final List<String> conversationRequests = <String>[];
 
   @override
@@ -34,11 +55,6 @@ class _RelayClientStub extends RelayClient {
   }
 
   @override
-  void sendChat(String sessionId, String message) {
-    sentMessages.add((sessionId, message));
-  }
-
-  @override
   void requestConversation(String sessionId) {
     conversationRequests.add(sessionId);
   }
@@ -52,23 +68,51 @@ class _RelayClientStub extends RelayClient {
 }
 
 void main() {
-  test('sendMessage forwards to RelayClient.sendChat', () async {
+  test('sendMessage mirrors web relay input flow', () async {
     final relayClient = _RelayClientStub();
     final service = ConversationService();
     service.attach(relayClient, 'session-1');
 
-    await service.sendMessage('hello');
+    await service.sendMessage('hello\nworld');
 
-    expect(relayClient.sentMessages, [('session-1', 'hello')]);
+    expect(relayClient.auth.sentInputs, [
+      ('session-1', 'hello world'),
+      ('session-1', '\r'),
+    ]);
     expect(service.turns.first, isA<UserTurn>());
   });
 
   test('conversation snapshot replaces structured turns', () async {
     final relayClient = _RelayClientStub();
+    relayClient.auth.conversation = const <String, dynamic>{'turns': []};
     final service = ConversationService();
     service.attach(relayClient, 'session-1');
 
-    expect(relayClient.conversationRequests, ['session-1']);
+    relayClient.auth.conversation = const <String, dynamic>{
+      'turns': [
+        {
+          'id': 1,
+          'sessionId': 'session-1',
+          'turnIndex': 0,
+          'role': 'user',
+          'content': '1',
+          'tools': [],
+          'createdAt': 1,
+        },
+        {
+          'id': 2,
+          'sessionId': 'session-1',
+          'turnIndex': 1,
+          'role': 'assistant',
+          'content': '结构化回复',
+          'tools': [],
+          'createdAt': 2,
+        },
+      ],
+    };
+    service.refreshConversation();
+    await Future<void>.delayed(Duration.zero);
+    expect(relayClient.conversationRequests, isEmpty);
     relayClient.emitConversation(
       const ConversationFrame(
         sessionId: 'session-1',

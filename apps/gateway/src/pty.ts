@@ -186,6 +186,10 @@ export class PtySessionManager {
     };
   }
 
+  publishEvent(event: SessionEvent): void {
+    this.publish(event);
+  }
+
   private publish(event: SessionEvent): void {
     const listeners = this.listeners.get(event.sessionId);
     if (!listeners) {

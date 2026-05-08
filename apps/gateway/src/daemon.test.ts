@@ -8,7 +8,7 @@ import WebSocket from 'ws';
 import { startDaemon } from './daemon.js';
 import { createSessionId } from './ids.js';
 import { PtySessionManager } from './pty.js';
-import { Store } from './store.js';
+import { Store, type SessionEvent } from './store.js';
 
 const TOKEN_GATEWAY = 'gateway-test-token';
 const TOKEN_NORMAL = 'normal-test-token';
@@ -834,11 +834,20 @@ test('direct websocket chat emits user turn, agent.typing and conversation API r
       const ws = new WebSocket(`ws://127.0.0.1:${port}/api/sessions/${sessionId}/stream?mode=control&surface=test`, [`tether-ticket.${ticket}`]);
       await waitForMessage(ws, (text) => text.includes('replay.done'));
       const ptyOutput = waitForMessage(ws, (text) => text.includes('hello direct chat'));
+      const subscriberEvent = new Promise<SessionEvent>((resolve) => {
+        const unsubscribe = ptySessions.subscribe(sessionId, (event) => {
+          if (event.type === 'agent.turn' && event.payload.content === 'hello direct chat') {
+            unsubscribe();
+            resolve(event);
+          }
+        });
+      });
       ws.send(JSON.stringify({ type: 'chat', message: 'hello direct chat' }));
       const userTurn = await waitForMessage(ws, (text) => text.includes('"agent.turn"') && text.includes('"hello direct chat"'));
       assert.match(userTurn, /"agent\.turn"/);
       const event = await waitForMessage(ws, (text) => text.includes('"agent.typing"'));
       assert.match(event, /"agent\.typing"/);
+      assert.equal((await subscriberEvent).type, 'agent.turn');
       await ptyOutput;
       await waitFor(() => store.listConversationTurns(sessionId).some((turn) => turn.role === 'user' && turn.content === 'hello direct chat'), 1000);
 

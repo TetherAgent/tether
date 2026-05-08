@@ -211,6 +211,7 @@ class RelayClient extends ChangeNotifier {
   }
 
   void stopSession(String sessionId) {
+    unawaited(authService.stopSession(sessionId));
     sendFrame(ClientStop(sessionId: sessionId));
   }
 
@@ -223,9 +224,11 @@ class RelayClient extends ChangeNotifier {
         _reconnectAttempt = 0;
         gatewayUnavailable = false;
         status = 'connected';
+        unawaited(_refreshSessions());
         sendFrame(const ClientList());
         _listTimer?.cancel();
         _listTimer = Timer.periodic(_listRefreshInterval, (_) {
+          unawaited(_refreshSessions());
           sendFrame(const ClientList());
         });
         if (_currentSessionId != null) {
@@ -284,6 +287,17 @@ class RelayClient extends ChangeNotifier {
     hasLoaded = true;
     notifyListeners();
     _scheduleReconnect();
+  }
+
+  Future<void> _refreshSessions() async {
+    try {
+      sessions = await authService.getSessions();
+      hasLoaded = true;
+      gatewayUnavailable = false;
+      notifyListeners();
+    } catch (_) {
+      sendFrame(const ClientList());
+    }
   }
 
   void _scheduleReconnect() {

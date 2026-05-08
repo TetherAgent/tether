@@ -63,6 +63,7 @@ export type RelayGatewayToServerFrame =
   | { type: 'gateway.sessions'; gatewayId: string; sessions: RelaySession[] }
   | { type: 'gateway.replay'; gatewayId: string; clientId: string; sessionId: string; events: RelayTerminalEvent[]; done?: boolean; latestEventId?: number }
   | { type: 'gateway.conversation'; gatewayId: string; clientId: string; sessionId: string; turns: RelayConversationTurn[] }
+  | { type: 'gateway.http.response'; gatewayId: string; requestId: string; status: number; body: unknown }
   | { type: 'gateway.event'; gatewayId: string; event: RelayTerminalEvent }
   | { type: 'gateway.error'; gatewayId: string; clientId?: string; sessionId?: string; code: string; message: string };
 
@@ -76,7 +77,17 @@ export type RelayServerToGatewayFrame =
   | { type: 'client.resize'; clientId: string; sessionId: string; cols: number; rows: number }
   | { type: 'client.stop'; clientId: string; sessionId: string }
   | { type: 'client.detach'; clientId: string; sessionId: string }
-  | { type: 'client.chat'; clientId: string; sessionId: string; message: string };
+  | { type: 'client.chat'; clientId: string; sessionId: string; message: string }
+  | {
+      type: 'gateway.http.request';
+      requestId: string;
+      clientId: string;
+      method: 'GET' | 'POST';
+      path: '/api/sessions' | '/api/sessions/:id/conversation' | '/api/sessions/:id/events' | '/api/sessions/:id/input' | '/api/sessions/:id/stop';
+      sessionId?: string;
+      query?: Record<string, string>;
+      body?: unknown;
+    };
 
 export type RelayClientToServerFrame =
   // `secret` is retained only for the personal-relay bootstrap fallback path.
