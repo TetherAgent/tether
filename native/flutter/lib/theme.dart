@@ -2,74 +2,179 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xterm/xterm.dart';
 
-const Color tetherBackground = Color(0xFF0C0E10);
-const Color tetherSurface = Color(0xFF171A1F);
-const Color tetherBorder = Color(0xFF2B3137);
-const Color tetherInputBorder = Color(0xFF3A424B);
-const Color tetherAccent = Color(0xFF8FD0FF);
-const Color tetherForeground = Color(0xFFE8ECEF);
-const Color tetherMuted = Color(0xFF9AA4AF);
-const Color tetherDestructive = Color(0xFFE05252);
-const Color tetherSuccess = Color(0xFF42B883);
+// Flutter-side mapping of packages/theme/src/tokens/compat-shadcn.css.
+const Color tetherLightBackground = Color(0xFFF4F5F7);
+const Color tetherLightForeground = Color(0xFF0F1115);
+const Color tetherLightCard = Color(0xFFFFFFFF);
+const Color tetherLightBrand = Color(0xFF00B974);
+const Color tetherLightBrandHover = Color(0xFF009A61);
+const Color tetherLightBrandText = Color(0xFF00875A);
+const Color tetherLightBrandMuted = Color(0x1A00B974);
+const Color tetherLightBorder = Color(0xFFE5E7EB);
+const Color tetherLightInput = Color(0x1F000000);
+const Color tetherLightMuted = Color(0xFF4B5563);
+const Color tetherLightDestructive = Color(0xFFE0264F);
+const Color tetherLightSuccess = Color(0xFF16A268);
+const Color tetherLightCanvas = Color(0xFFFFFFFF);
+const Color tetherLightSurface = Color(0xFFFFFFFF);
+const Color tetherLightField = Color(0x0A000000);
+
+const Color tetherDarkBackground = Color(0xFF050505);
+const Color tetherDarkForeground = Color(0xFFFFFFFF);
+const Color tetherDarkCard = Color(0xFF111113);
+const Color tetherDarkBrand = tetherLightBrand;
+const Color tetherDarkBrandHover = tetherLightBrandHover;
+const Color tetherDarkBrandText = tetherLightBrand;
+const Color tetherDarkBrandMuted = tetherLightBrandMuted;
+const Color tetherDarkBorder = Color(0xFF27272A);
+const Color tetherDarkInput = Color(0xFF2E2E32);
+const Color tetherDarkMuted = Color(0xFFA1A1AA);
+const Color tetherDarkDestructive = Color(0xFFFF3366);
+const Color tetherDarkSuccess = Color(0xFF2EE08A);
+const Color tetherDarkCanvas = Color(0xFF000000);
+const Color tetherDarkSurface = Color(0xFF111113);
+const Color tetherDarkField = Color(0xFF0F0F11);
+
+const Color tetherPrimaryForeground = Color(0xFF000000);
+const Color tetherDestructiveForeground = Color(0xFFFFFFFF);
+const Color tetherCardShadow = Color(0x2E000000);
+const Color tetherTransparent = Color(0x00000000);
+
+const List<Color> tetherAuthLightGradient = [
+  Color(0xFFF4F5F7),
+  Color(0xFFFFFFFF),
+  Color(0xFFF8FAFC),
+];
+const List<Color> tetherAuthDarkGradient = [
+  Color(0xFF000000),
+  Color(0xFF111113),
+  Color(0xFF050505),
+];
+
+// Backward-compatible aliases for existing Flutter code. New code should prefer
+// Theme.of(context).colorScheme or the explicit light/dark token constants above.
+const Color tetherBackground = tetherDarkBackground;
+const Color tetherSurface = tetherDarkSurface;
+const Color tetherBorder = tetherDarkBorder;
+const Color tetherInputBorder = tetherDarkInput;
+const Color tetherAccent = tetherDarkBrand;
+const Color tetherForeground = tetherDarkForeground;
+const Color tetherMuted = tetherDarkMuted;
+const Color tetherDestructive = tetherDarkDestructive;
+const Color tetherSuccess = tetherDarkSuccess;
 
 const String kThemePrefKey = 'tether:theme';
 const String kLocalePrefKey = 'tether:locale';
 
 ThemeData buildTetherThemeData(Brightness brightness) {
   final isDark = brightness == Brightness.dark;
+  final background = isDark ? tetherDarkBackground : tetherLightBackground;
+  final foreground = isDark ? tetherDarkForeground : tetherLightForeground;
+  final card = isDark ? tetherDarkCard : tetherLightCard;
+  final brand = isDark ? tetherDarkBrand : tetherLightBrand;
+  final success = isDark ? tetherDarkSuccess : tetherLightSuccess;
+  final destructive =
+      isDark ? tetherDarkDestructive : tetherLightDestructive;
+  final border = isDark ? tetherDarkBorder : tetherLightBorder;
+  final input = isDark ? tetherDarkInput : tetherLightInput;
+  final muted = isDark ? tetherDarkMuted : tetherLightMuted;
+  final brandMuted = isDark ? tetherDarkBrandMuted : tetherLightBrandMuted;
   final colorScheme = ColorScheme(
     brightness: brightness,
-    primary: tetherAccent,
-    onPrimary: tetherBackground,
-    secondary: tetherSuccess,
-    onSecondary: tetherBackground,
-    error: tetherDestructive,
-    onError: Colors.white,
-    surface: isDark ? tetherSurface : Colors.white,
-    onSurface: isDark ? tetherForeground : const Color(0xFF101418),
+    primary: brand,
+    onPrimary: tetherPrimaryForeground,
+    secondary: success,
+    onSecondary: tetherPrimaryForeground,
+    error: destructive,
+    onError: tetherDestructiveForeground,
+    surface: card,
+    onSurface: foreground,
   );
   return ThemeData(
     useMaterial3: true,
     brightness: brightness,
     colorScheme: colorScheme,
-    scaffoldBackgroundColor:
-        isDark ? tetherBackground : const Color(0xFFF5F7FA),
+    scaffoldBackgroundColor: background,
     cardTheme: CardThemeData(
-      color: isDark ? tetherSurface : Colors.white,
+      color: card,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        side: BorderSide(
-          color: isDark ? tetherBorder : const Color(0xFFD8DFE6),
-        ),
+        side: BorderSide(color: border),
       ),
     ),
     inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: isDark ? tetherDarkField : tetherLightField,
+      labelStyle: TextStyle(color: muted),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: tetherInputBorder),
+        borderSide: BorderSide(color: input),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: tetherInputBorder),
+        borderSide: BorderSide(color: input),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: tetherAccent, width: 1.5),
+        borderSide: BorderSide(color: brand, width: 1.5),
       ),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         minimumSize: const Size.fromHeight(48),
-        backgroundColor: tetherAccent,
-        foregroundColor: tetherBackground,
+        backgroundColor: brand,
+        foregroundColor: tetherPrimaryForeground,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: isDark ? tetherDarkBrandText : tetherLightBrandText,
+        textStyle: const TextStyle(fontWeight: FontWeight.w700),
+      ),
+    ),
+    iconButtonTheme: IconButtonThemeData(
+      style: IconButton.styleFrom(
+        foregroundColor: foreground,
+      ),
+    ),
+    navigationBarTheme: NavigationBarThemeData(
+      backgroundColor: card,
+      indicatorColor: brand,
+      iconTheme: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.selected)) {
+          return const IconThemeData(color: tetherPrimaryForeground);
+        }
+        return IconThemeData(color: muted);
+      }),
+      labelTextStyle: WidgetStateProperty.resolveWith((states) {
+        final selected = states.contains(WidgetState.selected);
+        return TextStyle(
+          color: selected ? foreground : muted,
+          fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+        );
+      }),
+    ),
+    tabBarTheme: TabBarThemeData(
+      dividerColor: tetherTransparent,
+      indicatorColor: brand,
+      labelColor: tetherPrimaryForeground,
+      unselectedLabelColor: muted,
+      labelStyle: const TextStyle(fontWeight: FontWeight.w800),
+      unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700),
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: brandMuted,
+      selectedColor: brand,
+      labelStyle: TextStyle(color: isDark ? tetherDarkBrandText : tetherLightBrandText),
+      side: BorderSide(color: brandMuted),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
     ),
   );
 }
 
 final TerminalTheme tetherTerminalTheme = TerminalTheme(
-  cursor: tetherAccent,
+  cursor: tetherDarkBrand,
   selection: const Color(0x663C6E91),
   foreground: tetherForeground,
   background: tetherBackground,

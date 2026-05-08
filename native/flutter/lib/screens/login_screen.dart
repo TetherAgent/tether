@@ -5,6 +5,7 @@ import 'package:tether/l10n/app_localizations.dart';
 
 import '../services/auth_service.dart';
 import '../theme.dart';
+import '../widgets/auth_screen_background.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -14,7 +15,8 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _emailController =
+      TextEditingController(text: 'hebuzuizailai@gmail.com');
   final TextEditingController _passwordController = TextEditingController();
   bool _loading = false;
   String? _error;
@@ -58,61 +60,66 @@ class _LoginScreenState extends State<LoginScreen> {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: tetherBackground,
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 360),
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        l10n.loginButton,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                      const SizedBox(height: 24),
-                      TextField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        decoration: InputDecoration(labelText: l10n.emailLabel),
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _passwordController,
-                        obscureText: true,
-                        onSubmitted: (_) => _submit(),
-                        decoration:
-                            InputDecoration(labelText: l10n.passwordLabel),
-                      ),
-                      if (_error != null) ...[
-                        const SizedBox(height: 12),
+      body: AuthScreenBackground(
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 360),
+                child: Card(
+                  elevation: 12,
+                  shadowColor: tetherCardShadow,
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                         Text(
-                          _error!,
-                          style: const TextStyle(color: tetherDestructive),
+                          l10n.loginButton,
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                        const SizedBox(height: 24),
+                        TextField(
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          decoration:
+                              InputDecoration(labelText: l10n.emailLabel),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _passwordController,
+                          obscureText: true,
+                          onSubmitted: (_) => _submit(),
+                          decoration:
+                              InputDecoration(labelText: l10n.passwordLabel),
+                        ),
+                        if (_error != null) ...[
+                          const SizedBox(height: 12),
+                          Text(
+                            _error!,
+                            style: const TextStyle(color: tetherDestructive),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        FilledButton(
+                          onPressed: _loading ? null : _submit,
+                          child: _loading
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : Text(l10n.loginButton),
+                        ),
+                        TextButton(
+                          onPressed: () => context.push('/register'),
+                          child: Text(l10n.noAccountLink),
                         ),
                       ],
-                      const SizedBox(height: 16),
-                      FilledButton(
-                        onPressed: _loading ? null : _submit,
-                        child: _loading
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : Text(l10n.loginButton),
-                      ),
-                      TextButton(
-                        onPressed: () => context.push('/register'),
-                        child: Text(l10n.noAccountLink),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),

@@ -2,17 +2,20 @@
 
 ## 必需工具
 
-1. OHOS Flutter fork（项目当前使用本机 FVM Flutter）
+1. OHOS Flutter fork 3.22.0（HarmonyOS 构建必须使用 OpenHarmony fork，不是标准 Google Flutter）
 2. DevEco Studio / hvigor / ohpm
 3. Android Studio / Xcode（跨平台构建）
+4. FVM（可用于切换本机标准 Flutter；OHOS fork 仍需单独配置）
 
 ## 本地验证命令
 
 ```bash
 cd native/flutter
-flutter analyze
-flutter test
-flutter build apk --debug
+fvm flutter pub get
+fvm flutter gen-l10n
+fvm flutter analyze --no-pub
+fvm flutter test --no-pub
+fvm flutter build apk --debug
 ./scripts/assemble-debug-apk.sh
 ```
 
@@ -25,11 +28,13 @@ cd native/flutter
 ./scripts/assemble-debug-apk.sh
 ```
 
-该脚本会通过 `android/aliyun.init.gradle` 强制 Flutter/Gradle 的 settings 级仓库走 Aliyun mirrors。当前环境下这一步已验证能绕过 Google Maven 依赖下载失败，但仍要求本机安装 Android SDK 对应的 **NDK 27.0.12077973**。
+该脚本会通过 `android/aliyun.init.gradle` 尝试让 Flutter/Gradle 的 settings 级仓库走 Aliyun mirrors。当前环境下仍会触发 Android SDK manifest TLS/handshake 问题，并且本机还缺 Android SDK 对应的 **NDK 27.0.12077973**。
 
 ## OHOS 构建说明
 
-当前会话环境里 `flutter build hap --debug` 不支持 `--debug` 参数，且仓库尚未生成 `ohos/` 平台目录。
+当前会话环境使用标准 Flutter 3.41.9，`fvm flutter build hap --debug` 不支持 `--debug` 参数，
+`fvm flutter build hap` 也没有 `hap` subcommand。说明当前机器不是 OHOS Flutter fork 环境。
+仓库当前也尚未生成 `ohos/` 平台目录。
 
 建议在具备 OHOS Flutter fork + DevEco Studio 的机器上执行：
 

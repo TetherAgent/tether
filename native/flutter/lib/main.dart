@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:go_router/go_router.dart';
@@ -34,6 +36,7 @@ class _TetherAppState extends State<TetherApp> {
   late final ConversationService _conversationService;
   late final GoRouter _router;
   bool _ready = false;
+  bool _relayConnectRequested = false;
 
   @override
   void initState() {
@@ -44,6 +47,7 @@ class _TetherAppState extends State<TetherApp> {
     _relayClient = RelayClient(authService: _authService);
     _conversationService = ConversationService();
     _router = _buildRouter();
+    _authService.addListener(_syncRelayConnection);
     _initialize();
   }
 
@@ -53,6 +57,7 @@ class _TetherAppState extends State<TetherApp> {
       _localeNotifier.load(),
       _authService.checkStoredToken(),
     ]);
+    _syncRelayConnection();
     if (mounted) {
       setState(() {
         _ready = true;
@@ -98,6 +103,30 @@ class _TetherAppState extends State<TetherApp> {
         ),
       ],
     );
+  }
+
+  void _syncRelayConnection() {
+    if (_authService.isAuthenticated) {
+      if (_relayConnectRequested) {
+        return;
+      }
+      _relayConnectRequested = true;
+      unawaited(_relayClient.connect());
+      return;
+    }
+    _relayConnectRequested = false;
+    unawaited(_relayClient.disconnect());
+  }
+
+  @override
+  void dispose() {
+    _authService.removeListener(_syncRelayConnection);
+    _relayClient.dispose();
+    _conversationService.dispose();
+    _authService.dispose();
+    _themeNotifier.dispose();
+    _localeNotifier.dispose();
+    super.dispose();
   }
 
   @override

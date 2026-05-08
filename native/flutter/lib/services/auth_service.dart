@@ -67,16 +67,12 @@ class AuthService extends ChangeNotifier {
   }) async {
     try {
       final response = await _dio.post<Map<String, dynamic>>(
-        '/login',
+        '/api/auth/login',
         data: {'email': email, 'password': password},
       );
-      await _persistAuth(response.data ?? const {});
+      await _persistAuth(_unwrapApiData(response.data));
     } on DioException catch (error) {
-      throw AuthException(
-        (error.response?.data as Map<String, dynamic>?)?['message']
-                as String? ??
-            'login_failed',
-      );
+      throw AuthException(_errorMessage(error.response?.data, 'login_failed'));
     }
   }
 
@@ -87,7 +83,7 @@ class AuthService extends ChangeNotifier {
   }) async {
     try {
       final response = await _dio.post<Map<String, dynamic>>(
-        '/register',
+        '/api/auth/register',
         data: {
           'email': email,
           'password': password,
@@ -95,12 +91,10 @@ class AuthService extends ChangeNotifier {
             'displayName': displayName,
         },
       );
-      await _persistAuth(response.data ?? const {});
+      await _persistAuth(_unwrapApiData(response.data));
     } on DioException catch (error) {
       throw AuthException(
-        (error.response?.data as Map<String, dynamic>?)?['message']
-                as String? ??
-            'register_failed',
+        _errorMessage(error.response?.data, 'register_failed'),
       );
     }
   }
@@ -113,9 +107,9 @@ class AuthService extends ChangeNotifier {
       return false;
     }
     try {
-      await _dio.get(
-        '/validate',
-        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+      await _dio.post<Map<String, dynamic>>(
+        '/api/token/validate',
+        data: {'token': accessToken},
       );
       _isAuthenticated = true;
       notifyListeners();
@@ -166,15 +160,38 @@ class AuthService extends ChangeNotifier {
     }
     try {
       final response = await _refreshDio.post<Map<String, dynamic>>(
-        '/refresh',
+        '/api/auth/refresh',
         data: {'refreshToken': refreshToken},
       );
-      await _persistAuth(response.data ?? const {});
+      await _persistAuth(_unwrapApiData(response.data));
       return true;
     } on DioException {
       await logout();
       return false;
     }
+  }
+
+  Map<String, dynamic> _unwrapApiData(Map<String, dynamic>? body) {
+    final raw = body ?? const <String, dynamic>{};
+    if (raw.containsKey('code') && raw.containsKey('data')) {
+      final code = raw['code'] as int?;
+      if (code != null && code != 200) {
+        throw AuthException(raw['msg'] as String? ?? 'request_failed');
+      }
+      final data = raw['data'];
+      if (data is Map<String, dynamic>) {
+        return data;
+      }
+      throw const AuthException('invalid_response');
+    }
+    return raw;
+  }
+
+  String _errorMessage(Object? data, String fallback) {
+    if (data is Map<String, dynamic>) {
+      return data['msg'] as String? ?? data['message'] as String? ?? fallback;
+    }
+    return fallback;
   }
 }
 
@@ -205,10 +222,11 @@ class TokenRefreshInterceptor extends QueuedInterceptor {
 
     try {
       final response = await _refreshDio.post<Map<String, dynamic>>(
-        '/refresh',
+        '/api/auth/refresh',
         data: {'refreshToken': refreshToken},
       );
-      final accessToken = response.data?['accessToken'] as String?;
+      final data = _unwrapAuthData(response.data);
+      final accessToken = data['accessToken'] as String?;
       if (accessToken == null || accessToken.isEmpty) {
         handler.next(err);
         return;
@@ -221,5 +239,14 @@ class TokenRefreshInterceptor extends QueuedInterceptor {
     } on DioException {
       handler.next(err);
     }
+  }
+
+  Map<String, dynamic> _unwrapAuthData(Map<String, dynamic>? body) {
+    final raw = body ?? const <String, dynamic>{};
+    final data = raw.containsKey('data') ? raw['data'] : raw;
+    if (data is Map<String, dynamic>) {
+      return data;
+    }
+    return const <String, dynamic>{};
   }
 }

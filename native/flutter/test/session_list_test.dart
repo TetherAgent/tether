@@ -87,7 +87,7 @@ void main() {
     expect(find.byIcon(Icons.wifi_off), findsOneWidget);
   });
 
-  testWidgets('history sessions render inside ExpansionTile', (tester) async {
+  testWidgets('history sessions render inside history tab', (tester) async {
     final relayClient = _RelayClientStub(
       sessions: [
         _session(id: 's1', provider: 'claude'),
@@ -100,6 +100,10 @@ void main() {
     );
     await tester.pumpWidget(buildApp(relayClient));
 
-    expect(find.byType(ExpansionTile), findsOneWidget);
+    expect(find.byType(TabBar), findsOneWidget);
+    await tester.tap(find.byType(Tab).last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('codex'), findsOneWidget);
   });
 }

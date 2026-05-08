@@ -53,12 +53,16 @@ void main() {
     final storage = const FlutterSecureStorage();
     final service = AuthService(
       dio: _mockDio({
-        '/login': (
+        '/api/auth/login': (
           200,
           {
-            'accessToken': 'access',
-            'refreshToken': 'refresh',
-            'relayUrl': 'wss://relay.example.com/client',
+            'code': 200,
+            'msg': 'success',
+            'data': {
+              'accessToken': 'access',
+              'refreshToken': 'refresh',
+              'relayUrl': 'wss://relay.example.com/client',
+            },
           },
         ),
       }),
@@ -76,7 +80,7 @@ void main() {
     final storage = const FlutterSecureStorage();
     final service = AuthService(
       dio: _mockDio({
-        '/login': (401, {'message': 'bad credentials'}),
+        '/api/auth/login': (401, {'msg': 'bad credentials'}),
       }),
       storage: storage,
     );
@@ -91,7 +95,10 @@ void main() {
   test('checkStoredToken returns false when storage empty', () async {
     final service = AuthService(
         dio: _mockDio({
-      '/validate': (200, {'ok': true})
+      '/api/token/validate': (
+        200,
+        {'code': 200, 'msg': 'success', 'data': {'ok': true}}
+      )
     }));
 
     expect(await service.checkStoredToken(), isFalse);
@@ -105,7 +112,10 @@ void main() {
     final storage = const FlutterSecureStorage();
     final service = AuthService(
       dio: _mockDio({
-        '/validate': (200, {'ok': true})
+        '/api/token/validate': (
+          200,
+          {'code': 200, 'msg': 'success', 'data': {'ok': true}}
+        )
       }),
       storage: storage,
     );
@@ -122,15 +132,19 @@ void main() {
     final storage = const FlutterSecureStorage();
     final service = AuthService(
       dio: _mockDio({
-        '/validate': (401, {'message': 'expired'})
+        '/api/token/validate': (401, {'msg': 'expired'})
       }),
       refreshDio: _mockDio({
-        '/refresh': (
+        '/api/auth/refresh': (
           200,
           {
-            'accessToken': 'fresh',
-            'refreshToken': 'refresh-2',
-            'relayUrl': 'wss://relay.example.com/client',
+            'code': 200,
+            'msg': 'success',
+            'data': {
+              'accessToken': 'fresh',
+              'refreshToken': 'refresh-2',
+              'relayUrl': 'wss://relay.example.com/client',
+            },
           },
         ),
       }),
@@ -150,10 +164,10 @@ void main() {
     final storage = const FlutterSecureStorage();
     final service = AuthService(
       dio: _mockDio({
-        '/validate': (401, {'message': 'expired'})
+        '/api/token/validate': (401, {'msg': 'expired'})
       }),
       refreshDio: _mockDio({
-        '/refresh': (401, {'message': 'expired'})
+        '/api/auth/refresh': (401, {'msg': 'expired'})
       }),
       storage: storage,
     );

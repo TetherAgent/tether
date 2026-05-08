@@ -18,6 +18,7 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
+      extendBody: true,
       body: IndexedStack(
         index: _index,
         children: const [
@@ -25,25 +26,32 @@ class _AppShellState extends State<AppShell> {
           SettingsScreen(),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (value) {
-          setState(() {
-            _index = value;
-          });
-        },
-        destinations: [
-          NavigationDestination(
-            icon: const Icon(Icons.chat_bubble_outline),
-            selectedIcon: const Icon(Icons.chat_bubble),
-            label: l10n.sessionsTab,
+      bottomNavigationBar: SafeArea(
+        minimum: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(28),
+          child: NavigationBar(
+            height: 70,
+            selectedIndex: _index,
+            onDestinationSelected: (value) {
+              setState(() {
+                _index = value;
+              });
+            },
+            destinations: [
+              NavigationDestination(
+                icon: const Icon(Icons.chat_bubble_outline),
+                selectedIcon: const Icon(Icons.chat_bubble),
+                label: l10n.sessionsTab,
+              ),
+              NavigationDestination(
+                icon: const Icon(Icons.settings_outlined),
+                selectedIcon: const Icon(Icons.settings),
+                label: l10n.settingsTab,
+              ),
+            ],
           ),
-          NavigationDestination(
-            icon: const Icon(Icons.settings_outlined),
-            selectedIcon: const Icon(Icons.settings),
-            label: l10n.settingsTab,
-          ),
-        ],
+        ),
       ),
     );
   }

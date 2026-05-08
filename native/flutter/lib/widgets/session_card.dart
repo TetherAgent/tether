@@ -42,8 +42,10 @@ class SessionCard extends StatelessWidget {
         ),
         child: Text(
           l10n.stopSessionLabel,
-          style:
-              const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+          style: const TextStyle(
+            color: tetherDestructiveForeground,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
       child: Card(

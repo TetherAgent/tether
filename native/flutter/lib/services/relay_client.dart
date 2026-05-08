@@ -148,6 +148,21 @@ class RelayClient extends ChangeNotifier {
     sendFrame(ClientAuth(token: token));
   }
 
+  Future<void> disconnect() async {
+    _listTimer?.cancel();
+    _reconnectTimer?.cancel();
+    _authFailed = false;
+    _currentSessionId = null;
+    sessions = <RelaySession>[];
+    gatewayUnavailable = false;
+    hasLoaded = false;
+    status = 'idle';
+    final socket = _socket;
+    _socket = null;
+    await socket?.close();
+    notifyListeners();
+  }
+
   void sendFrame(RelayClientToServerFrame frame) {
     _socket?.send(jsonEncode(frame.toJson()));
   }

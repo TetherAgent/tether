@@ -5,6 +5,7 @@ import 'package:tether/l10n/app_localizations.dart';
 
 import '../services/auth_service.dart';
 import '../theme.dart';
+import '../widgets/auth_screen_background.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -70,71 +71,80 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: tetherBackground,
-      appBar: AppBar(),
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 360),
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        l10n.registerButton,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                      const SizedBox(height: 24),
-                      TextField(
-                        controller: _displayNameController,
-                        decoration:
-                            InputDecoration(labelText: l10n.displayNameLabel),
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _emailController,
-                        decoration: InputDecoration(labelText: l10n.emailLabel),
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _passwordController,
-                        obscureText: true,
-                        decoration:
-                            InputDecoration(labelText: l10n.passwordLabel),
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _confirmPasswordController,
-                        obscureText: true,
-                        onSubmitted: (_) => _submit(),
-                        decoration: InputDecoration(
-                          labelText: l10n.confirmPasswordLabel,
-                        ),
-                      ),
-                      if (_error != null) ...[
-                        const SizedBox(height: 12),
+      appBar: AppBar(
+        backgroundColor: tetherTransparent,
+        elevation: 0,
+      ),
+      extendBodyBehindAppBar: true,
+      body: AuthScreenBackground(
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 360),
+                child: Card(
+                  elevation: 12,
+                  shadowColor: tetherCardShadow,
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                         Text(
-                          _error!,
-                          style: const TextStyle(color: tetherDestructive),
+                          l10n.registerButton,
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                        const SizedBox(height: 24),
+                        TextField(
+                          controller: _displayNameController,
+                          decoration:
+                              InputDecoration(labelText: l10n.displayNameLabel),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _emailController,
+                          decoration:
+                              InputDecoration(labelText: l10n.emailLabel),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _passwordController,
+                          obscureText: true,
+                          decoration:
+                              InputDecoration(labelText: l10n.passwordLabel),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _confirmPasswordController,
+                          obscureText: true,
+                          onSubmitted: (_) => _submit(),
+                          decoration: InputDecoration(
+                            labelText: l10n.confirmPasswordLabel,
+                          ),
+                        ),
+                        if (_error != null) ...[
+                          const SizedBox(height: 12),
+                          Text(
+                            _error!,
+                            style: const TextStyle(color: tetherDestructive),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        FilledButton(
+                          onPressed: _loading ? null : _submit,
+                          child: _loading
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : Text(l10n.registerButton),
                         ),
                       ],
-                      const SizedBox(height: 16),
-                      FilledButton(
-                        onPressed: _loading ? null : _submit,
-                        child: _loading
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : Text(l10n.registerButton),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),

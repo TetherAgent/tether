@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:xterm/xterm.dart';
 
+import '../models/protocol.dart';
 import '../services/relay_client.dart';
 import '../theme.dart';
 
@@ -19,13 +20,14 @@ class TerminalScreen extends StatefulWidget {
 class _TerminalScreenState extends State<TerminalScreen> {
   final Terminal _terminal = Terminal(maxLines: 1000);
   RelayClient? _relayClient;
-  StreamSubscription? _subscription;
+  StreamSubscription<RelayTerminalEvent>? _eventSubscription;
+  StreamSubscription<ReplayOutput>? _replaySubscription;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _relayClient ??= context.read<RelayClient>();
-    _subscription ??= _relayClient!.eventStream.listen((event) {
+    _eventSubscription ??= _relayClient!.eventStream.listen((event) {
       if (event.sessionId != widget.sessionId) {
         return;
       }
@@ -34,11 +36,18 @@ class _TerminalScreenState extends State<TerminalScreen> {
         _terminal.write(output);
       }
     });
+    _replaySubscription ??= _relayClient!.replayOutputStream.listen((frame) {
+      if (frame.sessionId != widget.sessionId || frame.data.isEmpty) {
+        return;
+      }
+      _terminal.write(frame.data);
+    });
   }
 
   @override
   void dispose() {
-    _subscription?.cancel();
+    _eventSubscription?.cancel();
+    _replaySubscription?.cancel();
     super.dispose();
   }
 
