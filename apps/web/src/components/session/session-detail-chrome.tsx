@@ -41,7 +41,7 @@ export function SessionDetailHeader({
     void navigator.clipboard.writeText(resumeCommand(provider, agentSessionId)).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
+    }).catch(() => {});
   }, [provider, agentSessionId]);
 
   const [sessionIdCopied, setSessionIdCopied] = React.useState(false);
@@ -49,7 +49,7 @@ export function SessionDetailHeader({
     void navigator.clipboard.writeText(sessionId).then(() => {
       setSessionIdCopied(true);
       setTimeout(() => setSessionIdCopied(false), 1200);
-    });
+    }).catch(() => {});
   }, [sessionId]);
 
   return (

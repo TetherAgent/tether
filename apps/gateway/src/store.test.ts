@@ -54,6 +54,38 @@ test('stores sessions and cursor-addressed events', () => {
   }
 });
 
+test('listEvents skips rows with corrupt payload JSON', () => {
+  const { store, cleanup } = tempStore();
+  try {
+    const now = Date.now();
+    store.insertSession({
+      id: 'tth_corrupt_event',
+      provider: 'codex',
+      title: 'corrupt event',
+      projectPath: '/tmp/test',
+      status: 'running',
+      attachState: 'detached',
+      tmuxSessionName: '',
+      command: 'codex',
+      transport: 'pty-event-stream',
+      createdAt: now,
+      updatedAt: now,
+      lastActiveAt: now
+    });
+
+    const first = store.appendEvent('tth_corrupt_event', 'terminal.output', { data: 'one', encoding: 'utf8' });
+    (store as unknown as { db: DatabaseSync }).db
+      .prepare('INSERT INTO session_events (session_id, type, ts, payload_json) VALUES (?, ?, ?, ?)')
+      .run('tth_corrupt_event', 'terminal.output', now + 1, '{bad-json');
+    const third = store.appendEvent('tth_corrupt_event', 'terminal.output', { data: 'three', encoding: 'utf8' });
+
+    assert.deepEqual(store.listEvents('tth_corrupt_event').map((event) => event.id), [first.id, third.id]);
+    assert.deepEqual(store.listRecentEvents('tth_corrupt_event', 3).map((event) => event.id), [first.id, third.id]);
+  } finally {
+    cleanup();
+  }
+});
+
 test('migrates legacy sessions table with runner metadata columns', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'tether-store-legacy-'));
   const dbPath = path.join(dir, 'tether.db');

@@ -1,12 +1,13 @@
 # Phase 9: Flutter Client App - Context
 
 **Gathered:** 2026-05-02
+**Updated:** 2026-05-08 — 主视图改为 chat，导航改为 Bottom Tab Bar，键盘工具栏推迟，LAN 直连移除
 **Status:** Ready for planning
 
 <domain>
 ## Phase Boundary
 
-This phase builds a phone-first Flutter client that lets users remotely view and take over existing Gateway-owned agent sessions. The app supports Relay remote connection and LAN Gateway direct connection. It targets Android, iOS, and HarmonyOS (via flutter_ohos). The app is a pure client surface: it does not own sessions, start providers, duplicate Gateway auth logic, or make Relay an ownership authority.
+This phase builds a phone-first Flutter client that lets users remotely view and take over existing Gateway-owned agent sessions via Relay. The app targets Android, iOS, and HarmonyOS (via flutter_ohos). The primary surface is a chat bubble view (matching the H5 ChatSessionSurface), with terminal as a secondary/toggle view. The app is a pure client surface: it does not own sessions, start providers, duplicate Gateway auth logic, or make Relay an ownership authority.
 
 </domain>
 
@@ -15,10 +16,14 @@ This phase builds a phone-first Flutter client that lets users remotely view and
 
 ### Target Platforms
 - **D-01:** The Flutter app must support Android, iOS, and HarmonyOS as first-version target platforms.
-- **D-02:** 所有三个平台（Android、iOS、HarmonyOS）使用**同一个 SDK**：华为主导的 OHOS Flutter fork（当前稳定版 3.22.0，年发 1-2 版，不是标准 Google Flutter）。初始化命令：`flutter create . --platforms android,ios,ohos`，需要 DevEco Studio + Xcode + Android Studio。SDK 锁定在 fork 版本，不跟主线 Flutter 自动升级。HarmonyOS 验收标准：xterm + WebSocket 在 HarmonyOS 真机或模拟器上运行正常；不要求与 iOS/Android 在所有边缘情况下完全对齐。
+- **D-02:** 所有三个平台（Android、iOS、HarmonyOS）使用**同一个 SDK**：华为主导的 OHOS Flutter fork（当前稳定版 3.22.0，年发 1-2 版，不是标准 Google Flutter）。初始化命令：`flutter create . --platforms android,ios,ohos`，需要 DevEco Studio + Xcode + Android Studio。SDK 锁定在 fork 版本，不跟主线 Flutter 自动升级。HarmonyOS 验收标准：chat 视图 + WebSocket 在 HarmonyOS 真机或模拟器上运行正常；不要求与 iOS/Android 在所有边缘情况下完全对齐。
 - **D-03:** Desktop Flutter is not a first-version target. Deferred.
 
-### Terminal Widget
+### Primary Surface: Chat View
+- **D-04a:** The primary session view is a **chat bubble interface** matching the H5 `ChatSessionSurface` — structured assistant/user turns, tool cards, typing indicator, activity bubble, select options, unread scroll FAB. Reference: `apps/web/src/components/session/chat-session-surface.tsx`.
+- **D-04b:** Chat view is the default when entering a session. Terminal view is a secondary tab the user can switch to.
+
+### Secondary Surface: Terminal Widget
 - **D-04:** Use the `xterm` pub.dev package (TerminalStudio, pure Dart) as the terminal widget. No native bindings — pure Dart is the best bet for HarmonyOS compatibility.
 - **D-05:** The terminal must handle alternate-screen TUIs (Codex / Claude full-screen modes). xterm pub.dev supports VT100/ANSI including alternate screen.
 - **D-06:** Fallback: if xterm fails to render correctly on a platform, degrade to a plain-text terminal.output log + single-line send box. This fallback is the worst-case floor, not the target. It must be documented in CONTEXT.md if hit.
@@ -31,8 +36,8 @@ This phase builds a phone-first Flutter client that lets users remotely view and
 - **D-11:** On app start, check stored token validity. If expired, attempt silent refresh. If refresh fails, redirect to login screen.
 
 ### Mobile Input UX
-- **D-12:** Show a keyboard toolbar above the software keyboard when the terminal is active. The toolbar contains: **Ctrl**, **Esc**, **Tab**. Each button sends the correct ASCII control byte to the terminal stream (Ctrl → holds Ctrl modifier for next key; Esc → 0x1B; Tab → 0x09).
-- **D-13:** No arrow key row in the toolbar for the first version.
+- **D-12:** ~~Keyboard toolbar (Ctrl/Esc/Tab)~~ — **DEFERRED.** Not in this phase.
+- **D-13:** ~~Arrow key row~~ — **DEFERRED.**
 - **D-14:** Font size: pinch-to-zoom gesture inside the terminal widget. The user can scale font size by pinching.
 - **D-15:** Screen orientation: free rotation. Both portrait and landscape are supported. Rotating triggers a terminal resize event.
 
@@ -49,8 +54,8 @@ This phase builds a phone-first Flutter client that lets users remotely view and
 - **D-38:** Replay screen AppBar shows: back arrow + session title/provider + "回放" label (non-interactive, replaces the control/observe toggle). No keyboard toolbar in replay mode. Pinch-to-zoom still works.
 
 ### App Navigation
-- **D-19:** Stack navigation: Login → Session List → Terminal screen (active sessions) or Replay screen (history sessions). Back button / back gesture returns to Session List. No bottom tab bar in the first version.
-- **D-20:** Settings (Server URL, connection mode, LAN Gateway address) is accessible via a settings entry in the navigation bar of the Session List screen. Settings screen UI is deferred for most fields — only connection mode and LAN Gateway address are needed for first-version functionality.
+- **D-19:** **Bottom Tab Bar 导航**（变更自原先的纯堆栈）。登录后进入主 Shell，底部 Tab Bar 包含主要分区（会话列表、设置等）。会话列表 → 进入 Session 后在会话内部用 Tab 或 Toggle 在 Chat / Terminal 之间切换。Back 手势返回会话列表。
+- **D-20:** Settings 通过底部 Tab Bar 中的设置 Tab 访问。Server URL 默认值固定，UI 配置推迟；本期仅需支持连接模式切换（已简化为 Relay only，无 LAN 选项）。
 
 ### i18n
 - **D-39:** The app supports Simplified Chinese and English, same as Web. Language preference is persisted in SharedPreferences (key: `tether:locale`). A language toggle is accessible from the Session List AppBar (icon button). All visible copy must have both zh and en variants. Default locale follows system locale; falls back to zh if system locale is not en.
@@ -67,9 +72,9 @@ This phase builds a phone-first Flutter client that lets users remotely view and
 - **D-24:** On reconnect, resume the terminal session subscription using `latestEventId` (stored in memory for the current app session). The Gateway/Relay replays missed events from `after=latestEventId`. The terminal display continues without a full reset.
 
 ### Connection Mode
-- **D-25:** Two connection modes: **Relay** (primary) and **LAN direct** (same-network / dev). Mode is set in the settings screen.
-- **D-26:** LAN direct: user manually enters the Gateway base URL (e.g., `http://192.168.1.x:4789`) in settings. No mDNS auto-discovery in this version.
-- **D-27:** Switching connection mode in settings triggers a session list refresh on return to the list screen.
+- **D-25:** **仅 Relay 模式**（变更）。本期只实现 Relay 远程连接，LAN 直连不做。
+- **D-26:** ~~LAN direct URL 手动填写~~ — **REMOVED.**
+- **D-27:** ~~连接模式切换触发会话列表刷新~~ — **REMOVED.**（只有一种模式，无需切换）
 
 ### App Directory & Build Isolation
 - **D-28:** The Flutter app lives under `native/flutter/` — matching the existing `native/README.md` convention.
@@ -110,7 +115,10 @@ This phase builds a phone-first Flutter client that lets users remotely view and
 - `.planning/phases/05-web-first-account-setup-server-auth-runtime/05-CONTEXT.md` — Token model decisions: access token, refresh token, 30-day validity, `flutter_secure_storage`-equivalent for Web is `localStorage` (pragmatic), Server issues tokens, Relay validates them.
 
 ### Web Client (Feature Reference)
-- `apps/web/src/main.tsx` — Complete Web client implementation: Relay auth flow, session list, PTY terminal view, control/observe mode, replay cursor, client.subscribe/input/resize/detach frames. Flutter must match this behavior.
+- `apps/web/src/main.tsx` — Complete Web client implementation: Relay auth flow, session list, control/observe mode, replay cursor, client.subscribe/input/resize/detach frames. Flutter must match this behavior.
+- `apps/web/src/components/session/chat-session-surface.tsx` — **Primary reference for Flutter chat view.** Bubble layout, tool cards, typing indicator, activity states, select options, unread scroll FAB, draft persistence, history navigation. Flutter chat view replicates this behavior.
+- `apps/web/src/components/session/chat-bubble.tsx` — ChatBubble and ChatThinkingBubble components (status ticks, folded rows, cancel generation).
+- `apps/web/src/components/session/chat-markdown.tsx` — Markdown + code block rendering reference.
 
 ### Codebase Maps
 - `.planning/codebase/STACK.md` — Current TypeScript/pnpm stack and reserved `native/flutter/` area.
@@ -145,13 +153,15 @@ This phase builds a phone-first Flutter client that lets users remotely view and
 ## Specific Ideas
 
 - Three platforms: Android, iOS, HarmonyOS — all first-version targets.
-- Toolbar keys: Ctrl, Esc, Tab (not arrow keys). Exactly these three.
+- **Chat bubble view is the primary session surface** — matches H5 ChatSessionSurface.
+- Terminal view (xterm pub.dev) is secondary, accessible via in-session toggle/tab.
 - xterm pub.dev (TerminalStudio) is the terminal widget — not WebView + xterm.js.
 - Token storage: flutter_secure_storage, not SharedPreferences.
 - Server URL: default at build time, configurable in device settings, UI deferred. Server auto-provides Relay URL.
-- Navigation: pure stack, no bottom tabs.
+- **Navigation: Bottom Tab Bar** (不再是纯堆栈).
 - Session stop: swipe-to-reveal, not a visible button on card.
-- LAN: manual IP entry, no mDNS.
+- **Connection: Relay only** — no LAN direct mode.
+- **Keyboard toolbar: DEFERRED.**
 
 </specifics>
 
@@ -159,12 +169,13 @@ This phase builds a phone-first Flutter client that lets users remotely view and
 ## Deferred Ideas
 
 - Settings screen UI for changing Server URL — functional default exists, UI change deferred to a later phase.
-- Arrow keys (↑↓←→) in keyboard toolbar — users can add via system keyboard; deferred from Phase 9 toolbar.
-- mDNS auto-discovery for LAN Gateway — deferred; manual IP entry is sufficient for first version.
+- Keyboard toolbar (Ctrl/Esc/Tab) — deferred from Phase 9; not in first version.
+- Arrow keys (↑↓←→) in keyboard toolbar — deferred.
+- LAN direct connection (manual IP entry) — deferred; Relay only in Phase 9.
+- mDNS auto-discovery for LAN Gateway — deferred.
 - Desktop Flutter — deferred unless it falls out naturally from the mobile build.
 - Admin management shell — Phase 6 Web-only feature, not in Flutter scope.
 - APNs / FCM offline push notifications — deferred per PROJECT.md (PUSH-01 is v2).
-- Bottom tab bar navigation — deferred; stack nav is sufficient for first version.
 
 </deferred>
 

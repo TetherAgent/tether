@@ -39,6 +39,7 @@ export type SessionEventType =
   | 'session.exited'
   | 'session.error'
   | 'terminal.output'
+  | 'terminal.theme.detected'
   | 'user.input'
   | 'client.attached'
   | 'client.detached'
@@ -286,7 +287,7 @@ export class Store {
          LIMIT ?`
       )
       .all(sessionId, after, safeLimit) as SessionEventRow[];
-    return rows.map(eventFromRow);
+    return rows.map(eventFromRow).filter((event): event is SessionEvent => event !== null);
   }
 
   insertConversationTurn(
@@ -351,7 +352,7 @@ export class Store {
          ORDER BY id ASC`
       )
       .all(sessionId, safeLimit) as SessionEventRow[];
-    return rows.map(eventFromRow);
+    return rows.map(eventFromRow).filter((event): event is SessionEvent => event !== null);
   }
 
   latestEventId(sessionId: string): number {
@@ -490,12 +491,18 @@ function toRow(session: Session): SessionRow {
   };
 }
 
-function eventFromRow(row: SessionEventRow): SessionEvent {
+function eventFromRow(row: SessionEventRow): SessionEvent | null {
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(row.payload_json) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
   return {
     id: row.id,
     sessionId: row.session_id,
     type: row.type,
     ts: row.ts,
-    payload: JSON.parse(row.payload_json) as Record<string, unknown>
+    payload
   };
 }

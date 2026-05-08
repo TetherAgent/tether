@@ -66,27 +66,28 @@ function ChatCodeBlock({ language, children }: { language: string | null; childr
   const handleCopy = React.useCallback(() => {
     const text = preRef.current?.innerText ?? getCodeText(children);
     if (!text) return;
-    void navigator.clipboard?.writeText(text);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
+    const write = navigator.clipboard?.writeText(text);
+    if (!write) return;
+    void write.then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
   }, [children]);
   return (
     <div className="chat-md-codeblock">
-      {language ? (
-        <div className="chat-md-codeblock-head">
-          <span className="chat-md-codeblock-lang">{language}</span>
-          <button
-            type="button"
-            className={`chat-md-codeblock-copy${copied ? ' chat-md-codeblock-copy-ok' : ''}`}
-            onClick={handleCopy}
-            title={copied ? t.chatCodeCopied : t.chatCodeCopy}
-            aria-label={copied ? t.chatCodeCopied : t.chatCodeCopy}
-          >
-            {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-            <span>{copied ? t.chatCodeCopied : t.chatCodeCopy}</span>
-          </button>
-        </div>
-      ) : null}
+      <div className="chat-md-codeblock-head">
+        {language ? <span className="chat-md-codeblock-lang">{language}</span> : <span />}
+        <button
+          type="button"
+          className={`chat-md-codeblock-copy${copied ? ' chat-md-codeblock-copy-ok' : ''}`}
+          onClick={handleCopy}
+          title={copied ? t.chatCodeCopied : t.chatCodeCopy}
+          aria-label={copied ? t.chatCodeCopied : t.chatCodeCopy}
+        >
+          {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+          <span>{copied ? t.chatCodeCopied : t.chatCodeCopy}</span>
+        </button>
+      </div>
       <pre ref={preRef} className={`chat-md-pre${language ? ` language-${language}` : ''}`}>
         {children}
       </pre>

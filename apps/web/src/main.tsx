@@ -248,6 +248,10 @@ function displayMessage(message: string, t: WebMessages): string {
       return t.observeCannotSend;
     case 'observer clients cannot resize':
       return t.observeCannotResize;
+    case 'PTY session is no longer running':
+    case 'pty session is no longer running':
+    case 'session runner no longer has a live PTY':
+      return t.sessionEnded;
     default:
       return message;
   }
@@ -850,7 +854,7 @@ function AgentSessionBadge({ provider, agentSessionId, t }: { provider: string; 
     void navigator.clipboard.writeText(resumeCommand(provider, agentSessionId)).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
+    }).catch(() => {});
   }, [provider, agentSessionId]);
   return (
     <Button variant="outline" size="icon" type="button" title={`${agentSessionId.slice(0, 8)} · ${t.copyResumeCommand}`} onClick={copy}>

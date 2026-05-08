@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Bot, Copy, Terminal, X } from 'lucide-react';
+import { Bot, Terminal, X } from 'lucide-react';
 
 import { useI18n } from '../../hooks/use-i18n.js';
 
@@ -14,8 +14,6 @@ export type ChatBubbleProps = {
   provider?: string;
   /** Identifier or initial for the user avatar fallback. */
   userInitial?: string;
-  /** Raw markdown text used by the hover-copy action. */
-  rawContent?: string;
   /** Click handler for retry (only meaningful when status === 'failed'). */
   onRetry?: () => void;
   children: React.ReactNode;
@@ -67,7 +65,6 @@ export function ChatBubble({
   status,
   provider,
   userInitial,
-  rawContent,
   onRetry,
   children
 }: ChatBubbleProps) {
@@ -75,14 +72,6 @@ export function ChatBubble({
   const isUser = role === 'user';
   const tick = isUser ? statusTick(status) : null;
   const dataStatus = isUser ? status ?? 'delivered' : undefined;
-  const [copied, setCopied] = React.useState(false);
-
-  const handleCopy = React.useCallback(() => {
-    if (!rawContent) return;
-    void navigator.clipboard?.writeText(rawContent);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
-  }, [rawContent]);
 
   return (
     <div
@@ -104,19 +93,6 @@ export function ChatBubble({
           data-status={dataStatus}
         >
           <div className="chat-bubble-content">{children}</div>
-          {!isUser && rawContent ? (
-            <div className="chat-bubble-actions">
-              <button
-                type="button"
-                className={`chat-bubble-action${copied ? ' chat-bubble-action-ok' : ''}`}
-                onClick={handleCopy}
-                title={copied ? t.chatCodeCopied : t.chatCopyMarkdown}
-                aria-label={copied ? t.chatCodeCopied : t.chatCopyMarkdown}
-              >
-                <Copy aria-hidden="true" />
-              </button>
-            </div>
-          ) : null}
         </div>
         {tick ? (
           <span className={`chat-bubble-tick chat-bubble-tick-${tick.tone}`} aria-hidden="true">
@@ -144,13 +120,14 @@ export type ChatThinkingBubbleProps = {
   folded?: boolean;
   provider?: string;
   onCancel?: () => void;
+  mode?: 'thinking' | 'processing' | 'waiting';
 };
 
 const CANCEL_VISIBLE_AFTER_S = 5;
 const DEEP_THINKING_AFTER_S = 10;
 const SHOW_TIMER_AFTER_S = 3;
 
-export function ChatThinkingBubble({ folded = false, provider, onCancel }: ChatThinkingBubbleProps) {
+export function ChatThinkingBubble({ folded = false, provider, onCancel, mode = 'thinking' }: ChatThinkingBubbleProps) {
   const { t } = useI18n();
   const [seconds, setSeconds] = React.useState(0);
 
@@ -162,8 +139,15 @@ export function ChatThinkingBubble({ folded = false, provider, onCancel }: ChatT
     return () => window.clearInterval(id);
   }, []);
 
-  const text = seconds < DEEP_THINKING_AFTER_S ? t.chatThinking : t.chatThinkingDeep;
-  const showCancel = seconds >= CANCEL_VISIBLE_AFTER_S && Boolean(onCancel);
+  const text =
+    mode === 'processing'
+      ? t.chatProcessing
+      : mode === 'waiting'
+        ? t.chatWaitingStatus
+        : seconds < DEEP_THINKING_AFTER_S
+          ? t.chatThinking
+          : t.chatThinkingDeep;
+  const showCancel = mode === 'thinking' && seconds >= CANCEL_VISIBLE_AFTER_S && Boolean(onCancel);
 
   return (
     <div className={`chat-row chat-row-agent${folded ? ' chat-row-folded' : ''}`}>

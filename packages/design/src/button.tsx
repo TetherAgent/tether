@@ -70,6 +70,7 @@ function Button({
   asChild,
   loading = false,
   disabled,
+  nativeButton,
   children,
   ...props
 }: ButtonPrimitive.Props &
@@ -85,6 +86,7 @@ function Button({
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
       disabled={disabled || loading}
+      nativeButton={nativeButton ?? !asChild}
       render={child}
       {...props}
     >
