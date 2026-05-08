@@ -910,9 +910,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             throw new Error('PTY session is no longer running');
           }
         })
-          .then((event) => {
+          .then((events) => {
             if (socket.readyState === socket.OPEN) {
-              socket.send(JSON.stringify({ type: 'event', event }));
+              for (const event of events) {
+                socket.send(JSON.stringify({ type: 'event', event }));
+              }
             }
           })
           .catch(() => {

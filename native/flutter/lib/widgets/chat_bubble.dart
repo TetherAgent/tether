@@ -119,14 +119,6 @@ class UserBubble extends StatelessWidget {
       ChatMessageStatus.delivered => '',
     };
   }
-          ),
-        ),
-      ),
-    );
-    return folded
-        ? Transform.translate(offset: const Offset(0, -8), child: bubble)
-        : bubble;
-  }
 }
 
 class AssistantBubble extends StatelessWidget {

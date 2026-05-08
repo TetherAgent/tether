@@ -86,7 +86,7 @@ class _SessionScreenState extends State<SessionScreen> {
                     alignment: Alignment.centerRight,
                     child: Container(
                       height: 38,
-                      constraints: const BoxConstraints(maxWidth: 220),
+                      width: 172,
                       padding: const EdgeInsets.all(3),
                       decoration: BoxDecoration(
                         color:
@@ -127,16 +127,6 @@ class _SessionScreenState extends State<SessionScreen> {
                         ],
                       ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                IconButton(
-                  tooltip: '切换主题',
-                  onPressed: () => context.read<ThemeNotifier>().toggleTheme(),
-                  icon: Icon(
-                    isDark
-                        ? Icons.light_mode_outlined
-                        : Icons.dark_mode_outlined,
                   ),
                 ),
               ],
@@ -190,20 +180,17 @@ class _TabLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(icon, size: 15),
-        const SizedBox(width: 5),
-        Flexible(
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 15),
+          const SizedBox(width: 5),
+          Text(label, maxLines: 1),
+        ],
+      ),
     );
   }
 }
@@ -239,7 +226,8 @@ class _StatusPill extends StatelessWidget {
       decoration: BoxDecoration(
         color: color.withValues(alpha: filled ? 0.16 : 0.10),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: filled ? 0.32 : 0.12)),
+        border:
+            Border.all(color: color.withValues(alpha: filled ? 0.32 : 0.12)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

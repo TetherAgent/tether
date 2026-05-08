@@ -15,7 +15,7 @@ function tempStore(): { store: Store; cleanup: () => void } {
   };
 }
 
-test('handleChatMessage inserts user turn, writes PTY and emits agent.typing', async () => {
+test('handleChatMessage inserts user turn, writes PTY and emits user turn plus agent.typing', async () => {
   const { store, cleanup } = tempStore();
   const writes: Array<{ data: string; clientId: string }> = [];
   const runnerClient = {
@@ -25,10 +25,19 @@ test('handleChatMessage inserts user turn, writes PTY and emits agent.typing', a
   } as SessionRunnerClient;
 
   try {
-    const event = await handleChatMessage('sess_chat', 'hello world', store, runnerClient);
-    assert.equal(event.sessionId, 'sess_chat');
-    assert.equal(event.type, 'agent.typing');
-    assert.deepEqual(event.payload, {});
+    const events = await handleChatMessage('sess_chat', 'hello world', store, runnerClient);
+    assert.equal(events.length, 2);
+    assert.equal(events[0]?.sessionId, 'sess_chat');
+    assert.equal(events[0]?.type, 'agent.turn');
+    assert.deepEqual(events[0]?.payload, {
+      role: 'user',
+      content: 'hello world',
+      tools: [],
+      turnIndex: 0
+    });
+    assert.equal(events[1]?.sessionId, 'sess_chat');
+    assert.equal(events[1]?.type, 'agent.typing');
+    assert.deepEqual(events[1]?.payload, {});
     assert.deepEqual(writes, [
       { data: 'hello world', clientId: 'chat' },
       { data: '\r', clientId: 'chat' }

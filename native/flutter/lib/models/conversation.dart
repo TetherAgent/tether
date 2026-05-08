@@ -21,8 +21,8 @@ final class SelectOption {
   final String label;
 
   factory SelectOption.fromJson(Map<String, dynamic> json) => SelectOption(
-        id: json['id'] as String,
-        label: json['label'] as String,
+        id: (json['id'] ?? json['index']).toString(),
+        label: json['label'] as String? ?? '',
       );
 }
 

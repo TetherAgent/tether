@@ -218,6 +218,37 @@ final class RelayTerminalEvent {
       };
 }
 
+final class RelayConversationTurn {
+  const RelayConversationTurn({
+    required this.id,
+    required this.sessionId,
+    required this.turnIndex,
+    required this.role,
+    required this.content,
+    required this.tools,
+    required this.createdAt,
+  });
+
+  final int id;
+  final String sessionId;
+  final int turnIndex;
+  final String role;
+  final String content;
+  final List<dynamic> tools;
+  final int createdAt;
+
+  factory RelayConversationTurn.fromJson(Map<String, dynamic> json) =>
+      RelayConversationTurn(
+        id: json['id'] as int,
+        sessionId: json['sessionId'] as String,
+        turnIndex: json['turnIndex'] as int,
+        role: json['role'] as String,
+        content: json['content'] as String? ?? '',
+        tools: json['tools'] as List<dynamic>? ?? const [],
+        createdAt: json['createdAt'] as int,
+      );
+}
+
 sealed class RelayClientToServerFrame {
   const RelayClientToServerFrame();
 
@@ -275,6 +306,18 @@ final class ClientSubscribe extends RelayClientToServerFrame {
         'mode': mode.toJson(),
         if (cols != null) 'cols': cols,
         if (rows != null) 'rows': rows,
+      };
+}
+
+final class ClientConversation extends RelayClientToServerFrame {
+  const ClientConversation({required this.sessionId});
+
+  final String sessionId;
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'type': 'client.conversation',
+        'sessionId': sessionId,
       };
 }
 
@@ -376,6 +419,16 @@ sealed class RelayServerToClientFrame {
             json['event'] as Map<String, dynamic>,
           ),
         ),
+      'conversation' => ConversationFrame(
+          sessionId: json['sessionId'] as String,
+          turns: (json['turns'] as List<dynamic>)
+              .map(
+                (entry) => RelayConversationTurn.fromJson(
+                  entry as Map<String, dynamic>,
+                ),
+              )
+              .toList(),
+        ),
       'replay.output' => ReplayOutput(
           sessionId: json['sessionId'] as String,
           data: json['data'] as String,
@@ -427,6 +480,13 @@ final class Event extends RelayServerToClientFrame {
   const Event({required this.event});
 
   final RelayTerminalEvent event;
+}
+
+final class ConversationFrame extends RelayServerToClientFrame {
+  const ConversationFrame({required this.sessionId, required this.turns});
+
+  final String sessionId;
+  final List<RelayConversationTurn> turns;
 }
 
 final class ReplayOutput extends RelayServerToClientFrame {

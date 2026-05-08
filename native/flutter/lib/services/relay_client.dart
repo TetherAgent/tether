@@ -65,6 +65,8 @@ class RelayClient extends ChangeNotifier {
   final Duration _listRefreshInterval;
   final StreamController<RelayTerminalEvent> _eventController =
       StreamController<RelayTerminalEvent>.broadcast();
+  final StreamController<ConversationFrame> _conversationController =
+      StreamController<ConversationFrame>.broadcast();
   final StreamController<ReplayOutput> _replayOutputController =
       StreamController<ReplayOutput>.broadcast();
   final Map<String, int> _latestEventIds = <String, int>{};
@@ -86,6 +88,9 @@ class RelayClient extends ChangeNotifier {
   List<RelaySession> sessions = <RelaySession>[];
 
   Stream<RelayTerminalEvent> get eventStream => _eventController.stream;
+
+  Stream<ConversationFrame> get conversationStream =>
+      _conversationController.stream;
 
   Stream<ReplayOutput> get replayOutputStream => _replayOutputController.stream;
 
@@ -173,6 +178,10 @@ class RelayClient extends ChangeNotifier {
     sendFrame(ClientChat(sessionId: sessionId, message: message));
   }
 
+  void requestConversation(String sessionId) {
+    sendFrame(ClientConversation(sessionId: sessionId));
+  }
+
   void sendInput(String sessionId, String data) {
     sendFrame(ClientInput(sessionId: sessionId, data: data));
   }
@@ -240,6 +249,8 @@ class RelayClient extends ChangeNotifier {
       case Event():
         _latestEventIds[frame.event.sessionId] = frame.event.id;
         _eventController.add(frame.event);
+      case ConversationFrame():
+        _conversationController.add(frame);
       case ReplayOutput():
         _latestEventIds[frame.sessionId] = frame.latestEventId;
         _replayOutputController.add(frame);
@@ -294,6 +305,7 @@ class RelayClient extends ChangeNotifier {
     _reconnectTimer?.cancel();
     unawaited(_socket?.close());
     _eventController.close();
+    _conversationController.close();
     _replayOutputController.close();
     super.dispose();
   }

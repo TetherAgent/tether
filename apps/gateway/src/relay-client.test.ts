@@ -199,6 +199,116 @@ test('gateway relay client replays and forwards output', async () => {
   }
 });
 
+test('gateway relay client includes conversation turns in replay for mobile chat', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const sessionId = createSessionId();
+  const relay = await relayAuthServer({ gatewayId: 'gw_test_replay_conversation' });
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24,
+    owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_replay_conversation' }
+  });
+  store.insertConversationTurn(sessionId, 'user', '1', undefined, Date.now() - 1000);
+  store.insertConversationTurn(sessionId, 'assistant', '请选择一个任务', undefined, Date.now());
+  const relayClient = startRelayClient({
+    url: relay.url,
+    secret: SECRET,
+    gatewayId: 'gw_test_replay_conversation',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_replay_conversation' },
+    store,
+    ptySessions
+  });
+  await waitForRelayClientConnected(relayClient);
+  const client = await connectRelayClient(relay.url);
+
+  try {
+    await waitForSessionList(client, sessionId);
+    const userTurnPromise = waitForFrame(
+      client,
+      (frame) =>
+        frame.type === 'event' &&
+        frame.event.type === 'agent.turn' &&
+        frame.event.payload.role === 'user' &&
+        frame.event.payload.content === '1'
+    );
+    const assistantTurnPromise = waitForFrame(
+      client,
+      (frame) =>
+        frame.type === 'event' &&
+        frame.event.type === 'agent.turn' &&
+        frame.event.payload.role === 'assistant' &&
+        frame.event.payload.content === '请选择一个任务'
+    );
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control' }));
+    await userTurnPromise;
+    await assistantTurnPromise;
+  } finally {
+    client.close();
+    ptySessions.stop(sessionId);
+    await relayClient.close();
+    await relay.close();
+    cleanup();
+  }
+});
+
+test('gateway relay client serves structured conversation on request', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager(store);
+  const sessionId = createSessionId();
+  const relay = await relayAuthServer({ gatewayId: 'gw_test_conversation_request' });
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24,
+    owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_conversation_request' }
+  });
+  store.insertConversationTurn(sessionId, 'user', '1', undefined, Date.now() - 1000);
+  store.insertConversationTurn(sessionId, 'assistant', '结构化回复', undefined, Date.now());
+  const relayClient = startRelayClient({
+    url: relay.url,
+    secret: SECRET,
+    gatewayId: 'gw_test_conversation_request',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_conversation_request' },
+    store,
+    ptySessions
+  });
+  await waitForRelayClientConnected(relayClient);
+  const client = await connectRelayClient(relay.url);
+
+  try {
+    await waitForSessionList(client, sessionId);
+    const conversationPromise = waitForFrame(
+      client,
+      (frame) =>
+        frame.type === 'conversation' &&
+        frame.sessionId === sessionId &&
+        frame.turns.length === 2 &&
+        frame.turns[0]?.role === 'user' &&
+        frame.turns[0]?.content === '1' &&
+        frame.turns[1]?.role === 'assistant' &&
+        frame.turns[1]?.content === '结构化回复'
+    );
+    client.send(JSON.stringify({ type: 'client.conversation', sessionId }));
+    assert.equal((await conversationPromise).type, 'conversation');
+  } finally {
+    client.close();
+    ptySessions.stop(sessionId);
+    await relayClient.close();
+    await relay.close();
+    cleanup();
+  }
+});
+
 test('gateway relay client paginates full relay replay before live subscription cursor', async () => {
   const { store, cleanup } = tempStore();
   const sessionId = createSessionId();
@@ -368,7 +478,7 @@ test('gateway relay client forwards control input to pty', async () => {
   }
 });
 
-test('gateway relay client forwards chat as agent.typing event', async () => {
+test('gateway relay client forwards chat as user turn and agent.typing events', async () => {
   const { store, cleanup } = tempStore();
   const ptySessions = new PtySessionManager(store);
   const sessionId = createSessionId();
@@ -399,6 +509,21 @@ test('gateway relay client forwards chat as agent.typing event', async () => {
     client.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control' }));
     await waitForFrame(client, (frame) => frame.type === 'replay.done' && frame.sessionId === sessionId);
 
+    const userTurnPromise = waitForFrame(
+      client,
+      (frame) =>
+        frame.type === 'event' &&
+        frame.event.type === 'agent.turn' &&
+        frame.event.payload.role === 'user' &&
+        frame.event.payload.content === 'hello relay chat'
+    );
+    const typingPromise = waitForFrame(
+      client,
+      (frame) =>
+        frame.type === 'event' &&
+        frame.event.type === 'agent.typing' &&
+        frame.event.sessionId === sessionId
+    );
     const outputPromise = waitForFrame(
       client,
       (frame) =>
@@ -408,13 +533,9 @@ test('gateway relay client forwards chat as agent.typing event', async () => {
         frame.event.payload.data.includes('hello relay chat')
     );
     client.send(JSON.stringify({ type: 'client.chat', sessionId, message: 'hello relay chat' }));
-    const event = await waitForFrame(
-      client,
-      (frame) =>
-        frame.type === 'event' &&
-        frame.event.type === 'agent.typing' &&
-        frame.event.sessionId === sessionId
-    );
+    const userTurn = await userTurnPromise;
+    assert.equal(userTurn.type, 'event');
+    const event = await typingPromise;
     assert.equal(event.type, 'event');
     assert.equal((await outputPromise).type, 'event');
     const turns = store.listConversationTurns(sessionId);

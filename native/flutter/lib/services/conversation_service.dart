@@ -12,6 +12,7 @@ class ConversationService extends ChangeNotifier {
   RelayClient? _relayClient;
   String? _sessionId;
   StreamSubscription<RelayTerminalEvent>? _subscription;
+  StreamSubscription<ConversationFrame>? _conversationSubscription;
   int _turnCounter = 0;
   bool _isTyping = false;
   String? _errorBanner;
@@ -19,12 +20,15 @@ class ConversationService extends ChangeNotifier {
   List<ConversationTurn> get turns =>
       List<ConversationTurn>.unmodifiable(_turns);
 
+  String? get sessionId => _sessionId;
+
   bool get isTyping => _isTyping;
 
   String? get errorBanner => _errorBanner;
 
   void attach(RelayClient relayClient, String sessionId) {
     _subscription?.cancel();
+    _conversationSubscription?.cancel();
     _relayClient = relayClient;
     _sessionId = sessionId;
     clear();
@@ -34,6 +38,23 @@ class ConversationService extends ChangeNotifier {
       }
       _handleEvent(event);
     });
+    _conversationSubscription = relayClient.conversationStream.listen((frame) {
+      if (frame.sessionId != sessionId) {
+        return;
+      }
+      _replaceWithConversation(frame.turns);
+    });
+    refreshConversation();
+  }
+
+  void refreshConversation() {
+    final relayClient = _relayClient;
+    final sessionId = _sessionId;
+    if (relayClient == null || sessionId == null) {
+      return;
+    }
+    relayClient.requestConversation(sessionId);
+    relayClient.subscribe(sessionId, mode: RelayClientMode.control, after: 0);
   }
 
   Future<void> sendMessage(String text) async {
@@ -142,6 +163,7 @@ class ConversationService extends ChangeNotifier {
             output: payload['output'] as String? ?? '',
           ),
         );
+      case 'agent.select':
       case 'select.options':
         final options = (payload['options'] as List<dynamic>? ?? const [])
             .map(
@@ -176,6 +198,29 @@ class ConversationService extends ChangeNotifier {
     );
   }
 
+  void _replaceWithConversation(List<RelayConversationTurn> turns) {
+    _turns
+      ..clear()
+      ..addAll(
+        turns.map<ConversationTurn>((turn) {
+          if (turn.role == 'user') {
+            return UserTurn(
+              id: 'conversation-${turn.turnIndex}',
+              content: turn.content,
+              status: ChatMessageStatus.delivered,
+            );
+          }
+          return AssistantTurn(
+            id: 'conversation-${turn.turnIndex}',
+            content: turn.content,
+          );
+        }),
+      );
+    _isTyping = false;
+    _errorBanner = null;
+    notifyListeners();
+  }
+
   void _updateUserStatus(String id, ChatMessageStatus status) {
     final index = _turns.indexWhere((turn) => turn.id == id);
     if (index == -1 || _turns[index] is! UserTurn) {
@@ -190,6 +235,7 @@ class ConversationService extends ChangeNotifier {
   @override
   void dispose() {
     _subscription?.cancel();
+    _conversationSubscription?.cancel();
     super.dispose();
   }
 }

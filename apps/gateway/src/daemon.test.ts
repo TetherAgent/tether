@@ -807,7 +807,7 @@ test('direct websocket controller can resize pty', async () => {
   }
 });
 
-test('direct websocket chat emits agent.typing and conversation API returns turns', async () => {
+test('direct websocket chat emits user turn, agent.typing and conversation API returns turns', async () => {
   const { store, cleanup } = tempStore();
   const ptySessions = new PtySessionManager(store);
   const sessionId = createSessionId();
@@ -835,6 +835,8 @@ test('direct websocket chat emits agent.typing and conversation API returns turn
       await waitForMessage(ws, (text) => text.includes('replay.done'));
       const ptyOutput = waitForMessage(ws, (text) => text.includes('hello direct chat'));
       ws.send(JSON.stringify({ type: 'chat', message: 'hello direct chat' }));
+      const userTurn = await waitForMessage(ws, (text) => text.includes('"agent.turn"') && text.includes('"hello direct chat"'));
+      assert.match(userTurn, /"agent\.turn"/);
       const event = await waitForMessage(ws, (text) => text.includes('"agent.typing"'));
       assert.match(event, /"agent\.typing"/);
       await ptyOutput;

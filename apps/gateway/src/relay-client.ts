@@ -14,7 +14,7 @@ import { handleChatMessage } from './chat-handler.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import { replaySessionEvents } from './replay.js';
 import type { SessionRunnerClient } from './session-runner-client.js';
-import type { Session, SessionEvent, Store } from './store.js';
+import type { ConversationTurn, Session, SessionEvent, Store } from './store.js';
 
 export type RelayClientOptions = {
   url: string;
@@ -154,6 +154,9 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       case 'client.subscribe':
         void subscribeClient(frame.clientId, frame.sessionId, frame.after ?? 0, frame.mode, frame.tail, frame.cols, frame.rows);
         return;
+      case 'client.conversation':
+        sendConversation(frame.clientId, frame.sessionId);
+        return;
       case 'client.input':
         void writeInput(frame.clientId, frame.sessionId, frame.data);
         return;
@@ -169,8 +172,10 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
             throw new Error('PTY session is no longer running');
           }
         })
-          .then((event) => {
-            send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(event) });
+          .then((events) => {
+            for (const event of events) {
+              send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(event) });
+            }
           })
           .catch(() => {
             sendError(frame.clientId, frame.sessionId, 'session_lost', 'PTY session is no longer running');
@@ -326,22 +331,50 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   };
 
   const replayEvents = (clientId: string, sessionId: string, after: number, tail?: number): number => {
+    let conversationSent = false;
     return replaySessionEvents({
       store: options.store,
       sessionId,
       after,
       tail,
       sendPage: ({ events, done, latestEventId }) => {
+        const replayEvents = conversationSent
+          ? events
+          : [...conversationTurnsToRelayEvents(options.store.listConversationTurns(sessionId)), ...events];
+        conversationSent = true;
         send({
           type: 'gateway.replay',
           gatewayId: effectiveGatewayId,
           clientId,
           sessionId,
-          events: events.map(toRelayEvent),
+          events: replayEvents.map(toRelayEvent),
           done,
           latestEventId
         });
       }
+    });
+  };
+
+  const sendConversation = (clientId: string, sessionId: string): void => {
+    const session = options.store.getSession(sessionId);
+    if (!session) {
+      sendError(clientId, sessionId, 'not_found', 'session not found');
+      return;
+    }
+    send({
+      type: 'gateway.conversation',
+      gatewayId: effectiveGatewayId,
+      clientId,
+      sessionId,
+      turns: options.store.listConversationTurns(sessionId).map((turn) => ({
+        id: turn.id,
+        sessionId: turn.sessionId,
+        turnIndex: turn.turnIndex,
+        role: turn.role,
+        content: turn.content,
+        tools: parseConversationTools(turn.tools),
+        createdAt: turn.createdAt
+      }))
     });
   };
 
@@ -527,6 +560,48 @@ function toRelayEvent(event: SessionEvent): RelayTerminalEvent {
     ts: event.ts,
     payload: sanitizeRelayPayload(event.payload)
   };
+}
+
+function conversationTurnsToRelayEvents(turns: ConversationTurn[]): SessionEvent[] {
+  return turns.map((turn) => ({
+    id: -1_000_000_000 - turn.turnIndex,
+    sessionId: turn.sessionId,
+    type: 'agent.turn',
+    ts: turn.createdAt,
+    payload: {
+      role: turn.role,
+      content: turn.content,
+      tools: parseConversationTools(turn.tools),
+      turnIndex: turn.turnIndex,
+      createdAt: turn.createdAt
+    }
+  }));
+}
+
+function parseConversationTools(raw: string | null): Array<{ name: string; inputSummary: string }> {
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.flatMap((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return [];
+      }
+      const item = entry as Record<string, unknown>;
+      return [
+        {
+          name: typeof item.name === 'string' ? item.name : '',
+          inputSummary: typeof item.inputSummary === 'string' ? item.inputSummary : ''
+        }
+      ];
+    });
+  } catch {
+    return [];
+  }
 }
 
 function sanitizeRelayPayload(payload: Record<string, unknown>): Record<string, unknown> {
