@@ -13,7 +13,19 @@ cd native/flutter
 flutter analyze
 flutter test
 flutter build apk --debug
+./scripts/assemble-debug-apk.sh
 ```
+
+## Android 构建镜像绕行
+
+如果当前网络环境无法与 `dl.google.com` 完成 TLS 握手，可使用：
+
+```bash
+cd native/flutter
+./scripts/assemble-debug-apk.sh
+```
+
+该脚本会通过 `android/aliyun.init.gradle` 强制 Flutter/Gradle 的 settings 级仓库走 Aliyun mirrors。当前环境下这一步已验证能绕过 Google Maven 依赖下载失败，但仍要求本机安装 Android SDK 对应的 **NDK 27.0.12077973**。
 
 ## OHOS 构建说明
 
