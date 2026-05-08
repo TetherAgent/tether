@@ -854,7 +854,7 @@ function AgentSessionBadge({ provider, agentSessionId, t }: { provider: string; 
     void navigator.clipboard.writeText(resumeCommand(provider, agentSessionId)).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
+    }).catch(() => {});
   }, [provider, agentSessionId]);
   return (
     <Button variant="outline" size="icon" type="button" title={`${agentSessionId.slice(0, 8)} · ${t.copyResumeCommand}`} onClick={copy}>

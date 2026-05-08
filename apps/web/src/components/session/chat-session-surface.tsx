@@ -241,7 +241,7 @@ function isThinkingStatus(status: AgentRuntimeStatus): boolean {
   return status === 'responding';
 }
 
-function ChatToolCard({ tool }: { tool: ToolInfo }) {
+function ChatToolCard({ tool, completedLabel }: { tool: ToolInfo; completedLabel: string }) {
   return (
     <div className="chat-tool-card chat-tool-card-ok">
       <div className="chat-tool-head">
@@ -250,7 +250,7 @@ function ChatToolCard({ tool }: { tool: ToolInfo }) {
         </span>
         <span className="chat-tool-name">{tool.name}</span>
         {tool.inputSummary ? <span className="chat-tool-args">{tool.inputSummary}</span> : null}
-        <span className="chat-tool-meta">完成</span>
+        <span className="chat-tool-meta">{completedLabel}</span>
         <ChevronDown className="chat-tool-chev" aria-hidden="true" />
       </div>
     </div>
@@ -279,7 +279,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
   const userHistory = React.useMemo(
     () =>
       chatMessages
-        .filter((m) => m.role === 'user' && !m.id.startsWith('pending:'))
+        .filter((m) => m.role === 'user' && !m.id.startsWith('pending:') && m.status !== 'failed')
         .map((m) => m.content),
     [chatMessages]
   );
@@ -534,11 +534,20 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
         }
       ]);
       setInputText('');
+      historyIndexRef.current = null;
       setIsSending(true);
       try {
-        sendInputFrame(wireValue);
+        if (!sendInputFrame(wireValue)) {
+          updateMessageStatus(localId, 'failed', (m) => m.status !== 'delivered');
+          setStatus(t.statusWsUnavailable);
+          return;
+        }
         await wait(CHAT_ENTER_DELAY_MS);
-        sendInputFrame('\r');
+        if (!sendInputFrame('\r')) {
+          updateMessageStatus(localId, 'failed', (m) => m.status !== 'delivered');
+          setStatus(t.statusWsUnavailable);
+          return;
+        }
         updateMessageStatus(localId, 'sent', (m) => m.status === 'pending');
       } catch {
         updateMessageStatus(localId, 'failed', (m) => m.status !== 'delivered');
@@ -1018,7 +1027,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           type="button"
           className="chat-header-title"
           onClick={() => {
-            void navigator.clipboard?.writeText(sessionId);
+            void navigator.clipboard?.writeText(sessionId).catch(() => setStatus(t.clipboardWriteFailed));
           }}
           title={t.sessionIdLabel}
         >
@@ -1185,7 +1194,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
                 {msg.tools.length > 0 ? (
                   <div className="chat-tool-cards">
                     {msg.tools.map((tool, toolIndex) => (
-                      <ChatToolCard key={`${msg.id}-tool-${toolIndex}`} tool={tool} />
+                      <ChatToolCard key={`${msg.id}-tool-${toolIndex}`} tool={tool} completedLabel={t.chatToolCompleted} />
                     ))}
                   </div>
                 ) : null}
