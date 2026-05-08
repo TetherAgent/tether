@@ -1,17 +1,26 @@
-# tether
+# Tether Flutter Client
 
-A new Flutter project.
+## Local commands
 
-## Getting Started
+```bash
+cd native/flutter
+flutter analyze
+flutter test
+flutter build apk --debug
+./scripts/assemble-debug-apk.sh
+```
 
-This project is a starting point for a Flutter application.
+## Scope
 
-A few resources to get you started if this is your first Flutter project:
+- Relay-first mobile client surface
+- Chat-first session UI with terminal as secondary tab
+- Standalone Flutter app outside the pnpm workspace
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Related docs
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- `native/flutter/OHOS_SETUP.md`
+- `native/flutter/OHOS_NOTES.md`
+
+## Android mirror helper
+
+`./scripts/assemble-debug-apk.sh` runs Gradle with `android/aliyun.init.gradle` so Flutter's included Gradle build can resolve Android artifacts through Aliyun mirrors in environments where `dl.google.com` TLS handshakes fail. It still requires the Android SDK and the preferred NDK version from the local toolchain.

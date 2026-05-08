@@ -182,27 +182,26 @@ Plans:
 **Plans**: TBD
 
 ### Phase 9: Flutter Client App
-**Goal**: Build a phone-first Flutter client surface that can remotely view and take over existing Gateway-owned agent sessions through Relay, also support LAN Gateway direct mode, and account for Flutter on HarmonyOS. The app consumes Gateway/Relay protocol and generated Dart types from `packages/protocol`; it does not own sessions, start providers, duplicate auth decisions, or route Relay frames itself.
+**Goal**: Build a phone-first Flutter client surface that can remotely view and take over existing Gateway-owned agent sessions through Relay, with HarmonyOS compatibility documented. The app consumes Gateway/Relay protocol and generated Dart types from `packages/protocol`; it does not own sessions, start providers, duplicate auth decisions, or route Relay frames itself.
 **Depends on**: Phase 8
 **Requirements**: TBD
 **Success Criteria** (what must be TRUE):
   1. Flutter app skeleton exists under `native/flutter/` with documented local dev/build/test commands and without breaking existing pnpm workspace validation
   2. The app supports Relay-first remote connection to list, view, observe/control, input, resize, detach from, and replay existing sessions
-  3. The app also supports LAN Gateway direct connection for same-network/dev usage
-  4. The app embeds a real terminal-style interactive surface suitable for Codex/Claude-style TUIs, with any degraded fallback explicitly documented
+  3. The app embeds a real terminal-style interactive surface suitable for Codex/Claude-style TUIs, with any degraded fallback explicitly documented
   5. Dart protocol types or SDK are generated from `packages/protocol`, or the phase leaves a verified generation bridge with no separate hand-maintained Dart contract
   6. HarmonyOS compatibility risks for Flutter plugins, terminal rendering, secure storage, WebSocket behavior, and packaging are researched and documented before implementation choices are locked
   7. The app never sends arbitrary command/provider args/env/process creation requests and never duplicates Gateway session ownership, auth decisions, or Relay routing logic
-**Plans**: 6 plans
-Plans:
+  **Plans**: 6 plans
+  Plans:
   - **Wave 1** (no deps):
-    - [ ] `09-01-PLAN.md` — Flutter 项目骨架、pubspec.yaml 依赖、Dart 协议类型（14变体）、ARB i18n 文件、ThemeData 常量
+    - [x] `09-01-PLAN.md` — Flutter 项目骨架、pubspec.yaml 依赖、Dart 协议类型（14变体）、ARB i18n 文件、ThemeData 常量
   - **Wave 2** *(depends on Plan 01)*:
-    - [ ] `09-02-PLAN.md` — AuthService（flutter_secure_storage token + QueuedInterceptor 刷新）+ RelayClient（Relay WS 状态机）
-    - [ ] `09-03-PLAN.md` — LanClient（GET /api/sessions 轮询 + WS ticket 流）
+    - [x] `09-02-PLAN.md` — AuthService（flutter_secure_storage token + QueuedInterceptor 刷新）+ RelayClient（Relay WS 状态机）
+    - [x] `09-03-PLAN.md` — ConversationService（chat-first Relay 事件聚合层）
   - **Wave 3** *(depends on Plans 02, 03)*:
-    - [ ] `09-04-PLAN.md` — LoginScreen + RegisterScreen + SessionListScreen + SettingsScreen + widgets
-    - [ ] `09-05-PLAN.md` — TerminalScreen（xterm + KeyboardToolbar + mode toggle）+ ReplayScreen
+    - [x] `09-04-PLAN.md` — LoginScreen + RegisterScreen + SessionListScreen + SettingsScreen + widgets
+    - [x] `09-05-PLAN.md` — Chat-first SessionScreen + TerminalScreen + ReplayScreen
   - **Wave 4** *(depends on all prior plans)*:
     - [ ] `09-06-PLAN.md` — OHOS 兼容性验证 + 全量测试 + OHOS_SETUP.md + OHOS_NOTES.md + human verify checkpoint
 
@@ -230,7 +229,7 @@ Plans:
 | 6. Account Management Console | 6/6 | Complete | 2026-05-04 |
 | 7. Retention | 0/TBD | Not started | - |
 | 8. Security, Isolation Tests & Final Cleanup | 0/TBD | Not started | - |
-| 9. Flutter Client App | 0/6 | Not started | - |
+| 9. Flutter Client App | 5/6 | In progress | - |
 | 10. Multi-workspace Expansion | 0/TBD | Not started | - |
 
 ### Phase 11: Agent 实时对话视图
@@ -238,7 +237,7 @@ Plans:
 **Goal:** JSONL-based structured conversation view alongside PTY stream: JournalWatcher reads Claude/Codex JSONL files, writes assistant turns to conversation_turns DB, pushes agent.turn events; mobile gets dual-bubble chat UI with history, option chips, and fallback hint.
 **Requirements**: AGENT-01
 **Depends on:** Phase 10
-**Plans:** 4 plans
+**Plans:** 4/4 plans complete
 
 Plans:
   - **Wave 1** (parallel):

@@ -153,3 +153,76 @@ test('supports multiple store instances appending session events', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('conversation_turns uses a shared sequential turn_index and returns assigned index', () => {
+  const { store, cleanup } = tempStore();
+  try {
+    const firstIndex = store.insertConversationTurn('tth_conversation_seq', 'user', 'hello');
+    const secondIndex = store.insertConversationTurn('tth_conversation_seq', 'assistant', 'hi');
+    assert.equal(firstIndex, 0);
+    assert.equal(secondIndex, 1);
+    assert.deepEqual(
+      store.listConversationTurns('tth_conversation_seq').map((turn) => ({
+        turnIndex: turn.turnIndex,
+        role: turn.role,
+        content: turn.content
+      })),
+      [
+        { turnIndex: 0, role: 'user', content: 'hello' },
+        { turnIndex: 1, role: 'assistant', content: 'hi' }
+      ]
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('conversation_turns INSERT OR IGNORE keeps unique (session_id, turn_index)', () => {
+  const { store, cleanup } = tempStore();
+  try {
+    const sessionId = 'tth_conversation_ignore';
+    const ts = Date.now();
+    const turnIndex = store.insertConversationTurn(sessionId, 'user', 'hello', undefined, ts);
+    assert.equal(turnIndex, 0);
+    const db = (store as any).db as DatabaseSync;
+    db.prepare(
+      `INSERT OR IGNORE INTO conversation_turns (session_id, turn_index, role, content, tools, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(sessionId, turnIndex, 'assistant', 'ignored', null, ts + 1);
+    const row = db.prepare('SELECT COUNT(*) as count FROM conversation_turns WHERE session_id = ?').get(sessionId) as {
+      count: number;
+    };
+    assert.equal(row.count, 1);
+  } finally {
+    cleanup();
+  }
+});
+
+test('listConversationTurns always returns rows in turn_index ascending order', () => {
+  const { store, cleanup } = tempStore();
+  try {
+    const sessionId = 'tth_conversation_order';
+    const db = (store as any).db as DatabaseSync;
+    const ts = Date.now();
+    db.prepare(
+      `INSERT INTO conversation_turns (session_id, turn_index, role, content, tools, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(sessionId, 1, 'assistant', 'second', null, ts + 1);
+    db.prepare(
+      `INSERT INTO conversation_turns (session_id, turn_index, role, content, tools, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(sessionId, 0, 'user', 'first', null, ts);
+    assert.deepEqual(
+      store.listConversationTurns(sessionId).map((turn) => ({
+        turnIndex: turn.turnIndex,
+        content: turn.content
+      })),
+      [
+        { turnIndex: 0, content: 'first' },
+        { turnIndex: 1, content: 'second' }
+      ]
+    );
+  } finally {
+    cleanup();
+  }
+});

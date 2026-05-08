@@ -1,0 +1,14 @@
+def repoConfig = { repoHandler ->
+    repoHandler.clear()
+    repoHandler.maven { url = uri('https://maven.aliyun.com/repository/google') }
+    repoHandler.maven { url = uri('https://maven.aliyun.com/repository/public') }
+    repoHandler.mavenCentral()
+    repoHandler.gradlePluginPortal()
+}
+
+settingsEvaluated { settings ->
+    repoConfig(settings.pluginManagement.repositories)
+    if (settings.metaClass.respondsTo(settings, 'getDependencyResolutionManagement')) {
+        repoConfig(settings.dependencyResolutionManagement.repositories)
+    }
+}

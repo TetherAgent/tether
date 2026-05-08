@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.3
 milestone_name: milestone
 status: executing
-stopped_at: Phase 6 UI-SPEC approved
-last_updated: "2026-05-04T06:08:10.129Z"
-last_activity: 2026-05-04 -- Phase 9 planning complete
+stopped_at: Phase 09 awaiting environment verification
+last_updated: "2026-05-08T11:08:00.000Z"
+last_activity: 2026-05-08 -- Phase 09 plans 01-05 implemented; 09-06 blocked by Android/OHOS environment
 progress:
-  total_phases: 10
-  completed_phases: 4
-  total_plans: 32
-  completed_plans: 22
-  percent: 69
+  total_phases: 11
+  completed_phases: 5
+  total_plans: 36
+  completed_plans: 26
+  percent: 72
 ---
 
 # Project State
@@ -21,15 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-01)
 
 **Core value:** 在 agent session 场景里，本地体验对齐 tmux，并在历史回放、多端接管、审计、手机/Web/App 接入上超越 tmux。
-**Current focus:** Phase 07 — retention
+**Current focus:** Phase 09 — flutter-client-app
 
 ## Current Position
 
-Phase: 06 (account-management-console) — COMPLETE
+Phase: 09 (flutter-client-app) — EXECUTING
+Plan: 5 of 6
 Next: Phase 07 — Retention
-Last activity: 2026-05-04 -- Phase 9 planning complete
+Last activity: 2026-05-08 -- Phase 09 plans 01-05 implemented; 09-06 blocked by Android/OHOS environment
 
-Progress: [██████░░░░] 60%
+Progress: [███████░░░] 72%
 
 ## Performance Metrics
 
@@ -54,6 +55,10 @@ Progress: [██████░░░░] 60%
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 11 P01 | 6 min | 2 tasks | 3 files |
+| Phase 11 P02 | 7min | 2 tasks | 5 files |
+| Phase 11 P03 | 4min | 2 tasks | 3 files |
+| Phase 11 P04 | 8min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -88,6 +93,12 @@ Recent decisions affecting current work:
 - Retention is now Phase 7: DELETE WHERE ts < cutoff every 15 min; WAL checkpoint (RESTART) on 5-min cadence; no auto-VACUUM
 - launchd plist: absolute node path snapshotted at install time via `process.execPath`; `$HOME` not expanded — all paths must be literal strings
 - CLEAN-02 decision: retain `transport` column as extension point; remove `'tmux'` from active write types only; keep `'tmux'` in `fromRow` for historical reads
+- [Phase 11]: insertConversationTurn returns allocated turn_index — Avoids extra query for downstream caller flow
+- [Phase 11]: [Phase 11-02] handleChatMessage returns SessionEvent and callers publish via direct socket or relay gateway.event
+- [Phase 11]: JournalWatcher handles Codex completion markers task_completed/task_complete for compatibility. — Design doc and observed logs differ on completion token naming.
+- [Phase 11]: agent.turn turnIndex is taken directly from insertConversationTurn return value. — Removes race risk from follow-up list query.
+- [Phase 11]: [Phase 11-04] 会话前端统一切到 /chat 路由，移除 /simple 入口
+- [Phase 11]: [Phase 11-04] agent.select 检测在 daemon 与 relay-client 两侧独立执行，覆盖直连与中继模式
 
 ### Pending Todos
 
@@ -98,6 +109,7 @@ Recent decisions affecting current work:
 
 - Phase 9 added: Flutter Client App
 - Phase 10 added: Multi-workspace Expansion for WORKSPACE-01; use `$gsd-discuss-phase 10` when ready
+- Phase 11 added: Agent 实时对话视图
 - Phase 5 complete: Web-first Account Setup & Server Auth Runtime (2026-05-04)
 - Phase 6 complete: Account Management Console (2026-05-04, human verified)
 
@@ -105,6 +117,7 @@ Recent decisions affecting current work:
 
 - GW-01 probe fallback behavior when Gateway is mid-restart (launchd race) is underspecified in research — recommend a brief design pass before future Gateway hardening. Suggested: retry loop with 3 attempts / 500ms spacing before falling back to in-process.
 - Phase 4 must happen before Phase 5. Without a written ownership/token/role/setup/Server contract, Phase 5 auth runtime and Phase 6 management console will likely conflict and require rework.
+- Phase 09 build verification is blocked in the current environment: Android Gradle artifact fetch hits TLS/handshake failures, and OHOS packaging requires an external toolchain/manual verification path.
 
 ## Deferred Items
 
@@ -123,6 +136,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-02T17:22:36.084Z
-Stopped at: Phase 6 UI-SPEC approved
-Resume file: .planning/phases/06-account-management-console/06-UI-SPEC.md
+Last session: 2026-05-05T09:54:16.520Z
+Stopped at: Completed 11-04-PLAN.md
+Resume file: None

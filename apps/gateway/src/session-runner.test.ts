@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { SessionRunner, runnerSocketPath } from './session-runner.js';
+import { latestNewCodexSessionId, readCodexSessionId, SessionRunner, runnerSocketPath } from './session-runner.js';
 import { SessionRunnerClient } from './session-runner-client.js';
 import { Store } from './store.js';
 
@@ -26,6 +26,42 @@ test('runner socket path rejects unsafe session ids', () => {
     assert.throws(() => runnerSocketPath('../bad', socketDir), /invalid runner session id/);
     assert.throws(() => runnerSocketPath('tth_bad/child', socketDir), /invalid runner session id/);
     assert.equal(runnerSocketPath('tth_safe_123', socketDir), path.join(socketDir, 'tth_safe_123.sock'));
+  } finally {
+    cleanup();
+  }
+});
+
+test('reads Codex session id from session jsonl metadata', () => {
+  const { dir, cleanup } = tempRunnerFixture();
+  try {
+    const sessionPath = path.join(dir, 'rollout-2026-05-06T15-35-25-019dfc36-896b-71f0-91d4-2935af9e4fc4.jsonl');
+    writeFileSync(
+      sessionPath,
+      `${JSON.stringify({
+        timestamp: '2026-05-06T07:35:25.814Z',
+        type: 'session_meta',
+        payload: { id: '019dfc36-896b-71f0-91d4-2935af9e4fc4' }
+      })}\n`
+    );
+
+    assert.equal(readCodexSessionId(sessionPath), '019dfc36-896b-71f0-91d4-2935af9e4fc4');
+  } finally {
+    cleanup();
+  }
+});
+
+test('detects newly created Codex session jsonl files', () => {
+  const { dir, cleanup } = tempRunnerFixture();
+  try {
+    const sessionsDir = path.join(dir, '.codex', 'sessions', '2026', '05', '06');
+    mkdirSync(sessionsDir, { recursive: true });
+    const existing = path.join(sessionsDir, 'rollout-2026-05-06T12-42-22-019dfb98-17d0-7343-acc0-3734ff4d8a82.jsonl');
+    const created = path.join(sessionsDir, 'rollout-2026-05-06T15-35-25-019dfc36-896b-71f0-91d4-2935af9e4fc4.jsonl');
+    writeFileSync(existing, `${JSON.stringify({ type: 'session_meta', payload: { id: '019dfb98-17d0-7343-acc0-3734ff4d8a82' } })}\n`);
+    const before = new Set([`codex-file:${existing}`]);
+    writeFileSync(created, `${JSON.stringify({ type: 'session_meta', payload: { id: '019dfc36-896b-71f0-91d4-2935af9e4fc4' } })}\n`);
+
+    assert.equal(latestNewCodexSessionId(before, dir), '019dfc36-896b-71f0-91d4-2935af9e4fc4');
   } finally {
     cleanup();
   }

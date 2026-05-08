@@ -1,0 +1,1312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
+<title>Tether Chat Surface — UX Mockup (2026-05-06)</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    /* Light theme tokens (mirror packages/theme) */
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-2: #f9fafb;
+    --surface-3: #f3f4f6;
+    --border: #e5e7eb;
+    --border-strong: #d4d4d8;
+    --text: #18181b;
+    --text-2: #52525b;
+    --text-3: #a1a1aa;
+    --text-muted: #71717a;
+    --brand: #16a34a;
+    --brand-soft: #dcfce7;
+    --brand-fg: #052e16;
+    --user-bubble: #95ec69;
+    --user-bubble-text: #052e16;
+    --agent-bubble: #ffffff;
+    --agent-bubble-tint: color-mix(in srgb, #ffffff 96%, var(--brand));
+    --code-bg: #f6f8fa;
+    --code-border: #e1e4e8;
+    --code-text: #24292f;
+    --code-keyword: #cf222e;
+    --code-string: #0a3069;
+    --code-comment: #6e7781;
+    --code-fn: #8250df;
+    --code-num: #0550ae;
+    --code-tag: #116329;
+    --diff-add-bg: #dcfce7;
+    --diff-add-marker: #16a34a;
+    --diff-del-bg: #fee2e2;
+    --diff-del-marker: #dc2626;
+    --tool-bg: #f4f4f5;
+    --tool-border: #e4e4e7;
+    --tool-running: #f59e0b;
+    --tool-ok: #16a34a;
+    --tool-fail: #dc2626;
+    --error-bg: #fef2f2;
+    --error-border: #fecaca;
+    --error-accent: #b91c1c;
+    --shadow-bubble: 0 1px 2px rgb(0 0 0 / 0.04), 0 0 0 1px rgb(0 0 0 / 0.02);
+    --shadow-elevated: 0 8px 24px rgb(0 0 0 / 0.08), 0 2px 6px rgb(0 0 0 / 0.04);
+  }
+  html.dark {
+    --bg: #0a0a0c;
+    --surface: #111114;
+    --surface-2: #18181b;
+    --surface-3: #1f1f23;
+    --border: #27272a;
+    --border-strong: #3f3f46;
+    --text: #fafafa;
+    --text-2: #d4d4d8;
+    --text-3: #a1a1aa;
+    --text-muted: #71717a;
+    --brand: #22c55e;
+    --brand-soft: #052e1a;
+    --brand-fg: #f0fdf4;
+    --user-bubble: #22c55e;
+    --user-bubble-text: #052e16;
+    --agent-bubble: #1a1a1d;
+    --agent-bubble-tint: color-mix(in srgb, #1a1a1d 92%, var(--brand));
+    --code-bg: #0d1117;
+    --code-border: #30363d;
+    --code-text: #c9d1d9;
+    --code-keyword: #ff7b72;
+    --code-string: #a5d6ff;
+    --code-comment: #8b949e;
+    --code-fn: #d2a8ff;
+    --code-num: #79c0ff;
+    --code-tag: #7ee787;
+    --diff-add-bg: #033a16;
+    --diff-add-marker: #4ade80;
+    --diff-del-bg: #4c1010;
+    --diff-del-marker: #f87171;
+    --tool-bg: #18181b;
+    --tool-border: #2a2a30;
+    --tool-running: #fbbf24;
+    --tool-ok: #4ade80;
+    --tool-fail: #f87171;
+    --error-bg: #2a0e0e;
+    --error-border: #7f1d1d;
+    --error-accent: #fca5a5;
+    --shadow-bubble: 0 0 0 1px rgb(255 255 255 / 0.04);
+    --shadow-elevated: 0 12px 32px rgb(0 0 0 / 0.4), 0 2px 8px rgb(0 0 0 / 0.3);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+  .frame {
+    max-width: 880px;
+    margin: 0 auto;
+    height: 100vh;
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+  }
+
+  /* ============ Header ============ */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--surface) 80%, transparent);
+    backdrop-filter: blur(10px);
+  }
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    color: var(--text-2);
+    cursor: pointer;
+  }
+  .icon-btn:hover { background: var(--surface-3); color: var(--text); }
+  .header-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--brand);
+    font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+    letter-spacing: -0.2px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .header-title:hover { color: color-mix(in srgb, var(--brand) 80%, var(--text)); }
+  .header-title .copy-hint {
+    font-size: 11px;
+    color: var(--text-3);
+    opacity: 0;
+    transition: opacity 120ms;
+  }
+  .header-title:hover .copy-hint { opacity: 1; }
+  .header-meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--surface-3);
+    font-size: 12px;
+    color: var(--text-2);
+    border: 1px solid var(--border);
+  }
+  .chip.running {
+    background: color-mix(in srgb, var(--brand) 12%, transparent);
+    color: var(--brand);
+    border-color: color-mix(in srgb, var(--brand) 30%, transparent);
+  }
+  .chip.running .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .view-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 12px;
+  }
+  .view-toggle button {
+    border: none;
+    background: transparent;
+    color: var(--text-2);
+    padding: 6px 10px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .view-toggle button.active { background: var(--surface-3); color: var(--text); }
+  .view-toggle button:not(.active):hover { color: var(--text); }
+
+  /* ============ Error banner ============ */
+  .error-banner {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--error-bg);
+    border-bottom: 1px solid var(--error-border);
+    color: var(--error-accent);
+    font-size: 13px;
+  }
+  .error-banner.visible { display: flex; }
+  .error-banner .reconnect-btn {
+    margin-left: auto;
+    background: var(--error-accent);
+    color: white;
+    border: none;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  /* ============ Chat panel ============ */
+  .chat-panel {
+    overflow-y: auto;
+    padding: 16px clamp(14px, 3vw, 28px) 24px;
+    scroll-behavior: smooth;
+    position: relative;
+  }
+  .chat-panel::-webkit-scrollbar { width: 8px; }
+  .chat-panel::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 4px;
+  }
+
+  /* time separator */
+  .time-sep {
+    text-align: center;
+    color: var(--text-3);
+    font-size: 11px;
+    margin: 12px 0 6px;
+    user-select: none;
+  }
+
+  /* Message group: avatar + bubbles stack */
+  .group {
+    display: grid;
+    grid-template-columns: 32px 1fr;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .group.user {
+    grid-template-columns: 1fr 32px;
+  }
+  .avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .avatar.agent {
+    background: color-mix(in srgb, var(--brand) 14%, transparent);
+    color: var(--brand);
+  }
+  .avatar.user {
+    background: var(--surface-3);
+    color: var(--text-2);
+    font-weight: 600;
+    font-size: 13px;
+    grid-column: 2;
+  }
+  .avatar svg { width: 18px; height: 18px; }
+  .group.user .bubbles { grid-column: 1; }
+  .bubbles {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .group.user .bubbles { align-items: flex-end; }
+
+  /* Bubble */
+  .bubble {
+    max-width: min(640px, 92%);
+    position: relative;
+  }
+  .bubble-content {
+    padding: 10px 14px;
+    border-radius: 16px;
+    box-shadow: var(--shadow-bubble);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .group.agent .bubble:first-of-type .bubble-content { border-top-left-radius: 6px; }
+  .group.user .bubble:first-of-type .bubble-content { border-top-right-radius: 6px; }
+  .bubble.agent .bubble-content {
+    background: var(--agent-bubble-tint);
+    color: var(--text);
+    border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  }
+  .bubble.user .bubble-content {
+    background: var(--user-bubble);
+    color: var(--user-bubble-text);
+  }
+  .bubble.user[data-status="pending"] .bubble-content {
+    opacity: 0.55;
+  }
+  .bubble.user[data-status="failed"] .bubble-content {
+    border: 1.5px solid var(--error-accent);
+  }
+  .bubble-tick {
+    position: absolute;
+    bottom: 4px;
+    right: 8px;
+    font-size: 10px;
+    color: color-mix(in srgb, var(--user-bubble-text) 70%, transparent);
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    pointer-events: none;
+  }
+  .bubble-retry {
+    margin-left: 6px;
+    font-size: 11px;
+    color: var(--error-accent);
+    background: transparent;
+    border: 1px solid var(--error-accent);
+    border-radius: 6px;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+  /* Same-author folded bubble: hide avatar, slightly tighter radius */
+  .group.folded .avatar { visibility: hidden; }
+  .group.folded { margin-top: -10px; margin-bottom: 4px; }
+  .group.folded .bubble-content { border-top-left-radius: 16px; border-top-right-radius: 16px; }
+
+  /* Hover actions on bubble */
+  .bubble-actions {
+    position: absolute;
+    top: -10px;
+    display: none;
+    gap: 4px;
+  }
+  .group.agent .bubble-actions { right: -4px; }
+  .group.user .bubble-actions { left: -4px; }
+  .bubble:hover .bubble-actions { display: inline-flex; }
+  .bubble-action {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+    width: 26px; height: 26px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--shadow-elevated);
+  }
+  .bubble-action:hover { color: var(--text); background: var(--surface-3); }
+  .bubble-action svg { width: 14px; height: 14px; }
+
+  /* Markdown content */
+  .md p { margin: 0 0 8px; }
+  .md p:last-child { margin-bottom: 0; }
+  .md h1, .md h2, .md h3 { margin: 12px 0 6px; line-height: 1.3; font-weight: 600; }
+  .md h1 { font-size: 18px; }
+  .md h2 { font-size: 16px; }
+  .md h3 { font-size: 14px; }
+  .md ul, .md ol { margin: 4px 0 8px; padding-left: 22px; }
+  .md li { margin: 2px 0; }
+  .md a {
+    color: var(--brand);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .md code:not(pre code) {
+    font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--text-3) 18%, transparent);
+    color: var(--text);
+  }
+  .md blockquote {
+    border-left: 3px solid var(--brand);
+    margin: 8px 0;
+    padding: 4px 12px;
+    color: var(--text-2);
+    background: color-mix(in srgb, var(--brand) 4%, transparent);
+    border-radius: 0 6px 6px 0;
+  }
+  .md table {
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 13px;
+    width: 100%;
+    overflow-x: auto;
+    display: block;
+  }
+  .md th, .md td {
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    text-align: left;
+  }
+  .md th { background: var(--surface-3); font-weight: 600; }
+  .md .filepath {
+    font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px;
+    background: color-mix(in srgb, var(--brand) 10%, transparent);
+    color: var(--brand);
+    padding: 1px 5px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  /* Code block */
+  .codeblock {
+    margin: 8px 0;
+    border: 1px solid var(--code-border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--code-bg);
+  }
+  .codeblock-head {
+    display: flex;
+    align-items: center;
+    padding: 6px 10px;
+    background: color-mix(in srgb, var(--code-bg) 60%, var(--surface-3));
+    border-bottom: 1px solid var(--code-border);
+    font-size: 11px;
+  }
+  .codeblock-lang {
+    color: var(--text-3);
+    font-family: ui-monospace, monospace;
+    text-transform: lowercase;
+  }
+  .codeblock-actions {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 4px;
+  }
+  .codeblock-actions button {
+    background: transparent;
+    border: none;
+    color: var(--text-3);
+    cursor: pointer;
+    padding: 3px 6px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+  }
+  .codeblock-actions button:hover { background: var(--surface-3); color: var(--text); }
+  .codeblock-actions button.copied { color: var(--brand); }
+  .codeblock-actions svg { width: 12px; height: 12px; }
+  .codeblock pre {
+    margin: 0;
+    padding: 10px 12px;
+    color: var(--code-text);
+    font: 12.5px/1.55 ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+    overflow-x: auto;
+  }
+  .codeblock pre.with-lineno {
+    counter-reset: line;
+    padding-left: 0;
+  }
+  .codeblock pre.with-lineno .ln {
+    display: inline-block;
+    width: 36px;
+    text-align: right;
+    color: var(--text-3);
+    user-select: none;
+    margin-right: 12px;
+    border-right: 1px solid var(--code-border);
+    padding-right: 6px;
+  }
+  /* simple syntax tints */
+  .tok-kw { color: var(--code-keyword); }
+  .tok-str { color: var(--code-string); }
+  .tok-com { color: var(--code-comment); font-style: italic; }
+  .tok-fn { color: var(--code-fn); }
+  .tok-num { color: var(--code-num); }
+  .tok-tag { color: var(--code-tag); }
+  /* diff lines */
+  .diff-line-add {
+    background: var(--diff-add-bg);
+    display: block;
+    margin: 0 -12px;
+    padding: 0 12px;
+  }
+  .diff-line-add::before { content: '+ '; color: var(--diff-add-marker); font-weight: 600; }
+  .diff-line-del {
+    background: var(--diff-del-bg);
+    display: block;
+    margin: 0 -12px;
+    padding: 0 12px;
+  }
+  .diff-line-del::before { content: '− '; color: var(--diff-del-marker); font-weight: 600; }
+  .diff-line-ctx::before { content: '  '; }
+  /* ANSI tints */
+  .ansi-green { color: #16a34a; }
+  .ansi-red { color: #dc2626; }
+  .ansi-yellow { color: #ca8a04; }
+  .ansi-blue { color: #2563eb; }
+  .ansi-cyan { color: #0891b2; }
+  .ansi-bold { font-weight: 700; }
+  .ansi-dim { opacity: 0.6; }
+  html.dark .ansi-green { color: #4ade80; }
+  html.dark .ansi-red { color: #f87171; }
+  html.dark .ansi-yellow { color: #fbbf24; }
+  html.dark .ansi-blue { color: #60a5fa; }
+  html.dark .ansi-cyan { color: #22d3ee; }
+
+  /* Tool execution card */
+  .tool-card {
+    margin: 6px 0;
+    border: 1px solid var(--tool-border);
+    background: var(--tool-bg);
+    border-radius: 10px;
+    overflow: hidden;
+    font-size: 13px;
+  }
+  .tool-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .tool-head:hover { background: color-mix(in srgb, var(--tool-bg) 70%, var(--surface-3)); }
+  .tool-icon {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .tool-card.running .tool-icon {
+    background: color-mix(in srgb, var(--tool-running) 18%, transparent);
+    color: var(--tool-running);
+    animation: spin 1.2s linear infinite;
+  }
+  .tool-card.ok .tool-icon { background: color-mix(in srgb, var(--tool-ok) 18%, transparent); color: var(--tool-ok); }
+  .tool-card.fail .tool-icon { background: color-mix(in srgb, var(--tool-fail) 18%, transparent); color: var(--tool-fail); }
+  .tool-card.fail { border-color: color-mix(in srgb, var(--tool-fail) 40%, var(--tool-border)); }
+  @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+  .tool-icon svg { width: 12px; height: 12px; }
+  .tool-name {
+    font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .tool-args {
+    color: var(--text-2);
+    font-family: ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+  }
+  .tool-meta {
+    color: var(--text-3);
+    font-size: 11px;
+    margin-left: 8px;
+    flex-shrink: 0;
+  }
+  .tool-body {
+    padding: 8px 12px;
+    border-top: 1px solid var(--tool-border);
+    background: var(--code-bg);
+    font: 12px/1.55 ui-monospace, 'JetBrains Mono', SFMono-Regular, Menlo, monospace;
+    color: var(--code-text);
+    max-height: 200px;
+    overflow: auto;
+    white-space: pre;
+  }
+  .tool-card:not(.expanded) .tool-body { display: none; }
+  .tool-card.expanded .chev { transform: rotate(180deg); }
+  .chev { transition: transform 150ms; color: var(--text-3); width: 14px; height: 14px; }
+
+  /* Thinking indicator */
+  .thinking {
+    display: grid;
+    grid-template-columns: 32px 1fr;
+    gap: 10px;
+    margin-bottom: 14px;
+    align-items: center;
+  }
+  .thinking-bubble {
+    background: var(--agent-bubble-tint);
+    border: 1px solid var(--border);
+    border-radius: 16px 16px 16px 6px;
+    padding: 10px 14px;
+    box-shadow: var(--shadow-bubble);
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    width: fit-content;
+    max-width: 90%;
+  }
+  .thinking-dots {
+    display: inline-flex;
+    gap: 3px;
+  }
+  .thinking-dots span {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--text-3);
+    animation: typing-bounce 1.2s ease-in-out infinite;
+  }
+  .thinking-dots span:nth-child(2) { animation-delay: 0.15s; }
+  .thinking-dots span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes typing-bounce {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+    30% { transform: translateY(-3px); opacity: 1; }
+  }
+  .thinking-text { color: var(--text-2); font-size: 13px; }
+  .thinking-timer { color: var(--text-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .thinking-cancel {
+    margin-left: 6px;
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    color: var(--text-2);
+    border-radius: 999px;
+    padding: 2px 8px 2px 6px;
+    font-size: 11px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .thinking-cancel:hover { color: var(--error-accent); border-color: var(--error-accent); }
+  .thinking-cancel svg { width: 11px; height: 11px; }
+
+  /* Persistent select prompt */
+  .select-card {
+    margin: 6px 0;
+    padding: 12px;
+    border: 1px dashed var(--brand);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--brand) 4%, transparent);
+  }
+  .select-card-title {
+    font-size: 12px;
+    color: var(--brand);
+    font-weight: 600;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .select-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .select-options button {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 12.5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .select-options button:hover {
+    border-color: var(--brand);
+    color: var(--brand);
+  }
+  .select-options button.selected {
+    background: var(--brand-soft);
+    border-color: var(--brand);
+    color: var(--brand-fg);
+    opacity: 0.6;
+  }
+  .select-options .num-key {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px; height: 16px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--text-3) 15%, transparent);
+    color: var(--text-2);
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+  }
+
+  /* Floating "new messages" button */
+  .scroll-fab {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 999px;
+    padding: 6px 12px 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    gap: 5px;
+    box-shadow: var(--shadow-elevated);
+  }
+  .scroll-fab.visible { display: inline-flex; }
+
+  /* ============ Composer ============ */
+  .composer {
+    border-top: 1px solid var(--border);
+    padding: 10px 14px 14px;
+    background: var(--surface);
+  }
+  .composer-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: end;
+  }
+  .composer-input {
+    resize: none;
+    width: 100%;
+    min-height: 40px;
+    max-height: 200px;
+    padding: 9px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    color: var(--text);
+    font: inherit;
+    line-height: 1.5;
+  }
+  .composer-input:focus {
+    outline: none;
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent);
+  }
+  .composer-input::placeholder { color: var(--text-3); }
+  .send-btn {
+    height: 40px;
+    padding: 0 18px;
+    border-radius: 12px;
+    background: var(--brand);
+    color: white;
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .send-btn:disabled {
+    background: var(--border);
+    color: var(--text-3);
+    cursor: not-allowed;
+  }
+  .send-btn svg { width: 14px; height: 14px; }
+  .composer-foot {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-3);
+  }
+  .kbd {
+    font-family: ui-monospace, monospace;
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 4px;
+    font-size: 10px;
+  }
+
+  /* ============ Floating debug panel ============ */
+  .debug-panel {
+    position: fixed;
+    bottom: 14px;
+    left: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px;
+    box-shadow: var(--shadow-elevated);
+    z-index: 50;
+    width: 220px;
+    font-size: 12px;
+  }
+  .debug-panel h4 {
+    margin: 0 0 6px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-3);
+  }
+  .debug-panel button {
+    display: block;
+    width: 100%;
+    margin: 2px 0;
+    padding: 5px 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+    font-size: 11.5px;
+  }
+  .debug-panel button:hover { background: var(--surface-3); }
+  .debug-toggle {
+    position: fixed;
+    bottom: 14px;
+    left: 14px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+    cursor: pointer;
+    box-shadow: var(--shadow-elevated);
+    z-index: 49;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  @media (max-width: 600px) {
+    .frame { border-left: none; border-right: none; }
+    .header { padding: 8px 10px; }
+    .view-toggle { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="frame">
+
+  <!-- ============ Header ============ -->
+  <div class="header">
+    <button class="icon-btn" title="返回">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    </button>
+    <span class="header-title" onclick="copySessionId(this)">
+      tth_20260506_065ffd8b
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;opacity:0.6"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+      <span class="copy-hint">点击复制</span>
+    </span>
+    <div class="header-meta">
+      <span class="chip running"><span class="dot"></span>思考中</span>
+      <span class="chip">codex</span>
+      <div class="view-toggle">
+        <button title="终端"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>终端</button>
+        <button class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>聊天</button>
+      </div>
+      <button class="icon-btn" title="主题切换" onclick="toggleTheme()">
+        <svg id="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.2" y1="4.2" x2="5.6" y2="5.6"/><line x1="18.4" y1="18.4" x2="19.8" y2="19.8"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.2" y1="19.8" x2="5.6" y2="18.4"/><line x1="18.4" y1="5.6" x2="19.8" y2="4.2"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- ============ Error banner (toggleable) ============ -->
+  <div class="error-banner" id="error-banner">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    已断开,正在重连... <span style="opacity:0.7">(尝试 3/5)</span>
+    <button class="reconnect-btn">立即重连</button>
+  </div>
+
+  <!-- ============ Chat panel ============ -->
+  <div class="chat-panel" id="chat-panel">
+
+    <div class="time-sep">今天 14:32</div>
+
+    <!-- User message: delivered -->
+    <div class="group user">
+      <div class="bubbles">
+        <div class="bubble user" data-status="delivered">
+          <div class="bubble-content">
+            把 <code>apps/web/src/components/session/chat-session-surface.tsx</code> 的发送逻辑改成乐观渲染,粘贴的多行代码不要被压成一行
+            <span class="bubble-tick">✓✓</span>
+          </div>
+        </div>
+      </div>
+      <div class="avatar user">D</div>
+    </div>
+
+    <!-- Agent group: markdown reply with everything -->
+    <div class="group agent">
+      <div class="avatar agent">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8M5 8h14v8a2 2 0 01-2 2H7a2 2 0 01-2-2V8zM2 14h2M20 14h2M9 13v2M15 13v2"/></svg>
+      </div>
+      <div class="bubbles">
+
+        <!-- Tool execution: success -->
+        <div class="bubble agent" style="width:100%">
+          <div class="bubble-content" style="background:transparent;border:none;box-shadow:none;padding:0">
+            <div class="tool-card ok" onclick="this.classList.toggle('expanded')">
+              <div class="tool-head">
+                <span class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></span>
+                <span class="tool-name">Read</span>
+                <span class="tool-args">apps/web/src/components/session/chat-session-surface.tsx:240-290</span>
+                <span class="tool-meta">0.2s · 50 行</span>
+                <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+              </div>
+              <div class="tool-body">  244  const sendChatText = React.useCallback(
+  245    async (value: string) => {
+  246      const nextValue = value.trim().replace(/\s*\r?\n\s*/g, ' ');
+  247      if (!nextValue) return;
+       ...
+  283  );</div>
+            </div>
+
+            <!-- Tool execution: running -->
+            <div class="tool-card running">
+              <div class="tool-head">
+                <span class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg></span>
+                <span class="tool-name">Edit</span>
+                <span class="tool-args">替换 sendChatText 实现(共 3 处替换)</span>
+                <span class="tool-meta">运行中</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Markdown content -->
+        <div class="bubble agent">
+          <div class="bubble-content md">
+            <p>找到了,改造分两步:</p>
+
+            <h3>1. 类型扩展</h3>
+            <p>给 <span class="filepath">ChatMessage</span> 加 <code>status</code> 字段:</p>
+
+            <div class="codeblock">
+              <div class="codeblock-head">
+                <span class="codeblock-lang">typescript</span>
+                <div class="codeblock-actions">
+                  <button onclick="copyCode(this)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                    复制
+                  </button>
+                </div>
+              </div>
+<pre class="with-lineno"><span class="ln">1</span><span class="tok-kw">type</span> ChatMessage = {
+<span class="ln">2</span>  id: <span class="tok-kw">string</span>;
+<span class="ln">3</span>  role: <span class="tok-str">'user'</span> | <span class="tok-str">'assistant'</span>;
+<span class="ln">4</span>  content: <span class="tok-kw">string</span>;
+<span class="ln">5</span>  tools: ToolInfo[];
+<span class="ln">6</span>  status<span class="tok-num">?</span>: <span class="tok-str">'pending'</span> | <span class="tok-str">'sent'</span> | <span class="tok-str">'delivered'</span> | <span class="tok-str">'failed'</span>;
+<span class="ln">7</span>};</pre>
+            </div>
+
+            <h3>2. 乐观写入</h3>
+            <p>改 <code>sendChatText</code>,删掉那 3 次轮询:</p>
+
+            <div class="codeblock">
+              <div class="codeblock-head">
+                <span class="codeblock-lang">diff</span>
+                <div class="codeblock-actions">
+                  <button onclick="copyCode(this)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                    复制
+                  </button>
+                </div>
+              </div>
+<pre><span class="diff-line-ctx">  setIsSending(true);</span>
+<span class="diff-line-ctx">  try {</span>
+<span class="diff-line-add">    const localId = `pending:${crypto.randomUUID()}`;</span>
+<span class="diff-line-add">    setChatMessages((p) =&gt; [...p, { id: localId, role: 'user',</span>
+<span class="diff-line-add">      content: nextValue, tools: [], status: 'pending' }]);</span>
+<span class="diff-line-ctx">    sendFrame(nextValue);</span>
+<span class="diff-line-ctx">    await wait(CHAT_ENTER_DELAY_MS);</span>
+<span class="diff-line-ctx">    sendFrame('\r');</span>
+<span class="diff-line-add">    setChatMessages((p) =&gt; p.map((m) =&gt; m.id === localId</span>
+<span class="diff-line-add">      ? { ...m, status: 'sent' } : m));</span>
+<span class="diff-line-del">    window.setTimeout(() =&gt; void refreshConversation(), 250);</span>
+<span class="diff-line-del">    window.setTimeout(() =&gt; void refreshConversation(), 1250);</span>
+<span class="diff-line-del">    window.setTimeout(() =&gt; void refreshConversation(), 3000);</span>
+<span class="diff-line-ctx">    setInputText('');</span>
+<span class="diff-line-ctx">  } finally { setIsSending(false); }</span></pre>
+            </div>
+
+            <p>这样从用户点击到看见消息只有 1 帧延迟。</p>
+
+            <h3>关键点</h3>
+            <ul>
+              <li><strong>不要按内容比对去重</strong> — WebSocket 顺序保证 + FIFO 匹配 pending 队列</li>
+              <li>5 秒超时 → 标 <code>failed</code> + 重试按钮</li>
+              <li>删 3 次轮询时小心 echo 延迟,改完一起测</li>
+            </ul>
+
+            <h3>状态对照表</h3>
+            <table>
+              <thead><tr><th>状态</th><th>触发</th><th>视觉</th></tr></thead>
+              <tbody>
+                <tr><td>pending</td><td>本地 setState</td><td>气泡 55% 透明 + …</td></tr>
+                <tr><td>sent</td><td>ws.send 同步成功</td><td>单灰勾 ✓</td></tr>
+                <tr><td>delivered</td><td>收到 echo turn</td><td>双绿勾 ✓✓</td></tr>
+                <tr><td>failed</td><td>5s 超时 / WS 关闭</td><td>红边 + 重试</td></tr>
+              </tbody>
+            </table>
+
+            <blockquote>
+              注意 <code>refreshConversation</code> 删掉之后,如果 echo 比预期晚,本地永远卡 sent — 必须把 5s 超时机制和删除轮询同时落地。
+            </blockquote>
+
+            <p>查看完整改动: <a href="#">apps/web/src/components/session/chat-session-surface.tsx</a></p>
+          </div>
+          <!-- Hover actions -->
+          <div class="bubble-actions">
+            <button class="bubble-action" title="复制 markdown 原文" onclick="alert('已复制原始 markdown')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            </button>
+            <button class="bubble-action" title="引用回复">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Bash with ANSI -->
+        <div class="bubble agent">
+          <div class="bubble-content">
+            <p style="margin-bottom:6px">先跑了一下 typecheck:</p>
+            <div class="codeblock">
+              <div class="codeblock-head">
+                <span class="codeblock-lang">bash · output</span>
+              </div>
+<pre>$ pnpm --filter @tether/web typecheck
+<span class="ansi-dim">&gt; @tether/web@0.1.0 typecheck</span>
+<span class="ansi-dim">&gt; tsc --noEmit</span>
+
+src/components/session/chat-session-surface.tsx:51:3 - <span class="ansi-red ansi-bold">error</span> TS2304:
+  Cannot find name <span class="ansi-yellow">'crypto'</span>.
+
+<span class="ansi-dim">  51   const localId = `pending:${</span><span class="ansi-cyan">crypto</span><span class="ansi-dim">.randomUUID()}`;</span>
+<span class="ansi-dim">                        ~~~~~~</span>
+
+<span class="ansi-red">Found 1 error in 1 file.</span></pre>
+            </div>
+            <p style="margin-top:8px">补一下 lib 配置就行,我接着改。</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- User: pending state demo -->
+    <div class="group user">
+      <div class="bubbles">
+        <div class="bubble user" data-status="pending">
+          <div class="bubble-content">
+            那个 5 秒超时太长了改成 3 秒
+            <span class="bubble-tick">⋯</span>
+          </div>
+        </div>
+      </div>
+      <div class="avatar user">D</div>
+    </div>
+
+    <!-- User: failed state demo (folded under same author) -->
+    <div class="group user folded">
+      <div class="bubbles">
+        <div class="bubble user" data-status="failed">
+          <div class="bubble-content">
+            另外加个 metrics 上报
+            <span class="bubble-tick" style="color:var(--error-accent)">! 失败</span>
+            <button class="bubble-retry" onclick="alert('重新发送')">重试</button>
+          </div>
+        </div>
+      </div>
+      <div class="avatar user">D</div>
+    </div>
+
+    <!-- Persistent select prompt -->
+    <div class="group agent">
+      <div class="avatar agent">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8M5 8h14v8a2 2 0 01-2 2H7a2 2 0 01-2-2V8zM2 14h2M20 14h2M9 13v2M15 13v2"/></svg>
+      </div>
+      <div class="bubbles">
+        <div class="bubble agent">
+          <div class="bubble-content md">
+            <p style="margin-bottom:8px">需要选哪个改造路径? <span style="color:var(--text-3);font-size:12px">(按数字键直选)</span></p>
+            <div class="select-card">
+              <div class="select-card-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+                请选择执行路径
+              </div>
+              <div class="select-options">
+                <button onclick="selectOption(this)"><span class="num-key">1</span>仅修乐观渲染</button>
+                <button onclick="selectOption(this)" class="selected"><span class="num-key">2</span>Phase 0 全部 7 项</button>
+                <button onclick="selectOption(this)"><span class="num-key">3</span>Phase 0 + Phase A</button>
+                <button onclick="selectOption(this)"><span class="num-key">4</span>不动,先验证</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Thinking indicator with timer + cancel -->
+    <div class="thinking">
+      <div class="avatar agent">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8M5 8h14v8a2 2 0 01-2 2H7a2 2 0 01-2-2V8zM2 14h2M20 14h2M9 13v2M15 13v2"/></svg>
+      </div>
+      <div class="thinking-bubble">
+        <div class="thinking-dots"><span></span><span></span><span></span></div>
+        <span class="thinking-text">思考中</span>
+        <span class="thinking-timer" id="thinking-timer">· 4s</span>
+        <button class="thinking-cancel" onclick="alert('已发送 Ctrl+C 中断信号')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          停止
+        </button>
+      </div>
+    </div>
+
+    <!-- Floating "new messages" button -->
+    <button class="scroll-fab" id="scroll-fab" onclick="document.getElementById('chat-panel').scrollTo({top:1e9,behavior:'smooth'})">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+      3 条新消息
+    </button>
+
+  </div>
+
+  <!-- ============ Composer ============ -->
+  <div class="composer">
+    <div class="composer-row">
+      <textarea class="composer-input" id="composer-input" rows="1" placeholder="发送给 Agent — Shift+Enter 换行,↑ 回填上一条"></textarea>
+      <button class="send-btn" id="send-btn" onclick="sendDemo()">
+        发送
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+    </div>
+    <div class="composer-foot">
+      <span><span class="kbd">⏎</span> 发送 · <span class="kbd">⇧⏎</span> 换行 · <span class="kbd">↑</span> 上一条 · <span class="kbd">⌘K</span> 清空</span>
+      <span id="status-text">已连接 · codex</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- Debug control panel -->
+<button class="debug-toggle" onclick="document.getElementById('debug').style.display = document.getElementById('debug').style.display === 'block' ? 'none' : 'block'" title="演示控制">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+</button>
+<div class="debug-panel" id="debug" style="display:none">
+  <h4>演示控制</h4>
+  <button onclick="toggleError()">切换断连横条</button>
+  <button onclick="toggleScrollFab()">切换"新消息"浮按钮</button>
+  <button onclick="document.querySelectorAll('.tool-card').forEach(c => c.classList.toggle('expanded'))">展开/折叠工具卡</button>
+  <button onclick="toggleTheme()">切换 light / dark</button>
+  <button onclick="cycleStatus()">循环用户消息状态</button>
+</div>
+
+<script>
+  // Theme
+  const stored = localStorage.getItem('mockup-theme');
+  if (stored === 'dark' || (!stored && matchMedia('(prefers-color-scheme: dark)').matches)) {
+    document.documentElement.classList.add('dark');
+  }
+  function toggleTheme() {
+    document.documentElement.classList.toggle('dark');
+    localStorage.setItem('mockup-theme',
+      document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+  }
+
+  // Copy session id
+  function copySessionId(el) {
+    navigator.clipboard?.writeText('tth_20260506_065ffd8b');
+    const hint = el.querySelector('.copy-hint');
+    if (hint) {
+      const old = hint.textContent;
+      hint.textContent = '已复制';
+      hint.style.opacity = '1';
+      setTimeout(() => { hint.textContent = old; hint.style.opacity = ''; }, 1200);
+    }
+  }
+
+  // Code block copy
+  function copyCode(btn) {
+    const pre = btn.closest('.codeblock').querySelector('pre');
+    navigator.clipboard?.writeText(pre.innerText);
+    btn.classList.add('copied');
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>已复制';
+    setTimeout(() => {
+      btn.classList.remove('copied');
+      btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>复制';
+    }, 1500);
+  }
+
+  // Select option
+  function selectOption(btn) {
+    btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+  }
+
+  // Composer auto-grow
+  const input = document.getElementById('composer-input');
+  const sendBtn = document.getElementById('send-btn');
+  function syncComposer() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+    sendBtn.disabled = !input.value.trim();
+  }
+  syncComposer();
+  input.addEventListener('input', syncComposer);
+
+  // IME-safe Enter
+  let composing = false;
+  input.addEventListener('compositionstart', () => composing = true);
+  input.addEventListener('compositionend', () => composing = false);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !composing && !e.nativeEvent?.isComposing) {
+      e.preventDefault();
+      sendDemo();
+    }
+  });
+
+  // Demo send (optimistic)
+  function sendDemo() {
+    const text = input.value.trim();
+    if (!text) return;
+    const panel = document.getElementById('chat-panel');
+    const id = 'demo-' + Date.now();
+    const html = `
+      <div class="group user" id="${id}">
+        <div class="bubbles">
+          <div class="bubble user" data-status="pending">
+            <div class="bubble-content">${text.replace(/</g,'&lt;').replace(/\n/g,'<br>')}<span class="bubble-tick">⋯</span></div>
+          </div>
+        </div>
+        <div class="avatar user">D</div>
+      </div>`;
+    panel.insertAdjacentHTML('beforeend', html);
+    input.value = '';
+    syncComposer();
+    panel.scrollTop = panel.scrollHeight;
+    const grp = document.getElementById(id);
+    setTimeout(() => {
+      const b = grp.querySelector('.bubble');
+      b.dataset.status = 'sent';
+      b.querySelector('.bubble-tick').textContent = '✓';
+    }, 350);
+    setTimeout(() => {
+      const b = grp.querySelector('.bubble');
+      b.dataset.status = 'delivered';
+      b.querySelector('.bubble-tick').textContent = '✓✓';
+      b.querySelector('.bubble-tick').style.color = 'color-mix(in srgb, var(--user-bubble-text) 70%, transparent)';
+    }, 1100);
+  }
+
+  // Thinking timer
+  let tStart = Date.now() - 4000;
+  setInterval(() => {
+    const el = document.getElementById('thinking-timer');
+    if (!el) return;
+    el.textContent = '· ' + Math.floor((Date.now() - tStart) / 1000) + 's';
+  }, 1000);
+
+  // Debug helpers
+  function toggleError() {
+    document.getElementById('error-banner').classList.toggle('visible');
+  }
+  function toggleScrollFab() {
+    document.getElementById('scroll-fab').classList.toggle('visible');
+  }
+  function cycleStatus() {
+    const statuses = ['pending', 'sent', 'delivered', 'failed'];
+    const ticks = { pending: '⋯', sent: '✓', delivered: '✓✓', failed: '! 失败' };
+    document.querySelectorAll('.bubble.user').forEach((b) => {
+      const cur = b.dataset.status || 'delivered';
+      const next = statuses[(statuses.indexOf(cur) + 1) % statuses.length];
+      b.dataset.status = next;
+      const tick = b.querySelector('.bubble-tick');
+      if (tick) {
+        tick.textContent = ticks[next];
+        tick.style.color = next === 'failed' ? 'var(--error-accent)' : '';
+      }
+    });
+  }
+
+  // Scroll lock + new messages fab demo
+  const panel = document.getElementById('chat-panel');
+  const fab = document.getElementById('scroll-fab');
+  panel.addEventListener('scroll', () => {
+    const distFromBottom = panel.scrollHeight - panel.scrollTop - panel.clientHeight;
+    if (distFromBottom > 80) {
+      // not auto-following
+    } else {
+      fab.classList.remove('visible');
+    }
+  });
+</script>
+</body>
+</html>
