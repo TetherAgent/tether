@@ -4,36 +4,121 @@ import 'package:tether/models/conversation.dart';
 import 'package:tether/theme.dart';
 
 class UserBubble extends StatelessWidget {
-  const UserBubble({super.key, required this.turn, this.folded = false});
+  const UserBubble({
+    super.key,
+    required this.turn,
+    this.folded = false,
+    this.onRetry,
+  });
 
   final UserTurn turn;
   final bool folded;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final opacity = turn.status == ChatMessageStatus.pending ? 0.56 : 1.0;
     final bubble = _BubbleSurface(
       alignment: Alignment.centerRight,
       maxWidthFactor: 0.82,
       avatar: folded ? const _AvatarSpacer() : const _UserAvatar(),
       avatarOnRight: true,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: const Color(0xFF95EC69),
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: Radius.circular(folded ? 16 : 6),
-            bottomLeft: const Radius.circular(16),
-            bottomRight: const Radius.circular(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Opacity(
+            opacity: opacity,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF95EC69),
+                border: Border.all(
+                  color: turn.status == ChatMessageStatus.failed
+                      ? theme.colorScheme.error
+                      : Colors.transparent,
+                  width: turn.status == ChatMessageStatus.failed ? 1.5 : 0,
+                ),
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(16),
+                  topRight: Radius.circular(folded ? 16 : 6),
+                  bottomLeft: const Radius.circular(16),
+                  bottomRight: const Radius.circular(16),
+                ),
+              ),
+              child: Text(
+                turn.content,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: const Color(0xFF052E16),
+                  height: 1.55,
+                  fontSize: 14,
+                ),
+              ),
+            ),
           ),
-        ),
-        child: Text(
-          turn.content,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: const Color(0xFF052E16),
-            height: 1.55,
-            fontSize: 14,
+          if (turn.status == ChatMessageStatus.pending ||
+              turn.status == ChatMessageStatus.sent ||
+              turn.status == ChatMessageStatus.failed)
+            Padding(
+              padding: const EdgeInsets.only(top: 3, right: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _statusGlyph(turn.status),
+                    style: TextStyle(
+                      color: turn.status == ChatMessageStatus.failed
+                          ? theme.colorScheme.error
+                          : theme.colorScheme.onSurface.withValues(alpha: 0.55),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  if (turn.status == ChatMessageStatus.failed &&
+                      onRetry != null) ...[
+                    const SizedBox(width: 6),
+                    InkWell(
+                      onTap: onRetry,
+                      borderRadius: BorderRadius.circular(999),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: theme.colorScheme.error),
+                        ),
+                        child: Text(
+                          '重试',
+                          style: TextStyle(
+                            color: theme.colorScheme.error,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+    return folded
+        ? Transform.translate(offset: const Offset(0, -8), child: bubble)
+        : bubble;
+  }
+
+  String _statusGlyph(ChatMessageStatus status) {
+    return switch (status) {
+      ChatMessageStatus.pending => '...',
+      ChatMessageStatus.sent => '✓',
+      ChatMessageStatus.failed => '!',
+      ChatMessageStatus.delivered => '',
+    };
+  }
           ),
         ),
       ),

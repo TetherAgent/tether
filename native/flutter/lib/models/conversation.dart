@@ -1,5 +1,7 @@
 enum ConversationTurnStatus { complete, thinking, error }
 
+enum ChatMessageStatus { pending, sent, delivered, failed }
+
 final class ToolCallInfo {
   const ToolCallInfo({
     required this.toolCallId,
@@ -31,9 +33,25 @@ sealed class ConversationTurn {
 }
 
 final class UserTurn extends ConversationTurn {
-  const UserTurn({required super.id, required this.content});
+  const UserTurn({
+    required super.id,
+    required this.content,
+    this.status = ChatMessageStatus.delivered,
+  });
 
   final String content;
+  final ChatMessageStatus status;
+
+  UserTurn copyWith({
+    String? content,
+    ChatMessageStatus? status,
+  }) {
+    return UserTurn(
+      id: id,
+      content: content ?? this.content,
+      status: status ?? this.status,
+    );
+  }
 }
 
 final class AssistantTurn extends ConversationTurn {

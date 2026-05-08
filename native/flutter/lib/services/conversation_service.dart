@@ -14,11 +14,14 @@ class ConversationService extends ChangeNotifier {
   StreamSubscription<RelayTerminalEvent>? _subscription;
   int _turnCounter = 0;
   bool _isTyping = false;
+  String? _errorBanner;
 
   List<ConversationTurn> get turns =>
       List<ConversationTurn>.unmodifiable(_turns);
 
   bool get isTyping => _isTyping;
+
+  String? get errorBanner => _errorBanner;
 
   void attach(RelayClient relayClient, String sessionId) {
     _subscription?.cancel();
@@ -43,14 +46,45 @@ class ConversationService extends ChangeNotifier {
     if (trimmed.isEmpty) {
       return;
     }
-    _turns.add(UserTurn(id: _nextId(), content: trimmed));
-    relayClient.sendChat(sessionId, trimmed);
+    final localId = _nextId('pending');
+    _turns.add(
+      UserTurn(
+        id: localId,
+        content: trimmed,
+        status: ChatMessageStatus.pending,
+      ),
+    );
     notifyListeners();
+    try {
+      relayClient.sendChat(sessionId, trimmed);
+      _updateUserStatus(localId, ChatMessageStatus.sent);
+      _errorBanner = null;
+    } catch (_) {
+      _updateUserStatus(localId, ChatMessageStatus.failed);
+      _errorBanner = '发送失败，请检查连接后重试。';
+    }
+    notifyListeners();
+  }
+
+  void retryMessage(UserTurn turn) {
+    _turns.removeWhere((item) => item.id == turn.id);
+    notifyListeners();
+    unawaited(sendMessage(turn.content));
+  }
+
+  void cancelGeneration() {
+    final relayClient = _relayClient;
+    final sessionId = _sessionId;
+    if (relayClient == null || sessionId == null) {
+      return;
+    }
+    relayClient.sendInput(sessionId, '\x03');
   }
 
   void clear() {
     _turns.clear();
     _isTyping = false;
+    _errorBanner = null;
     _turnCounter = 0;
     notifyListeners();
   }
@@ -62,13 +96,18 @@ class ConversationService extends ChangeNotifier {
         final role = payload['role'] as String? ?? 'assistant';
         final content = payload['content'] as String? ?? '';
         if (role == 'user') {
-          _turns.add(UserTurn(id: _nextId(), content: content));
+          _upsertUserTurn(content);
         } else {
           _turns.add(AssistantTurn(id: _nextId(), content: content));
         }
       case 'agent.turn':
         final content = payload['content'] as String? ?? '';
-        _turns.add(AssistantTurn(id: _nextId(), content: content));
+        final role = payload['role'] as String? ?? 'assistant';
+        if (role == 'user') {
+          _upsertUserTurn(content);
+        } else {
+          _turns.add(AssistantTurn(id: _nextId(), content: content));
+        }
         _isTyping = false;
       case 'agent.thinking':
         final content = payload['text'] as String? ?? '';
@@ -113,7 +152,40 @@ class ConversationService extends ChangeNotifier {
     notifyListeners();
   }
 
-  String _nextId() => 'turn-${_turnCounter++}';
+  void _upsertUserTurn(String content) {
+    final pendingIndex = _turns.indexWhere(
+      (turn) =>
+          turn is UserTurn &&
+          (turn.status == ChatMessageStatus.pending ||
+              turn.status == ChatMessageStatus.sent) &&
+          turn.content == content,
+    );
+    if (pendingIndex != -1) {
+      final pending = _turns[pendingIndex] as UserTurn;
+      _turns[pendingIndex] = pending.copyWith(
+        status: ChatMessageStatus.delivered,
+      );
+      return;
+    }
+    _turns.add(
+      UserTurn(
+        id: _nextId(),
+        content: content,
+        status: ChatMessageStatus.delivered,
+      ),
+    );
+  }
+
+  void _updateUserStatus(String id, ChatMessageStatus status) {
+    final index = _turns.indexWhere((turn) => turn.id == id);
+    if (index == -1 || _turns[index] is! UserTurn) {
+      return;
+    }
+    final turn = _turns[index] as UserTurn;
+    _turns[index] = turn.copyWith(status: status);
+  }
+
+  String _nextId([String prefix = 'turn']) => '$prefix-${_turnCounter++}';
 
   @override
   void dispose() {

@@ -89,6 +89,8 @@ class RelayClient extends ChangeNotifier {
 
   Stream<ReplayOutput> get replayOutputStream => _replayOutputController.stream;
 
+  bool get isConnected => _socket != null && status != 'disconnected';
+
   List<RelaySession> get activeSessions => sessions
       .where((session) => session.status == RelaySessionStatus.running)
       .toList();
@@ -169,6 +171,10 @@ class RelayClient extends ChangeNotifier {
 
   void sendChat(String sessionId, String message) {
     sendFrame(ClientChat(sessionId: sessionId, message: message));
+  }
+
+  void sendInput(String sessionId, String data) {
+    sendFrame(ClientInput(sessionId: sessionId, data: data));
   }
 
   void subscribe(
