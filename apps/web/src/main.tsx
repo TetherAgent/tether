@@ -366,34 +366,20 @@ function SessionList({
   const [relayGatewayUnavailable, setRelayGatewayUnavailable] = React.useState(false);
   const listSocket = React.useRef<WebSocket | undefined>(undefined);
 
-  const refreshSessions = React.useCallback(async () => {
+  const refreshHistory = React.useCallback(async (activeIds: Set<string>) => {
     try {
-      const [sessionsResponse, historyResponse] = await Promise.all([
-        gatewayRequest('/api/server/sessions'),
-        gatewayRequest('/api/server/sessions?all=1')
-      ]);
-      if (sessionsResponse.status === 401 || historyResponse.status === 401) {
+      const response = await gatewayRequest('/api/server/sessions?limit=200');
+      if (response.status === 401) {
         logoutNormal();
+        return;
       }
-      if (!sessionsResponse.ok) {
-        throw new Error(`sessions HTTP ${sessionsResponse.status}`);
-      }
-      if (!historyResponse.ok) {
-        throw new Error(`history HTTP ${historyResponse.status}`);
-      }
-      const sessionsData = await readGatewayData<{ sessions: Session[] }>(sessionsResponse);
-      const historyData = await readGatewayData<{ sessions: Session[] }>(historyResponse);
-      const active = sessionsData.sessions.filter((session) => session.status === 'running');
-      const activeIds = new Set(active.map((session) => session.id));
-      setSessions(active);
-      setHistory(historyData.sessions.filter((session) => !activeIds.has(session.id)).slice(0, 8));
-      setStatus(new Date().toLocaleTimeString());
-      setHasLoadedSessions(true);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : t.statusDisconnected);
-      setHasLoadedSessions(true);
+      if (!response.ok) return;
+      const data = await readGatewayData<{ sessions: Session[] }>(response);
+      setHistory(data.sessions.filter((s) => !activeIds.has(s.id)).slice(0, 8));
+    } catch {
+      // 历史记录加载失败不影响活跃 session 显示
     }
-  }, [logoutNormal, t.statusDisconnected]);
+  }, [logoutNormal]);
 
   React.useEffect(() => {
     let disposed = false;
@@ -436,18 +422,8 @@ function SessionList({
       const frame = parsedFrame as RelayServerToClientFrame;
       if (frame.type === 'client.auth.ok') {
         setStatus(`${t.relayClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
-        if (preferServerReads) {
-          void refreshSessions();
-          sendList();
-          timer = window.setInterval(() => {
-            void refreshSessions();
-            sendList();
-          }, 3000);
-        } else {
-          setRelayGatewayUnavailable(false);
-          sendList();
-          timer = window.setInterval(sendList, 3000);
-        }
+        sendList();
+        timer = window.setInterval(sendList, 3000);
         return;
       }
       if (frame.type === 'client.auth.failed') {
@@ -459,14 +435,16 @@ function SessionList({
       }
       if (frame.type === 'sessions') {
         setRelayGatewayUnavailable(false);
+        const next = splitActiveSessions(frame.sessions);
+        setSessions(next.active);
+        setStatus(new Date().toLocaleTimeString());
+        setHasLoadedSessions(true);
         if (preferServerReads) {
-          void refreshSessions();
+          // 活跃 session 来自 WS 实时推送，历史记录从服务端 HTTP 拉取
+          const activeIds = new Set(next.active.map((s) => s.id));
+          void refreshHistory(activeIds);
         } else {
-          const next = splitActiveSessions(frame.sessions);
-          setSessions(next.active);
           setHistory(next.history);
-          setStatus(new Date().toLocaleTimeString());
-          setHasLoadedSessions(true);
         }
         return;
       }
@@ -506,7 +484,7 @@ function SessionList({
         listSocket.current = undefined;
       }
     };
-  }, [connectionSettings.relaySecret, connectionSettings.relayUrl, logoutNormal, normalAuth?.accessToken, refreshSessions, t]);
+  }, [connectionSettings.relaySecret, connectionSettings.relayUrl, logoutNormal, normalAuth?.accessToken, refreshHistory, t]);
 
   const stopSession = React.useCallback(async (sessionId: string) => {
     setStatus(t.statusStopping);
