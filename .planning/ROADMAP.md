@@ -34,6 +34,7 @@ occupies an active roadmap phase number.
 - [ ] **Phase 8: Security, Isolation Tests & Final Cleanup** - Milestone exit gate; account isolation, relay auth, whitelist, mask, retention all covered by integration tests
 - [ ] **Phase 9: Flutter Client App** - Phone-first Flutter client for remote Relay/LAN session viewing and control, with HarmonyOS support and generated Dart protocol
 - [ ] **Phase 10: Multi-workspace Expansion** - Product support for creating/switching workspaces, binding Gateways per workspace, and isolating members, sessions, audit, and admin pages by workspace
+- [ ] **Phase 12: Server DB Runtime Sync** - Web/App 从 Server DB 直接读取 session 列表、聊天历史和受限 Terminal 历史，不再依赖 Gateway 反向 RPC；Relay 实时同步 Gateway frame 到 Server DB
 
 ## Phase Details
 
@@ -231,6 +232,8 @@ Plans:
 | 8. Security, Isolation Tests & Final Cleanup | 0/TBD | Not started | - |
 | 9. Flutter Client App | 5/6 | In progress | - |
 | 10. Multi-workspace Expansion | 0/TBD | Not started | - |
+| 11. Agent 实时对话视图 | 4/4 | Complete | 2026-05-08 |
+| 12. Server DB Runtime Sync | 0/7 | Not started | - |
 
 ### Phase 11: Agent 实时对话视图
 
@@ -249,6 +252,36 @@ Plans:
   - **Wave 4** *(depends on Plan 03)*:
     - [ ] `11-04-PLAN.md` — agent.select detection + i18n keys + /chat route + ChatSessionSurface rewrite + human verify
 
+### Phase 12: Server DB Runtime Sync
+
+**Goal:** Web/App 从 Server DB 直接读取 session 列表、聊天历史和受限 Terminal 历史，不再依赖 Gateway 反向 RPC。Relay 收到 Gateway 上报的 `gateway.sessions` / `gateway.conversation` / `gateway.event` frame 后，通过内部 HTTP sync API 实时持久化到 Server DB，实现 Gateway 离线时历史仍可读、多端数据一致。
+**Requirements**: SYNC-01
+**Depends on:** Phase 11
+**Plans:** 7 plans
+
+Plans:
+  - **Wave 1** (no deps):
+    - [ ] `12-01-PLAN.md` — SQL migration (002_gateway_runtime_sync.sql) + db.ts ensureSchema 动态加载
+  - **Wave 2** *(depends on Plan 01)*:
+    - [ ] `12-02-PLAN.md` — Server runtime-sync 写接口（controller + service + middleware + router）
+    - [ ] `12-03-PLAN.md` — Relay syncToServer 调用（handleGatewayFrame 三个 case 追加 void 调用）
+  - **Wave 3** *(depends on Plans 02)*:
+    - [ ] `12-04-PLAN.md` — Server session 读接口（GET /api/sessions + /conversation + /events）
+    - [ ] `12-05-PLAN.md` — Egg schedule 定时清理任务（app/schedule/ 首建）
+  - **Wave 4** *(depends on Plans 03, 04)*:
+    - [ ] `12-06-PLAN.md` — Gateway conversation_turns 废弃（store.ts DDL 删除 + journal-watcher.ts 清理）
+    - [ ] `12-07-PLAN.md` — Flutter ConversationService 切换（移除 Relay WS fallback）
+
+**Success Criteria** (what must be TRUE):
+  1. 生产环境 `GET /api/sessions/:id/conversation` 不再 404，直接从 `gateway_chat_messages` 读取
+  2. `GET /api/sessions` 从 `gateway_sessions` 读取，Gateway 在线时 Web/App 看到同一份 session 列表
+  3. Web 发送消息后，App 刷新能看到相同 conversation（多端同源）
+  4. Gateway 临时离线后，历史 conversation 和受限 terminal 历史仍能打开
+  5. `POST /api/sessions/:id/input` 和 `POST /api/sessions/:id/stop` 仍走 Relay → Gateway 反向 RPC
+  6. 重复收到同一个 `gateway.conversation` 不产生重复 chat message（幂等 upsert）
+  7. `terminal.output` 只进入 `gateway_runtime_events`，有掩码、限量和保留策略
+  8. 不同 account/workspace 之间不能串 session、chat message 或 runtime event
+
 ---
 *Roadmap created: 2026-05-01*
 *Milestone reordered: 2026-05-01 — personal Relay MVP moved to Phase 1*
@@ -258,4 +291,5 @@ Plans:
 *Scope update: 2026-05-02 — Phase 5 changed to Web-first setup/login plus dedicated apps/server; Relay remains routing-only and management UI remains Phase 6*
 *Scope update: 2026-05-02 — WORKSPACE-01 promoted to Phase 10 for future discuss/plan flow*
 *Scope update: 2026-05-05 — Phase 11 Agent 实时对话视图 planned: 4 plans across 4 waves*
+*Scope update: 2026-05-09 — Phase 12 Server DB Runtime Sync added: Web/App 读取改为 Server DB，Relay 同步 Gateway frame 到 Server*
 *Coverage: 40/40 v1 requirements mapped*
