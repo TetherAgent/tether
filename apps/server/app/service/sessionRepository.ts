@@ -155,17 +155,24 @@ export default class SessionRepositoryService extends Service {
     accountId: string,
     workspaceId: string,
     userId: string
-  ): Promise<ChatMessageRecord[]> {
+  ): Promise<{ turns: ChatMessageRecord[]; latestEventId: number | null }> {
     if (!this.mysqlModeEnabled() || !await this.sessionWithinScope(sessionId, accountId, workspaceId, userId)) {
-      return [];
+      return { turns: [], latestEventId: null };
     }
-    const rows = await this.ctx.service.db.query(
-      `SELECT * FROM gateway_chat_messages
-       WHERE session_id = ?
-       ORDER BY turn_index ASC`,
-      [sessionId]
-    );
-    return (rows as Record<string, unknown>[]).map((row) => this.chatMessageFromRow(row));
+    const [rows, cursorRows] = await Promise.all([
+      this.ctx.service.db.query(
+        `SELECT * FROM gateway_chat_messages WHERE session_id = ? ORDER BY turn_index ASC`,
+        [sessionId]
+      ),
+      this.ctx.service.db.query(
+        `SELECT last_event_id FROM gateway_sync_cursors WHERE session_id = ? LIMIT 1`,
+        [sessionId]
+      )
+    ]);
+    const turns = (rows as Record<string, unknown>[]).map((row) => this.chatMessageFromRow(row));
+    const cursor = (cursorRows as Record<string, unknown>[])[0];
+    const latestEventId = cursor?.last_event_id != null ? Number(cursor.last_event_id) : null;
+    return { turns, latestEventId };
   }
 
   private mergeConsecutiveOutput(events: RuntimeEventRecord[]): RuntimeEventRecord[] {

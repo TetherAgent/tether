@@ -3881,7 +3881,7 @@ a {
 .terminal-shell {
   position: relative;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   background: color-mix(in srgb, var(--background) 94%, black);
 }
 

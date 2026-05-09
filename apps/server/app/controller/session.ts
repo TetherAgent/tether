@@ -28,8 +28,8 @@ export default class SessionController extends Controller {
   public async conversation(): Promise<void> {
     const { ctx } = this;
     const { accountId, workspaceId, userId } = authScope(ctx);
-    const turns = await ctx.service.sessionRepository.getConversation(ctx.params.id, accountId, workspaceId, userId);
-    ctx.success({ turns });
+    const { turns, latestEventId } = await ctx.service.sessionRepository.getConversation(ctx.params.id, accountId, workspaceId, userId);
+    ctx.success({ turns, latestEventId });
   }
 
   public async events(): Promise<void> {

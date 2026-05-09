@@ -425,17 +425,17 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     return () => document.removeEventListener('visibilitychange', handler);
   }, []);
 
-  const refreshConversation = React.useCallback(async () => {
+  const refreshConversation = React.useCallback(async (): Promise<number | undefined> => {
     try {
       const response = await gatewayRequest(`/api/server/sessions/${encodeURIComponent(sessionId)}/conversation`);
       if (response.status === 401) {
         logoutNormal();
-        return;
+        return undefined;
       }
       if (!response.ok) {
-        return;
+        return undefined;
       }
-      const data = await readGatewayData<{ turns: Array<ConversationTurn | RelayConversationTurn> }>(response);
+      const data = await readGatewayData<{ turns: Array<ConversationTurn | RelayConversationTurn>; latestEventId?: number | null }>(response);
       setChatMessages((prev) => {
         let next = prev;
         for (const turn of data.turns) {
@@ -454,8 +454,9 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
         }
         return next;
       });
+      return data.latestEventId ?? undefined;
     } catch {
-      // WebSocket replay remains the primary live path.
+      return undefined;
     }
   }, [logoutNormal, sessionId]);
 
@@ -821,10 +822,16 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       });
     };
 
-    if (normalAuth?.accessToken) {
-      void refreshConversation();
-    }
-    connectStream().catch((error: unknown) => {
+    const startStream = async () => {
+      if (normalAuth?.accessToken) {
+        const latestEventId = await refreshConversation();
+        if (latestEventId != null) {
+          after = latestEventId;
+        }
+      }
+      await connectStream();
+    };
+    startStream().catch((error: unknown) => {
       if (!disposed) {
         setStatus(error instanceof Error ? error.message : tRef.current.statusStreamUnavailable);
         setIsReady(true);
