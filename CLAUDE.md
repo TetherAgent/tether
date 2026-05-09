@@ -67,6 +67,20 @@
 
 强成功标准可以让 AI 独立循环推进。弱标准，例如"让它能用"，通常需要持续澄清。
 
+## 5. API 路由命名规范
+
+所有 HTTP 接口按业务域分前缀，禁止直接在 `/api/` 下挂路由：
+
+| 前缀 | 用途 | 示例 |
+|------|------|------|
+| `/api/server/` | 服务端数据读取（Session、Event、Conversation） | `/api/server/sessions` |
+| `/api/admin/` | 管理后台接口 | `/api/admin/users` |
+| `/api/relay/` | Relay 相关接口 | `/api/relay/gateway/bind` |
+| `/ws/client` | 客户端 WebSocket | — |
+| `/ws/gateway` | Gateway WebSocket | — |
+
+已存在的 `/api/auth/`、`/api/gateway/`、`/api/token/` 等路由在下次重构时统一迁移，新增接口必须遵守此规范。
+
 ## 生效标准
 
 这些原则生效时，diff 中不必要的改动会减少，因过度复杂导致的重写会减少，
