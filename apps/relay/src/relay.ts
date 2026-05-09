@@ -103,11 +103,11 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
 
   wss.on('connection', (socket, request) => {
     const path = new URL(request.url ?? '/', `http://${options.host}:${options.port}`).pathname;
-    if (path === '/gateway') {
+    if (path === '/ws/gateway') {
       void handleGateway(socket);
       return;
     }
-    if (path === '/client') {
+    if (path === '/ws/client') {
       void handleClient(socket);
       return;
     }

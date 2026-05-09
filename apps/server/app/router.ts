@@ -9,43 +9,36 @@ export default (app: Application): void => {
   });
   const requireRuntimeSyncSecret = middleware.requireRuntimeSyncSecret();
 
-  // 健康检查
-  router.get('/healthz', controller.health.index);
+  router.get('/healthz', controller.health.index); // 健康检查
 
   // 普通用户认证
-  router.post('/api/server/auth/register', controller.auth.register);
-  router.post('/api/server/auth/login', controller.auth.login);
-  router.post('/api/server/auth/refresh', controller.auth.refresh);
-  router.post('/api/server/auth/logout', controller.auth.logout);
-  router.get('/api/server/auth/me', requireNormalAccess, controller.auth.me);
+  router.post('/api/server/auth/register', controller.auth.register);          // 注册
+  router.post('/api/server/auth/login', controller.auth.login);                // 登录
+  router.post('/api/server/auth/refresh', controller.auth.refresh);            // 刷新 Token
+  router.post('/api/server/auth/logout', controller.auth.logout);              // 登出
+  router.get('/api/server/auth/me', requireNormalAccess, controller.auth.me);  // 获取当前用户信息
 
-  // 管理员认证
-  router.post('/api/admin/auth/register', controller.adminAuth.register);
-  router.post('/api/admin/auth/login', controller.adminAuth.login);
-  router.post('/api/admin/auth/refresh', controller.adminAuth.refresh);
-  router.post('/api/admin/auth/logout', controller.adminAuth.logout);
-
-  // Gateway 绑定与凭据刷新（CLI 调用）
-  router.post('/api/relay/gateway/bind', controller.gateway.bind);
-  router.post('/api/relay/gateway/refresh', controller.gateway.refresh);
+  // Gateway 注册与凭据（CLI 调用）
+  router.post('/api/relay/gateway/bind', controller.gateway.bind);       // Gateway 绑定账号
+  router.post('/api/relay/gateway/refresh', controller.gateway.refresh); // Gateway 刷新凭据
 
   // Token 管理
-  router.post('/api/server/token/revoke', requireAnyAccess, controller.token.revoke);
-  router.post('/api/server/token/validate', controller.token.validate);
+  router.post('/api/server/token/revoke', requireAnyAccess, controller.token.revoke);  // 撤销 Token
+  router.post('/api/server/token/validate', controller.token.validate);                // 验证 Token
 
   // 审计日志
-  router.post('/api/server/audit', controller.audit.create);
-  router.get('/api/server/audit', controller.audit.index);
+  router.post('/api/server/audit', controller.audit.create);  // 写入审计事件
+  router.get('/api/server/audit', controller.audit.index);    // 查询审计日志
 
-  // Relay → Server 运行时同步（仅 127.0.0.1 可访问，nginx 层拦截）
-  router.post('/api/relay/runtime-sync/gateway/sessions', requireRuntimeSyncSecret, controller.runtimeSync.sessions);
-  router.post('/api/relay/runtime-sync/gateway/conversation', requireRuntimeSyncSecret, controller.runtimeSync.conversation);
-  router.post('/api/relay/runtime-sync/gateway/event', requireRuntimeSyncSecret, controller.runtimeSync.event);
+  // Relay → Server 运行时同步（仅 127.0.0.1 可访问，nginx 层拦截外部请求）
+  router.post('/api/relay/runtime-sync/gateway/sessions', requireRuntimeSyncSecret, controller.runtimeSync.sessions);      // 同步 Session 列表
+  router.post('/api/relay/runtime-sync/gateway/conversation', requireRuntimeSyncSecret, controller.runtimeSync.conversation); // 同步会话轮次
+  router.post('/api/relay/runtime-sync/gateway/event', requireRuntimeSyncSecret, controller.runtimeSync.event);            // 同步终端事件
 
-  // Session 数据读取（前端只读，写操作走 WebSocket）
-  router.get('/api/server/sessions', requireNormalAccess, controller.session.list);
-  router.get('/api/server/sessions/:id/conversation', requireNormalAccess, controller.session.conversation);
-  router.get('/api/server/sessions/:id/events', requireNormalAccess, controller.session.events);
+  // Session 数据读取（前端只读，stop/input/resize 走 WebSocket）
+  router.get('/api/server/sessions', requireNormalAccess, controller.session.list);                          // Session 列表
+  router.get('/api/server/sessions/:id/conversation', requireNormalAccess, controller.session.conversation); // 会话轮次
+  router.get('/api/server/sessions/:id/events', requireNormalAccess, controller.session.events);             // 终端事件流
 
   // 管理后台接口
   adminRouter(app);

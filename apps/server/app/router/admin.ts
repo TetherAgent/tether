@@ -4,6 +4,12 @@ export default (app: Application): void => {
   const { router, controller, middleware } = app;
   const requireManagementAccess = middleware.requireTokenClass({ expected: [ 'management_access' ] });
 
+  // 管理员认证
+  router.post('/api/admin/auth/register', controller.adminAuth.register);  // 管理员注册
+  router.post('/api/admin/auth/login', controller.adminAuth.login);        // 管理员登录
+  router.post('/api/admin/auth/refresh', controller.adminAuth.refresh);    // 管理员刷新 Token
+  router.post('/api/admin/auth/logout', controller.adminAuth.logout);      // 管理员登出
+
   router.get('/api/admin/dashboard/stats', requireManagementAccess, controller.admin.users.dashboard);
   router.get('/api/admin/users', requireManagementAccess, controller.admin.users.index);
   router.get('/api/admin/admins', requireManagementAccess, controller.admin.admins.index);

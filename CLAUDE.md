@@ -76,8 +76,8 @@
 | `/api/server/` | 服务端数据读取（Session、Event、Conversation） | `/api/server/sessions` |
 | `/api/admin/` | 管理后台接口 | `/api/admin/users` |
 | `/api/relay/` | Relay 相关接口 | `/api/relay/gateway/bind` |
-| `/ws/client` | 客户端 WebSocket | — |
-| `/ws/gateway` | Gateway WebSocket | — |
+| `/ws/client` | 客户端 WebSocket（web/flutter → relay） | — |
+| `/ws/gateway` | Gateway WebSocket（gateway → relay） | — |
 
 所有接口均已按此规范迁移，新增接口必须遵守此规范。
 

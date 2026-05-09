@@ -20,12 +20,7 @@ export default defineConfig({
         target: serverApiTarget,
         changeOrigin: true
       },
-      '/client': {
-        target: relayWsTarget,
-        changeOrigin: true,
-        ws: true
-      },
-      '/gateway': {
+      '/ws': {
         target: relayWsTarget,
         changeOrigin: true,
         ws: true

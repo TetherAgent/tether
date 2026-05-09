@@ -541,7 +541,7 @@ export function relayGatewayUrl(url: string): string {
     throw new Error('relay URL must use ws, wss, http, or https');
   }
   const normalizedPath = parsed.pathname.replace(/\/$/, '');
-  parsed.pathname = normalizedPath.endsWith('/gateway') ? normalizedPath : `${normalizedPath}/gateway`;
+  parsed.pathname = normalizedPath.endsWith('/ws/gateway') ? normalizedPath : `${normalizedPath}/ws/gateway`;
   parsed.search = '';
   parsed.hash = '';
   return parsed.toString();

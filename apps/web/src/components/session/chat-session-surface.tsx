@@ -175,7 +175,7 @@ function buildRelayClientUrl(relayUrl: string, fillRelayUrlMsg: string, protocol
   if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
     throw new Error(protocolInvalidMsg);
   }
-  url.pathname = `${url.pathname.replace(/\/$/, '')}/client`;
+  url.pathname = `${url.pathname.replace(/\/$/, '')}/ws/client`;
   url.search = '';
   url.hash = '';
   return url.toString();

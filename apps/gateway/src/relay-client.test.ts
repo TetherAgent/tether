@@ -48,10 +48,10 @@ function relayAuthServer(options?: { gatewayId?: string }) {
 
 
 test('gateway relay URL preserves wss and avoids duplicate gateway path', () => {
-  assert.equal(relayGatewayUrl('wss://relay.example.com'), 'wss://relay.example.com/gateway');
-  assert.equal(relayGatewayUrl('wss://relay.example.com/gateway'), 'wss://relay.example.com/gateway');
-  assert.equal(relayGatewayUrl('https://relay.example.com'), 'wss://relay.example.com/gateway');
-  assert.equal(relayGatewayUrl('http://127.0.0.1:4889'), 'ws://127.0.0.1:4889/gateway');
+  assert.equal(relayGatewayUrl('wss://relay.example.com'), 'wss://relay.example.com/ws/gateway');
+  assert.equal(relayGatewayUrl('wss://relay.example.com/ws/gateway'), 'wss://relay.example.com/ws/gateway');
+  assert.equal(relayGatewayUrl('https://relay.example.com'), 'wss://relay.example.com/ws/gateway');
+  assert.equal(relayGatewayUrl('http://127.0.0.1:4889'), 'ws://127.0.0.1:4889/ws/gateway');
 });
 
 function tempStore(): { store: Store; cleanup: () => void } {
@@ -983,7 +983,7 @@ test('gateway relay client surfaces auth_failed for invalid token and points to 
 async function connectRelayClient(relayUrl: string): Promise<WebSocket> {
   const url = new URL(relayUrl);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  url.pathname = '/client';
+  url.pathname = '/ws/client';
   const ws = new WebSocket(url);
   await new Promise<void>((resolve, reject) => {
     ws.once('open', () => resolve());
