@@ -5,8 +5,6 @@ import { Button, Skeleton } from '@tether/design';
 
 import { useI18n } from '../../hooks/use-i18n.js';
 
-type ConnectionMode = 'direct' | 'relay';
-
 function resumeCommand(provider: string, agentSessionId: string): string {
   if (provider === 'claude' || provider === 'claude-proxy') return `claude --resume ${agentSessionId}`;
   if (provider === 'codex' || provider === 'codex-proxy') return `codex exec resume ${agentSessionId}`;
@@ -16,21 +14,19 @@ function resumeCommand(provider: string, agentSessionId: string): string {
 
 export function SessionDetailHeader({
   sessionId,
-  connectionMode,
   status,
   provider,
   agentSessionId,
   children
 }: {
   sessionId: string;
-  connectionMode: ConnectionMode;
   status: string;
   provider?: string;
   agentSessionId?: string;
   children?: React.ReactNode;
 }) {
   const { t } = useI18n();
-  const syncMode = connectionMode === 'relay' ? t.relay : t.direct;
+  const syncMode = t.relay;
   const statusIcon = status === t.statusDisconnected || status === t.statusStreamError || status === t.statusRelayClosed || status === t.statusRelayError
     ? <WifiOff aria-hidden="true" />
     : <Wifi aria-hidden="true" />;

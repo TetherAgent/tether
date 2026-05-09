@@ -11,18 +11,15 @@ import { ChatBubble, ChatThinkingBubble } from './chat-bubble.js';
 import { ChatMarkdown } from './chat-markdown.js';
 import { TerminalSurfaceSkeleton } from './session-detail-chrome.js';
 
-type ConnectionMode = 'direct' | 'relay';
 type WebMessages = ReturnType<typeof useI18n>['t'];
 
 export type ChatSessionSurfaceProps = {
   sessionId: string;
   connectionSettings: {
-    connectionMode: ConnectionMode;
     relayUrl: string;
     relaySecret: string;
   };
   onConnectionSettingsChange: (settings: {
-    connectionMode: ConnectionMode;
     relayUrl: string;
     relaySecret: string;
   }) => void;
@@ -34,12 +31,6 @@ type SessionEvent = {
   type: string;
   payload: Record<string, unknown>;
 };
-
-type StreamFrame =
-  | { type: 'hello'; sessionId: string; clientId: string; latestEventId: number; controllerClientId: string | null }
-  | { type: 'replay.done'; latestEventId: number }
-  | { type: 'event'; event: SessionEvent }
-  | { type: 'error'; code: string; message: string };
 
 type RelayServerToClientFrame =
   | { type: 'client.auth.ok'; clientId: string }
@@ -487,16 +478,10 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         return false;
       }
-      ws.send(
-        JSON.stringify(
-          connectionSettings.connectionMode === 'relay'
-            ? { type: 'client.input', sessionId, data }
-            : { type: 'input', data }
-        )
-      );
+      ws.send(JSON.stringify({ type: 'client.input', sessionId, data }));
       return true;
     },
-    [connectionSettings.connectionMode, sessionId]
+    [sessionId]
   );
 
   const cancelGeneration = React.useCallback(() => {
@@ -678,44 +663,6 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     };
 
 
-    const probeGatewaySession = async (): Promise<boolean> => {
-      if (connectionSettings.connectionMode === 'relay') {
-        return true;
-      }
-      try {
-        const response = await gatewayRequest(
-          `/api/sessions/${encodeURIComponent(sessionId)}/snapshot`
-        );
-        if (response.status === 401) {
-          logoutNormal();
-        }
-        if (response.status === 404) {
-          reconnectStopped = true;
-          setStatus(tRef.current.statusSessionDetached);
-          setIsReady(true);
-          setConnectionHealth('detached');
-          setAgentRuntimeStatus('disconnected');
-          clearActivity();
-          return false;
-        }
-        if (!response.ok) {
-          setStatus(tRef.current.statusGatewayRestarting);
-          return false;
-        }
-        const data = (await response.json()) as { session?: { provider?: string; agentSessionId?: string } };
-        if (data.session?.agentSessionId) {
-          setAgentSessionId(data.session.agentSessionId);
-        }
-        if (data.session?.provider) {
-          setSessionProvider(data.session.provider);
-        }
-        return true;
-      } catch {
-        setStatus(tRef.current.statusGatewayRestarting);
-        return false;
-      }
-    };
-
     const reconnectDelay = () =>
       Math.min(5000, [1000, 2000, 3000, 5000][Math.min(reconnectAttempt, 3)]);
 
@@ -754,32 +701,22 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       }, reconnectDelay());
     };
 
-    const openStreamWebSocket = async (): Promise<WebSocket> => {
-      if (connectionSettings.connectionMode === 'relay') {
-        return new WebSocket(
-          buildRelayClientUrl(
-            connectionSettings.relayUrl,
-            tRef.current.fillRelayUrl,
-            tRef.current.relayProtocolInvalid
-          )
-        );
-      }
-      const { ticket } = await requestGatewayWsTicket({ sessionId, mode: 'control' });
-      const streamQuery = `after=${after}&surface=web&mode=control`;
-      return new WebSocket(buildGatewayStreamUrl(sessionId, streamQuery), [
-        `tether-ticket.${ticket}`
-      ]);
+    const openStreamWebSocket = (): WebSocket => {
+      return new WebSocket(
+        buildRelayClientUrl(
+          connectionSettings.relayUrl,
+          tRef.current.fillRelayUrl,
+          tRef.current.relayProtocolInvalid
+        )
+      );
     };
 
     const connectStream = async (isReconnect = false) => {
       closeWasExpected = false;
       if (isReconnect) {
         setStatus(tRef.current.statusGatewayRestarting);
-        const canReconnect = await probeGatewaySession();
-        if (!canReconnect) {
-          throw new Error(
-            reconnectStopped ? tRef.current.statusSessionDetached : tRef.current.statusGatewayRestarting
-          );
+        if (reconnectStopped) {
+          throw new Error(tRef.current.statusSessionDetached);
         }
       }
       const nextWs = await openStreamWebSocket();
@@ -790,19 +727,14 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
         if (disposed || socket.current !== ws) {
           return;
         }
-        if (connectionSettings.connectionMode === 'relay') {
-          setStatus(tRef.current.statusRelayAuth);
-          nextWs.send(
-            JSON.stringify(
-              normalAuth?.accessToken
-                ? { type: 'client.auth', token: normalAuth.accessToken }
-                : { type: 'client.auth', secret: connectionSettings.relaySecret }
-            )
-          );
-          return;
-        }
-        setStatus(tRef.current.statusSyncingWs);
-        reconnectAttempt = 0;
+        setStatus(tRef.current.statusRelayAuth);
+        nextWs.send(
+          JSON.stringify(
+            normalAuth?.accessToken
+              ? { type: 'client.auth', token: normalAuth.accessToken }
+              : { type: 'client.auth', secret: connectionSettings.relaySecret }
+          )
+        );
       });
 
       nextWs.addEventListener('message', (message) => {
@@ -815,7 +747,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           nextWs.close();
           return;
         }
-        if (connectionSettings.connectionMode === 'relay') {
+        {
           const frame = parsedFrame as RelayServerToClientFrame;
           if (frame.type === 'client.auth.ok') {
             setStatus(`${tRef.current.relayClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
@@ -863,29 +795,6 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           if (frame.type === 'event') {
             handleEvent(frame.event);
           }
-          return;
-        }
-        const frame = parsedFrame as StreamFrame;
-        if (frame.type === 'hello') {
-          setStatus(`${tRef.current.streamClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
-          return;
-        }
-        if (frame.type === 'error') {
-          setStatus(displayMessage(frame.message, tRef.current));
-          return;
-        }
-        if (frame.type === 'replay.done') {
-          replayComplete = true;
-          setIsReady(true);
-          setConnectionHealth('ok');
-          return;
-        }
-        if (frame.type === 'event') {
-          handleEvent(frame.event);
-          if (frame.event.type === 'session.exited') {
-            closeWasExpected = true;
-            nextWs.close();
-          }
         }
       });
 
@@ -931,13 +840,12 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
         window.clearTimeout(reconnectTimer);
       }
       socket.current = undefined;
-      if (connectionSettings.connectionMode === 'relay' && ws?.readyState === WebSocket.OPEN) {
+      if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'client.detach', sessionId }));
       }
       ws?.close();
     };
   }, [
-    connectionSettings.connectionMode,
     connectionSettings.relaySecret,
     connectionSettings.relayUrl,
     logoutNormal,

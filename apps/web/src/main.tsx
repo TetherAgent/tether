@@ -12,7 +12,6 @@ import {
   MonitorDot,
   Power,
   Router,
-  Server,
   Settings,
   TerminalSquare,
   Wifi,
@@ -36,11 +35,6 @@ import {
   DialogTrigger,
   Input,
   Label,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Skeleton,
   Toaster,
   toast
@@ -71,16 +65,7 @@ type Session = {
   lastActiveAt: number;
 };
 
-type Gateway = {
-  id: string;
-  url: string;
-  pid: number;
-  lastSeenAt: number;
-};
-
-type WebTransportMode = 'ws' | 'http';
 type ClientMode = 'control' | 'observe';
-type ConnectionMode = 'direct' | 'relay';
 
 type SessionEvent = {
   id: number;
@@ -89,7 +74,6 @@ type SessionEvent = {
 };
 
 type ConnectionSettings = {
-  connectionMode: ConnectionMode;
   relayUrl: string;
   relaySecret: string;
 };
@@ -108,28 +92,13 @@ type RelayClientToServerFrame =
   | { type: 'client.subscribe'; sessionId: string; after?: number; tail?: number; mode: ClientMode }
   | { type: 'client.stop'; sessionId: string };
 
-const WEB_TRANSPORT_KEY = 'tether:webTransportMode';
-const CONNECTION_MODE_KEY = 'tether:connectionMode';
 const RELAY_URL_KEY = 'tether:relayUrl';
 const RELAY_SECRET_KEY = 'tether:relaySecret';
-const DEFAULT_CONNECTION_MODE = import.meta.env.VITE_TETHER_CONNECTION_MODE;
 const PRODUCT_DEFAULT_RELAY_URL = 'wss://tether.earntools.me';
 const DEFAULT_RELAY_URL = import.meta.env.VITE_TETHER_RELAY_URL ?? PRODUCT_DEFAULT_RELAY_URL;
-function readWebTransportMode(): WebTransportMode {
-  return window.localStorage.getItem(WEB_TRANSPORT_KEY) === 'http' ? 'http' : 'ws';
-}
-
-function readConnectionMode(): ConnectionMode {
-  const stored = window.localStorage.getItem(CONNECTION_MODE_KEY);
-  if (stored === 'relay' || stored === 'direct') {
-    return stored;
-  }
-  return DEFAULT_CONNECTION_MODE === 'relay' ? 'relay' : 'direct';
-}
 
 function readConnectionSettings(): ConnectionSettings {
   return {
-    connectionMode: readConnectionMode(),
     relayUrl: window.localStorage.getItem(RELAY_URL_KEY) ?? DEFAULT_RELAY_URL ?? '',
     relaySecret: window.localStorage.getItem(RELAY_SECRET_KEY) ?? ''
   };
@@ -285,7 +254,6 @@ function App() {
   }, []);
 
   const updateConnectionSettings = React.useCallback((next: ConnectionSettings) => {
-    window.localStorage.setItem(CONNECTION_MODE_KEY, next.connectionMode);
     window.localStorage.setItem(RELAY_URL_KEY, next.relayUrl);
     window.localStorage.setItem(RELAY_SECRET_KEY, next.relaySecret);
     setConnectionSettings(next);
@@ -348,7 +316,6 @@ function ConnectionSettingsControl({
   const update = React.useCallback((patch: Partial<ConnectionSettings>) => {
     onChange({ ...settings, ...patch });
   }, [onChange, settings]);
-  const modeLabel = settings.connectionMode === 'relay' ? t.relay : t.direct;
 
   return (
     <Dialog>
@@ -365,19 +332,6 @@ function ConnectionSettingsControl({
           <DialogDescription>{t.connectionSettingsDescription}</DialogDescription>
         </DialogHeader>
         <div className="connection-settings-form">
-          <div className="mode-select">
-            <Label>{t.connection}</Label>
-            <Select value={settings.connectionMode} onValueChange={(value) => update({ connectionMode: value as ConnectionMode })}>
-              <SelectTrigger className="connection-select-trigger">
-                <SelectValue>{modeLabel}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="direct">{t.direct}</SelectItem>
-                <SelectItem value="relay">{t.relay}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {settings.connectionMode === 'relay' ? (
           <div className="relay-field">
             <Label>{t.relayUrl}</Label>
             <Input
@@ -390,7 +344,6 @@ function ConnectionSettingsControl({
               onChange={(event) => update({ relayUrl: event.target.value })}
             />
           </div>
-          ) : null}
         </div>
       </DialogContent>
     </Dialog>
@@ -408,56 +361,12 @@ function SessionList({
   const { t } = useI18n();
   const [sessions, setSessions] = React.useState<Session[]>([]);
   const [history, setHistory] = React.useState<Session[]>([]);
-  const [gateways, setGateways] = React.useState<Gateway[]>([]);
-  const [webTransportMode, setWebTransportMode] = React.useState<WebTransportMode>(readWebTransportMode);
   const [status, setStatus] = React.useState<string>(t.statusLoading);
   const [hasLoadedSessions, setHasLoadedSessions] = React.useState(false);
   const [relayGatewayUnavailable, setRelayGatewayUnavailable] = React.useState(false);
   const listSocket = React.useRef<WebSocket | undefined>(undefined);
 
-  const changeWebTransportMode = React.useCallback((mode: WebTransportMode) => {
-    window.localStorage.setItem(WEB_TRANSPORT_KEY, mode);
-    setWebTransportMode(mode);
-  }, []);
-
-  const refreshDirect = React.useCallback(async () => {
-    try {
-      const [sessionsResponse, historyResponse, gatewaysResponse] = await Promise.all([
-        gatewayRequest('/api/sessions'),
-        gatewayRequest('/api/sessions?all=1'),
-        gatewayRequest('/api/gateways')
-      ]);
-      if (sessionsResponse.status === 401 || historyResponse.status === 401 || gatewaysResponse.status === 401) {
-        logoutNormal();
-      }
-      if (!sessionsResponse.ok) {
-        throw new Error(`sessions HTTP ${sessionsResponse.status}`);
-      }
-      if (!historyResponse.ok) {
-        throw new Error(`history HTTP ${historyResponse.status}`);
-      }
-      if (!gatewaysResponse.ok) {
-        throw new Error(`gateways HTTP ${gatewaysResponse.status}`);
-      }
-      const sessionsData = await readGatewayData<{ sessions: Session[] }>(sessionsResponse);
-      const historyData = await readGatewayData<{ sessions: Session[] }>(historyResponse);
-      const gatewaysData = (await gatewaysResponse.json()) as { gateways: Gateway[] };
-      const active = sessionsData.sessions.filter((session) => session.status === 'running');
-      const activeIds = new Set(active.map((session) => session.id));
-      setSessions(active);
-      setHistory(historyData.sessions.filter((session) => !activeIds.has(session.id)).slice(0, 8));
-      setGateways(gatewaysData.gateways);
-      setRelayGatewayUnavailable(false);
-      setStatus(new Date().toLocaleTimeString());
-    } catch (error) {
-      setRelayGatewayUnavailable(false);
-      setStatus(error instanceof Error ? error.message : t.statusDisconnected);
-    } finally {
-      setHasLoadedSessions(true);
-    }
-  }, [logoutNormal, normalAuth?.accessToken, t.statusDisconnected]);
-
-  const refreshRelaySessions = React.useCallback(async () => {
+  const refreshSessions = React.useCallback(async () => {
     try {
       const [sessionsResponse, historyResponse] = await Promise.all([
         gatewayRequest('/api/sessions'),
@@ -478,7 +387,6 @@ function SessionList({
       const activeIds = new Set(active.map((session) => session.id));
       setSessions(active);
       setHistory(historyData.sessions.filter((session) => !activeIds.has(session.id)).slice(0, 8));
-      setGateways([]);
       setStatus(new Date().toLocaleTimeString());
       setHasLoadedSessions(true);
     } catch (error) {
@@ -488,19 +396,6 @@ function SessionList({
   }, [logoutNormal, t.statusDisconnected]);
 
   React.useEffect(() => {
-    if (connectionSettings.connectionMode !== 'direct') {
-      return undefined;
-    }
-    setHasLoadedSessions(false);
-    refreshDirect();
-    const timer = window.setInterval(refreshDirect, 3000);
-    return () => window.clearInterval(timer);
-  }, [connectionSettings.connectionMode, refreshDirect]);
-
-  React.useEffect(() => {
-    if (connectionSettings.connectionMode !== 'relay') {
-      return undefined;
-    }
     let disposed = false;
     let ws: WebSocket | undefined;
     let timer: number | undefined;
@@ -508,7 +403,6 @@ function SessionList({
     setHasLoadedSessions(false);
     setSessions([]);
     setHistory([]);
-    setGateways([]);
     setRelayGatewayUnavailable(false);
     try {
       ws = new WebSocket(buildRelayClientUrl(connectionSettings.relayUrl, t));
@@ -543,10 +437,10 @@ function SessionList({
       if (frame.type === 'client.auth.ok') {
         setStatus(`${t.relayClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
         if (preferServerReads) {
-          void refreshRelaySessions();
+          void refreshSessions();
           sendList();
           timer = window.setInterval(() => {
-            void refreshRelaySessions();
+            void refreshSessions();
             sendList();
           }, 3000);
         } else {
@@ -566,7 +460,7 @@ function SessionList({
       if (frame.type === 'sessions') {
         setRelayGatewayUnavailable(false);
         if (preferServerReads) {
-          void refreshRelaySessions();
+          void refreshSessions();
         } else {
           const next = splitActiveSessions(frame.sessions);
           setSessions(next.active);
@@ -612,39 +506,22 @@ function SessionList({
         listSocket.current = undefined;
       }
     };
-  }, [connectionSettings.connectionMode, connectionSettings.relaySecret, connectionSettings.relayUrl, logoutNormal, normalAuth?.accessToken, refreshRelaySessions, t]);
+  }, [connectionSettings.relaySecret, connectionSettings.relayUrl, logoutNormal, normalAuth?.accessToken, refreshSessions, t]);
 
   const stopSession = React.useCallback(async (sessionId: string) => {
     setStatus(t.statusStopping);
-    if (connectionSettings.connectionMode === 'relay') {
-      const ws = listSocket.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        setStatus(t.statusRelayUnavailable);
-        return;
-      }
-      sendRelayFrame(ws, { type: 'client.subscribe', sessionId, mode: 'control' });
-      sendRelayFrame(ws, { type: 'client.stop', sessionId });
-      setSessions((current) => current.filter((session) => session.id !== sessionId));
-      setStatus(t.statusStopRequested);
+    const ws = listSocket.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      setStatus(t.statusRelayUnavailable);
       return;
     }
-    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/stop`, {
-      method: 'POST',
-      headers: gatewayAuthHeaders()
-    });
-    if (!response.ok) {
-      if (response.status === 401) {
-        logoutNormal();
-      }
-      setStatus(`${t.stopFailedPrefix}: ${t.httpStatusPrefix} ${response.status}`);
-      return;
-    }
-    await refreshDirect();
-  }, [connectionSettings.connectionMode, logoutNormal, normalAuth?.accessToken, refreshDirect, t]);
+    sendRelayFrame(ws, { type: 'client.subscribe', sessionId, mode: 'control' });
+    sendRelayFrame(ws, { type: 'client.stop', sessionId });
+    setSessions((current) => current.filter((session) => session.id !== sessionId));
+    setStatus(t.statusStopRequested);
+  }, [t]);
 
-  const activeGateway = gateways[0];
-  const isRelayMode = connectionSettings.connectionMode === 'relay';
-  const isRelayGatewayUnavailable = isRelayMode && relayGatewayUnavailable && sessions.length === 0 && history.length === 0;
+  const isRelayGatewayUnavailable = relayGatewayUnavailable && sessions.length === 0 && history.length === 0;
   const emptyStateIcon = isRelayGatewayUnavailable
     ? <WifiOff aria-hidden="true" />
     : <MonitorDot aria-hidden="true" />;
@@ -663,24 +540,10 @@ function SessionList({
           <span className="session-list-brand-icon"><TerminalSquare aria-hidden="true" /></span>
           <div>
             <h1>{t.sessionConsoleTitle}</h1>
-            <p>{isRelayMode ? t.sessionConsoleRelay : t.sessionConsoleDirect}</p>
+            <p>{t.sessionConsoleRelay}</p>
           </div>
         </div>
         <div className="session-list-controls">
-          {connectionSettings.connectionMode === 'direct' ? (
-            <div className="mode-select">
-              <Label>{t.transport}</Label>
-              <Select value={webTransportMode} onValueChange={(value) => changeWebTransportMode(value as WebTransportMode)}>
-                <SelectTrigger className="connection-select-trigger">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ws">WS</SelectItem>
-                  <SelectItem value="http">{t.httpFallback}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
           <div className="session-header-actions">
             <div className="status session-sync-status">
               {statusIcon}
@@ -721,7 +584,7 @@ function SessionList({
                 <div className="session-metric">
                   <Router aria-hidden="true" />
                   <span>{t.gatewayList}</span>
-                  <strong>{isRelayMode ? t.relay : gateways.length}</strong>
+                  <strong>{t.relay}</strong>
                 </div>
               </div>
             </section>
@@ -754,23 +617,10 @@ function SessionList({
                   <div className="session-panel-heading">
                     <div>
                       <span>{t.activeGateway}</span>
-                      <h2>{isRelayMode ? t.relay : activeGateway?.url ?? t.noGateways}</h2>
+                      <h2>{t.relay}</h2>
                     </div>
-                    <span className="session-panel-badge">{connectionSettings.connectionMode}</span>
                   </div>
-                  {gateways.length > 0 ? (
-                    <div className="gateway-grid">
-                      {gateways.map((gateway) => (
-                        <div className="gateway-row" key={gateway.id}>
-                          <Server aria-hidden="true" />
-                          <span>{gateway.url}</span>
-                          <span>{t.pidLabel} {gateway.pid}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="session-panel-empty">{isRelayMode ? t.relayGatewayHint : t.noGatewaysDescription}</p>
-                  )}
+                  <p className="session-panel-empty">{t.relayGatewayHint}</p>
                 </section>
 
                 {history.length > 0 ? (

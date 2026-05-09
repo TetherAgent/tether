@@ -44,7 +44,7 @@ export function WebAuthShell({ title, description, children, footer }: WebAuthSh
             </div>
             <div className="web-auth-status-row">
               <span>{t.connection}</span>
-              <strong>{t.direct} / {t.relay}</strong>
+              <strong>{t.relay}</strong>
             </div>
             <div className="web-auth-status-row">
               <span>{t.transport}</span>

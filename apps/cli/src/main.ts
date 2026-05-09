@@ -181,8 +181,7 @@ const gatewayCommand = program
       await startGatewayForeground(launchdProfile);
       return;
     }
-    const profile = await promptGatewayProfile('请选择本次前台启动模式');
-    await startGatewayForeground(profile);
+    await startGatewayForeground('relay');
   });
 
 gatewayCommand
@@ -230,7 +229,7 @@ gatewayCommand
   .command('start')
   .description('选择 local/direct/relay 模式，并通过 launchd 启动 Gateway')
   .action(async () => {
-    const profile = await promptGatewayProfile('请选择本次后台启动模式');
+    const profile = gatewayProfileFromEnv() ?? 'relay';
     await ensureGatewayAuthForProfile(profile);
     const before = await launchAgentStatus();
     const status = await startLaunchAgent({ env: { ...process.env, TETHER_GATEWAY_PROFILE: profile } });

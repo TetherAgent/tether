@@ -18,7 +18,7 @@ import {
 import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { useUiPreferences } from '../../hooks/use-ui-preferences.js';
-import { gatewayAuthHeaders, readGatewayData, requestGatewayWsTicket } from '../../lib/api.js';
+import { gatewayAuthHeaders, readGatewayData } from '../../lib/api.js';
 import { SessionDetailHeader, TerminalSurfaceSkeleton } from './session-detail-chrome.js';
 
 type Session = {
@@ -32,19 +32,10 @@ type Session = {
   lastActiveAt: number;
 };
 
-type Snapshot = {
-  text: string;
-  capturedAt: number;
-  session?: Session;
-};
-
 type ClientMode = 'control' | 'observe';
-type ConnectionMode = 'direct' | 'relay';
 type ReplayMode = 'recent' | 'all';
-type WebTransportMode = 'ws' | 'http';
 
 type ConnectionSettings = {
-  connectionMode: ConnectionMode;
   relayUrl: string;
   relaySecret: string;
 };
@@ -67,13 +58,6 @@ type SessionEvent = {
   payload: Record<string, unknown>;
 };
 
-type StreamFrame =
-  | { type: 'hello'; sessionId: string; clientId: string; latestEventId: number; controllerClientId: string | null }
-  | { type: 'replay.output'; sessionId?: string; data: string; latestEventId: number }
-  | { type: 'replay.done'; latestEventId: number }
-  | { type: 'event'; event: SessionEvent }
-  | { type: 'error'; code: string; message: string };
-
 type RelayServerToClientFrame =
   | { type: 'client.auth.ok'; clientId: string }
   | { type: 'client.auth.failed'; code: string; message: string }
@@ -91,7 +75,6 @@ type RelayClientToServerFrame =
 const RECENT_REPLAY_EVENT_LIMIT = 100;
 const RELAY_INITIAL_EVENT_LIMIT = 5000;
 const FULL_REPLAY_EVENT_PAGE_LIMIT = 5000;
-const WEB_TRANSPORT_KEY = 'tether:webTransportMode';
 const WEB_CLIENT_MODE_KEY = 'tether:webClientMode';
 const WEB_REPLAY_MODE_KEY = 'tether:webReplayMode';
 const COMPOSER_ENTER_DELAY_MS = 120;
@@ -105,10 +88,6 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-function readWebTransportMode(): WebTransportMode {
-  return window.localStorage.getItem(WEB_TRANSPORT_KEY) === 'http' ? 'http' : 'ws';
-}
-
 function readClientMode(): ClientMode {
   return window.localStorage.getItem(WEB_CLIENT_MODE_KEY) === 'observe' ? 'observe' : 'control';
 }
@@ -120,15 +99,13 @@ function readReplayMode(): ReplayMode {
 function sessionCursorKey(
   sessionId: string,
   identity: { accountId?: string; workspaceId?: string; userId?: string } | undefined,
-  connectionSettings: { connectionMode: ConnectionMode; relayUrl: string }
+  connectionSettings: { relayUrl: string }
 ): string {
   const accountId = identity?.accountId ?? 'anonymous';
   const workspaceId = identity?.workspaceId ?? 'default-workspace';
   const userId = identity?.userId ?? 'default-user';
-  const gatewayHint = connectionSettings.connectionMode === 'relay'
-    ? connectionSettings.relayUrl.trim() || 'relay'
-    : window.location.host;
-  return `tether:${accountId}:${workspaceId}:${userId}:${connectionSettings.connectionMode}:${gatewayHint}:${sessionId}:latestEventId`;
+  const gatewayHint = connectionSettings.relayUrl.trim() || 'relay';
+  return `tether:${accountId}:${workspaceId}:${userId}:relay:${gatewayHint}:${sessionId}:latestEventId`;
 }
 
 function buildRelayClientUrl(relayUrl: string, t: WebMessages): string {
@@ -149,11 +126,6 @@ function buildRelayClientUrl(relayUrl: string, t: WebMessages): string {
   url.search = '';
   url.hash = '';
   return url.toString();
-}
-
-function buildGatewayStreamUrl(sessionId: string, query: string): string {
-  const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${scheme}://${window.location.host}/api/sessions/${encodeURIComponent(sessionId)}/stream?${query}`;
 }
 
 function parseWsFrame(data: unknown): Record<string, unknown> | undefined {
@@ -289,122 +261,16 @@ export type SessionSurfaceProps = {
 export function SessionSurface({
   sessionId,
   surfaceMode,
-  connectionSettings,
-  onConnectionSettingsChange
+  connectionSettings
 }: SessionSurfaceProps) {
-  const { logoutNormal, normalAuth } = useAuth();
   const { t } = useI18n();
-  const [snapshot, setSnapshot] = React.useState<Snapshot>({ text: '', capturedAt: Date.now() });
-  const [status, setStatus] = React.useState<string>(t.statusConnecting);
-  const [text, setText] = React.useState('');
-  const [transport, setTransport] = React.useState<string>();
-  const scrollRef = React.useRef<HTMLElement>(null);
-
-  const refresh = React.useCallback(async () => {
-    if (connectionSettings.connectionMode === 'relay') {
-      setTransport('pty-event-stream');
-      setStatus(t.relay);
-      return;
-    }
-    try {
-      const scrollport = scrollRef.current;
-      const wasNearBottom = scrollport
-        ? scrollport.scrollTop + scrollport.clientHeight >= scrollport.scrollHeight - 48
-        : true;
-      const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/snapshot`);
-      if (response.status === 401) {
-        logoutNormal();
-      }
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const data = (await response.json()) as Snapshot;
-      setTransport(data.session?.transport);
-      setSnapshot(data);
-      setStatus(new Date(data.capturedAt).toLocaleTimeString());
-      requestAnimationFrame(() => {
-        if (wasNearBottom && scrollport) {
-          scrollport.scrollTop = scrollport.scrollHeight;
-        }
-      });
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : t.statusDisconnected);
-    }
-  }, [connectionSettings.connectionMode, logoutNormal, normalAuth?.accessToken, sessionId, t]);
-
-  React.useEffect(() => {
-    refresh();
-    if (transport === 'pty-event-stream') {
-      return undefined;
-    }
-    const timer = window.setInterval(refresh, 1500);
-    return () => window.clearInterval(timer);
-  }, [refresh, transport]);
-
-  if (transport === 'pty-event-stream') {
-    return (
-      <PtySessionView
-        sessionId={sessionId}
-        replayOnly={surfaceMode === 'replay'}
-        initialStatus={status}
-        connectionSettings={connectionSettings}
-      />
-    );
-  }
-
-  async function send(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const value = text.trim();
-    if (!value) return;
-    setText('');
-    setStatus(t.statusSending);
-    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/send`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...gatewayAuthHeaders()
-      },
-      body: JSON.stringify({ text: value })
-    });
-    if (!response.ok) {
-      if (response.status === 401) {
-        logoutNormal();
-      }
-      setStatus(`${t.sendFailedPrefix}: ${t.httpStatusPrefix} ${response.status}`);
-      setText(value);
-      return;
-    }
-    await refresh();
-  }
-
-  const isSnapshotLoading = status === t.statusConnecting && snapshot.text.length === 0;
-
   return (
-    <div className="session-detail-page">
-      <SessionDetailHeader
-        sessionId={sessionId}
-        connectionMode={connectionSettings.connectionMode}
-        status={status}
-        provider={snapshot.session?.provider}
-        agentSessionId={snapshot.session?.agentSessionId}
-      />
-      <main ref={scrollRef} className="scrollport terminal-panel" aria-label={t.terminalSurface}>
-        {isSnapshotLoading ? <TerminalSurfaceSkeleton /> : <pre>{snapshot.text}</pre>}
-      </main>
-      {surfaceMode === 'control' ? (
-        <form className="composer-form" onSubmit={send}>
-          <Textarea
-            className="composer-input"
-            rows={1}
-            autoComplete="off"
-            placeholder={t.sendToAgent}
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-          />
-          <Button type="submit">{t.send}</Button>
-        </form>
-      ) : null}
-    </div>
+    <PtySessionView
+      sessionId={sessionId}
+      replayOnly={surfaceMode === 'replay'}
+      initialStatus={t.statusConnecting}
+      connectionSettings={connectionSettings}
+    />
   );
 }
 
@@ -427,7 +293,6 @@ function PtySessionView({
   const terminalRef = React.useRef<HTMLDivElement>(null);
   const terminal = React.useRef<Terminal | undefined>(undefined);
   const socket = React.useRef<WebSocket | undefined>(undefined);
-  const transportMode = React.useMemo(readWebTransportMode, []);
   const [clientMode, setClientMode] = React.useState<ClientMode>(readClientMode);
   const [replayMode, setReplayMode] = React.useState<ReplayMode>(readReplayMode);
   const effectiveClientMode = replayOnly ? 'observe' : clientMode;
@@ -447,22 +312,6 @@ function PtySessionView({
     () => sessionCursorKey(sessionId, normalAuth?.identity, connectionSettings),
     [connectionSettings, normalAuth?.identity, sessionId]
   );
-  const refreshClients = React.useCallback(async () => {
-    if (connectionSettings.connectionMode === 'relay') {
-      return;
-    }
-    const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/clients`);
-    if (response.status === 401) {
-      logoutNormal();
-    }
-    if (!response.ok) {
-      return;
-    }
-    const data = (await response.json()) as { controllerClientId: string | null; clients: ClientInfo[] };
-    setControllerClientId(data.controllerClientId);
-    setClients(data.clients);
-  }, [connectionSettings.connectionMode, logoutNormal, normalAuth?.accessToken, sessionId]);
-
   const changeClientMode = React.useCallback((mode: ClientMode) => {
     window.localStorage.setItem(WEB_CLIENT_MODE_KEY, mode);
     setClientMode(mode);
@@ -472,32 +321,6 @@ function PtySessionView({
     window.localStorage.setItem(WEB_REPLAY_MODE_KEY, mode);
     setReplayMode(mode);
   }, []);
-
-  const sendHttpInput = React.useCallback(async (data: string): Promise<boolean> => {
-    if (connectionSettings.connectionMode === 'relay') {
-      return false;
-    }
-    if (effectiveClientMode === 'observe') {
-      setStatus(t.statusObserveCannotInput);
-      return false;
-    }
-    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/input`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...gatewayAuthHeaders()
-      },
-      body: JSON.stringify({ data })
-    });
-    if (!response.ok) {
-      if (response.status === 401) {
-        logoutNormal();
-      }
-      setStatus(`${t.inputFailedPrefix}: ${t.httpStatusPrefix} ${response.status}`);
-      return false;
-    }
-    return true;
-  }, [effectiveClientMode, connectionSettings.connectionMode, logoutNormal, normalAuth?.accessToken, sessionId, t]);
 
   const sendWsInput = React.useCallback((data: string): boolean => {
     if (effectiveClientMode === 'observe') {
@@ -509,21 +332,9 @@ function PtySessionView({
       setStatus(t.statusWsUnavailable);
       return false;
     }
-    ws.send(JSON.stringify(
-      connectionSettings.connectionMode === 'relay'
-        ? { type: 'client.input', sessionId, data }
-        : { type: 'input', data }
-    ));
+    ws.send(JSON.stringify({ type: 'client.input', sessionId, data }));
     return true;
-  }, [effectiveClientMode, connectionSettings.connectionMode, sessionId, t]);
-
-  const sendTerminalInput = React.useCallback((data: string): void => {
-    if (connectionSettings.connectionMode === 'direct' && transportMode === 'http') {
-      sendHttpInput(data).catch(() => setStatus(t.statusInputFailed));
-      return;
-    }
-    sendWsInput(data);
-  }, [connectionSettings.connectionMode, sendHttpInput, sendWsInput, t.statusInputFailed, transportMode]);
+  }, [effectiveClientMode, sessionId, t]);
 
   const isSessionClosed = agentRuntimeStatus === 'exited' || agentRuntimeStatus === 'disconnected';
   const composerDisabledReason = replayOnly
@@ -562,26 +373,25 @@ function PtySessionView({
     }
     setStatus(t.statusSending);
     setComposerSending(true);
-    const isHttpFallback = connectionSettings.connectionMode === 'direct' && transportMode === 'http';
     const send = (async () => {
-      const textSent = isHttpFallback ? await sendHttpInput(value) : sendWsInput(value);
+      const textSent = sendWsInput(value);
       if (!textSent) {
         return false;
       }
       await wait(COMPOSER_ENTER_DELAY_MS);
-      return isHttpFallback ? sendHttpInput(TERMINAL_ENTER) : sendWsInput(TERMINAL_ENTER);
+      return sendWsInput(TERMINAL_ENTER);
     })();
     send
       .then((ok) => {
         if (!ok) return;
         setText('');
-        setStatus(connectionSettings.connectionMode === 'relay' ? t.statusRelaySent : transportMode === 'http' ? t.statusHttpSent : t.statusWsSent);
+        setStatus(t.statusRelaySent);
         terminal.current?.scrollToBottom();
         terminal.current?.focus();
       })
       .catch(() => setStatus(t.statusInputFailed))
       .finally(() => setComposerSending(false));
-  }, [composerDisabledReason, connectionSettings.connectionMode, sendHttpInput, sendWsInput, t, text, transportMode]);
+  }, [composerDisabledReason, sendWsInput, t, text]);
 
   const sendLine = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -620,24 +430,7 @@ function PtySessionView({
       }
       lastSize = { cols: term.cols, rows: term.rows };
       if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(
-          connectionSettings.connectionMode === 'relay'
-            ? { type: 'client.resize', sessionId, cols: term.cols, rows: term.rows }
-            : { type: 'resize', cols: term.cols, rows: term.rows }
-        ));
-      }
-    };
-    const syncTerminalSize = async (): Promise<void> => {
-      if (connectionSettings.connectionMode !== 'direct' || term.cols <= 0 || term.rows <= 0) {
-        return;
-      }
-      const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/resize`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ cols: term.cols, rows: term.rows })
-      });
-      if (response.status === 401) {
-        logoutNormal();
+        ws.send(JSON.stringify({ type: 'client.resize', sessionId, cols: term.cols, rows: term.rows }));
       }
     };
     const fitAndResize = () => {
@@ -657,7 +450,6 @@ function PtySessionView({
     setStatus(t.statusReplaying);
 
     let after = 0;
-    let tailTimer: number | undefined;
     let replayDoneCursor: number | undefined;
     let replayDoneReceived = false;
     let replayFlushFrame = 0;
@@ -667,7 +459,7 @@ function PtySessionView({
 
     const input = term.onData((data) => {
       if (!disposed && replayComplete) {
-        sendTerminalInput(data);
+        sendWsInput(data);
       }
     });
 
@@ -809,12 +601,8 @@ function PtySessionView({
     const replayEvents = async () => {
       fitAddon.fit();
       sendResize();
-      if (connectionSettings.connectionMode === 'direct') {
-        await syncTerminalSize();
-      }
       setStatus(t.statusReplaying);
-      const shouldUseRecentReplay = (replayOnly && replayMode === 'recent') ||
-        (connectionSettings.connectionMode === 'relay' && after === 0);
+      const shouldUseRecentReplay = (replayOnly && replayMode === 'recent') || after === 0;
       const fetchReplayPage = async (query: string): Promise<SessionEvent[]> => {
         const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/events?${query}`);
         if (response.status === 401) {
@@ -834,13 +622,11 @@ function PtySessionView({
       if (after > 0 || shouldUseRecentReplay) {
         const replayQuery = after > 0
           ? `after=${after}&limit=1000`
-          : connectionSettings.connectionMode === 'relay'
-            ? `after=0&tail=${RELAY_INITIAL_EVENT_LIMIT}`
-            : `after=0&tail=${RECENT_REPLAY_EVENT_LIMIT}`;
+          : `after=0&tail=${RELAY_INITIAL_EVENT_LIMIT}`;
         const events = await fetchReplayPage(replayQuery);
-        // Relay initial load: queue terminal output through the smooth flush pipeline
-        // instead of direct writes to avoid rapid scroll callbacks causing visual shaking.
-        const useQueue = connectionSettings.connectionMode === 'relay' && after === 0;
+        // Queue terminal output through the smooth flush pipeline on initial relay load
+        // to avoid rapid scroll callbacks causing visual shaking.
+        const useQueue = after === 0;
         for (const event of events) {
           if (useQueue) {
             queueReplayEvent(event);
@@ -869,56 +655,6 @@ function PtySessionView({
       setTerminalReady(true);
       fitAddon.fit();
       sendResize();
-    };
-
-    const pollTail = async () => {
-      if (disposed) {
-        return;
-      }
-      try {
-        const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/events?after=${after}&limit=1000`);
-        if (response.status === 401) {
-          logoutNormal();
-        }
-        if (!response.ok) {
-          return;
-        }
-        const data = await readGatewayData<{ events: SessionEvent[] }>(response);
-        for (const event of data.events) {
-          writeEventNow(event);
-        }
-      } catch {
-        // WS is the primary live path; polling is a best-effort browser fallback.
-      }
-    };
-
-    const probeGatewaySession = async (): Promise<boolean> => {
-      if (connectionSettings.connectionMode === 'relay') {
-        return true;
-      }
-      try {
-        const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/snapshot`);
-        if (response.status === 401) {
-          logoutNormal();
-        }
-        if (response.status === 404) {
-          reconnectStopped = true;
-          setStatus(t.statusSessionDetached);
-          setTerminalReady(true);
-          return false;
-        }
-        if (!response.ok) {
-          setStatus(t.statusGatewayRestarting);
-          return false;
-        }
-        const data = (await response.json()) as { session?: { provider?: string; agentSessionId?: string } };
-        if (data.session?.agentSessionId) setAgentSessionId(data.session.agentSessionId);
-        if (data.session?.provider) setSessionProvider(data.session.provider);
-        return true;
-      } catch {
-        setStatus(t.statusGatewayRestarting);
-        return false;
-      }
     };
 
     const reconnectDelay = () => Math.min(5000, [1000, 2000, 3000, 5000][Math.min(reconnectAttempt, 3)]);
@@ -955,39 +691,22 @@ function PtySessionView({
 
     const connectStream = async (isReconnect = false) => {
       closeWasExpected = false;
-      if (tailTimer) {
-        window.clearInterval(tailTimer);
-        tailTimer = undefined;
-      }
       if (isReconnect) {
         setStatus(t.statusGatewayRestarting);
-        const canReconnect = await probeGatewaySession();
-        if (!canReconnect) {
-          throw new Error(reconnectStopped ? t.statusSessionDetached : t.statusGatewayRestarting);
+        if (reconnectStopped) {
+          throw new Error(t.statusSessionDetached);
         }
-      }
-      if (connectionSettings.connectionMode === 'direct' && transportMode === 'http') {
-        await replayEvents();
-        tailTimer = window.setInterval(pollTail, 500);
-        setStatus(t.statusSyncingHttp);
-        setTerminalReady(true);
-        setInputReady(true);
-        reconnectAttempt = 0;
-        return;
       }
       replayComplete = false;
       replayDoneReceived = false;
       replayDoneCursor = undefined;
       replayOutputBuffer = '';
-      if (connectionSettings.connectionMode === 'relay' && normalAuth?.accessToken) {
+      if (normalAuth?.accessToken) {
         await replayEvents();
       }
       fitAddon.fit();
       sendResize();
-      if (connectionSettings.connectionMode === 'direct') {
-        await syncTerminalSize();
-      }
-      const nextWs = await openStreamWebSocket();
+      const nextWs = openStreamWebSocket();
       ws = nextWs;
       socket.current = nextWs;
 
@@ -995,18 +714,12 @@ function PtySessionView({
         if (disposed || socket.current !== ws) {
           return;
         }
-        if (connectionSettings.connectionMode === 'relay') {
-          setStatus(t.statusRelayAuth);
-          nextWs.send(JSON.stringify(
-            normalAuth?.accessToken
-              ? { type: 'client.auth', token: normalAuth.accessToken }
-              : { type: 'client.auth', secret: connectionSettings.relaySecret }
-          ));
-          return;
-        }
-        setStatus(t.statusSyncingWs);
-        reconnectAttempt = 0;
-        sendResize();
+        setStatus(t.statusRelayAuth);
+        nextWs.send(JSON.stringify(
+          normalAuth?.accessToken
+            ? { type: 'client.auth', token: normalAuth.accessToken }
+            : { type: 'client.auth', secret: connectionSettings.relaySecret }
+        ));
       });
       nextWs.addEventListener('message', (message) => {
         if (disposed || socket.current !== ws) {
@@ -1018,56 +731,30 @@ function PtySessionView({
           nextWs.close();
           return;
         }
-        if (connectionSettings.connectionMode === 'relay') {
-          const frame = parsedFrame as RelayServerToClientFrame;
-          if (frame.type === 'client.auth.ok') {
-            setStatus(`${t.relayClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
-            reconnectAttempt = 0;
-            nextWs.send(JSON.stringify({
-              type: 'client.subscribe',
-              sessionId,
-              after,
-              tail: replayOnly && replayMode === 'recent' && after === 0 ? RECENT_REPLAY_EVENT_LIMIT : undefined,
-              mode: effectiveClientMode,
-              cols: term.cols,
-              rows: term.rows
-            }));
-            return;
-          }
-          if (frame.type === 'client.auth.failed') {
-            reconnectStopped = true;
-            logoutNormal();
-            setStatus(displayMessage(frame.message, t));
-            nextWs.close();
-            return;
-          }
-          if (frame.type === 'hello') {
-            setStatus(`${t.relayClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
-            return;
-          }
-          if (frame.type === 'error') {
-            setStatus(displayMessage(frame.message, t));
-            return;
-          }
-          if (frame.type === 'replay.done') {
-            replayDoneReceived = true;
-            replayDoneCursor = frame.latestEventId;
-            finishReplayIfReady();
-            return;
-          }
-          if (frame.type === 'replay.output') {
-            handleReplayOutput(frame.data, frame.latestEventId);
-            return;
-          }
-          if (frame.type === 'event') {
-            handleStreamEvent(frame.event);
-          }
+        const frame = parsedFrame as RelayServerToClientFrame;
+        if (frame.type === 'client.auth.ok') {
+          setStatus(`${t.relayClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
+          reconnectAttempt = 0;
+          nextWs.send(JSON.stringify({
+            type: 'client.subscribe',
+            sessionId,
+            after,
+            tail: replayOnly && replayMode === 'recent' && after === 0 ? RECENT_REPLAY_EVENT_LIMIT : undefined,
+            mode: effectiveClientMode,
+            cols: term.cols,
+            rows: term.rows
+          }));
           return;
         }
-        const frame = parsedFrame as StreamFrame;
+        if (frame.type === 'client.auth.failed') {
+          reconnectStopped = true;
+          logoutNormal();
+          setStatus(displayMessage(frame.message, t));
+          nextWs.close();
+          return;
+        }
         if (frame.type === 'hello') {
-          refreshClients().catch(() => undefined);
-          setStatus(`${t.streamClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
+          setStatus(`${t.relayClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
           return;
         }
         if (frame.type === 'error') {
@@ -1084,14 +771,8 @@ function PtySessionView({
           handleReplayOutput(frame.data, frame.latestEventId);
           return;
         }
-        handleStreamEvent(frame.event);
-        if (frame.event.type === 'session.exited') {
-          setStatus(t.statusExited);
-          closeWasExpected = true;
-          nextWs.close();
-        }
-        if (frame.event.type === 'client.attached' || frame.event.type === 'client.detached' || frame.event.type === 'client.control_changed') {
-          refreshClients().catch(() => undefined);
+        if (frame.type === 'event') {
+          handleStreamEvent(frame.event);
         }
       });
       nextWs.addEventListener('close', () => {
@@ -1112,21 +793,8 @@ function PtySessionView({
         setStatus(t.statusStreamError);
       });
     };
-    const openStreamWebSocket = async (): Promise<WebSocket> => {
-      if (connectionSettings.connectionMode === 'relay') {
-        return new WebSocket(buildRelayClientUrl(connectionSettings.relayUrl, t));
-      }
-      const { ticket } = await requestGatewayWsTicket({
-        sessionId,
-        mode: effectiveClientMode
-      });
-      const tailQuery = replayOnly && replayMode === 'recent' && after === 0 ? `&tail=${RECENT_REPLAY_EVENT_LIMIT}` : '';
-      const sizeQuery = term.cols > 0 && term.rows > 0 ? `&cols=${term.cols}&rows=${term.rows}` : '';
-      const streamQuery = `after=${after}&surface=web&mode=${effectiveClientMode}${tailQuery}${sizeQuery}`;
-      return new WebSocket(
-        buildGatewayStreamUrl(sessionId, streamQuery),
-        [`tether-ticket.${ticket}`]
-      );
+    const openStreamWebSocket = (): WebSocket => {
+      return new WebSocket(buildRelayClientUrl(connectionSettings.relayUrl, t));
     };
     connectStream().catch((error: unknown) => {
       if (!disposed) {
@@ -1137,9 +805,6 @@ function PtySessionView({
     });
     const observer = new ResizeObserver(fitAndResize);
     observer.observe(root);
-    const clientsTimer = connectionSettings.connectionMode === 'direct'
-      ? window.setInterval(() => refreshClients().catch(() => undefined), 3000)
-      : undefined;
 
     return () => {
       disposed = true;
@@ -1147,25 +812,18 @@ function PtySessionView({
       if (replayFlushFrame) {
         window.cancelAnimationFrame(replayFlushFrame);
       }
-      if (tailTimer) {
-        window.clearInterval(tailTimer);
-      }
       if (reconnectTimer) {
         window.clearTimeout(reconnectTimer);
       }
       observer.disconnect();
-      if (clientsTimer) {
-        window.clearInterval(clientsTimer);
-      }
       input.dispose();
-      if (connectionSettings.connectionMode === 'relay' && ws?.readyState === WebSocket.OPEN) {
+      if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'client.detach', sessionId }));
       }
       ws?.close();
       term.dispose();
     };
   }, [
-    connectionSettings.connectionMode,
     connectionSettings.relaySecret,
     connectionSettings.relayUrl,
     cursorKey,
@@ -1174,41 +832,26 @@ function PtySessionView({
     logoutNormal,
     normalAuth?.accessToken,
     replayMode,
-    refreshClients,
-    sendTerminalInput,
+    sendWsInput,
     sessionId,
-    t,
-    transportMode
+    t
   ]);
 
-  async function stopSession(): Promise<void> {
-    if (connectionSettings.connectionMode === 'relay') {
-      const ws = socket.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        setStatus(t.statusRelayUnavailable);
-        return;
-      }
-      sendRelayFrame(ws, { type: 'client.subscribe', sessionId, mode: 'control' });
-      sendRelayFrame(ws, { type: 'client.stop', sessionId });
-      setStatus(t.statusStopRequested);
+  function stopSession(): void {
+    const ws = socket.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      setStatus(t.statusRelayUnavailable);
       return;
     }
-    setStatus(t.statusStopping);
-    const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/stop`, {
-      method: 'POST',
-      headers: gatewayAuthHeaders()
-    });
-    if (response.status === 401) {
-      logoutNormal();
-    }
-    setStatus(response.ok ? t.sessionStopped : `${t.stopFailedPrefix}: ${t.httpStatusPrefix} ${response.status}`);
+    sendRelayFrame(ws, { type: 'client.subscribe', sessionId, mode: 'control' });
+    sendRelayFrame(ws, { type: 'client.stop', sessionId });
+    setStatus(t.statusStopRequested);
   }
 
   return (
     <div className="session-detail-page">
       <SessionDetailHeader
         sessionId={sessionId}
-        connectionMode={connectionSettings.connectionMode}
         status={status}
         provider={sessionProvider}
         agentSessionId={agentSessionId}
@@ -1281,14 +924,13 @@ function PtySessionView({
           <aside className="client-strip">
             <span>{t.controllerLabel} {controllerClientId ? controllerClientId.slice(0, 8) : '-'}</span>
             <span>{clients.length} {t.clients}</span>
-            <span>{transportMode.toUpperCase()}</span>
           </aside>
-        ) : connectionSettings.connectionMode === 'relay' ? (
+        ) : (
           <aside className="client-strip">
             <span>{t.relay}</span>
             <span>{clientModeLabel(effectiveClientMode, t)}</span>
           </aside>
-        ) : null}
+        )}
       </main>
       {!replayOnly ? (
         <form className="composer-form" onSubmit={sendLine}>
