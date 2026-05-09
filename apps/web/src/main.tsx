@@ -368,7 +368,7 @@ function SessionList({
 
   const refreshHistory = React.useCallback(async (activeIds: Set<string>) => {
     try {
-      const response = await gatewayRequest('/api/server/sessions?limit=200');
+      const response = await gatewayRequest('/api/server/sessions?limit=30');
       if (response.status === 401) {
         logoutNormal();
         return;
@@ -385,6 +385,9 @@ function SessionList({
     let disposed = false;
     let ws: WebSocket | undefined;
     let timer: number | undefined;
+    let historyTimer: number | undefined;
+    let historyTimerStarted = false;
+    let activeIds = new Set<string>();
     const preferServerReads = Boolean(normalAuth?.accessToken);
     setHasLoadedSessions(false);
     setSessions([]);
@@ -441,8 +444,12 @@ function SessionList({
         setHasLoadedSessions(true);
         if (preferServerReads) {
           // 活跃 session 来自 WS 实时推送，历史记录从服务端 HTTP 拉取
-          const activeIds = new Set(next.active.map((s) => s.id));
-          void refreshHistory(activeIds);
+          activeIds = new Set(next.active.map((s) => s.id));
+          if (!historyTimerStarted) {
+            historyTimerStarted = true;
+            void refreshHistory(activeIds);
+            historyTimer = window.setInterval(() => void refreshHistory(activeIds), 30_000);
+          }
         } else {
           setHistory(next.history);
         }
@@ -478,6 +485,9 @@ function SessionList({
       disposed = true;
       if (timer) {
         window.clearInterval(timer);
+      }
+      if (historyTimer) {
+        window.clearInterval(historyTimer);
       }
       ws?.close();
       if (listSocket.current === ws) {
