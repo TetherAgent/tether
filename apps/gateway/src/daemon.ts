@@ -1187,7 +1187,7 @@ function parseGatewayAuthState(raw: string): GatewayAuthState | undefined {
 }
 
 async function validateAccessToken(serverUrl: string, token: string): Promise<AuthenticatedActor | undefined> {
-  const response = await fetch(`${serverUrl}/api/token/validate`, {
+  const response = await fetch(`${serverUrl}/api/server/token/validate`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ token })

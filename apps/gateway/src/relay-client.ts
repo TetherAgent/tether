@@ -199,7 +199,6 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     const result: Session[] = [];
     for (const session of sessions) {
       if (session.status !== 'running' || session.transport !== 'pty-event-stream') {
-        result.push(session);
         continue;
       }
       const alive = await isLiveSession(session);

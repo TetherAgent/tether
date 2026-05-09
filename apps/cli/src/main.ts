@@ -1317,7 +1317,7 @@ async function requestWsTicket(
   sessionId: string,
   mode: 'control' | 'observe'
 ): Promise<string> {
-  const response = await fetch(`http://${options.host}:${options.port}/api/server/ws-ticket`, {
+  const response = await fetch(`http://${options.host}:${options.port}/api/ws-ticket`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...(await gatewayAuthHeaders()) },
     body: JSON.stringify({ sessionId, mode })
