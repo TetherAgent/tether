@@ -1373,7 +1373,7 @@ async function requestWsTicket(
   sessionId: string,
   mode: 'control' | 'observe'
 ): Promise<string> {
-  const response = await fetch(`http://${options.host}:${options.port}/api/ws-ticket`, {
+  const response = await fetch(`http://${options.host}:${options.port}/api/server/ws-ticket`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...(await gatewayAuthHeaders()) },
     body: JSON.stringify({ sessionId, mode })
@@ -1420,7 +1420,7 @@ async function performGatewayLogin(options: {
   if (!email || !password) {
     throw new Error('邮箱和密码不能为空');
   }
-  const response = await fetch(`${serverUrl}/api/gateway/bind`, {
+  const response = await fetch(`${serverUrl}/api/relay/gateway/bind`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ email, password, gatewayName: os.hostname() })

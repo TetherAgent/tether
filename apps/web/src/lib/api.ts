@@ -95,7 +95,7 @@ export async function readGatewayData<T>(response: Response): Promise<T> {
 
 export async function registerNormal(input: { email: string; password: string; displayName?: string }) {
   try {
-    return await http.post<NormalAuthPayload>('/api/auth/register', input, {
+    return await http.post<NormalAuthPayload>('/api/server/auth/register', input, {
       suppressGlobalError: true
     });
   } catch (error) {
@@ -105,7 +105,7 @@ export async function registerNormal(input: { email: string; password: string; d
 
 export async function loginNormal(input: { email: string; password: string }) {
   try {
-    return await http.post<NormalAuthPayload>('/api/auth/login', input, {
+    return await http.post<NormalAuthPayload>('/api/server/auth/login', input, {
       suppressGlobalError: true
     });
   } catch (error) {
@@ -115,7 +115,7 @@ export async function loginNormal(input: { email: string; password: string }) {
 
 export async function refreshNormal(refreshToken: string) {
   try {
-    return await http.post<NormalAuthPayload>('/api/auth/refresh', { refreshToken }, {
+    return await http.post<NormalAuthPayload>('/api/server/auth/refresh', { refreshToken }, {
       suppressGlobalError: true
     });
   } catch (error) {
@@ -125,7 +125,7 @@ export async function refreshNormal(refreshToken: string) {
 
 export async function validateNormal(accessToken: string) {
   try {
-    return await http.get<NormalIdentity>('/api/auth/me', undefined, {
+    return await http.get<NormalIdentity>('/api/server/auth/me', undefined, {
       token: accessToken,
       suppressGlobalError: true
     });
@@ -142,7 +142,7 @@ export async function requestGatewayWsTicket(input: {
   try {
     const accessToken = input.accessToken || getStoredNormalAccessToken();
     return await http.post<{ ticket: string; expiresInMs: number }>(
-      '/api/ws-ticket',
+      '/api/server/ws-ticket',
       {
         sessionId: input.sessionId,
         mode: input.mode

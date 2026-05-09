@@ -79,7 +79,7 @@
 | `/ws/client` | 客户端 WebSocket | — |
 | `/ws/gateway` | Gateway WebSocket | — |
 
-已存在的 `/api/auth/`、`/api/gateway/`、`/api/token/` 等路由在下次重构时统一迁移，新增接口必须遵守此规范。
+所有接口均已按此规范迁移，新增接口必须遵守此规范。
 
 ## 生效标准
 

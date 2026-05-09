@@ -58,7 +58,7 @@ function normalizeRequestError(error: unknown): Error {
 export async function listUsers(token: string, page = 1) {
   try {
     return await http.get<{ users: AdminUser[]; total: number }>(
-      '/admin/api/users',
+      '/api/admin/users',
       { page, limit: 20 },
       { token }
     );
@@ -69,7 +69,7 @@ export async function listUsers(token: string, page = 1) {
 
 export async function listAdmins(token: string) {
   try {
-    return await http.get<{ admins: AdminUserItem[] }>('/admin/api/admins', undefined, { token });
+    return await http.get<{ admins: AdminUserItem[] }>('/api/admin/admins', undefined, { token });
   } catch (error) {
     throw normalizeRequestError(error);
   }
@@ -78,7 +78,7 @@ export async function listAdmins(token: string) {
 export async function listDevices(token: string, page = 1) {
   try {
     return await http.get<{ devices: AdminDevice[]; total: number }>(
-      '/admin/api/devices',
+      '/api/admin/devices',
       { page, limit: 20 },
       { token }
     );
@@ -90,7 +90,7 @@ export async function listDevices(token: string, page = 1) {
 export async function revokeDevice(token: string, deviceId: string) {
   try {
     return await http.post<{ ok: true }>(
-      `/admin/api/devices/${encodeURIComponent(deviceId)}/revoke`,
+      `/api/admin/devices/${encodeURIComponent(deviceId)}/revoke`,
       undefined,
       { token }
     );
@@ -102,7 +102,7 @@ export async function revokeDevice(token: string, deviceId: string) {
 export async function listGateways(token: string, page = 1) {
   try {
     return await http.get<{ gateways: AdminGateway[]; total: number }>(
-      '/admin/api/gateways',
+      '/api/admin/gateways',
       { page, limit: 20 },
       { token }
     );
@@ -114,7 +114,7 @@ export async function listGateways(token: string, page = 1) {
 export async function unlinkGateway(token: string, gatewayId: string) {
   try {
     return await http.delete<{ ok: true }>(
-      `/admin/api/gateways/${encodeURIComponent(gatewayId)}/unlink`,
+      `/api/admin/gateways/${encodeURIComponent(gatewayId)}/unlink`,
       undefined,
       { token }
     );
@@ -129,7 +129,7 @@ export async function listAuditEvents(token: string, params: {
 } = {}) {
   try {
     return await http.get<{ events: AdminAuditEvent[]; total: number }>(
-      '/admin/api/audit',
+      '/api/admin/audit',
       {
         page: params.page ?? 1,
         limit: params.limit ?? 50,
@@ -150,7 +150,7 @@ export async function getDashboardStats(token: string) {
     return await http.get<{
       totalUsers: number; activeDevices: number;
       registeredGateways: number; auditEventsLast7Days: number;
-    }>('/admin/api/dashboard/stats', undefined, { token });
+    }>('/api/admin/dashboard/stats', undefined, { token });
   } catch (error) {
     throw normalizeRequestError(error);
   }
@@ -163,7 +163,7 @@ export async function createAdmin(token: string, data: {
 }) {
   try {
     return await http.post<{ accessToken: string; refreshToken: string }>(
-      '/admin/api/admins',
+      '/api/admin/admins',
       {
         email: data.email,
         password: data.password,
