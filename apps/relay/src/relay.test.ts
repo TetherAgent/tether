@@ -55,7 +55,7 @@ function createRelay(options?: { allowLegacySecret?: boolean; omitGatewayIdInSco
 
 test('relay rejects unauthenticated sockets', async () => {
   const relay = await createRelay();
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
 
   try {
     await waitForOpen(client);
@@ -70,7 +70,7 @@ test('relay rejects unauthenticated sockets', async () => {
 
 test('relay closes sockets that never send auth frame', async () => {
   const relay = await createRelay();
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
 
   try {
     await waitForOpen(client);
@@ -85,8 +85,8 @@ test('relay closes sockets that never send auth frame', async () => {
 
 test('relay forwards session list from gateway to client', async () => {
   const relay = await createRelay();
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
   const sessions: RelaySession[] = [
     {
       id: 'tth_relay_test',
@@ -123,7 +123,7 @@ test('relay forwards session list from gateway to client', async () => {
 
 test('relay HTTP APIs proxy session data and commands through gateway RPC', async () => {
   const relay = await createRelay();
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
   const session: RelaySession = {
     id: 'tth_http_rpc',
     provider: 'codex',
@@ -230,7 +230,7 @@ test('relay HTTP conversation enforces scope, gateway availability and timeout',
   }
 
   const relay = await createRelay();
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
   const forbiddenSession: RelaySession = {
     id: 'tth_forbidden_http',
     provider: 'codex',
@@ -280,8 +280,8 @@ test('relay HTTP conversation enforces scope, gateway availability and timeout',
 
 test('relay accepts gateway.sessions when gateway token has no gatewayId in scope', async () => {
   const relay = await createRelay({ omitGatewayIdInScope: true });
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
   const sessions: RelaySession[] = [
     {
       id: 'tth_relay_scope_missing',
@@ -314,8 +314,8 @@ test('relay accepts gateway.sessions when gateway token has no gatewayId in scop
 
 test('relay clears visible sessions when gateway disconnects', async () => {
   const relay = await createRelay();
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
 
   try {
     await authenticateGateway(gateway);
@@ -370,8 +370,8 @@ test('relay clears visible sessions when gateway disconnects', async () => {
 
 test('relay keeps cached running sessions when gateway sends a transient empty list', async () => {
   const relay = await createRelay();
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
   const sessions: RelaySession[] = [{
     id: 'tth_transient_empty',
     provider: 'codex',
@@ -421,9 +421,9 @@ test('relay keeps cached running sessions when gateway sends a transient empty l
 
 test('relay does not clear one gateway sessions when another gateway disconnects', async () => {
   const relay = await createRelay({ omitGatewayIdInScope: true });
-  const gatewayOne = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const gatewayTwo = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const gatewayOne = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const gatewayTwo = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
   const sessionOne: RelaySession = {
     id: 'tth_gateway_one',
     provider: 'codex',
@@ -494,8 +494,8 @@ test('relay does not clear one gateway sessions when another gateway disconnects
 
 test('relay forwards subscribed input and resize to gateway', async () => {
   const relay = await createRelay();
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
 
   try {
     await authenticateGateway(gateway);
@@ -566,8 +566,8 @@ test('relay forwards subscribed input and resize to gateway', async () => {
 
 test('relay forwards subscribed chat messages to gateway', async () => {
   const relay = await createRelay();
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
 
   try {
     await authenticateGateway(gateway);
@@ -611,8 +611,8 @@ test('relay forwards subscribed chat messages to gateway', async () => {
 
 test('relay waits for final paged replay frame before replay.done', async () => {
   const relay = await createRelay();
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
   let replayDoneCount = 0;
   client.on('message', (raw) => {
     const frame = JSON.parse(raw.toString()) as RelayServerToClientFrame;
@@ -696,8 +696,8 @@ test('relay waits for final paged replay frame before replay.done', async () => 
 
 test('relay rejects unsubscribed input and resize', async () => {
   const relay = await createRelay();
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
 
   try {
     await authenticateGateway(gateway);
@@ -737,8 +737,8 @@ test('relay rejects unsubscribed input and resize', async () => {
 
 test('relay rejects control frames after session scope changes', async () => {
   const relay = await createRelay();
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
 
   try {
     await authenticateGateway(gateway);
@@ -803,8 +803,8 @@ test('relay rejects control frames after session scope changes', async () => {
 
 test('relay rejects observe input and resize', async () => {
   const relay = await createRelay();
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
 
   try {
     await authenticateGateway(gateway);
@@ -847,8 +847,8 @@ test('relay rejects observe input and resize', async () => {
 
 test('relay rejects invalid resize frames', async () => {
   const relay = await createRelay();
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
 
   try {
     await authenticateGateway(gateway);
@@ -866,8 +866,8 @@ test('relay rejects invalid resize frames', async () => {
 
 test('relay rejects command-shaped frames', async () => {
   const relay = await createRelay();
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
 
   try {
     await authenticateGateway(gateway);
@@ -885,9 +885,9 @@ test('relay rejects command-shaped frames', async () => {
 
 test('relay rejects cross-account session list and wrong-session ticket subscribe', async () => {
   const relay = await createRelay();
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
-  const ticketClient = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+  const ticketClient = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
 
   try {
     await authenticateGateway(gateway);
@@ -920,8 +920,8 @@ test('relay rejects cross-account session list and wrong-session ticket subscrib
 
 test('relay hides unscoped sessions from token clients', async () => {
   const relay = await createRelay();
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
 
   try {
     await authenticateGateway(gateway);
@@ -950,8 +950,8 @@ test('relay hides unscoped sessions from token clients', async () => {
 
 test('relay allows unscoped sessions only for legacy secret clients', async () => {
   const relay = await createRelay({ allowLegacySecret: true });
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
   const legacyScope: RelayAuthScope = {
     accountId: 'acct_legacy',
     workspaceId: 'ws_legacy',
@@ -990,8 +990,8 @@ test('relay allows unscoped sessions only for legacy secret clients', async () =
 
 test('relay rejects observe tickets that send control frames', async () => {
   const relay = await createRelay();
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const ticketClient = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const ticketClient = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
 
   try {
     await authenticateGateway(gateway);
@@ -1050,8 +1050,8 @@ test('relay gateway.event syncToServer failure does not block frame forwarding',
       return undefined;
     }
   } as Parameters<typeof startRelayServer>[0]);
-  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
-  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
 
   try {
     await authenticateGateway(gateway);
