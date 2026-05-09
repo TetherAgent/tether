@@ -173,7 +173,7 @@ for (const provider of Object.values(PROVIDERS)) {
 
 const gatewayCommand = program
   .command('gateway')
-  .description('启动常驻 Tether Gateway，不创建新的 session')
+  .description('管理 Tether Gateway')
   .helpOption('-h, --help', '显示帮助')
   .addHelpCommand('help [command]', '显示指定 Gateway 命令的帮助')
   .action(async () => {
@@ -182,27 +182,11 @@ const gatewayCommand = program
       await startGatewayForeground(launchdProfile);
       return;
     }
-    await startGatewayForeground('relay');
-  });
-
-gatewayCommand
-  .command('init')
-  .description('初始化 Gateway 配置，选择 local/direct/relay 默认模式')
-  .action(async () => {
-    const profile = await promptGatewayProfile('请选择默认启动模式');
-    const existing = readTetherConfig();
-    const next: TetherConfig = {
-      ...defaultTetherConfig(profile),
-      providers: existing.providers
-    };
-    await writeTetherConfig(next);
-    console.log(`Gateway 配置已初始化：${configPath()}`);
-    console.log(`默认模式: ${profile}`);
-    console.log(`Server: ${resolveServerUrl({ file: next, profile })}`);
-    const resolved = resolveGatewayProfileConfig({ file: next, profile });
-    console.log(`Gateway: ${resolved.gateway.host}:${resolved.gateway.port}`);
-    if (resolved.relay) {
-      console.log(`Relay: ${resolved.relay.url}`);
+    const answer = await promptLine('运行模式：1. 前台  2. 后台（launchd）[默认 1]: ');
+    if (answer === '2' || answer === 'background' || answer === '后台') {
+      await startGatewayBackground();
+    } else {
+      await startGatewayForeground('relay');
     }
   });
 
@@ -216,27 +200,10 @@ gatewayCommand
   });
 
 gatewayCommand
-  .command('install')
-  .description('安装 macOS LaunchAgent，但不启动 Gateway')
-  .action(async () => {
-    const plistPath = await installLaunchAgent();
-    console.log(`LaunchAgent 已安装：${plistPath}`);
-    console.log('Gateway 尚未启动。运行 tether gateway start 可通过 launchd 启动。');
-  });
-
-gatewayCommand
   .command('start')
-  .description('选择 local/direct/relay 模式，并通过 launchd 启动 Gateway')
+  .description('通过 launchd 在后台启动 Gateway（无配置时自动初始化）')
   .action(async () => {
-    const profile = gatewayProfileFromEnv() ?? 'relay';
-    await ensureGatewayAuthForProfile(profile);
-    const before = await launchAgentStatus();
-    const status = await startLaunchAgent({ env: { ...process.env, TETHER_GATEWAY_PROFILE: profile } });
-    if (!before.installed) {
-      console.log(`LaunchAgent 未安装，已自动安装：${status.path}`);
-    }
-    console.log(`启动模式: ${profile}`);
-    console.log(`Gateway 已通过 launchd 启动：${status.path}`);
+    await startGatewayBackground();
   });
 
 gatewayCommand
@@ -256,38 +223,10 @@ gatewayCommand
   });
 
 gatewayCommand
-  .command('uninstall')
-  .description('停止 Gateway 并移除 macOS LaunchAgent')
-  .action(async () => {
-    const plistPath = await uninstallLaunchAgent();
-    console.log(`LaunchAgent 已卸载：${plistPath}`);
-  });
-
-gatewayCommand
   .command('status')
   .description('打印 Gateway 状态')
   .action(async () => {
     await printGatewayStatus();
-  });
-
-gatewayCommand
-  .command('delete-db')
-  .description('删除本机 Gateway SQLite 数据库，会清空 session 历史和回放数据')
-  .option('--yes', '确认删除数据库')
-  .action(async (options: { yes?: boolean }) => {
-    await deleteGatewayDatabase(options);
-  });
-
-gatewayCommand
-  .command('providers')
-  .description('列出 provider 命令配置')
-  .action(() => {
-    const config = readTetherConfig();
-    for (const provider of Object.values(PROVIDERS)) {
-      const command = config.providers?.[provider.name]?.command ?? provider.command;
-      const source = config.providers?.[provider.name]?.command ? '配置' : 'PATH';
-      console.log(`${provider.name}\t${source}\t${command}`);
-    }
   });
 
 gatewayCommand
@@ -298,21 +237,6 @@ gatewayCommand
   .option('--stdout', '只显示 stdout 日志')
   .action(async (options: { follow?: boolean; stderr?: boolean; stdout?: boolean }) => {
     await showGatewayLogs(options);
-  });
-
-gatewayCommand
-  .command('doctor')
-  .description('诊断 Gateway 后台运行环境')
-  .action(async () => {
-    await runGatewayDoctor();
-  });
-
-gatewayCommand
-  .command('verify')
-  .description('创建并停止一个短 session，用于验证 Gateway')
-  .option('--provider <provider>', '要验证的 provider', 'codex')
-  .action(async (options: { provider: string }) => {
-    await verifyGatewaySession(options.provider);
   });
 
 program
@@ -641,6 +565,27 @@ function parsePort(value: string): number {
     throw new Error(`invalid port: ${value}`);
   }
   return port;
+}
+
+async function startGatewayBackground(): Promise<void> {
+  let profile = gatewayProfileFromEnv();
+  if (!fs.existsSync(configPath())) {
+    const chosen = await promptGatewayProfile('首次启动，请选择运行模式');
+    const existing = readTetherConfig();
+    const next: TetherConfig = { ...defaultTetherConfig(chosen), providers: existing.providers };
+    await writeTetherConfig(next);
+    console.log(`配置已写入：${configPath()}`);
+    profile ??= chosen;
+  }
+  profile ??= 'relay';
+  await ensureGatewayAuthForProfile(profile);
+  const before = await launchAgentStatus();
+  const status = await startLaunchAgent({ env: { ...process.env, TETHER_GATEWAY_PROFILE: profile } });
+  if (!before.installed) {
+    console.log(`LaunchAgent 已安装：${status.path}`);
+  }
+  console.log(`启动模式: ${profile}`);
+  console.log(`Gateway 已在后台启动：${status.path}`);
 }
 
 async function startGatewayForeground(profile?: GatewayProfileName): Promise<void> {
@@ -1591,9 +1536,9 @@ async function promptGatewayProfile(title: string): Promise<GatewayProfileName> 
   console.log('1. local  - 开发人员本机调试：只监听 127.0.0.1，不给局域网访问');
   console.log('2. direct - 局域网直连：监听 0.0.0.0，浏览器直接连本机 Gateway，不走 Relay');
   console.log('3. relay  - 公网远程：本机 Gateway 主动连接 Relay，适合不在同一局域网时使用');
-  const answer = await promptLine('输入 1/2/3 或 local/direct/relay（默认 direct）: ');
+  const answer = await promptLine('输入 1/2/3 或 local/direct/relay（默认 relay）: ');
   if (!answer) {
-    return 'direct';
+    return 'relay';
   }
   if (answer === '1' || answer === 'local') {
     return 'local';
