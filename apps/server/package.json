@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "egg-bin dev --ts",
     "debug": "egg-bin debug --ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "pnpm tsc",
     "tsc": "tsc -p tsconfig.json --noEmit",
     "start": "pnpm tsc && pnpm stop && egg-scripts start --require ts-node/register --daemon --workers=1 --port=4800 --title=egg-server-tether-api",
     "stop": "egg-scripts stop --title=egg-server-tether-api",

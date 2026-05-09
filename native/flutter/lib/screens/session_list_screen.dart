@@ -52,42 +52,40 @@ class _SessionListScreenState extends State<SessionListScreen> {
                     ),
                     const SizedBox(height: 16),
                     if (relayClient.gatewayUnavailable)
-                      const _GatewayUnavailableEmptyState()
-                    else
-                      _SessionSegmentedTabBar(
-                        activeLabel: l10n.activeLabel,
-                        historyLabel: l10n.historyLabel,
-                      ),
+                      const _GatewayUnavailableEmptyState(),
+                    _SessionSegmentedTabBar(
+                      activeLabel: l10n.activeLabel,
+                      historyLabel: l10n.historyLabel,
+                    ),
                   ],
                 ),
               ),
-              if (!relayClient.gatewayUnavailable)
-                Expanded(
-                  child: TabBarView(
-                    children: [
-                      _SessionListTab(
-                        emptyText: l10n.noSessionsDescription,
-                        sessions: active,
-                        itemBuilder: (session) => SessionCard(
-                          session: session,
-                          onTap: () => context.push('/session/${session.id}'),
-                          onStop: () => relayClient.stopSession(session.id),
-                          isHistory: false,
-                        ),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    _SessionListTab(
+                      emptyText: l10n.noSessionsDescription,
+                      sessions: active,
+                      itemBuilder: (session) => SessionCard(
+                        session: session,
+                        onTap: () => context.push('/session/${session.id}'),
+                        onStop: () => relayClient.stopSession(session.id),
+                        isHistory: false,
                       ),
-                      _SessionListTab(
-                        emptyText: l10n.noSessionsDescription,
-                        sessions: history,
-                        itemBuilder: (session) => SessionCard(
-                          session: session,
-                          onTap: () => context.push('/replay/${session.id}'),
-                          onStop: () {},
-                          isHistory: true,
-                        ),
+                    ),
+                    _SessionListTab(
+                      emptyText: l10n.noSessionsDescription,
+                      sessions: history,
+                      itemBuilder: (session) => SessionCard(
+                        session: session,
+                        onTap: () => context.push('/replay/${session.id}'),
+                        onStop: () {},
+                        isHistory: true,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
+              ),
             ],
           ),
         ),

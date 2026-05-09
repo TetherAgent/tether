@@ -1,3 +1,4 @@
+import { readdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Service } from 'egg';
@@ -28,9 +29,14 @@ export default class DbService extends Service {
     }
     if (!schemaReady) {
       schemaReady = (async () => {
-        const sqlPath = path.resolve(__dirname, '../../sql/001_init.sql');
-        const sql = await readFile(sqlPath, 'utf8');
-        await this.mysql().query(sql);
+        const sqlDir = path.resolve(__dirname, '../../sql');
+        const files = readdirSync(sqlDir)
+          .filter(f => f.endsWith('.sql'))
+          .sort();
+        for (const file of files) {
+          const sql = await readFile(path.join(sqlDir, file), 'utf8');
+          await this.mysql().query(sql);
+        }
       })();
     }
     await schemaReady;

@@ -4,12 +4,14 @@
 
 import 'egg';
 import ExportError from '../../../app/middleware/error';
+import ExportRequireRuntimeSyncSecret from '../../../app/middleware/require-runtime-sync-secret';
 import ExportRequireTokenClass from '../../../app/middleware/require-token-class';
 import ExportVerifyLogin from '../../../app/middleware/verify-login';
 
 declare module 'egg' {
   interface IMiddleware {
     error: typeof ExportError;
+    requireRuntimeSyncSecret: typeof ExportRequireRuntimeSyncSecret;
     requireTokenClass: typeof ExportRequireTokenClass;
     verifyLogin: typeof ExportVerifyLogin;
   }

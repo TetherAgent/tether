@@ -1019,6 +1019,87 @@ test('relay rejects observe tickets that send control frames', async () => {
   }
 });
 
+test('relay gateway.event syncToServer failure does not block frame forwarding', async () => {
+  const relay = await startRelayServer({
+    host: '127.0.0.1',
+    port: 0,
+    secret: SECRET,
+    serverSyncUrl: 'http://127.0.0.1:1',
+    runtimeSyncSecret: 'test-sync-secret',
+    validateToken: async (token) => {
+      if (token === GATEWAY_TOKEN) {
+        return {
+          accountId: 'acct_1',
+          workspaceId: 'ws_1',
+          gatewayId: 'gateway-test',
+          tokenClass: 'gateway_access',
+          expiresAt: Date.now() + 60_000,
+          jti: 'jti_sync_test'
+        };
+      }
+      if (token === CLIENT_TOKEN) {
+        return {
+          accountId: 'acct_1',
+          workspaceId: 'ws_1',
+          userId: 'user_1',
+          tokenClass: 'normal_client_access',
+          expiresAt: Date.now() + 60_000,
+          jti: 'jti_sync_client'
+        };
+      }
+      return undefined;
+    }
+  } as Parameters<typeof startRelayServer>[0]);
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/client`);
+
+  try {
+    await authenticateGateway(gateway);
+    await authenticateClient(client);
+
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [{
+        id: 'tth_sync_fail_test',
+        provider: 'codex',
+        title: 'Sync Fail Test',
+        projectPath: process.cwd(),
+        accountId: 'acct_1',
+        workspaceId: 'ws_1',
+        gatewayId: 'gateway-test',
+        userId: 'user_1',
+        status: 'running',
+        transport: 'pty-event-stream',
+        lastActiveAt: Date.now()
+      }]
+    }));
+    await waitForJson(client, (message) => message.type === 'sessions');
+
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_sync_fail_test', after: 0, mode: 'control' }));
+    await waitForJson(gateway, (message) => message.type === 'client.subscribe');
+
+    gateway.send(JSON.stringify({
+      type: 'gateway.event',
+      gatewayId: 'gateway-test',
+      event: {
+        id: 1,
+        sessionId: 'tth_sync_fail_test',
+        type: 'terminal.output',
+        ts: Date.now(),
+        payload: { data: 'hello\r\n', encoding: 'utf8' }
+      }
+    }));
+
+    const receivedEvent = await waitForJson(client, (message) => message.type === 'event');
+    assert.equal((receivedEvent.event as Record<string, unknown>)?.type, 'terminal.output');
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+  }
+});
+
 async function authenticateGateway(ws: WebSocket, gatewayId = 'gateway-test'): Promise<void> {
   await waitForOpen(ws);
   ws.send(JSON.stringify({ type: 'gateway.auth', gatewayId, token: GATEWAY_TOKEN }));

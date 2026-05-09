@@ -849,7 +849,7 @@ test('direct websocket chat emits user turn, agent.typing and conversation API r
       assert.match(event, /"agent\.typing"/);
       assert.equal((await subscriberEvent).type, 'agent.turn');
       await ptyOutput;
-      await waitFor(() => store.listConversationTurns(sessionId).some((turn) => turn.role === 'user' && turn.content === 'hello direct chat'), 1000);
+      await waitFor(() => store.listAgentTurns(sessionId).some((turn) => turn.role === 'user' && turn.content === 'hello direct chat'), 1000);
 
       const response = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/conversation`, {
         headers: authHeaders()

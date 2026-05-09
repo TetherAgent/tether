@@ -18,7 +18,7 @@ import {
 import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { useUiPreferences } from '../../hooks/use-ui-preferences.js';
-import { gatewayAuthHeaders, requestGatewayWsTicket } from '../../lib/api.js';
+import { gatewayAuthHeaders, readGatewayData, requestGatewayWsTicket } from '../../lib/api.js';
 import { SessionDetailHeader, TerminalSurfaceSkeleton } from './session-detail-chrome.js';
 
 type Session = {
@@ -794,13 +794,11 @@ function PtySessionView({
     };
 
     const replayEvents = async () => {
-      if (connectionSettings.connectionMode === 'relay') {
-        replayComplete = false;
-        return;
-      }
       fitAddon.fit();
       sendResize();
-      await syncTerminalSize();
+      if (connectionSettings.connectionMode === 'direct') {
+        await syncTerminalSize();
+      }
       setStatus(t.statusReplaying);
       const shouldUseRecentReplay = replayOnly && replayMode === 'recent';
       const fetchReplayPage = async (query: string): Promise<SessionEvent[]> => {
@@ -815,7 +813,7 @@ function PtySessionView({
         if (!response.ok) {
           throw new Error(`events HTTP ${response.status}`);
         }
-        const data = (await response.json()) as { events: SessionEvent[] };
+        const data = await readGatewayData<{ events: SessionEvent[] }>(response);
         return data.events;
       };
 
@@ -857,7 +855,7 @@ function PtySessionView({
         if (!response.ok) {
           return;
         }
-        const data = (await response.json()) as { events: SessionEvent[] };
+        const data = await readGatewayData<{ events: SessionEvent[] }>(response);
         for (const event of data.events) {
           writeEventNow(event);
         }

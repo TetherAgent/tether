@@ -11,6 +11,7 @@
     "dev:web": "pnpm --filter @tether/web dev",
     "dev:web:remote": "TETHER_WEB_AUTH_API_URL=https://tether.earntools.me VITE_TETHER_CONNECTION_MODE=relay VITE_TETHER_RELAY_URL=wss://tether.earntools.me pnpm --filter @tether/web dev",
     "dev:admin": "pnpm --filter @tether/admin-web dev",
+    "clean":"pnpm --filter @tether/server clean",
     "dev:server": "if [ -f env.sh ]; then . env.sh; elif [ -f /data/env/tether.sh ]; then . /data/env/tether.sh; fi; EGG_SERVER_ENV=local pnpm --filter @tether/server dev",
     "build:web": "pnpm --filter @tether/web build",
     "build:admin": "pnpm --filter @tether/admin-web build",

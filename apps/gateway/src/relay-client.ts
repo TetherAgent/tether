@@ -14,7 +14,7 @@ import { handleChatMessage } from './chat-handler.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import { replaySessionEvents } from './replay.js';
 import type { SessionRunnerClient } from './session-runner-client.js';
-import type { ConversationTurn, Session, SessionEvent, Store } from './store.js';
+import type { AgentTurn, Session, SessionEvent, Store } from './store.js';
 
 export type RelayClientOptions = {
   url: string;
@@ -367,23 +367,18 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   };
 
   const replayEvents = (clientId: string, sessionId: string, after: number, tail?: number): number => {
-    let conversationSent = false;
     return replaySessionEvents({
       store: options.store,
       sessionId,
       after,
       tail,
       sendPage: ({ events, done, latestEventId }) => {
-        const replayEvents = conversationSent
-          ? events
-          : [...conversationTurnsToRelayEvents(options.store.listConversationTurns(sessionId)), ...events];
-        conversationSent = true;
         send({
           type: 'gateway.replay',
           gatewayId: effectiveGatewayId,
           clientId,
           sessionId,
-          events: replayEvents.map(toRelayEvent),
+          events: events.map(toRelayEvent),
           done,
           latestEventId
         });
@@ -402,13 +397,13 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       gatewayId: effectiveGatewayId,
       clientId,
       sessionId,
-      turns: options.store.listConversationTurns(sessionId).map((turn) => ({
+      turns: options.store.listAgentTurns(sessionId).map((turn) => ({
         id: turn.id,
         sessionId: turn.sessionId,
         turnIndex: turn.turnIndex,
         role: turn.role,
         content: turn.content,
-        tools: parseConversationTools(turn.tools),
+        tools: turn.tools,
         createdAt: turn.createdAt
       }))
     });
@@ -513,13 +508,13 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       }
       if (frame.method === 'GET' && frame.path === '/api/sessions/:id/conversation') {
         respond(200, {
-          turns: options.store.listConversationTurns(sessionId).map((turn) => ({
+          turns: options.store.listAgentTurns(sessionId).map((turn) => ({
             id: turn.id,
             sessionId: turn.sessionId,
             turnIndex: turn.turnIndex,
             role: turn.role,
             content: turn.content,
-            tools: parseConversationTools(turn.tools),
+            tools: turn.tools,
             createdAt: turn.createdAt
           }))
         });
@@ -677,48 +672,6 @@ function toRelayEvent(event: SessionEvent): RelayTerminalEvent {
     ts: event.ts,
     payload: sanitizeRelayPayload(event.payload)
   };
-}
-
-function conversationTurnsToRelayEvents(turns: ConversationTurn[]): SessionEvent[] {
-  return turns.map((turn) => ({
-    id: -1_000_000_000 - turn.turnIndex,
-    sessionId: turn.sessionId,
-    type: 'agent.turn',
-    ts: turn.createdAt,
-    payload: {
-      role: turn.role,
-      content: turn.content,
-      tools: parseConversationTools(turn.tools),
-      turnIndex: turn.turnIndex,
-      createdAt: turn.createdAt
-    }
-  }));
-}
-
-function parseConversationTools(raw: string | null): Array<{ name: string; inputSummary: string }> {
-  if (!raw) {
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed.flatMap((entry) => {
-      if (!entry || typeof entry !== 'object') {
-        return [];
-      }
-      const item = entry as Record<string, unknown>;
-      return [
-        {
-          name: typeof item.name === 'string' ? item.name : '',
-          inputSummary: typeof item.inputSummary === 'string' ? item.inputSummary : ''
-        }
-      ];
-    });
-  } catch {
-    return [];
-  }
 }
 
 function sanitizeRelayPayload(payload: Record<string, unknown>): Record<string, unknown> {

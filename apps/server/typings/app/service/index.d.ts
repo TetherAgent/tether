@@ -18,6 +18,8 @@ import ExportGatewayRepository from '../../../app/service/gatewayRepository';
 import ExportNotification from '../../../app/service/notification';
 import ExportRedis from '../../../app/service/redis';
 import ExportRuntime from '../../../app/service/runtime';
+import ExportRuntimeSyncRepository from '../../../app/service/runtimeSyncRepository';
+import ExportSessionRepository from '../../../app/service/sessionRepository';
 import ExportAdminAdmins from '../../../app/service/admin/admins';
 import ExportAdminAudit from '../../../app/service/admin/audit';
 import ExportAdminDevices from '../../../app/service/admin/devices';
@@ -37,6 +39,8 @@ declare module 'egg' {
     notification: AutoInstanceType<typeof ExportNotification>;
     redis: AutoInstanceType<typeof ExportRedis>;
     runtime: AutoInstanceType<typeof ExportRuntime>;
+    runtimeSyncRepository: AutoInstanceType<typeof ExportRuntimeSyncRepository>;
+    sessionRepository: AutoInstanceType<typeof ExportSessionRepository>;
     admin: {
       admins: AutoInstanceType<typeof ExportAdminAdmins>;
       audit: AutoInstanceType<typeof ExportAdminAudit>;

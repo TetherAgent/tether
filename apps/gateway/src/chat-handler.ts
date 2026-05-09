@@ -20,12 +20,11 @@ export async function handleChatMessage(
   ptyWriter?: ChatPtyWriter
 ): Promise<SessionEvent[]> {
   const safeMessage = message.slice(0, 4000);
-  const turnIndex = store.insertConversationTurn(sessionId, 'user', safeMessage);
   const userTurn = store.appendEvent(sessionId, 'agent.turn', {
     role: 'user',
     content: safeMessage,
     tools: [],
-    turnIndex
+    turnIndex: 0
   });
   if (runnerClient) {
     await runnerClient.write(safeMessage, 'chat');
@@ -35,5 +34,5 @@ export async function handleChatMessage(
     await ptyWriter('\r', 'chat');
   }
   const typing = store.appendEvent(sessionId, 'agent.typing', {});
-  return [userTurn, typing];
+  return [{ ...userTurn, payload: { ...userTurn.payload, turnIndex: userTurn.id } }, typing];
 }

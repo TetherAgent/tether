@@ -84,6 +84,15 @@ export function gatewayAuthHeaders(token?: string): HeadersInit | undefined {
   };
 }
 
+export async function readGatewayData<T>(response: Response): Promise<T> {
+  const body = await response.json() as T | { code?: number; data?: T };
+  if (body && typeof body === 'object' && 'code' in body && 'data' in body) {
+    const payload = body as { code?: number; data?: T };
+    return payload.data as T;
+  }
+  return body as T;
+}
+
 export async function registerNormal(input: { email: string; password: string; displayName?: string }) {
   try {
     return await http.post<NormalAuthPayload>('/api/auth/register', input, {

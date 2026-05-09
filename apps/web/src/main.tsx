@@ -52,7 +52,7 @@ import { UiPreferencesProvider } from './contexts/ui-preferences-context.js';
 import { useAuth } from './hooks/use-auth.js';
 import { useI18n } from './hooks/use-i18n.js';
 import { useUiPreferences } from './hooks/use-ui-preferences.js';
-import { gatewayAuthHeaders } from './lib/api.js';
+import { gatewayAuthHeaders, readGatewayData } from './lib/api.js';
 import { WebChromeControls } from './components/console/web-chrome-controls.js';
 import { SessionControlPage } from './pages/session-control-page.js';
 import { SessionReplayPage } from './pages/session-replay-page.js';
@@ -439,8 +439,8 @@ function SessionList({
       if (!gatewaysResponse.ok) {
         throw new Error(`gateways HTTP ${gatewaysResponse.status}`);
       }
-      const sessionsData = (await sessionsResponse.json()) as { sessions: Session[] };
-      const historyData = (await historyResponse.json()) as { sessions: Session[] };
+      const sessionsData = await readGatewayData<{ sessions: Session[] }>(sessionsResponse);
+      const historyData = await readGatewayData<{ sessions: Session[] }>(historyResponse);
       const gatewaysData = (await gatewaysResponse.json()) as { gateways: Gateway[] };
       const active = sessionsData.sessions.filter((session) => session.status === 'running');
       const activeIds = new Set(active.map((session) => session.id));
@@ -456,6 +456,36 @@ function SessionList({
       setHasLoadedSessions(true);
     }
   }, [logoutNormal, normalAuth?.accessToken, t.statusDisconnected]);
+
+  const refreshRelaySessions = React.useCallback(async () => {
+    try {
+      const [sessionsResponse, historyResponse] = await Promise.all([
+        gatewayRequest('/api/sessions'),
+        gatewayRequest('/api/sessions?all=1')
+      ]);
+      if (sessionsResponse.status === 401 || historyResponse.status === 401) {
+        logoutNormal();
+      }
+      if (!sessionsResponse.ok) {
+        throw new Error(`sessions HTTP ${sessionsResponse.status}`);
+      }
+      if (!historyResponse.ok) {
+        throw new Error(`history HTTP ${historyResponse.status}`);
+      }
+      const sessionsData = await readGatewayData<{ sessions: Session[] }>(sessionsResponse);
+      const historyData = await readGatewayData<{ sessions: Session[] }>(historyResponse);
+      const active = sessionsData.sessions.filter((session) => session.status === 'running');
+      const activeIds = new Set(active.map((session) => session.id));
+      setSessions(active);
+      setHistory(historyData.sessions.filter((session) => !activeIds.has(session.id)).slice(0, 8));
+      setGateways([]);
+      setStatus(new Date().toLocaleTimeString());
+      setHasLoadedSessions(true);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : t.statusDisconnected);
+      setHasLoadedSessions(true);
+    }
+  }, [logoutNormal, t.statusDisconnected]);
 
   React.useEffect(() => {
     if (connectionSettings.connectionMode !== 'direct') {
@@ -474,6 +504,7 @@ function SessionList({
     let disposed = false;
     let ws: WebSocket | undefined;
     let timer: number | undefined;
+    const preferServerReads = Boolean(normalAuth?.accessToken);
     setHasLoadedSessions(false);
     setSessions([]);
     setHistory([]);
@@ -510,10 +541,19 @@ function SessionList({
       }
       const frame = parsedFrame as RelayServerToClientFrame;
       if (frame.type === 'client.auth.ok') {
-        setRelayGatewayUnavailable(false);
         setStatus(`${t.relayClientStatusPrefix} · ${frame.clientId.slice(0, 8)}`);
-        sendList();
-        timer = window.setInterval(sendList, 3000);
+        if (preferServerReads) {
+          void refreshRelaySessions();
+          sendList();
+          timer = window.setInterval(() => {
+            void refreshRelaySessions();
+            sendList();
+          }, 3000);
+        } else {
+          setRelayGatewayUnavailable(false);
+          sendList();
+          timer = window.setInterval(sendList, 3000);
+        }
         return;
       }
       if (frame.type === 'client.auth.failed') {
@@ -524,19 +564,20 @@ function SessionList({
         return;
       }
       if (frame.type === 'sessions') {
-        const next = splitActiveSessions(frame.sessions);
-        setSessions(next.active);
-        setHistory(next.history);
         setRelayGatewayUnavailable(false);
-        setStatus(new Date().toLocaleTimeString());
-        setHasLoadedSessions(true);
+        if (preferServerReads) {
+          void refreshRelaySessions();
+        } else {
+          const next = splitActiveSessions(frame.sessions);
+          setSessions(next.active);
+          setHistory(next.history);
+          setStatus(new Date().toLocaleTimeString());
+          setHasLoadedSessions(true);
+        }
         return;
       }
       if (frame.type === 'error') {
         if (frame.code === 'gateway_unavailable') {
-          setSessions([]);
-          setHistory([]);
-          setGateways([]);
           setRelayGatewayUnavailable(true);
           setStatus(t.gatewayNotConnected);
           setHasLoadedSessions(true);
@@ -571,7 +612,7 @@ function SessionList({
         listSocket.current = undefined;
       }
     };
-  }, [connectionSettings.connectionMode, connectionSettings.relaySecret, connectionSettings.relayUrl, logoutNormal, normalAuth?.accessToken, t]);
+  }, [connectionSettings.connectionMode, connectionSettings.relaySecret, connectionSettings.relayUrl, logoutNormal, normalAuth?.accessToken, refreshRelaySessions, t]);
 
   const stopSession = React.useCallback(async (sessionId: string) => {
     setStatus(t.statusStopping);
@@ -603,7 +644,7 @@ function SessionList({
 
   const activeGateway = gateways[0];
   const isRelayMode = connectionSettings.connectionMode === 'relay';
-  const isRelayGatewayUnavailable = isRelayMode && relayGatewayUnavailable;
+  const isRelayGatewayUnavailable = isRelayMode && relayGatewayUnavailable && sessions.length === 0 && history.length === 0;
   const emptyStateIcon = isRelayGatewayUnavailable
     ? <WifiOff aria-hidden="true" />
     : <MonitorDot aria-hidden="true" />;

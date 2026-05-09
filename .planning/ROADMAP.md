@@ -257,18 +257,25 @@ Plans:
 **Goal:** Web/App 从 Server DB 直接读取 session 列表、聊天历史和受限 Terminal 历史，不再依赖 Gateway 反向 RPC。Relay 收到 Gateway 上报的 `gateway.sessions` / `gateway.conversation` / `gateway.event` frame 后，通过内部 HTTP sync API 实时持久化到 Server DB，实现 Gateway 离线时历史仍可读、多端数据一致。
 **Requirements**: SYNC-01
 **Depends on:** Phase 11
-**Plans:** 7 plans
+**Plans:** 8 plans
+
+**Cross-cutting constraints:**
+- 所有 sync 写入前必须通过 `TETHER_RUNTIME_SYNC_SECRET` header 校验（D-06），nginx 额外限 127.0.0.1（D-06）
+- 写 gateway_chat_messages / gateway_runtime_events 前先查 gateway_sessions 验证 account/workspace/gateway 归属（D-03 防串）
+- Relay syncToServer 调用必须为 `void`（不 await），sync 失败只 console.warn 不阻塞转发（D-04, D-05）
 
 Plans:
-  - **Wave 1** (no deps):
+  - **Wave 0** (no deps — test scaffold):
+    - [ ] `12-00-PLAN.md` — 测试文件脚手架（runtime-sync.test.ts + session-read.test.ts + relay.test.ts 追加）
+  - **Wave 1** *(no deps — can run parallel with Wave 0)*:
     - [ ] `12-01-PLAN.md` — SQL migration (002_gateway_runtime_sync.sql) + db.ts ensureSchema 动态加载
-  - **Wave 2** *(depends on Plan 01)*:
+  - **Wave 2** *(blocked on Wave 0 + Wave 1 completion)*:
     - [ ] `12-02-PLAN.md` — Server runtime-sync 写接口（controller + service + middleware + router）
     - [ ] `12-03-PLAN.md` — Relay syncToServer 调用（handleGatewayFrame 三个 case 追加 void 调用）
-  - **Wave 3** *(depends on Plans 02)*:
-    - [ ] `12-04-PLAN.md` — Server session 读接口（GET /api/sessions + /conversation + /events）
+  - **Wave 3** *(blocked on Wave 2 completion)*:
+    - [ ] `12-04-PLAN.md` — Server session 读接口（GET /api/sessions + /conversation + /events）+ nginx 路由配置
     - [ ] `12-05-PLAN.md` — Egg schedule 定时清理任务（app/schedule/ 首建）
-  - **Wave 4** *(depends on Plans 03, 04)*:
+  - **Wave 4** *(blocked on Wave 3 completion)*:
     - [ ] `12-06-PLAN.md` — Gateway conversation_turns 废弃（store.ts DDL 删除 + journal-watcher.ts 清理）
     - [ ] `12-07-PLAN.md` — Flutter ConversationService 切换（移除 Relay WS fallback）
 

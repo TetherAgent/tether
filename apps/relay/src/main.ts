@@ -4,6 +4,7 @@ import type { RelayAuthScope } from '@tether/protocol';
 const secret = process.env.TETHER_RELAY_SECRET;
 const allowLegacySecret = process.env.TETHER_RELAY_ALLOW_LEGACY_SECRET === '1';
 const serverUrl = process.env.TETHER_SERVER_URL?.replace(/\/+$/, '');
+const runtimeSyncSecret = process.env.TETHER_RUNTIME_SYNC_SECRET;
 if (!secret && allowLegacySecret) {
   console.error('TETHER_RELAY_SECRET is required');
   process.exit(1);
@@ -25,6 +26,8 @@ const relay = await startRelayServer({
   port,
   secret: secret ?? '',
   allowLegacySecret,
+  serverSyncUrl: serverUrl,
+  runtimeSyncSecret,
   validateToken: serverUrl
     ? async (token) => {
         const response = await fetch(`${serverUrl}/api/token/validate`, {

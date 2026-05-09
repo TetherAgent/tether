@@ -376,7 +376,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!ownership.ok) {
       return c.json({ error: ownership.error }, ownership.status);
     }
-    const conversationTurns = options.store.listConversationTurns(session.id);
+    const conversationTurns = options.store.listAgentTurns(session.id);
     return c.json({ turns: conversationTurns });
   });
 

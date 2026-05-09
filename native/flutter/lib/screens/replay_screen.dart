@@ -20,6 +20,7 @@ class _ReplayScreenState extends State<ReplayScreen> {
   RelayClient? _relayClient;
   StreamSubscription<ReplayOutput>? _subscription;
   final StringBuffer _buffer = StringBuffer();
+  bool _hydrated = false;
 
   @override
   void didChangeDependencies() {
@@ -33,8 +34,42 @@ class _ReplayScreenState extends State<ReplayScreen> {
         _buffer.write(frame.data);
       });
     });
-    _relayClient!
-        .subscribe(widget.sessionId, mode: RelayClientMode.observe, after: 0);
+    if (!_hydrated) {
+      _hydrated = true;
+      unawaited(_loadReplay());
+    }
+  }
+
+  Future<void> _loadReplay() async {
+    final relayClient = _relayClient;
+    if (relayClient == null) {
+      return;
+    }
+    var after = 0;
+    var keepLoading = true;
+    while (keepLoading) {
+      final data = await relayClient.authService.getSessionEvents(
+        widget.sessionId,
+        after: after,
+        limit: 1000,
+      );
+      final rawEvents = data['events'] as List<dynamic>? ?? const [];
+      if (rawEvents.isEmpty) {
+        break;
+      }
+      for (final entry in rawEvents) {
+        final event = RelayTerminalEvent.fromJson(entry as Map<String, dynamic>);
+        final output = event.payload['data'] as String?;
+        if (output != null && output.isNotEmpty) {
+          _buffer.write(output);
+        }
+        after = event.id;
+      }
+      keepLoading = rawEvents.length == 1000;
+      if (mounted) {
+        setState(() {});
+      }
+    }
   }
 
   @override

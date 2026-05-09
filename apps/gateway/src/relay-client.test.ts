@@ -213,8 +213,8 @@ test('gateway relay client includes conversation turns in replay for mobile chat
     rows: 24,
     owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_replay_conversation' }
   });
-  store.insertConversationTurn(sessionId, 'user', '1', undefined, Date.now() - 1000);
-  store.insertConversationTurn(sessionId, 'assistant', '请选择一个任务', undefined, Date.now());
+  store.appendEvent(sessionId, 'agent.turn', { role: 'user', content: '1', tools: [], turnIndex: 0 });
+  store.appendEvent(sessionId, 'agent.turn', { role: 'assistant', content: '请选择一个任务', tools: [], turnIndex: 0 });
   const relayClient = startRelayClient({
     url: relay.url,
     secret: SECRET,
@@ -271,8 +271,8 @@ test('gateway relay client serves structured conversation on request', async () 
     rows: 24,
     owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_conversation_request' }
   });
-  store.insertConversationTurn(sessionId, 'user', '1', undefined, Date.now() - 1000);
-  store.insertConversationTurn(sessionId, 'assistant', '结构化回复', undefined, Date.now());
+  store.appendEvent(sessionId, 'agent.turn', { role: 'user', content: '1', tools: [], turnIndex: 0 });
+  store.appendEvent(sessionId, 'agent.turn', { role: 'assistant', content: '结构化回复', tools: [], turnIndex: 0 });
   const relayClient = startRelayClient({
     url: relay.url,
     secret: SECRET,
@@ -323,7 +323,6 @@ test('gateway relay client serves HTTP RPC conversation, events, input and stop 
     rows: 24,
     owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_http_rpc' }
   });
-  store.insertConversationTurn(sessionId, 'user', 'hello http', undefined, Date.now() - 1000);
   store.appendEvent(sessionId, 'agent.turn', { role: 'user', content: 'hello http', tools: [], turnIndex: 0 });
   const relayClient = startRelayClient({
     url: relay.url,
@@ -595,7 +594,7 @@ test('gateway relay client forwards chat as user turn and agent.typing events', 
     const event = await typingPromise;
     assert.equal(event.type, 'event');
     assert.equal((await outputPromise).type, 'event');
-    const turns = store.listConversationTurns(sessionId);
+    const turns = store.listAgentTurns(sessionId);
     assert.equal(turns.at(-1)?.role, 'user');
     assert.equal(turns.at(-1)?.content, 'hello relay chat');
   } finally {

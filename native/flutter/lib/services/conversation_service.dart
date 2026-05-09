@@ -220,7 +220,7 @@ class ConversationService extends ChangeNotifier {
           .toList();
       _replaceWithConversation(turns);
     } catch (_) {
-      relayClient.requestConversation(sessionId);
+      // Server DB miss returns an empty array; do not fall back to Relay WS reads.
     }
   }
 

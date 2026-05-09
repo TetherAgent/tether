@@ -244,9 +244,11 @@ class RelayClient extends ChangeNotifier {
         status = frame.message;
         hasLoaded = true;
       case Sessions():
-        sessions = frame.sessions;
-        hasLoaded = true;
-        gatewayUnavailable = false;
+        if (sessions.isEmpty) {
+          sessions = frame.sessions;
+          hasLoaded = true;
+          gatewayUnavailable = false;
+        }
       case Hello():
         status = 'hello:${frame.clientId}';
       case Event():
@@ -263,7 +265,6 @@ class RelayClient extends ChangeNotifier {
         hasLoaded = true;
         status = frame.message;
         if (frame.code == 'gateway_unavailable') {
-          sessions = <RelaySession>[];
           gatewayUnavailable = true;
         }
     }
@@ -295,9 +296,7 @@ class RelayClient extends ChangeNotifier {
       hasLoaded = true;
       gatewayUnavailable = false;
       notifyListeners();
-    } catch (_) {
-      sendFrame(const ClientList());
-    }
+    } catch (_) {}
   }
 
   void _scheduleReconnect() {

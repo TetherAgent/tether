@@ -6,7 +6,7 @@ import { Button, Textarea } from '@tether/design';
 import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { useUiPreferences } from '../../hooks/use-ui-preferences.js';
-import { gatewayAuthHeaders, requestGatewayWsTicket } from '../../lib/api.js';
+import { gatewayAuthHeaders, readGatewayData, requestGatewayWsTicket } from '../../lib/api.js';
 import { ChatBubble, ChatThinkingBubble } from './chat-bubble.js';
 import { ChatMarkdown } from './chat-markdown.js';
 import { TerminalSurfaceSkeleton } from './session-detail-chrome.js';
@@ -445,15 +445,20 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       if (!response.ok) {
         return;
       }
-      const data = (await response.json()) as { turns: ConversationTurn[] };
+      const data = await readGatewayData<{ turns: Array<ConversationTurn | RelayConversationTurn> }>(response);
       setChatMessages((prev) => {
         let next = prev;
         for (const turn of data.turns) {
+          const tools = Array.isArray(turn.tools)
+            ? turn.tools
+            : turn.tools
+              ? (JSON.parse(turn.tools) as ToolInfo[])
+              : [];
           next = upsertChatMessage(next, {
             id: `turn:${turn.turnIndex}`,
             role: turn.role,
             content: turn.content,
-            tools: turn.tools ? (JSON.parse(turn.tools) as ToolInfo[]) : [],
+            tools,
             createdAt: turn.createdAt
           });
         }
@@ -689,7 +694,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       if (!response.ok) {
         throw new Error(`events HTTP ${response.status}`);
       }
-      const data = (await response.json()) as { events: SessionEvent[] };
+      const data = await readGatewayData<{ events: SessionEvent[] }>(response);
       return data.events;
     };
 

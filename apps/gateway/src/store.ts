@@ -64,13 +64,13 @@ export type SessionEvent<TPayload extends Record<string, unknown> = Record<strin
   payload: TPayload;
 };
 
-export type ConversationTurn = {
+export type AgentTurn = {
   id: number;
   sessionId: string;
   turnIndex: number;
   role: 'user' | 'assistant';
   content: string;
-  tools: string | null;
+  tools: unknown[];
   createdAt: number;
 };
 
@@ -150,16 +150,6 @@ export class Store {
       CREATE INDEX IF NOT EXISTS idx_session_events_cursor
       ON session_events(session_id, id);
 
-      CREATE TABLE IF NOT EXISTS conversation_turns (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id  TEXT    NOT NULL,
-        turn_index  INTEGER NOT NULL,
-        role        TEXT    NOT NULL,
-        content     TEXT    NOT NULL,
-        tools       TEXT,
-        created_at  INTEGER NOT NULL,
-        UNIQUE(session_id, turn_index)
-      );
     `);
     this.migrate();
   }
@@ -268,12 +258,26 @@ export class Store {
          VALUES (?, ?, ?, ?)`
       )
       .run(sessionId, type, ts, JSON.stringify(payload));
+    let normalizedPayload = payload;
+    if (
+      type === 'agent.turn' &&
+      typeof payload.turnIndex === 'number' &&
+      payload.turnIndex === 0
+    ) {
+      normalizedPayload = {
+        ...payload,
+        turnIndex: Number(result.lastInsertRowid)
+      };
+      this.db
+        .prepare('UPDATE session_events SET payload_json = ? WHERE id = ?')
+        .run(JSON.stringify(normalizedPayload), Number(result.lastInsertRowid));
+    }
     return {
       id: Number(result.lastInsertRowid),
       sessionId,
       type,
       ts,
-      payload
+      payload: normalizedPayload
     };
   }
 
@@ -290,53 +294,36 @@ export class Store {
     return rows.map(eventFromRow).filter((event): event is SessionEvent => event !== null);
   }
 
-  insertConversationTurn(
-    sessionId: string,
-    role: 'user' | 'assistant',
-    content: string,
-    tools?: string,
-    ts = Date.now()
-  ): number {
-    this.db.exec('BEGIN');
-    try {
-      const row = this.db
-        .prepare('SELECT COALESCE(MAX(turn_index), -1) + 1 AS next_index FROM conversation_turns WHERE session_id = ?')
-        .get(sessionId) as { next_index: number };
-      this.db
-        .prepare(
-          `INSERT OR IGNORE INTO conversation_turns (session_id, turn_index, role, content, tools, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)`
-        )
-        .run(sessionId, row.next_index, role, content, tools ?? null, ts);
-      this.db.exec('COMMIT');
-      return row.next_index;
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
-    }
-  }
-
-  listConversationTurns(sessionId: string): ConversationTurn[] {
+  listAgentTurns(sessionId: string): AgentTurn[] {
     const rows = this.db
-      .prepare('SELECT * FROM conversation_turns WHERE session_id = ? ORDER BY turn_index ASC')
-      .all(sessionId) as Array<{
-      id: number;
-      session_id: string;
-      turn_index: number;
-      role: string;
-      content: string;
-      tools: string | null;
-      created_at: number;
-    }>;
-    return rows.map((row) => ({
-      id: row.id,
-      sessionId: row.session_id,
-      turnIndex: row.turn_index,
-      role: row.role as 'user' | 'assistant',
-      content: row.content,
-      tools: row.tools,
-      createdAt: row.created_at
-    }));
+      .prepare(
+        `SELECT * FROM session_events
+         WHERE session_id = ? AND type = 'agent.turn'
+         ORDER BY id ASC`
+      )
+      .all(sessionId) as SessionEventRow[];
+    return rows.flatMap((row) => {
+      let payload: Record<string, unknown>;
+      try {
+        payload = JSON.parse(row.payload_json) as Record<string, unknown>;
+      } catch {
+        return [];
+      }
+      const role = payload.role;
+      const content = payload.content;
+      if ((role !== 'user' && role !== 'assistant') || typeof content !== 'string') {
+        return [];
+      }
+      return [{
+        id: row.id,
+        sessionId: row.session_id,
+        turnIndex: typeof payload.turnIndex === 'number' ? payload.turnIndex : row.id,
+        role,
+        content,
+        tools: Array.isArray(payload.tools) ? payload.tools : [],
+        createdAt: typeof payload.createdAt === 'number' ? payload.createdAt : row.ts
+      }];
+    });
   }
 
   listRecentEvents(sessionId: string, limit = 500): SessionEvent[] {

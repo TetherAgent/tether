@@ -141,7 +141,7 @@ class AuthService extends ChangeNotifier {
       '/api/sessions/$sessionId/conversation',
       options: await _authOptions(),
     );
-    return response.data ?? const <String, dynamic>{};
+    return _unwrapApiData(response.data);
   }
 
   Future<List<RelaySession>> getSessions() async {
@@ -150,7 +150,7 @@ class AuthService extends ChangeNotifier {
       options: await _authOptions(),
     );
     final rawSessions =
-        response.data?['sessions'] as List<dynamic>? ?? const [];
+        _unwrapApiData(response.data)['sessions'] as List<dynamic>? ?? const [];
     return rawSessions
         .map((entry) => RelaySession.fromJson(entry as Map<String, dynamic>))
         .toList();
@@ -166,7 +166,7 @@ class AuthService extends ChangeNotifier {
       queryParameters: {'after': after, 'limit': limit},
       options: await _authOptions(),
     );
-    return response.data ?? const <String, dynamic>{};
+    return _unwrapApiData(response.data);
   }
 
   Future<void> sendSessionInput(String sessionId, String data) async {

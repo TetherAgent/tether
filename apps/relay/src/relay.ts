@@ -18,6 +18,8 @@ export type RelayServerOptions = {
   secret: string;
   allowLegacySecret?: boolean;
   validateToken?: (token: string) => Promise<RelayAuthScope | undefined>;
+  serverSyncUrl?: string;
+  runtimeSyncSecret?: string;
 };
 
 export type RunningRelayServer = {
@@ -54,6 +56,36 @@ type RelayAuthMethod = 'token' | 'legacy-secret';
 export async function startRelayServer(options: RelayServerOptions): Promise<RunningRelayServer> {
   if (!options.secret && !options.validateToken) {
     throw new Error('Relay auth is required');
+  }
+
+  const RUNTIME_EVENT_WHITELIST = new Set([
+    'terminal.output',
+    'terminal.input',
+    'session.error',
+    'session.exited',
+    'agent.status'
+  ]);
+
+  async function syncToServer(endpoint: string, body: unknown): Promise<void> {
+    if (!options.serverSyncUrl || !options.runtimeSyncSecret) {
+      return;
+    }
+    try {
+      const response = await fetch(`${options.serverSyncUrl}${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-tether-runtime-sync-secret': options.runtimeSyncSecret
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(3000)
+      });
+      if (!response.ok) {
+        console.warn(`[relay] sync failed: ${endpoint} HTTP ${response.status}`);
+      }
+    } catch (error) {
+      console.warn(`[relay] sync error: ${endpoint}`, String(error));
+    }
   }
 
   const clients = new Map<string, ClientState>();
@@ -185,18 +217,35 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           latestSessions.set(session.id, session);
         }
         broadcastSessionList();
+        void syncToServer('/api/runtime-sync/gateway/sessions', {
+          gatewayId: frame.gatewayId,
+          sessions: frame.sessions,
+          scope: gatewayScope
+        });
         break;
       case 'gateway.replay':
         sendReplay(frame.clientId, frame.sessionId, frame.events, frame.done !== false, frame.latestEventId);
         break;
       case 'gateway.conversation':
         sendConversation(frame.clientId, frame.sessionId, frame.turns);
+        void syncToServer('/api/runtime-sync/gateway/conversation', {
+          sessionId: frame.sessionId,
+          turns: frame.turns,
+          scope: gatewayScope
+        });
         break;
       case 'gateway.http.response':
         resolveHttpRequest(frame.requestId, frame.status, frame.body);
         break;
       case 'gateway.event':
         sendEventToSubscribers(frame.event);
+        if (frame.event.type === 'agent.turn' || RUNTIME_EVENT_WHITELIST.has(frame.event.type)) {
+          void syncToServer('/api/runtime-sync/gateway/event', {
+            gatewayId: frame.gatewayId,
+            event: frame.event,
+            scope: gatewayScope
+          });
+        }
         break;
       case 'gateway.error':
         sendGatewayError(frame);

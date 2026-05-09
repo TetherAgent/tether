@@ -204,27 +204,24 @@ export class JournalWatcher {
   }
 
   private emitAssistantTurn(content: string, tools: Array<{ name: string; inputSummary: string }>): void {
-    const toolsJson = tools.length > 0 ? JSON.stringify(tools) : undefined;
-    const turnIndex = this.store.insertConversationTurn(this.sessionId, 'assistant', content, toolsJson);
     const event = this.store.appendEvent(this.sessionId, 'agent.turn', {
       role: 'assistant',
       content,
       tools,
-      turnIndex
+      turnIndex: 0
     });
-    this.publishEvent(event);
+    this.publishEvent({ ...event, payload: { ...event.payload, turnIndex: event.id } });
     this.statusPublisher?.onAgentTurn('assistant');
   }
 
   private emitUserTurn(content: string): void {
-    const turnIndex = this.store.insertConversationTurn(this.sessionId, 'user', content);
     const event = this.store.appendEvent(this.sessionId, 'agent.turn', {
       role: 'user',
       content,
       tools: [],
-      turnIndex
+      turnIndex: 0
     });
-    this.publishEvent(event);
+    this.publishEvent({ ...event, payload: { ...event.payload, turnIndex: event.id } });
     this.statusPublisher?.onAgentTurn('user');
   }
 }

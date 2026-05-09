@@ -53,6 +53,7 @@ type AppConfig = EggAppConfig & {
   bcrypt: {
     saltRounds: number;
   };
+  runtimeSyncSecret: string;
 };
 
 function readEnv(name: string): string | undefined {
@@ -164,7 +165,10 @@ export default (appInfo: EggAppInfo) => {
       '/api/admin/auth/refresh',
       '/api/gateway/bind',
       '/api/gateway/refresh',
-      '/api/token/validate'
+      '/api/token/validate',
+      '/api/runtime-sync/gateway/sessions',
+      '/api/runtime-sync/gateway/conversation',
+      '/api/runtime-sync/gateway/event'
     ],
     verifyLogin: {
       expected: [ 'normal_client_access', 'management_access', 'gateway_access' ]
@@ -205,6 +209,7 @@ export default (appInfo: EggAppInfo) => {
     },
     bcrypt: {
       saltRounds: 10
-    }
+    },
+    runtimeSyncSecret: readEnv('TETHER_RUNTIME_SYNC_SECRET') ?? ''
   };
 };

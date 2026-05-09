@@ -35,6 +35,7 @@
 | [2026-05-04-unified-web-session-create.md](working/2026-05-04-unified-web-session-create.md) | **Working** | Direct / Relay 统一 Web 创建后台 session 的协议、权限、UI 和改动规模方案 |
 | [2026-05-04-npm-cli-gateway-packaging.md](working/2026-05-04-npm-cli-gateway-packaging.md) | **Working** | npm CLI 与本机 Gateway 打包发布给其他用户安装使用的方案 |
 | [2026-05-04-token-auth-unfinished-items.md](working/2026-05-04-token-auth-unfinished-items.md) | **Working** | 当前代码核验后仍未完成的 token/auth 问题清单 |
+| [2026-05-09-server-db-runtime-sync.md](working/2026-05-09-server-db-runtime-sync.md) | **Working** | Relay 将 Gateway 上报的 sessions / chat messages / runtime events 同步到 Server DB，生产读接口走 DB、控制接口继续走 Relay -> Gateway 的方案 |
 
 ## 归档记录 (`archive/`)
 

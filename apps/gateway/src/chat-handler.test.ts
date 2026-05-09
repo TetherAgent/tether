@@ -29,12 +29,12 @@ test('handleChatMessage inserts user turn, writes PTY and emits user turn plus a
     assert.equal(events.length, 2);
     assert.equal(events[0]?.sessionId, 'sess_chat');
     assert.equal(events[0]?.type, 'agent.turn');
-    assert.deepEqual(events[0]?.payload, {
-      role: 'user',
-      content: 'hello world',
-      tools: [],
-      turnIndex: 0
-    });
+     assert.deepEqual(events[0]?.payload, {
+       role: 'user',
+       content: 'hello world',
+       tools: [],
+       turnIndex: events[0]?.id
+     });
     assert.equal(events[1]?.sessionId, 'sess_chat');
     assert.equal(events[1]?.type, 'agent.typing');
     assert.deepEqual(events[1]?.payload, {});
@@ -43,7 +43,7 @@ test('handleChatMessage inserts user turn, writes PTY and emits user turn plus a
       { data: '\r', clientId: 'chat' }
     ]);
 
-    const turns = store.listConversationTurns('sess_chat');
+     const turns = store.listAgentTurns('sess_chat');
     assert.equal(turns.length, 1);
     assert.equal(turns[0]?.role, 'user');
     assert.equal(turns[0]?.content, 'hello world');
@@ -58,7 +58,7 @@ test('handleChatMessage caps message to 4000 chars', async () => {
 
   try {
     await handleChatMessage('sess_cap', longMessage, store, undefined);
-    const turns = store.listConversationTurns('sess_cap');
+     const turns = store.listAgentTurns('sess_cap');
     assert.equal(turns[0]?.content.length, 4000);
   } finally {
     cleanup();

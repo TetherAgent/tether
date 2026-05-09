@@ -7,6 +7,7 @@ export default (app: Application): void => {
   const requireAnyAccess = middleware.requireTokenClass({
     expected: [ 'management_access', 'normal_client_access', 'gateway_access' ]
   });
+  const requireRuntimeSyncSecret = middleware.requireRuntimeSyncSecret();
 
   router.get('/healthz', controller.health.index);
   router.post('/api/auth/register', controller.auth.register);
@@ -28,6 +29,14 @@ export default (app: Application): void => {
 
   router.post('/api/audit', controller.audit.create);
   router.get('/api/audit', controller.audit.index);
+
+  router.post('/api/runtime-sync/gateway/sessions', requireRuntimeSyncSecret, controller.runtimeSync.sessions);
+  router.post('/api/runtime-sync/gateway/conversation', requireRuntimeSyncSecret, controller.runtimeSync.conversation);
+  router.post('/api/runtime-sync/gateway/event', requireRuntimeSyncSecret, controller.runtimeSync.event);
+
+  router.get('/api/sessions', requireNormalAccess, controller.session.list);
+  router.get('/api/sessions/:id/conversation', requireNormalAccess, controller.session.conversation);
+  router.get('/api/sessions/:id/events', requireNormalAccess, controller.session.events);
 
   // Phase 6: Admin Management API
   adminRouter(app);
