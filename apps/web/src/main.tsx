@@ -369,8 +369,8 @@ function SessionList({
   const refreshSessions = React.useCallback(async () => {
     try {
       const [sessionsResponse, historyResponse] = await Promise.all([
-        gatewayRequest('/api/sessions'),
-        gatewayRequest('/api/sessions?all=1')
+        gatewayRequest('/api/server/sessions'),
+        gatewayRequest('/api/server/sessions?all=1')
       ]);
       if (sessionsResponse.status === 401 || historyResponse.status === 401) {
         logoutNormal();

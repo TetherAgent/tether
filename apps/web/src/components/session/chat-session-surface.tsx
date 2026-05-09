@@ -183,7 +183,7 @@ function buildRelayClientUrl(relayUrl: string, fillRelayUrlMsg: string, protocol
 
 function buildGatewayStreamUrl(sessionId: string, query: string): string {
   const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${scheme}://${window.location.host}/api/sessions/${encodeURIComponent(sessionId)}/stream?${query}`;
+  return `${scheme}://${window.location.host}/api/server/sessions/${encodeURIComponent(sessionId)}/stream?${query}`;
 }
 
 function parseWsFrame(data: unknown): Record<string, unknown> | undefined {
@@ -427,7 +427,7 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
 
   const refreshConversation = React.useCallback(async () => {
     try {
-      const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/conversation`);
+      const response = await gatewayRequest(`/api/server/sessions/${encodeURIComponent(sessionId)}/conversation`);
       if (response.status === 401) {
         logoutNormal();
         return;

@@ -34,9 +34,9 @@ export default (app: Application): void => {
   router.post('/api/runtime-sync/gateway/conversation', requireRuntimeSyncSecret, controller.runtimeSync.conversation);
   router.post('/api/runtime-sync/gateway/event', requireRuntimeSyncSecret, controller.runtimeSync.event);
 
-  router.get('/api/sessions', requireNormalAccess, controller.session.list);
-  router.get('/api/sessions/:id/conversation', requireNormalAccess, controller.session.conversation);
-  router.get('/api/sessions/:id/events', requireNormalAccess, controller.session.events);
+  router.get('/api/server/sessions', requireNormalAccess, controller.session.list);
+  router.get('/api/server/sessions/:id/conversation', requireNormalAccess, controller.session.conversation);
+  router.get('/api/server/sessions/:id/events', requireNormalAccess, controller.session.events);
 
   // Phase 6: Admin Management API
   adminRouter(app);

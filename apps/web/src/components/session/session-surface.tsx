@@ -604,7 +604,7 @@ function PtySessionView({
       setStatus(t.statusReplaying);
       const shouldUseRecentReplay = (replayOnly && replayMode === 'recent') || after === 0;
       const fetchReplayPage = async (query: string): Promise<SessionEvent[]> => {
-        const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/events?${query}`);
+        const response = await gatewayRequest(`/api/server/sessions/${encodeURIComponent(sessionId)}/events?${query}`);
         if (response.status === 401) {
           logoutNormal();
         }
