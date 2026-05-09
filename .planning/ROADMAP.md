@@ -34,7 +34,7 @@ occupies an active roadmap phase number.
 - [ ] **Phase 8: Security, Isolation Tests & Final Cleanup** - Milestone exit gate; account isolation, relay auth, whitelist, mask, retention all covered by integration tests
 - [ ] **Phase 9: Flutter Client App** - Phone-first Flutter client for remote Relay/LAN session viewing and control, with HarmonyOS support and generated Dart protocol
 - [ ] **Phase 10: Multi-workspace Expansion** - Product support for creating/switching workspaces, binding Gateways per workspace, and isolating members, sessions, audit, and admin pages by workspace
-- [ ] **Phase 12: Server DB Runtime Sync** - Web/App 从 Server DB 直接读取 session 列表、聊天历史和受限 Terminal 历史，不再依赖 Gateway 反向 RPC；Relay 实时同步 Gateway frame 到 Server DB
+- [x] **Phase 12: Server DB Runtime Sync** - Web/App 从 Server DB 直接读取 session 列表、聊天历史和受限 Terminal 历史，不再依赖 Gateway 反向 RPC；Relay 实时同步 Gateway frame 到 Server DB (completed 2026-05-09)
 
 ## Phase Details
 
@@ -266,18 +266,18 @@ Plans:
 
 Plans:
   - **Wave 0** (no deps — test scaffold):
-    - [ ] `12-00-PLAN.md` — 测试文件脚手架（runtime-sync.test.ts + session-read.test.ts + relay.test.ts 追加）
+    - [x] `12-00-PLAN.md` — 测试文件脚手架（runtime-sync.test.ts + session-read.test.ts + relay.test.ts 追加）
   - **Wave 1** *(no deps — can run parallel with Wave 0)*:
-    - [ ] `12-01-PLAN.md` — SQL migration (002_gateway_runtime_sync.sql) + db.ts ensureSchema 动态加载
+    - [x] `12-01-PLAN.md` — SQL migration (002_gateway_runtime_sync.sql) + db.ts ensureSchema 动态加载
   - **Wave 2** *(blocked on Wave 0 + Wave 1 completion)*:
-    - [ ] `12-02-PLAN.md` — Server runtime-sync 写接口（controller + service + middleware + router）
-    - [ ] `12-03-PLAN.md` — Relay syncToServer 调用（handleGatewayFrame 三个 case 追加 void 调用）
+    - [x] `12-02-PLAN.md` — Server runtime-sync 写接口（controller + service + middleware + router）
+    - [x] `12-03-PLAN.md` — Relay syncToServer 调用（handleGatewayFrame 三个 case 追加 void 调用）
   - **Wave 3** *(blocked on Wave 2 completion)*:
-    - [ ] `12-04-PLAN.md` — Server session 读接口（GET /api/sessions + /conversation + /events）+ nginx 路由配置
-    - [ ] `12-05-PLAN.md` — Egg schedule 定时清理任务（app/schedule/ 首建）
+    - [x] `12-04-PLAN.md` — Server session 读接口（GET /api/sessions + /conversation + /events）+ nginx 路由配置
+    - [x] `12-05-PLAN.md` — Egg schedule 定时清理任务（app/schedule/ 首建）
   - **Wave 4** *(blocked on Wave 3 completion)*:
-    - [ ] `12-06-PLAN.md` — Gateway conversation_turns 废弃（store.ts DDL 删除 + journal-watcher.ts 清理）
-    - [ ] `12-07-PLAN.md` — Flutter ConversationService 切换（移除 Relay WS fallback）
+    - [x] `12-06-PLAN.md` — Gateway conversation_turns 废弃（store.ts DDL 删除 + journal-watcher.ts 清理）
+    - [x] `12-07-PLAN.md` — Flutter ConversationService 切换（移除 Relay WS fallback）
 
 **Success Criteria** (what must be TRUE):
   1. 生产环境 `GET /api/sessions/:id/conversation` 不再 404，直接从 `gateway_chat_messages` 读取

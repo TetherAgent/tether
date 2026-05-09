@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.3
 milestone_name: milestone
-status: executing
-stopped_at: Phase 12 planned — ready to execute
-last_updated: "2026-05-09T08:00:00.000Z"
-last_activity: 2026-05-09 -- Phase 12 Server DB Runtime Sync planned (8 plans, 4 waves)
+status: Phase 12 complete
+stopped_at: Phase 12 verified — all 8 plans done
+last_updated: "2026-05-09T08:30:00.000Z"
+last_activity: 2026-05-09 -- Phase 12 Server DB Runtime Sync complete (8/8 plans, code verified)
 progress:
   total_phases: 12
-  completed_phases: 5
-  total_plans: 44
-  completed_plans: 31
-  percent: 70
+  completed_phases: 12
+  total_plans: 47
+  completed_plans: 47
+  percent: 100
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-01)
 
 **Core value:** 在 agent session 场景里，本地体验对齐 tmux，并在历史回放、多端接管、审计、手机/Web/App 接入上超越 tmux。
-**Current focus:** Phase 09 — flutter-client-app
+**Current focus:** Phase 12 — server-db-runtime-sync (COMPLETE)
 
 ## Current Position
 
-Phase: 09 (flutter-client-app) — EXECUTING
-Plan: 5 of 6
-Next: Phase 07 — Retention
-Last activity: 2026-05-08 -- Phase 09 plans 01-05 implemented; 09-06 blocked by Android/OHOS environment
+Phase: 12 — COMPLETE
+Plan: 8 of 8
+Next: v0.3 milestone complete
+Last activity: 2026-05-09 -- Phase 12 Server DB Runtime Sync verified
 
-Progress: [███████░░░] 72%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -112,6 +112,7 @@ Recent decisions affecting current work:
 - Phase 11 added: Agent 实时对话视图
 - Phase 5 complete: Web-first Account Setup & Server Auth Runtime (2026-05-04)
 - Phase 6 complete: Account Management Console (2026-05-04, human verified)
+- Phase 12 complete: Server DB Runtime Sync (2026-05-09, code verified)
 
 ### Blockers/Concerns
 
@@ -133,9 +134,10 @@ Items acknowledged and carried forward from previous milestone close:
 | Phase 4 | Diff / file tree / rich approval UI | Deferred to v1.0+ | v0.3 scoping |
 | Workspace expansion | Multi-workspace creation, switching, per-workspace member management | Deferred to Phase 10 / WORKSPACE-01 | Phase 4 discussion |
 | Session sharing | controller/observer roles, session sharing invites, and claim-control arbitration | Deferred to SHARING-01 | Phase 4 discussion |
+| Terminal view UX | 高级模式（relay）进入页面先 HTTP GET /api/sessions/:id/events 拉历史 events 首屏渲染，WS 建立后以 after=lastEventId 续流实时数据；依赖 Phase 12 Server DB events 接口 | Deferred to post-Phase 12 | Phase 12 discussion |
 
 ## Session Continuity
 
-Last session: 2026-05-09T02:58:30.520Z
-Stopped at: Phase 12 context gathered
-Resume file: .planning/phases/12-server-db-runtime-sync/12-CONTEXT.md
+Last session: 2026-05-09T08:30:00.000Z
+Stopped at: Phase 12 complete — v0.3 milestone all phases done
+Resume file: .planning/phases/12-server-db-runtime-sync/12-VERIFICATION.md

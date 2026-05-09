@@ -89,6 +89,7 @@ type RelayClientToServerFrame =
   | { type: 'client.stop'; sessionId: string };
 
 const RECENT_REPLAY_EVENT_LIMIT = 100;
+const RELAY_INITIAL_EVENT_LIMIT = 5000;
 const FULL_REPLAY_EVENT_PAGE_LIMIT = 5000;
 const WEB_TRANSPORT_KEY = 'tether:webTransportMode';
 const WEB_CLIENT_MODE_KEY = 'tether:webClientMode';
@@ -661,6 +662,8 @@ function PtySessionView({
     let replayDoneReceived = false;
     let replayFlushFrame = 0;
     let replayOutputBuffer = '';
+    let liveOutputBuffer = '';
+    let liveFlushFrame = 0;
 
     const input = term.onData((data) => {
       if (!disposed && replayComplete) {
@@ -696,7 +699,17 @@ function PtySessionView({
         const data = event.payload.data;
         if (typeof data === 'string') {
           setTerminalReady(true);
-          term.write(data, () => term.scrollToBottom());
+          liveOutputBuffer += data;
+          if (!liveFlushFrame) {
+            liveFlushFrame = window.requestAnimationFrame(() => {
+              liveFlushFrame = 0;
+              if (liveOutputBuffer) {
+                const chunk = liveOutputBuffer;
+                liveOutputBuffer = '';
+                term.write(chunk, () => term.scrollToBottom());
+              }
+            });
+          }
         }
         return;
       }
@@ -800,7 +813,8 @@ function PtySessionView({
         await syncTerminalSize();
       }
       setStatus(t.statusReplaying);
-      const shouldUseRecentReplay = replayOnly && replayMode === 'recent';
+      const shouldUseRecentReplay = (replayOnly && replayMode === 'recent') ||
+        (connectionSettings.connectionMode === 'relay' && after === 0);
       const fetchReplayPage = async (query: string): Promise<SessionEvent[]> => {
         const response = await gatewayRequest(`/api/sessions/${encodeURIComponent(sessionId)}/events?${query}`);
         if (response.status === 401) {
@@ -820,10 +834,24 @@ function PtySessionView({
       if (after > 0 || shouldUseRecentReplay) {
         const replayQuery = after > 0
           ? `after=${after}&limit=1000`
-          : `after=0&tail=${RECENT_REPLAY_EVENT_LIMIT}`;
+          : connectionSettings.connectionMode === 'relay'
+            ? `after=0&tail=${RELAY_INITIAL_EVENT_LIMIT}`
+            : `after=0&tail=${RECENT_REPLAY_EVENT_LIMIT}`;
         const events = await fetchReplayPage(replayQuery);
+        // Relay initial load: queue terminal output through the smooth flush pipeline
+        // instead of direct writes to avoid rapid scroll callbacks causing visual shaking.
+        const useQueue = connectionSettings.connectionMode === 'relay' && after === 0;
         for (const event of events) {
-          writeEventNow(event);
+          if (useQueue) {
+            queueReplayEvent(event);
+          } else {
+            writeEventNow(event);
+          }
+        }
+        if (useQueue) {
+          // replayComplete will be set by finishReplayIfReady() once the WS sends
+          // replay.done and the replayOutputBuffer has been fully drained.
+          return;
         }
       } else {
         let keepLoading = true;
@@ -951,6 +979,9 @@ function PtySessionView({
       replayDoneReceived = false;
       replayDoneCursor = undefined;
       replayOutputBuffer = '';
+      if (connectionSettings.connectionMode === 'relay' && normalAuth?.accessToken) {
+        await replayEvents();
+      }
       fitAddon.fit();
       sendResize();
       if (connectionSettings.connectionMode === 'direct') {

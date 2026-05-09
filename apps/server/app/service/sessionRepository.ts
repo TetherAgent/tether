@@ -168,6 +168,25 @@ export default class SessionRepositoryService extends Service {
     return (rows as Record<string, unknown>[]).map((row) => this.chatMessageFromRow(row));
   }
 
+  private mergeConsecutiveOutput(events: RuntimeEventRecord[]): RuntimeEventRecord[] {
+    const merged: RuntimeEventRecord[] = [];
+    for (const event of events) {
+      const prev = merged[merged.length - 1];
+      if (
+        event.type === 'terminal.output' &&
+        prev?.type === 'terminal.output' &&
+        typeof event.payload.data === 'string' &&
+        typeof prev.payload.data === 'string'
+      ) {
+        prev.id = event.id;
+        prev.payload = { data: prev.payload.data + event.payload.data };
+      } else {
+        merged.push({ ...event });
+      }
+    }
+    return merged;
+  }
+
   public async listEvents(
     sessionId: string,
     accountId: string,
@@ -182,7 +201,7 @@ export default class SessionRepositoryService extends Service {
     if (!this.mysqlModeEnabled() || !await this.sessionWithinScope(sessionId, accountId, workspaceId, userId)) {
       return [];
     }
-    const limit = Math.min(Math.max(options.limit ?? 100, 1), 500);
+    const limit = Math.min(Math.max(options.limit ?? 100, 1), 5000);
     if (options.after !== undefined) {
       const rows = await this.ctx.service.db.query(
         `SELECT * FROM gateway_runtime_events
@@ -191,7 +210,7 @@ export default class SessionRepositoryService extends Service {
          LIMIT ?`,
         [sessionId, options.after, limit]
       );
-      return (rows as Record<string, unknown>[]).map((row) => this.eventFromRow(row));
+      return this.mergeConsecutiveOutput((rows as Record<string, unknown>[]).map((row) => this.eventFromRow(row)));
     }
     if (options.before !== undefined) {
       const rows = await this.ctx.service.db.query(
@@ -201,7 +220,7 @@ export default class SessionRepositoryService extends Service {
          LIMIT ?`,
         [sessionId, options.before, limit]
       );
-      return (rows as Record<string, unknown>[]).map((row) => this.eventFromRow(row));
+      return this.mergeConsecutiveOutput((rows as Record<string, unknown>[]).map((row) => this.eventFromRow(row)));
     }
     const rows = await this.ctx.service.db.query(
       `SELECT * FROM gateway_runtime_events
@@ -210,6 +229,6 @@ export default class SessionRepositoryService extends Service {
        LIMIT ?`,
       [sessionId, limit]
     );
-    return (rows as Record<string, unknown>[]).map((row) => this.eventFromRow(row));
+    return this.mergeConsecutiveOutput((rows as Record<string, unknown>[]).map((row) => this.eventFromRow(row)));
   }
 }

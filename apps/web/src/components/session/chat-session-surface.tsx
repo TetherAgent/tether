@@ -82,7 +82,6 @@ type RelayConversationTurn = Omit<ConversationTurn, 'tools'> & {
   tools: ToolInfo[];
 };
 
-const FULL_REPLAY_EVENT_PAGE_LIMIT = 5000;
 const RELAY_VIRTUAL_COLS = 200;
 const RELAY_VIRTUAL_ROWS = 50;
 const CHAT_ENTER_DELAY_MS = 120;
@@ -678,49 +677,6 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       }
     };
 
-    const fetchReplayPage = async (query: string): Promise<SessionEvent[]> => {
-      const response = await gatewayRequest(
-        `/api/sessions/${encodeURIComponent(sessionId)}/events?${query}`
-      );
-      if (response.status === 401) {
-        logoutNormal();
-      }
-      if (response.status === 404) {
-        if (connectionSettings.connectionMode !== 'relay') {
-          reconnectStopped = true;
-        }
-        throw new Error(tRef.current.statusSessionDetached);
-      }
-      if (!response.ok) {
-        throw new Error(`events HTTP ${response.status}`);
-      }
-      const data = await readGatewayData<{ events: SessionEvent[] }>(response);
-      return data.events;
-    };
-
-    const replayEvents = async () => {
-      setStatus(tRef.current.statusReplaying);
-      let keepLoading = true;
-      try {
-        while (!disposed && keepLoading) {
-          const beforePageCursor = after;
-          const events = await fetchReplayPage(`after=${after}&limit=${FULL_REPLAY_EVENT_PAGE_LIMIT}`);
-          for (const event of events) {
-            handleEvent(event);
-          }
-          keepLoading = events.length === FULL_REPLAY_EVENT_PAGE_LIMIT && after > beforePageCursor;
-        }
-      } catch (error) {
-        if (connectionSettings.connectionMode === 'relay') {
-          replayComplete = false;
-          return;
-        }
-        throw error;
-      }
-      replayComplete = true;
-      setIsReady(true);
-      setConnectionHealth('ok');
-    };
 
     const probeGatewaySession = async (): Promise<boolean> => {
       if (connectionSettings.connectionMode === 'relay') {
@@ -826,7 +782,6 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
           );
         }
       }
-      await replayEvents();
       const nextWs = await openStreamWebSocket();
       ws = nextWs;
       socket.current = nextWs;
@@ -957,7 +912,9 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
       });
     };
 
-    void refreshConversation();
+    if (normalAuth?.accessToken) {
+      void refreshConversation();
+    }
     connectStream().catch((error: unknown) => {
       if (!disposed) {
         setStatus(error instanceof Error ? error.message : tRef.current.statusStreamUnavailable);
