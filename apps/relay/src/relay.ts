@@ -1,5 +1,4 @@
-import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createServer, type Server as HttpServer } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import type {
   RelayAuthScope,
@@ -33,7 +32,6 @@ const FORBIDDEN_KEYS = new Set(['command', 'args', 'argv', 'env', 'providerComma
 const MAX_TERMINAL_COLS = 500;
 const MAX_TERMINAL_ROWS = 200;
 const AUTH_TIMEOUT_MS = 5000;
-const HTTP_RPC_TIMEOUT_MS = 5000;
 
 type GatewayState = {
   gatewayId: string;
@@ -91,16 +89,14 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
   const clients = new Map<string, ClientState>();
   const latestSessions = new Map<string, RelaySession>();
   const gateways = new Map<string, GatewayState>();
-  const httpRequests = new Map<string, { resolve: (value: { status: number; body: unknown }) => void; timer: NodeJS.Timeout }>();
-
   const server = createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/healthz') {
       response.writeHead(200, { 'content-type': 'text/plain; charset=UTF-8' });
       response.end('ok');
       return;
     }
-
-    void handleHttpApi(request, response);
+    response.writeHead(404, { 'content-type': 'text/plain; charset=UTF-8' });
+    response.end('not found');
   });
 
   const wss = new WebSocketServer({ server });
@@ -234,9 +230,6 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           scope: gatewayScope
         });
         break;
-      case 'gateway.http.response':
-        resolveHttpRequest(frame.requestId, frame.status, frame.body);
-        break;
       case 'gateway.event':
         sendEventToSubscribers(frame.event);
         if (frame.event.type === 'agent.turn' || RUNTIME_EVENT_WHITELIST.has(frame.event.type)) {
@@ -253,88 +246,6 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
       case 'gateway.auth':
         break;
     }
-  }
-
-  async function handleHttpApi(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const url = new URL(request.url ?? '/', `http://${options.host}:${options.port}`);
-    const method = request.method === 'POST' ? 'POST' : request.method === 'GET' ? 'GET' : undefined;
-    const route = matchHttpRoute(method, url.pathname);
-    if (!method || !route) {
-      sendJson(response, 404, { error: 'not found' });
-      return;
-    }
-    const auth = await authenticateHttpRequest(request.headers.authorization, options);
-    if (!auth.ok) {
-      sendJson(response, auth.status, { error: auth.error });
-      return;
-    }
-    const clientId = `http_${randomUUID()}`;
-    if (route.sessionId) {
-      const session = latestSessions.get(route.sessionId);
-      if (!session || !clientCanSeeSession(auth.scope, auth.authMethod, session, gatewayForSession(session)?.scope)) {
-        if (!session && !hasConnectedGateway()) {
-          sendJson(response, 503, { error: 'gateway is not connected' });
-          return;
-        }
-        sendJson(response, 403, { error: 'session is outside client scope' });
-        return;
-      }
-    }
-    const gateway = route.sessionId
-      ? gatewayForSession(latestSessions.get(route.sessionId)!)
-      : auth.scope.gatewayId
-        ? gateways.get(auth.scope.gatewayId)
-        : firstConnectedGateway();
-    if (!gateway || gateway.socket.readyState !== WebSocket.OPEN) {
-      sendJson(response, 503, { error: 'gateway is not connected' });
-      return;
-    }
-    const body = method === 'POST' ? await readJsonBody(request) : undefined;
-    const query = Object.fromEntries(url.searchParams.entries());
-    try {
-      const result = await requestGatewayHttp(gateway, {
-        type: 'gateway.http.request',
-        requestId: `hr_${randomUUID()}`,
-        clientId,
-        method,
-        path: route.path,
-        sessionId: route.sessionId,
-        query,
-        body
-      });
-      sendJson(response, result.status, result.body);
-    } catch {
-      sendJson(response, 504, { error: 'gateway request timed out' });
-    }
-  }
-
-  function matchHttpRoute(method: 'GET' | 'POST' | undefined, pathname: string): undefined | {
-    method: 'GET' | 'POST';
-    path: Extract<RelayServerToGatewayFrame, { type: 'gateway.http.request' }>['path'];
-    sessionId?: string;
-  } {
-    if (method === 'GET' && pathname === '/api/sessions') {
-      return { method, path: '/api/sessions' };
-    }
-    const match = /^\/api\/sessions\/([^/]+)\/(conversation|events|input|stop)$/.exec(pathname);
-    if (!match) {
-      return undefined;
-    }
-    const sessionId = decodeURIComponent(match[1] ?? '');
-    const action = match[2];
-    if (method === 'GET' && action === 'conversation') {
-      return { method, path: '/api/sessions/:id/conversation', sessionId };
-    }
-    if (method === 'GET' && action === 'events') {
-      return { method, path: '/api/sessions/:id/events', sessionId };
-    }
-    if (method === 'POST' && action === 'input') {
-      return { method, path: '/api/sessions/:id/input', sessionId };
-    }
-    if (method === 'POST' && action === 'stop') {
-      return { method, path: '/api/sessions/:id/stop', sessionId };
-    }
-    return undefined;
   }
 
   function hasCachedRunningSessions(): boolean {
@@ -652,31 +563,6 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'conversation', sessionId, turns });
   }
 
-  function requestGatewayHttp(
-    gateway: GatewayState,
-    frame: Extract<RelayServerToGatewayFrame, { type: 'gateway.http.request' }>
-  ): Promise<{ status: number; body: unknown }> {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        httpRequests.delete(frame.requestId);
-        reject(new Error('gateway request timed out'));
-      }, HTTP_RPC_TIMEOUT_MS);
-      timer.unref();
-      httpRequests.set(frame.requestId, { resolve, timer });
-      sendToSocket<RelayServerToGatewayFrame>(gateway.socket, frame);
-    });
-  }
-
-  function resolveHttpRequest(requestId: string, status: number, body: unknown): void {
-    const pending = httpRequests.get(requestId);
-    if (!pending) {
-      return;
-    }
-    clearTimeout(pending.timer);
-    httpRequests.delete(requestId);
-    pending.resolve({ status, body });
-  }
-
   function sendEventToSubscribers(event: RelayTerminalEvent): void {
     for (const client of clients.values()) {
       if (client.subscriptions.has(event.sessionId) && clientCanAccessSession(client.scope, client.authMethod, event.sessionId)) {
@@ -790,47 +676,6 @@ async function authenticateClientFrame(
   return { ok: false, code: 'authentication_failed', message: 'client authentication failed' };
 }
 
-async function authenticateHttpRequest(
-  authorization: string | undefined,
-  options: RelayServerOptions
-): Promise<{ ok: true; scope: RelayAuthScope; authMethod: RelayAuthMethod } | { ok: false; status: number; error: string }> {
-  const match = /^Bearer\s+(.+)$/i.exec(authorization ?? '');
-  if (!match) {
-    return { ok: false, status: 401, error: 'missing bearer token' };
-  }
-  if (!options.validateToken) {
-    return { ok: false, status: 401, error: 'token auth is not configured' };
-  }
-  const scope = await options.validateToken(match[1] ?? '');
-  if (!scope) {
-    return { ok: false, status: 401, error: 'invalid token' };
-  }
-  if (scope.tokenClass !== 'normal_client_access') {
-    return { ok: false, status: 403, error: 'wrong token class' };
-  }
-  return { ok: true, scope, authMethod: 'token' };
-}
-
-async function readJsonBody(request: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  if (chunks.length === 0) {
-    return undefined;
-  }
-  const raw = Buffer.concat(chunks).toString('utf8');
-  if (!raw.trim()) {
-    return undefined;
-  }
-  return JSON.parse(raw) as unknown;
-}
-
-function sendJson(response: ServerResponse, status: number, body: unknown): void {
-  response.writeHead(status, { 'content-type': 'application/json; charset=UTF-8' });
-  response.end(JSON.stringify(body));
-}
-
 function gatewayFrameWithinScope(frame: RelayGatewayToServerFrame, gatewayScope: RelayAuthScope): boolean {
   // 兼容旧 token：历史上 `gatewayId` 可能缺失（例如早期发的 gateway_access token）。
   // 在这种情况下不应强制做 gatewayId 绑定校验，否则会导致 Relay 收到 `gateway.sessions`
@@ -845,8 +690,6 @@ function gatewayFrameWithinScope(frame: RelayGatewayToServerFrame, gatewayScope:
       return gatewayScope.sessionId ? gatewayScope.sessionId === frame.sessionId : true;
     case 'gateway.conversation':
       return gatewayScope.sessionId ? gatewayScope.sessionId === frame.sessionId : true;
-    case 'gateway.http.response':
-      return true;
     case 'gateway.event':
       return gatewayScope.sessionId ? gatewayScope.sessionId === frame.event.sessionId : true;
     case 'gateway.error':

@@ -191,9 +191,6 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       case 'client.detach':
         removeSubscription(frame.clientId, frame.sessionId);
         return;
-      case 'gateway.http.request':
-        void handleHttpRequest(frame);
-        return;
     }
   };
 
@@ -484,87 +481,6 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     if (!ok) {
       options.store.updateSessionStatus(sessionId, 'lost');
       sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
-    }
-  };
-
-  const handleHttpRequest = async (frame: Extract<RelayServerToGatewayFrame, { type: 'gateway.http.request' }>) => {
-    const respond = (status: number, body: unknown) => {
-      send({ type: 'gateway.http.response', gatewayId: effectiveGatewayId, requestId: frame.requestId, status, body });
-    };
-    try {
-      if (frame.method === 'GET' && frame.path === '/api/sessions') {
-        respond(200, { sessions: (await listRelaySessions()).map(toRelaySession) });
-        return;
-      }
-      const sessionId = frame.sessionId;
-      if (!sessionId) {
-        respond(400, { error: 'sessionId is required' });
-        return;
-      }
-      const session = options.store.getSession(sessionId);
-      if (!session) {
-        respond(404, { error: 'session not found' });
-        return;
-      }
-      if (frame.method === 'GET' && frame.path === '/api/sessions/:id/conversation') {
-        respond(200, {
-          turns: options.store.listAgentTurns(sessionId).map((turn) => ({
-            id: turn.id,
-            sessionId: turn.sessionId,
-            turnIndex: turn.turnIndex,
-            role: turn.role,
-            content: turn.content,
-            tools: turn.tools,
-            createdAt: turn.createdAt
-          }))
-        });
-        return;
-      }
-      if (frame.method === 'GET' && frame.path === '/api/sessions/:id/events') {
-        const after = Number.parseInt(frame.query?.after ?? '0', 10);
-        const limit = Number.parseInt(frame.query?.limit ?? '1000', 10);
-        respond(200, {
-          events: options.store
-            .listEvents(sessionId, Number.isFinite(after) ? after : 0, Number.isFinite(limit) ? limit : 1000)
-            .map(toRelayEvent)
-        });
-        return;
-      }
-      if (frame.method === 'POST' && frame.path === '/api/sessions/:id/input') {
-        const data = typeof (frame.body as { data?: unknown } | undefined)?.data === 'string'
-          ? (frame.body as { data: string }).data
-          : '';
-        if (!data) {
-          respond(400, { error: 'data is required' });
-          return;
-        }
-        const runnerClient = options.runnerClientForSession?.(session);
-        if (runnerClient) {
-          await runnerClient.write(data, frame.clientId);
-          respond(200, { ok: true });
-          return;
-        }
-        const ok = options.ptySessions?.write(sessionId, { clientId: frame.clientId, data }) ?? false;
-        respond(ok ? 200 : 410, ok ? { ok: true } : { error: 'pty session is no longer running' });
-        return;
-      }
-      if (frame.method === 'POST' && frame.path === '/api/sessions/:id/stop') {
-        const runnerClient = options.runnerClientForSession?.(session);
-        if (runnerClient) {
-          await runnerClient.stop('relay-http-stop');
-          respond(200, { ok: true });
-          return;
-        }
-        const ok = options.ptySessions?.stop(sessionId) ?? false;
-        if (!ok) {
-          options.store.updateSessionStatus(sessionId, 'lost');
-        }
-        respond(ok ? 200 : 410, ok ? { ok: true } : { error: 'pty session is no longer running' });
-        return;
-      }
-      respond(404, { error: 'not found' });
-    } catch (error) {
-      respond(500, { error: error instanceof Error ? error.message : 'gateway error' });
     }
   };
 
