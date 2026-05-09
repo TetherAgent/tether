@@ -282,7 +282,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     const detectAndEmitRelaySelect = (event: SessionEvent) => {
       if (
         event.type !== 'terminal.output' ||
-        (session.provider !== 'claude' && session.provider !== 'claude-proxy')
+        session.provider !== 'claude'
       ) {
         return;
       }

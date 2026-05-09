@@ -1,35 +1,17 @@
-export type ProviderName = 'codex' | 'claude' | 'opencode' | 'copilot' | 'claude-proxy' | 'codex-proxy';
+export type ProviderName = 'codex' | 'claude' | 'opencode' | 'copilot';
 
 export type ProviderDefinition = {
-  name: ProviderName;
+  name: string;
   command: string;
   env?: Record<string, string>;
 };
 
-export const PROVIDERS = {
+export const PROVIDERS: Record<ProviderName, ProviderDefinition> = {
   codex: { name: 'codex', command: 'codex' },
   claude: { name: 'claude', command: 'claude' },
   opencode: { name: 'opencode', command: 'opencode' },
-  copilot: { name: 'copilot', command: 'gh' },
-  'claude-proxy': {
-    name: 'claude-proxy',
-    command: 'claude',
-    env: {
-      https_proxy: 'http://127.0.0.1:7897',
-      http_proxy: 'http://127.0.0.1:7897',
-      all_proxy: 'socks5://127.0.0.1:7897'
-    }
-  },
-  'codex-proxy': {
-    name: 'codex-proxy',
-    command: 'codex',
-    env: {
-      https_proxy: 'http://127.0.0.1:7897',
-      http_proxy: 'http://127.0.0.1:7897',
-      all_proxy: 'socks5://127.0.0.1:7897'
-    }
-  }
-} satisfies Record<ProviderName, ProviderDefinition>;
+  copilot: { name: 'copilot', command: 'gh' }
+};
 
 export function isProviderName(value: string): value is ProviderName {
   return Object.hasOwn(PROVIDERS, value);

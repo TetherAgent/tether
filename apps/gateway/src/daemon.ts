@@ -1,6 +1,8 @@
+import { exec } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
+import { promisify } from 'node:util';
 import type { Server as HttpServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,7 +13,7 @@ import type { ServerType } from '@hono/node-server';
 import { WebSocketServer } from 'ws';
 import { readTetherConfig, type TetherConfig } from '@tether/config';
 import { isProviderName, PROVIDERS } from '@tether/core';
-import { ResponseCode, type AuthScopePayload, type AuthTokenClass, type ProviderDefinition, type ProviderName, type SessionAccessMode } from '@tether/core';
+import { ResponseCode, type AuthScopePayload, type AuthTokenClass, type ProviderDefinition, type SessionAccessMode } from '@tether/core';
 import { createSessionId } from './ids.js';
 import { maskSensitiveOutput } from './mask.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
@@ -78,7 +80,25 @@ export function localLanAddress(): string | undefined {
   return undefined;
 }
 
+const execAsync = promisify(exec);
+
+async function captureShellEnv(): Promise<void> {
+  const shell = process.env.SHELL ?? '/bin/zsh';
+  try {
+    const { stdout } = await execAsync(`${shell} -l -c env`, { timeout: 5000 });
+    for (const line of stdout.split('\n')) {
+      const eq = line.indexOf('=');
+      if (eq > 0) {
+        process.env[line.slice(0, eq)] = line.slice(eq + 1);
+      }
+    }
+  } catch {
+    // Non-fatal: continue with existing env
+  }
+}
+
 export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon> {
+  await captureShellEnv();
   const app = new Hono();
   const displayHost = options.host === '0.0.0.0' ? localLanAddress() ?? '127.0.0.1' : options.host;
   const url = `http://${displayHost}:${options.port}`;
@@ -274,7 +294,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       return c.json({ error: 'unsupported session creation field' }, 400);
     }
 
-    if (typeof request.provider !== 'string' || !isProviderName(request.provider)) {
+    if (typeof request.provider !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(request.provider)) {
       return c.json({ error: 'provider is required' }, 400);
     }
     const provider = request.provider;
@@ -778,7 +798,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     const detectAndEmitAgentSelect = (event: { type: string; payload: Record<string, unknown> }) => {
       if (
         event.type !== 'terminal.output' ||
-        (session.provider !== 'claude' && session.provider !== 'claude-proxy')
+        session.provider !== 'claude'
       ) {
         return;
       }
@@ -1004,13 +1024,14 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   };
 }
 
-function providerCommand(provider: ProviderName, config = readTetherConfig()): string {
-  const command = config.providers?.[provider]?.command;
-  return command && command.length > 0 ? command : PROVIDERS[provider].command;
+function providerCommand(provider: string, config = readTetherConfig()): string {
+  const configCommand = (config.providers as Record<string, { command?: string } | undefined>)?.[provider]?.command;
+  if (configCommand && configCommand.length > 0) return configCommand;
+  return isProviderName(provider) ? PROVIDERS[provider].command : provider;
 }
 
-function providerEnv(provider: ProviderName): Record<string, string> | undefined {
-  return (PROVIDERS[provider] as ProviderDefinition).env;
+function providerEnv(provider: string): Record<string, string> | undefined {
+  return isProviderName(provider) ? (PROVIDERS[provider] as ProviderDefinition).env : undefined;
 }
 
 function pathListIncludes(value: string | undefined, needle: string): boolean {

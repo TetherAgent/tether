@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
-import type { AuthScopePayload, ProviderName } from '@tether/core';
+import type { AuthScopePayload } from '@tether/core';
 import { JournalWatcher } from './journal-watcher.js';
 import { maskSensitiveOutput } from './mask.js';
 import { isValidTerminalSize } from './pty.js';
@@ -46,7 +46,7 @@ export type RunnerErrorCode =
 
 export type CreateSessionRunnerOptions = {
   id: string;
-  provider: ProviderName;
+  provider: string;
   command: string;
   providerArgs?: string[];
   providerEnv?: Record<string, string>;
@@ -407,15 +407,15 @@ export function latestNewCodexSessionId(before: Set<string>, home = os.homedir()
 }
 
 // Call this BEFORE pty.spawn() to capture a snapshot of existing session files.
-function snapshotAgentDir(provider: ProviderName, projectPath: string): Set<string> {
+function snapshotAgentDir(provider: string, projectPath: string): Set<string> {
   const home = os.homedir();
   try {
-    if (provider === 'claude' || provider === 'claude-proxy') {
+    if (provider === 'claude') {
       const encoded = projectPath.replaceAll('/', '-');
       const dir = path.join(home, '.claude', 'projects', encoded);
       return new Set(readdirSync(dir).filter((f) => f.endsWith('.jsonl')));
     }
-    if (provider === 'codex' || provider === 'codex-proxy') {
+    if (provider === 'codex') {
       const indexPath = path.join(home, '.codex', 'session_index.jsonl');
       const snapshot = new Set(listCodexSessionFiles(home).map((file) => `codex-file:${file}`));
       try {
@@ -434,7 +434,7 @@ function snapshotAgentDir(provider: ProviderName, projectPath: string): Set<stri
 
 // Call this AFTER pty.spawn() with the snapshot taken before spawn.
 async function pollAgentSessionId(
-  provider: ProviderName,
+  provider: string,
   projectPath: string,
   pid: number,
   before: Set<string>,
@@ -444,7 +444,7 @@ async function pollAgentSessionId(
   const shouldContinue = (attempt: number) =>
     shouldStop ? !shouldStop() : attempt < DETECT_MAX_POLLS;
 
-  if (provider === 'claude' || provider === 'claude-proxy') {
+  if (provider === 'claude') {
     // Claude writes ~/.claude/sessions/<pid>.json on startup — much more reliable than JSONL files.
     const sessionFile = path.join(home, '.claude', 'sessions', `${pid}.json`);
     for (let i = 0; shouldContinue(i); i++) {
@@ -457,7 +457,7 @@ async function pollAgentSessionId(
     return undefined;
   }
 
-  if (provider === 'codex' || provider === 'codex-proxy') {
+  if (provider === 'codex') {
     const indexPath = path.join(home, '.codex', 'session_index.jsonl');
     const beforeIndexEntry = [...before].find((entry) => entry.startsWith('codex-index-count:'));
     const beforeCount = Number(beforeIndexEntry?.slice('codex-index-count:'.length) ?? 0);

@@ -257,10 +257,7 @@ program
   .option('--no-reconnect', '本地 attach 断开后不自动重连')
   .allowUnknownOption(true)
   .action((providerName: string, providerArgs: string[], options: StartOptions) => {
-    if (!isProviderName(providerName)) {
-      throw new Error(`unknown provider: ${providerName}`);
-    }
-    const provider = PROVIDERS[providerName];
+    const provider = isProviderName(providerName) ? PROVIDERS[providerName] : { name: providerName, command: providerName };
     return startProviderSession(provider, { ...options, providerArgs });
   });
 
@@ -848,7 +845,7 @@ async function runGatewayDoctor(): Promise<void> {
   pushCheck('Relay 配置', Boolean(relay), relay ? relay.url : '未配置');
   pushCheck('Relay 连接', stringValue(api?.relay?.state) === 'connected', stringValue(api?.relay?.state) ?? '未确认');
   for (const provider of Object.values(PROVIDERS)) {
-    const configuredCommand = file.providers?.[provider.name]?.command;
+    const configuredCommand = (file.providers as Record<string, { command?: string } | undefined> | undefined)?.[provider.name]?.command;
     const command = configuredCommand ?? provider.command;
     const available = commandAvailable(command);
     checks.push({

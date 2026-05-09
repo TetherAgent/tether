@@ -1,14 +1,14 @@
 import path from 'node:path';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
-import type { AuthScopePayload, ProviderName } from '@tether/core';
+import type { AuthScopePayload } from '@tether/core';
 import { maskSensitiveOutput } from './mask.js';
 import type { Session, SessionEvent } from './store.js';
 import { Store } from './store.js';
 
 export type CreatePtySessionOptions = {
   id: string;
-  provider: ProviderName;
+  provider: string;
   command: string;
   providerArgs?: string[];
   projectPath: string;

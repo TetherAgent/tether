@@ -2,7 +2,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import type { ProviderName } from '@tether/core';
 
 export type SessionStatus = 'running' | 'stopped' | 'completed' | 'failed' | 'lost';
 export type AttachState = 'attached' | 'detached';
@@ -10,7 +9,7 @@ export type SessionTransport = 'tmux' | 'pty-event-stream';
 
 export type Session = {
   id: string;
-  provider: ProviderName;
+  provider: string;
   title: string;
   projectPath: string;
   accountId?: string;
@@ -76,7 +75,7 @@ export type AgentTurn = {
 
 type SessionRow = {
   id: string;
-  provider: ProviderName;
+  provider: string;
   title: string;
   project_path: string;
   account_id?: string | null;

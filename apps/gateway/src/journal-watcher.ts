@@ -1,7 +1,6 @@
 import { closeSync, openSync, readdirSync, readSync, statSync, watch, type FSWatcher } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ProviderName } from '@tether/core';
 import type { AgentStatusPublisher } from './session-status-deriver.js';
 import type { SessionEvent, Store } from './store.js';
 
@@ -39,13 +38,13 @@ function resolveCodexJournalPath(agentSessionId: string): string | undefined {
   return undefined;
 }
 
-function resolveJournalPath(provider: ProviderName, projectPath: string, agentSessionId: string): string | undefined {
+function resolveJournalPath(provider: string, projectPath: string, agentSessionId: string): string | undefined {
   const home = os.homedir();
-  if (provider === 'claude' || provider === 'claude-proxy') {
+  if (provider === 'claude') {
     const encoded = projectPath.replaceAll('/', '-');
     return path.join(home, '.claude', 'projects', encoded, `${agentSessionId}.jsonl`);
   }
-  if (provider === 'codex' || provider === 'codex-proxy') {
+  if (provider === 'codex') {
     return resolveCodexJournalPath(agentSessionId);
   }
   return undefined;
@@ -63,7 +62,7 @@ export class JournalWatcher {
 
   constructor(
     private readonly sessionId: string,
-    private readonly provider: ProviderName,
+    private readonly provider: string,
     private readonly agentSessionId: string,
     private readonly projectPath: string,
     private readonly store: Store,
@@ -189,9 +188,9 @@ export class JournalWatcher {
         if (!line.trim()) continue;
         try {
           const entry = JSON.parse(line) as Record<string, unknown>;
-          if (this.provider === 'claude' || this.provider === 'claude-proxy') {
+          if (this.provider === 'claude') {
             this.processClaudeEntry(entry);
-          } else if (this.provider === 'codex' || this.provider === 'codex-proxy') {
+          } else if (this.provider === 'codex') {
             this.processCodexEntry(entry);
           }
         } catch {
