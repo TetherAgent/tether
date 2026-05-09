@@ -213,7 +213,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           latestSessions.set(session.id, session);
         }
         broadcastSessionList();
-        void syncToServer('/api/runtime-sync/gateway/sessions', {
+        void syncToServer('/api/relay/runtime-sync/gateway/sessions', {
           gatewayId: frame.gatewayId,
           sessions: frame.sessions,
           scope: gatewayScope
@@ -224,7 +224,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         break;
       case 'gateway.conversation':
         sendConversation(frame.clientId, frame.sessionId, frame.turns);
-        void syncToServer('/api/runtime-sync/gateway/conversation', {
+        void syncToServer('/api/relay/runtime-sync/gateway/conversation', {
           sessionId: frame.sessionId,
           turns: frame.turns,
           scope: gatewayScope
@@ -233,7 +233,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
       case 'gateway.event':
         sendEventToSubscribers(frame.event);
         if (frame.event.type === 'agent.turn' || RUNTIME_EVENT_WHITELIST.has(frame.event.type)) {
-          void syncToServer('/api/runtime-sync/gateway/event', {
+          void syncToServer('/api/relay/runtime-sync/gateway/event', {
             gatewayId: frame.gatewayId,
             event: frame.event,
             scope: gatewayScope

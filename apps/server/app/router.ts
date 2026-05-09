@@ -31,9 +31,9 @@ export default (app: Application): void => {
   router.post('/api/server/audit', controller.audit.create);
   router.get('/api/server/audit', controller.audit.index);
 
-  router.post('/api/runtime-sync/gateway/sessions', requireRuntimeSyncSecret, controller.runtimeSync.sessions);
-  router.post('/api/runtime-sync/gateway/conversation', requireRuntimeSyncSecret, controller.runtimeSync.conversation);
-  router.post('/api/runtime-sync/gateway/event', requireRuntimeSyncSecret, controller.runtimeSync.event);
+  router.post('/api/relay/runtime-sync/gateway/sessions', requireRuntimeSyncSecret, controller.runtimeSync.sessions);
+  router.post('/api/relay/runtime-sync/gateway/conversation', requireRuntimeSyncSecret, controller.runtimeSync.conversation);
+  router.post('/api/relay/runtime-sync/gateway/event', requireRuntimeSyncSecret, controller.runtimeSync.event);
 
   router.get('/api/server/sessions', requireNormalAccess, controller.session.list);
   router.get('/api/server/sessions/:id/conversation', requireNormalAccess, controller.session.conversation);
