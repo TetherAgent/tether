@@ -222,7 +222,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
       case 'gateway.replay':
         sendReplay(frame.clientId, frame.sessionId, frame.events, frame.done !== false, frame.latestEventId);
         for (const event of frame.events) {
-          if (event.type === 'agent.turn') {
+          if (event.type === 'agent.turn' || RUNTIME_EVENT_WHITELIST.has(event.type)) {
             void syncToServer('/api/relay/runtime-sync/gateway/event', {
               gatewayId: frame.gatewayId,
               event,
