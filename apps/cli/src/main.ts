@@ -10,6 +10,7 @@
 
 import fs from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -207,12 +208,10 @@ gatewayCommand
 
 gatewayCommand
   .command('login')
-  .description('绑定本机 Gateway 到远程 Server，并写入 auth.json')
+  .description('在浏览器中授权，将本机 Gateway 绑定到远程 Server，并写入 auth.json')
   .option('--server-url <url>', 'Server 基础地址；默认读取 TETHER_SERVER_URL')
   .option('--env <env>', '登录环境：local 或 prod；默认 prod')
-  .option('--email <email>', '账号邮箱')
-  .option('--password <password>', '账号密码')
-  .action(async (options: { serverUrl?: string; env?: string; email?: string; password?: string }) => {
+  .action(async (options: { serverUrl?: string; env?: string }) => {
     await performGatewayLogin({ ...options, env: parseGatewayLoginEnvOption(options.env) });
   });
 
@@ -1408,56 +1407,97 @@ function unwrapServerApiData(body: unknown): unknown {
 async function performGatewayLogin(options: {
   serverUrl?: string;
   env?: GatewayLoginEnv;
-  email?: string;
-  password?: string;
 }): Promise<void> {
   const serverUrl = resolveGatewayLoginServerUrl(options);
   if (!serverUrl) {
     throw new Error('缺少 Server URL。请先执行 tether gateway init，或传 --server-url');
   }
-  const email = options.email ?? await promptLine('邮箱: ');
-  const password = options.password ?? await promptLine('密码: ');
-  if (!email || !password) {
-    throw new Error('邮箱和密码不能为空');
-  }
-  const response = await fetch(`${serverUrl}/api/relay/gateway/bind`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email, password, gatewayName: os.hostname() })
-  });
-  if (!response.ok) {
-    throw new Error(`Gateway 登录失败：HTTP ${response.status}。请确认账号密码，必要时重新执行 tether gateway login。`);
-  }
-  const body = unwrapServerApiData(await response.json()) as {
-    gateway?: { id?: unknown };
-    accountId?: unknown;
-    workspaceId?: unknown;
-    gatewayAccessToken?: unknown;
-    gatewayRefreshToken?: unknown;
-  };
-  if (
-    typeof body.gateway?.id !== 'string' ||
-    typeof body.accountId !== 'string' ||
-    typeof body.workspaceId !== 'string' ||
-    typeof body.gatewayAccessToken !== 'string' ||
-    typeof body.gatewayRefreshToken !== 'string'
-  ) {
-    throw new Error('Gateway 登录失败：响应缺少必要字段');
-  }
-  const payload = decodeTokenPayload(body.gatewayAccessToken);
+  const port = await findAvailablePort();
+  const hostname = os.hostname();
+  const browserUrl = `${serverUrl}/gateway-auth?port=${port}&hostname=${encodeURIComponent(hostname)}`;
+  console.log('正在打开浏览器进行授权...');
+  console.log(`如果浏览器未自动打开，请访问：${browserUrl}`);
+  openBrowser(browserUrl);
+  const result = await waitForGatewayAuthCallback(port, 120_000);
+  const payload = decodeTokenPayload(result.gatewayAccessToken);
   if (!payload || typeof payload.expiresAt !== 'number') {
     throw new Error('Gateway 登录失败：access token 缺少 expiresAt');
   }
   await writeGatewayAuthState({
     serverUrl,
-    gatewayId: body.gateway.id,
-    accountId: body.accountId,
-    workspaceId: body.workspaceId,
-    accessToken: body.gatewayAccessToken,
-    refreshToken: body.gatewayRefreshToken,
+    gatewayId: result.gatewayId,
+    accountId: result.accountId,
+    workspaceId: result.workspaceId,
+    accessToken: result.gatewayAccessToken,
+    refreshToken: result.gatewayRefreshToken,
     expiresAt: payload.expiresAt
   });
   console.log(`Gateway 登录成功，凭据已写入：${gatewayAuthPath()}`);
+}
+
+function openBrowser(url: string): void {
+  const cmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
+  spawn(cmd, [url], { detached: true, stdio: 'ignore' }).unref();
+}
+
+async function findAvailablePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address() as net.AddressInfo;
+      server.close(() => resolve(addr.port));
+    });
+    server.on('error', reject);
+  });
+}
+
+type GatewayAuthCallbackResult = {
+  gatewayId: string;
+  accountId: string;
+  workspaceId: string;
+  gatewayAccessToken: string;
+  gatewayRefreshToken: string;
+};
+
+async function waitForGatewayAuthCallback(port: number, timeoutMs: number): Promise<GatewayAuthCallbackResult> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      server.close();
+      reject(new Error('Gateway 授权超时（2 分钟），请重试'));
+    }, timeoutMs);
+
+    const server = http.createServer((req, res) => {
+      const url = new URL(req.url ?? '/', `http://localhost:${port}`);
+      if (url.pathname !== '/callback') {
+        res.writeHead(404).end();
+        return;
+      }
+      const get = (k: string) => url.searchParams.get(k);
+      const gatewayId = get('gatewayId');
+      const accountId = get('accountId');
+      const workspaceId = get('workspaceId');
+      const gatewayAccessToken = get('gatewayAccessToken');
+      const gatewayRefreshToken = get('gatewayRefreshToken');
+
+      if (!gatewayId || !accountId || !workspaceId || !gatewayAccessToken || !gatewayRefreshToken) {
+        res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' })
+          .end('<html><body>授权失败：参数缺失。</body></html>');
+        clearTimeout(timer);
+        server.close();
+        reject(new Error('Gateway 授权失败：回调缺少必要参数'));
+        return;
+      }
+
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(
+        '<html><body style="font-family:sans-serif;padding:2em"><h2>授权成功</h2><p>可以关闭此窗口，返回终端。</p></body></html>'
+      );
+      clearTimeout(timer);
+      server.close();
+      resolve({ gatewayId, accountId, workspaceId, gatewayAccessToken, gatewayRefreshToken });
+    });
+
+    server.listen(port, '127.0.0.1');
+  });
 }
 
 function resolveGatewayLoginServerUrl(options: {

@@ -19,8 +19,9 @@ export default (app: Application): void => {
   router.get('/api/server/auth/me', requireNormalAccess, controller.auth.me);  // 获取当前用户信息
 
   // Gateway 注册与凭据（CLI 调用）
-  router.post('/api/relay/gateway/bind', controller.gateway.bind);       // Gateway 绑定账号
-  router.post('/api/relay/gateway/refresh', controller.gateway.refresh); // Gateway 刷新凭据
+  router.post('/api/relay/gateway/bind', controller.gateway.bind);                                   // Gateway 绑定账号（邮箱密码）
+  router.post('/api/relay/gateway/refresh', controller.gateway.refresh);                             // Gateway 刷新凭据
+  router.post('/api/server/gateway-auth/bind', requireNormalAccess, controller.gatewayAuth.bind);    // Gateway 浏览器授权绑定
 
   // Token 管理
   router.post('/api/server/token/revoke', requireAnyAccess, controller.token.revoke);  // 撤销 Token

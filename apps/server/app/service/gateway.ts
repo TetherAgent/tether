@@ -11,6 +11,15 @@ type BindGatewayInput = {
   userAgent?: string;
 };
 
+type BindGatewayForUserInput = {
+  accountId: string;
+  workspaceId: string;
+  userId: string;
+  gatewayName?: string;
+  ip?: string;
+  userAgent?: string;
+};
+
 export default class GatewayService extends Service {
   public async bindGateway(input: BindGatewayInput) {
     const { ctx } = this;
@@ -70,6 +79,65 @@ export default class GatewayService extends Service {
       accountId: gateway.accountId,
       workspaceId: gateway.workspaceId,
       userId: login.user.id,
+      gatewayId: gateway.id,
+      eventType: 'gateway.online',
+      ts: Date.now()
+    });
+
+    return {
+      gateway,
+      accountId: gateway.accountId,
+      workspaceId: gateway.workspaceId,
+      gatewayAccessToken: gatewayTokens.accessToken,
+      gatewayRefreshToken: gatewayTokens.refreshToken
+    };
+  }
+
+  public async bindGatewayForUser(input: BindGatewayForUserInput) {
+    const { ctx } = this;
+    const existing = await ctx.service.gatewayRepository.loadGatewayByUserId(input.userId);
+    const createdAt = Date.now();
+    const gateway: GatewayRecord = existing ?? {
+      id: createId('gateway'),
+      accountId: input.accountId,
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      name: input.gatewayName ?? 'local-gateway',
+      status: 'online',
+      lastSeenAt: createdAt,
+      createdAt,
+      updatedAt: createdAt
+    };
+
+    gateway.name = input.gatewayName ?? gateway.name ?? 'local-gateway';
+    gateway.status = 'online';
+    gateway.lastSeenAt = createdAt;
+    gateway.updatedAt = createdAt;
+    gateway.id = await ctx.service.gatewayRepository.saveGateway(gateway);
+
+    const gatewayTokens = ctx.service.auth.issueGatewayTokenBundle({
+      accountId: input.accountId,
+      workspaceId: input.workspaceId,
+      gatewayId: gateway.id,
+      userId: input.userId
+    });
+    await ctx.service.auth.persistGatewayRefreshTokenPayload(gatewayTokens.refreshPayload);
+
+    await ctx.service.audit.recordAuditEvent({
+      accountId: gateway.accountId,
+      workspaceId: gateway.workspaceId,
+      userId: input.userId,
+      gatewayId: gateway.id,
+      action: 'gateway.bound',
+      tokenClass: 'gateway_access',
+      ip: input.ip,
+      userAgent: input.userAgent,
+      payload: { gatewayName: input.gatewayName ?? 'local-gateway' }
+    });
+    ctx.service.notification.emitNotification({
+      accountId: gateway.accountId,
+      workspaceId: gateway.workspaceId,
+      userId: input.userId,
       gatewayId: gateway.id,
       eventType: 'gateway.online',
       ts: Date.now()
