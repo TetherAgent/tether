@@ -35,6 +35,7 @@ occupies an active roadmap phase number.
 - [ ] **Phase 9: Flutter Client App** - Phone-first Flutter client for remote Relay/LAN session viewing and control, with HarmonyOS support and generated Dart protocol
 - [ ] **Phase 10: Multi-workspace Expansion** - Product support for creating/switching workspaces, binding Gateways per workspace, and isolating members, sessions, audit, and admin pages by workspace
 - [x] **Phase 12: Server DB Runtime Sync** - Web/App 从 Server DB 直接读取 session 列表、聊天历史和受限 Terminal 历史，不再依赖 Gateway 反向 RPC；Relay 实时同步 Gateway frame 到 Server DB (completed 2026-05-09)
+- [ ] **Phase 13: Mobile Web Chat** - 在 apps/web 中新增类微信三栏聊天界面，通过 Relay WS stream-json 链路创建 AI 会话（Claude/Codex/Copilot）、实时渲染 agent delta、Markdown 渲染、会话历史 HTTP 加载、断线续传
 
 ## Phase Details
 
@@ -234,6 +235,7 @@ Plans:
 | 10. Multi-workspace Expansion | 0/TBD | Not started | - |
 | 11. Agent 实时对话视图 | 4/4 | Complete | 2026-05-08 |
 | 12. Server DB Runtime Sync | 0/7 | Not started | - |
+| 13. Mobile Web Chat | 0/6 | Not started | - |
 
 ### Phase 11: Agent 实时对话视图
 
@@ -289,6 +291,38 @@ Plans:
   7. `terminal.output` 只进入 `gateway_runtime_events`，有掩码、限量和保留策略
   8. 不同 account/workspace 之间不能串 session、chat message 或 runtime event
 
+### Phase 13: Mobile Web Chat
+
+**Goal:** 在现有 `apps/web` 中新增 `/chats` 路由，实现类微信三栏布局的 AI 聊天界面。用户可从手机/浏览器创建 AI 会话（选择 Claude/Codex/Copilot 及具体模型），发送消息后通过 Relay WS → Gateway stream-json 链路执行，实时渲染流式 delta（打字机效果 + Markdown），收到 agent.result 后追加花费卡片。会话历史通过 HTTP 从 Server DB 加载，支持断线续传（Gateway 内存缓存 + catchup 帧）。
+
+**Depends on:** Phase 12
+
+**Requirements:** TBD
+
+**Success Criteria** (what must be TRUE):
+  1. 登录后 `/chats` 路由可访问，显示三栏布局（56px 导航 + 280px 会话列表 + 聊天区）；手机 <768px 时折叠为单列+汉堡菜单
+  2. 新建会话时可选 provider（claude/codex/copilot）、model、cwd；第一条消息发出时 Gateway 隐式创建 session，回 `gateway.session-created { sessionId }`
+  3. agent.delta 实时渲染到 AI 气泡（打字机），agent.result 到达后追加花费卡片；用户消息纯文本，AI 回复完整 Markdown（代码高亮+复制、表格、GFM）
+  4. 会话列表通过 HTTP `GET /api/server/chat-sessions` 加载；历史消息通过 HTTP `GET /api/server/chat-sessions/:id/messages` 加载，直接渲染，不经过 WS
+  5. 用户中途退出后重新进入，若 Gateway subprocess 仍在运行则收到 `gateway.chat-catchup` 帧恢复断点；若 subprocess 已崩溃显示"回复丢失，请重试"
+  6. Gateway 新增 `session_chats_events` 表（独立于 PTY 的 `session_events`）；Server DB 新增 `gateway_chat_messages` 表（迁移文件 004）
+  7. 中途换模型触发摘要流程，前端气泡不清空并插入系统消息
+  8. 设置/账号 tab 展示 Claude CLI 订阅信息（若 CLI 支持）
+
+**Plans**: 6 plans
+
+Plans:
+  - **Wave 1** (no deps):
+    - [ ] `13-01-PLAN.md` — Protocol 帧类型扩展（9 个新帧变体）+ Gateway session_chats_events 表 + Server migration 004
+  - **Wave 2** *(depends on Plan 01, parallel)*:
+    - [ ] `13-02-PLAN.md` — Gateway ChatSessionRunner（piped subprocess）+ relay-client 新帧处理
+    - [ ] `13-03-PLAN.md` — Relay 白名单扩展 + client.chat 直通 + Server chat-sessions HTTP API
+  - **Wave 3** *(depends on Plans 01 + 03, parallel)*:
+    - [ ] `13-04-PLAN.md` — Web 路由 + i18n keys + 三栏布局 + 会话列表（routes、messages、layout、session-list）
+    - [ ] `13-05-PLAN.md` — Chat UI 原子组件（气泡、工具卡、花费卡、流式光标、thinking dots）
+  - **Wave 4** *(depends on all prior plans)*:
+    - [ ] `13-06-PLAN.md` — 端对端集成（ChatPanel + chats-layout 更新）+ human verify checkpoint
+
 ---
 *Roadmap created: 2026-05-01*
 *Milestone reordered: 2026-05-01 — personal Relay MVP moved to Phase 1*
@@ -299,4 +333,5 @@ Plans:
 *Scope update: 2026-05-02 — WORKSPACE-01 promoted to Phase 10 for future discuss/plan flow*
 *Scope update: 2026-05-05 — Phase 11 Agent 实时对话视图 planned: 4 plans across 4 waves*
 *Scope update: 2026-05-09 — Phase 12 Server DB Runtime Sync added: Web/App 读取改为 Server DB，Relay 同步 Gateway frame 到 Server*
+*Scope update: 2026-05-10 — Phase 13 Mobile Web Chat planned: 6 plans across 4 waves*
 *Coverage: 40/40 v1 requirements mapped*
