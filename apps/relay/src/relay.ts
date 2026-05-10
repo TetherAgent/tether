@@ -235,12 +235,13 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     socket.on('close', () => {
       clearTimeout(authTimer);
       if (gatewayId && gateways.get(gatewayId)?.socket === socket) {
+        const disconnectedScope = gatewayScope;
         gateways.delete(gatewayId);
         dropSessionsForGateway(gatewayId);
-        if (hasConnectedGateway()) {
-          broadcastSessionList();
-        } else {
-          broadcastGatewayUnavailable();
+        broadcastSessionList();
+        // Notify only clients whose account has no remaining gateway
+        if (disconnectedScope?.accountId && !firstGatewayForAccount(disconnectedScope.accountId)) {
+          broadcastGatewayUnavailableForAccount(disconnectedScope.accountId);
         }
       }
     });
@@ -255,7 +256,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         }
         dropSessionsForGateway(frame.gatewayId);
         for (const session of frame.sessions) {
-          latestSessions.set(session.id, session);
+          // Ensure every session carries its source gatewayId for correct routing
+          latestSessions.set(session.id, { ...session, gatewayId: session.gatewayId ?? frame.gatewayId });
         }
         broadcastSessionList();
         void syncToServer('/api/relay/runtime-sync/gateway/sessions', {
@@ -490,7 +492,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           authenticated = true;
           clearTimeout(authTimer);
           clientScope = auth.scope;
-          const gatewayId = clientScope.gatewayId ?? firstConnectedGateway()?.gatewayId;
+          const gatewayId = clientScope.gatewayId ?? firstGatewayForAccount(clientScope.accountId)?.gatewayId;
           clients.set(clientId, { clientId, scope: auth.scope, gatewayId, authMethod: auth.authMethod, socket, subscriptions });
           sendToSocket<RelayServerToClientFrame>(socket, { type: 'client.auth.ok', clientId });
           sendToSocket<RelayServerToClientFrame>(socket, {
@@ -686,8 +688,10 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
 
   function forwardToSessionGateway(frame: RelayServerToGatewayFrame): void {
     const sessionId = 'sessionId' in frame ? frame.sessionId : undefined;
-    const gatewayId = sessionId ? latestSessions.get(sessionId)?.gatewayId : undefined;
-    const gateway = gatewayId ? gateways.get(gatewayId) : firstConnectedGateway();
+    const session = sessionId ? latestSessions.get(sessionId) : undefined;
+    const gatewayId = session?.gatewayId;
+    // Do not fall back to a random gateway: if the session's gateway is unknown, refuse
+    const gateway = gatewayId ? gateways.get(gatewayId) : undefined;
     if (!gateway || gateway.socket.readyState !== WebSocket.OPEN) {
       const clientId = 'clientId' in frame ? frame.clientId : undefined;
       if (clientId) {
@@ -723,7 +727,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     if (client.gatewayId) {
       return client.gatewayId;
     }
-    const gatewayId = client.scope?.gatewayId ?? firstConnectedGateway()?.gatewayId;
+    const accountId = client.scope?.accountId;
+    const gatewayId = client.scope?.gatewayId ??
+      (accountId ? firstGatewayForAccount(accountId)?.gatewayId : firstConnectedGateway()?.gatewayId);
     client.gatewayId = gatewayId;
     return gatewayId;
   }
@@ -735,8 +741,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     return clientCanSeeSession(client.scope, client.authMethod, session, gatewayForSession(session)?.scope);
   }
 
-  function broadcastGatewayUnavailable(): void {
+  function broadcastGatewayUnavailableForAccount(accountId: string): void {
     for (const client of clients.values()) {
+      if (client.scope?.accountId !== accountId) continue;
       sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'sessions', sessions: [] });
       sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'error', code: 'gateway_unavailable', message: 'gateway is not connected' });
     }
@@ -817,12 +824,23 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
   }
 
   function gatewayForSession(session: RelaySession): GatewayState | undefined {
-    return session.gatewayId ? gateways.get(session.gatewayId) : firstConnectedGateway();
+    if (session.gatewayId) return gateways.get(session.gatewayId);
+    // No gatewayId on session — scope-limited fallback to avoid cross-account visibility
+    return session.accountId ? firstGatewayForAccount(session.accountId) : undefined;
   }
 
   function firstConnectedGateway(): GatewayState | undefined {
     for (const gateway of gateways.values()) {
       if (gateway.socket.readyState === WebSocket.OPEN) {
+        return gateway;
+      }
+    }
+    return undefined;
+  }
+
+  function firstGatewayForAccount(accountId: string): GatewayState | undefined {
+    for (const gateway of gateways.values()) {
+      if (gateway.socket.readyState === WebSocket.OPEN && gateway.scope?.accountId === accountId) {
         return gateway;
       }
     }

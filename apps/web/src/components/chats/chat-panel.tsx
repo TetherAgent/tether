@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUp, Check, Copy, Loader2, Menu, PanelLeftOpen } from 'lucide-react';
+import { ArrowUp, Check, Copy, Folder, Loader2, Menu, PanelLeftOpen } from 'lucide-react';
 import { NotificationBell } from './notification-bell.js';
 import {
   Button,
@@ -642,7 +642,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
 
   const sendMessage = React.useCallback(() => {
     const text = inputText.trim();
-    if (!text || isInflight || !wsReady) return;
+    if (!text || isInflight || !wsReady || connectionError) return;
     const existingProviderModels = providerOptions.find((provider) => provider.provider === activeSessionProvider)?.models ?? [];
     const messageProvider = currentSessionId ? (activeSessionProvider ?? 'agent') : selectedProvider;
     const messageModel = currentSessionId ? (activeSessionModel ?? existingProviderModels[0]) : selectedModel;
@@ -670,7 +670,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
       cwd,
       message: text
     });
-  }, [activeSessionModel, activeSessionProvider, cwd, currentSessionId, inputText, isInflight, providerOptions, selectedModel, selectedProvider, sendFrame, wsReady]);
+  }, [activeSessionModel, activeSessionProvider, connectionError, cwd, currentSessionId, inputText, isInflight, providerOptions, selectedModel, selectedProvider, sendFrame, wsReady]);
 
   const sendPermissionResponse = React.useCallback((requestId: string, decision: 'allow' | 'deny') => {
     if (!wsReady || !currentSessionIdRef.current) return;
@@ -691,10 +691,10 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
 
   const canSend = wsReady && !isInflight && !connectionError && inputText.trim().length > 0;
   const isInputDisabled = isInflight || !wsReady || Boolean(connectionError);
-  const connectionBanner = connectionError && hasEverConnectedRef.current ? (
-    <div className="mb-2 flex items-center justify-center gap-1.5 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-center text-[11px] text-destructive/80">
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-destructive/60" />
-      {connectionError}
+  const connectionStatusChip = connectionError && hasEverConnectedRef.current ? (
+    <div className="chat-connection-chip" role="status" aria-live="polite">
+      <span />
+      <strong>{connectionError}</strong>
     </div>
   ) : null;
 
@@ -718,7 +718,8 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   const displayProviderModels = providerOptions.find((provider) => provider.provider === displayProvider)?.models ?? [];
   const displayModel = currentSessionId ? (activeSessionModel ?? displayProviderModels[0]) : selectedModel;
   const inputCard = (withControls: boolean) => (
-    <div className="chat-input-card overflow-hidden rounded-2xl border border-border bg-card" style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
+    <div className="chat-input-card relative overflow-hidden rounded-2xl border border-border bg-card" style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
+      {connectionStatusChip}
       <Textarea
         value={inputText}
         onChange={(event) => setInputText(event.target.value)}
@@ -766,13 +767,15 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
               }}
             >
               <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  title={cwd}
-                  className="chat-cwd-trigger flex h-7 max-w-[260px] min-w-[132px] items-center rounded-full bg-muted px-3 font-mono text-[12px] text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  <span className="truncate">{cwd ? compactPathLabel(cwd) : '请选择工作目录'}</span>
-                </button>
+	                <button
+	                  type="button"
+	                  title={cwd}
+	                  className="chat-cwd-trigger flex h-7 max-w-[260px] min-w-[132px] items-center rounded-full bg-muted px-3 font-mono text-[12px] text-muted-foreground transition-colors hover:text-foreground"
+	                >
+	                  <Folder className="chat-cwd-icon" />
+	                  <span className="chat-cwd-label">目录</span>
+	                  <span className="chat-cwd-value truncate">{cwd ? compactPathLabel(cwd) : '请选择工作目录'}</span>
+	                </button>
               </PopoverTrigger>
               <PopoverContent side="top" align="start" sideOffset={10} className="chat-cwd-popover w-[520px] gap-2 p-2">
                 <Input
@@ -903,7 +906,6 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
         </div>
 
         <div className="chat-new-session-composer w-full max-w-[680px]">
-          {connectionBanner}
           {inputCard(true)}
           <div className="mt-3 flex items-center justify-center gap-1">
             <span className="text-[11px] text-muted-foreground/70">{t.chatsCwdNote}</span>
@@ -1014,7 +1016,6 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
       {/* Input */}
       <div className="px-4 pb-4 pt-2">
         <div className="mx-auto max-w-3xl">
-          {connectionBanner}
           {inputCard(false)}
         </div>
       </div>

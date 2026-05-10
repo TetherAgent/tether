@@ -81,6 +81,66 @@
 
 所有接口均已按此规范迁移，新增接口必须遵守此规范。
 
+## 6. Relay 多租户隔离规范
+
+Relay 服务器是多租户共享服务，同一进程内可能同时连接多个不同账号的 Gateway
+和 Client。**任何跨用户的数据读取或路由都是安全漏洞**，必须严格防止。
+
+### 禁止行为
+
+| 禁止 | 原因 |
+|------|------|
+| 在 Gateway 路由 fallback 中使用 `firstConnectedGateway()` | 会把 A 账号的请求发给 B 账号的 Gateway |
+| Session 广播不过滤账号 | 会把 B 的 session 列表暴露给 A |
+| `gateway_unavailable` 广播所有 Client | 会把 B 的 Gateway 断线事件通知给 A |
+| 存储 session 时不注入来源 `gatewayId` | 导致后续路由使用无账号限制的 fallback |
+
+### 强制规则
+
+**R1 — 按账号查找 Gateway**
+
+所有"给 Client 找对应 Gateway"的逻辑，必须使用 `firstGatewayForAccount(accountId)`
+而不是 `firstConnectedGateway()`。后者只在不涉及账号隔离的全局检查中使用（如
+`hasConnectedGateway()`）。
+
+**R2 — Session 存储必须携带来源 gatewayId**
+
+在 `gateway.sessions` 帧处理时，写入 `latestSessions` 前必须确保每个 session
+带有 `gatewayId`，从帧中补填：
+
+```typescript
+latestSessions.set(session.id, { ...session, gatewayId: session.gatewayId ?? frame.gatewayId });
+```
+
+这样路由时不需要任何账号无关的 fallback。
+
+**R3 — 广播必须过滤账号**
+
+`broadcastSessionList()` 已经通过 `clientCanSeeRelaySession` 过滤，但所有其他
+广播（如 `gateway_unavailable`）必须只通知 `client.scope.accountId` 匹配的
+Client，不得遍历所有 Client 广播。
+
+**R4 — 新增路由路径必须附带隔离测试**
+
+每次新增以下任何一类逻辑，必须同时在 `relay.test.ts` 中新增多账号隔离测试：
+
+- 新的 Client → Gateway 转发路径
+- 新的 Gateway → Client 推送路径  
+- 新的 broadcast / notify all 逻辑
+
+测试模板：两个账号的 Gateway 都连接，**B 账号的 Gateway 先连**，验证 A 账号
+的操作不泄漏到 B 的 Gateway（反之亦然）。
+
+### 根因回溯（2025-05-10）
+
+`firstConnectedGateway()` 在以下四处被错误用于有账号上下文的路由：
+
+1. Client 认证时分配 Gateway（已修复）
+2. `ensureClientGatewayId` fallback（已修复）
+3. `gatewayForSession` fallback（已修复：先用 accountId 查，无 gatewayId 的 session 返回 undefined）
+4. `forwardToSessionGateway` fallback（已修复：移除 fallback，依赖 R2 保证 gatewayId 始终存在）
+5. `broadcastGatewayUnavailable` 全量广播（已修复：改为按账号过滤）
+
 ## 生效标准
 
 这些原则生效时，diff 中不必要的改动会减少，因过度复杂导致的重写会减少，

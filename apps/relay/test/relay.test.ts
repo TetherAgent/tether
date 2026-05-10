@@ -1142,6 +1142,61 @@ test('relay gateway.event syncToServer failure does not block frame forwarding',
   }
 });
 
+test('relay routes client frames to matching account gateway only', async () => {
+  const GW_TOKEN_1 = 'gw-token-acct1';
+  const GW_TOKEN_2 = 'gw-token-acct2';
+  const CLIENT_TOKEN_1 = 'client-token-acct1';
+
+  const relay = await startRelayServer({
+    host: '127.0.0.1',
+    port: 0,
+    secret: SECRET,
+    validateToken: async (token) => {
+      if (token === GW_TOKEN_1) return { accountId: 'acct_1', workspaceId: 'ws_1', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw1' };
+      if (token === GW_TOKEN_2) return { accountId: 'acct_2', workspaceId: 'ws_2', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw2' };
+      if (token === CLIENT_TOKEN_1) return { accountId: 'acct_1', workspaceId: 'ws_1', userId: 'user_1', tokenClass: 'normal_client_access', expiresAt: Date.now() + 60_000, jti: 'jti_cl1' };
+      return undefined;
+    }
+  });
+
+  const wsUrl = relay.url.replace('http', 'ws');
+  // Connect acct_2 gateway FIRST to reproduce the pre-fix bug (firstConnectedGateway would return it)
+  const gateway2 = new WebSocket(`${wsUrl}/ws/gateway`);
+  const gateway1 = new WebSocket(`${wsUrl}/ws/gateway`);
+  const client = new WebSocket(`${wsUrl}/ws/client`);
+
+  try {
+    await waitForOpen(gateway2);
+    gateway2.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-acct2', token: GW_TOKEN_2 }));
+    await waitForJson(gateway2, (m) => m.type === 'gateway.auth.ok');
+
+    await waitForOpen(gateway1);
+    gateway1.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-acct1', token: GW_TOKEN_1 }));
+    await waitForJson(gateway1, (m) => m.type === 'gateway.auth.ok');
+
+    await waitForOpen(client);
+    client.send(JSON.stringify({ type: 'client.auth', token: CLIENT_TOKEN_1 }));
+    await waitForJson(client, (m) => m.type === 'client.auth.ok');
+
+    // cwd-suggest must arrive at acct_1 gateway
+    client.send(JSON.stringify({ type: 'client.cwd-suggest', cwd: '~' }));
+    const frame = await waitForJson(gateway1, (m) => m.type === 'client.cwd-suggest');
+    assert.equal(frame.type, 'client.cwd-suggest');
+
+    // acct_2 gateway must NOT receive anything from acct_1 client
+    const leakCheck = await Promise.race([
+      waitForJson(gateway2, (m) => m.type === 'client.cwd-suggest').then(() => 'leaked'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('isolated'), 300))
+    ]);
+    assert.equal(leakCheck, 'isolated');
+  } finally {
+    gateway1.close();
+    gateway2.close();
+    client.close();
+    await relay.close();
+  }
+});
+
 async function authenticateGateway(ws: WebSocket, gatewayId = 'gateway-test'): Promise<void> {
   await waitForOpen(ws);
   ws.send(JSON.stringify({ type: 'gateway.auth', gatewayId, token: GATEWAY_TOKEN }));
