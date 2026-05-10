@@ -314,6 +314,18 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             });
           }
           break;
+        } else if (frame.event.type === 'gateway.cwd-suggestions') {
+          const clientId = typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined;
+          if (clientId) {
+            sendToClient(clientId, {
+              type: 'gateway.cwd-suggestions',
+              cwd: String(frame.event.payload.cwd ?? ''),
+              suggestions: Array.isArray(frame.event.payload.suggestions)
+                ? frame.event.payload.suggestions.filter((item): item is string => typeof item === 'string')
+                : []
+            });
+          }
+          break;
         } else {
           sendEventToSubscribers(frame.event);
         }
@@ -563,10 +575,13 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
               workspaceId: clientScope.workspaceId,
               userId: clientScope.userId
             }
-          : { type: 'client.chat', clientId, sessionId: frame.sessionId, message: frame.message });
+          : { type: 'client.chat', clientId, sessionId: frame.sessionId, message: frame.message, model: frame.model });
         break;
       case 'client.list-providers':
         forwardToGateway(ensureClientGatewayId(clientId), { type: 'client.list-providers', clientId });
+        break;
+      case 'client.cwd-suggest':
+        forwardToGateway(ensureClientGatewayId(clientId), { type: 'client.cwd-suggest', clientId, cwd: frame.cwd });
         break;
       case 'client.switch-model':
         forwardToGateway(ensureClientGatewayId(clientId), {

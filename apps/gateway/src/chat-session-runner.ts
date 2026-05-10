@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { createSessionId } from './ids.js';
 import { providerEffectiveEnv } from './provider-env.js';
+import { latestNewAgentSessionId, pollAgentSessionId, snapshotAgentDir } from './session-runner.js';
 import type { ChatEvent, Store } from './store.js';
 
 export type ChatUsage = {
@@ -57,7 +61,7 @@ export interface IChatRunner {
           workspaceId?: string;
           userId?: string;
         }
-      | { clientId: string; sessionId: string; message: string }
+      | { clientId: string; sessionId: string; message: string; model?: string }
   ): Promise<void>;
   getCatchup(sessionId: string): string | undefined;
   kill(sessionId: string): void;
@@ -73,6 +77,12 @@ type ActiveSubprocess = {
   agentSessionId?: string;
   lineBuffer: string;
   completed: boolean;
+};
+
+type CliRunnerConfig = {
+  provider: 'codex' | 'copilot';
+  command: string;
+  args: (input: { message: string; model?: string; cwd: string; sessionId: string; agentSessionId?: string; outputFile: string }) => string[];
 };
 
 const SUPPORTED_PROVIDER = 'claude';
@@ -96,7 +106,7 @@ export class ChatSessionRunner implements IChatRunner {
           workspaceId?: string;
           userId?: string;
         }
-      | { clientId: string; sessionId: string; message: string }
+      | { clientId: string; sessionId: string; message: string; model?: string }
   ): Promise<void> {
     if ('provider' in params && params.provider !== SUPPORTED_PROVIDER) {
       this.options.onError({
@@ -130,7 +140,7 @@ export class ChatSessionRunner implements IChatRunner {
       '--output-format',
       'stream-json',
       '--verbose',
-      ...('model' in params && params.model ? ['--model', params.model] : []),
+      ...(params.model ? ['--model', params.model] : []),
       ...(session.agentSessionId ? ['--resume', session.agentSessionId] : [])
     ];
     const child = spawn(
@@ -395,41 +405,319 @@ export class ChatSessionRunner implements IChatRunner {
 }
 
 export class CodexChatRunner implements IChatRunner {
-  constructor(private readonly options: ChatRunnerOptions) {}
+  private readonly runner: NonInteractiveCliChatRunner;
 
-  async run(params: { clientId: string; sessionId: string | null; message: string; [k: string]: unknown }): Promise<void> {
-    this.options.onError({
-      clientId: params.clientId,
-      sessionId: typeof params.sessionId === 'string' ? params.sessionId : '',
-      code: 'provider_not_supported',
-      message: 'provider not yet supported'
+  constructor(options: ChatRunnerOptions) {
+    this.runner = new NonInteractiveCliChatRunner(options, {
+      provider: 'codex',
+      command: 'codex',
+      args: ({ message, model, cwd, agentSessionId, outputFile }) => {
+        const modelArgs = model ? ['--model', model] : [];
+        const resumeArgs = [
+          '--skip-git-repo-check',
+          '--output-last-message',
+          outputFile,
+          ...modelArgs
+        ];
+        const execArgs = [
+          '--skip-git-repo-check',
+          '--color',
+          'never',
+          '-C',
+          cwd,
+          '--output-last-message',
+          outputFile,
+          ...modelArgs
+        ];
+        if (agentSessionId) {
+          return ['exec', 'resume', ...resumeArgs, agentSessionId, message];
+        }
+        return ['exec', ...execArgs, message];
+      }
     });
   }
 
-  getCatchup(_sessionId: string): string | undefined {
-    return undefined;
+  async run(params: Parameters<IChatRunner['run']>[0]): Promise<void> {
+    await this.runner.run(params);
   }
 
-  kill(_sessionId: string): void {}
+  getCatchup(_sessionId: string): string | undefined {
+    return this.runner.getCatchup(_sessionId);
+  }
+
+  kill(sessionId: string): void {
+    this.runner.kill(sessionId);
+  }
 }
 
 export class CopilotChatRunner implements IChatRunner {
-  constructor(private readonly options: ChatRunnerOptions) {}
+  private readonly runner: NonInteractiveCliChatRunner;
 
-  async run(params: { clientId: string; sessionId: string | null; message: string; [k: string]: unknown }): Promise<void> {
-    this.options.onError({
-      clientId: params.clientId,
-      sessionId: typeof params.sessionId === 'string' ? params.sessionId : '',
-      code: 'provider_not_supported',
-      message: 'provider not yet supported'
+  constructor(options: ChatRunnerOptions) {
+    this.runner = new NonInteractiveCliChatRunner(options, {
+      provider: 'copilot',
+      command: 'gh',
+      args: ({ message, model, cwd, sessionId, agentSessionId }) => [
+        'copilot',
+        '--prompt',
+        message,
+        '--silent',
+        '--no-color',
+        '--stream',
+        'on',
+        '--allow-all',
+        '-C',
+        cwd,
+        ...(model ? ['--model', model] : []),
+        ...(agentSessionId ? [`--resume=${agentSessionId}`] : ['--name', sessionId])
+      ]
     });
   }
 
-  getCatchup(_sessionId: string): string | undefined {
-    return undefined;
+  async run(params: Parameters<IChatRunner['run']>[0]): Promise<void> {
+    await this.runner.run(params);
   }
 
-  kill(_sessionId: string): void {}
+  getCatchup(_sessionId: string): string | undefined {
+    return this.runner.getCatchup(_sessionId);
+  }
+
+  kill(sessionId: string): void {
+    this.runner.kill(sessionId);
+  }
+}
+
+class NonInteractiveCliChatRunner implements IChatRunner {
+  private readonly activeSubprocesses = new Map<string, ActiveSubprocess & { stderrText: string; outputDir: string; outputFile: string }>();
+
+  constructor(
+    private readonly options: ChatRunnerOptions,
+    private readonly config: CliRunnerConfig
+  ) {}
+
+  async run(
+    params:
+      | {
+          clientId: string;
+          sessionId: null;
+          provider: string;
+          model: string;
+          cwd: string;
+          message: string;
+          accountId?: string;
+          workspaceId?: string;
+          userId?: string;
+        }
+      | { clientId: string; sessionId: string; message: string; model?: string }
+  ): Promise<void> {
+    if ('provider' in params && params.provider !== this.config.provider) {
+      this.options.onError({
+        clientId: params.clientId,
+        sessionId: '',
+        code: 'provider_not_supported',
+        message: `${params.provider} is not handled by ${this.config.provider} runner`
+      });
+      return;
+    }
+
+    const session = params.sessionId === null
+      ? this.createChatSession(params)
+      : this.options.store.getSession(params.sessionId);
+    if (!session) {
+      this.options.onError({
+        clientId: params.clientId,
+        sessionId: params.sessionId ?? '',
+        code: 'session_not_found',
+        message: 'session not found'
+      });
+      return;
+    }
+
+    const sessionId = session.id;
+    const cwd = normalizeCwd(params.sessionId === null ? params.cwd : session.projectPath);
+    const outputDir = mkdtempSync(path.join(os.tmpdir(), `tether-${this.config.provider}-chat-`));
+    const outputFile = path.join(outputDir, 'last-message.txt');
+    const args = this.config.args({
+      message: params.message,
+      model: 'model' in params ? params.model : undefined,
+      cwd,
+      sessionId,
+      agentSessionId: session.agentSessionId,
+      outputFile
+    });
+    const preSpawnSnapshot = snapshotAgentDir(this.config.provider, cwd);
+    const child = spawn(this.config.command, args, {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: providerEffectiveEnv(this.config.provider, cwd)
+    });
+
+    const userEvent = this.options.store.appendChatEvent(sessionId, 'user.message', { message: params.message });
+    this.options.store.touchSession(sessionId);
+    this.options.onUserMessage({ clientId: params.clientId, sessionId, event: userEvent });
+
+    const active = {
+      process: child,
+      accumulatedText: '',
+      startedAt: Date.now(),
+      clientId: params.clientId,
+      cwd,
+      lastUsage: ZERO_USAGE,
+      agentSessionId: session.agentSessionId,
+      lineBuffer: '',
+      completed: false,
+      stderrText: '',
+      outputDir,
+      outputFile
+    };
+    this.activeSubprocesses.set(sessionId, active);
+
+    if (child.pid) {
+      void pollAgentSessionId(this.config.provider, cwd, child.pid, preSpawnSnapshot, () => {
+        return !this.activeSubprocesses.has(sessionId) || Boolean(this.options.store.getSession(sessionId)?.agentSessionId);
+      }).then((agentSessionId) => {
+        if (!agentSessionId) {
+          return;
+        }
+        const current = this.activeSubprocesses.get(sessionId);
+        if (current) {
+          current.agentSessionId = agentSessionId;
+        }
+        this.options.store.updateAgentSessionId(sessionId, agentSessionId);
+        this.options.onAgentIdUpdate(sessionId, agentSessionId);
+      }).catch(() => undefined);
+    }
+
+    child.stdout?.on('data', (chunk: Buffer | string) => {
+      const current = this.activeSubprocesses.get(sessionId);
+      if (!current) {
+        return;
+      }
+      const text = chunk.toString();
+      if (!text) {
+        return;
+      }
+      current.accumulatedText += text;
+      this.options.onDelta({ clientId: current.clientId, sessionId, text });
+    });
+
+    child.stderr?.on('data', (chunk: Buffer | string) => {
+      const current = this.activeSubprocesses.get(sessionId);
+      if (!current) {
+        return;
+      }
+      current.stderrText += chunk.toString();
+    });
+
+    child.on('error', (error) => {
+      this.emitError(params.clientId, sessionId, 'chat_runner_spawn_failed', error.message);
+      this.cleanup(sessionId);
+    });
+
+    child.on('close', (code) => {
+      const current = this.activeSubprocesses.get(sessionId);
+      if (current?.process !== child) {
+        return;
+      }
+      if (!current.agentSessionId) {
+        current.agentSessionId = latestNewAgentSessionId(this.config.provider, preSpawnSnapshot);
+      }
+      void (async () => {
+        if (code === 0) {
+          const text = readTextFile(current.outputFile) ?? current.accumulatedText.trimEnd();
+          if (text) {
+            this.emitResult(sessionId, current, text, current.lastUsage);
+          } else {
+            this.emitError(params.clientId, sessionId, 'chat_runner_empty_result', `${this.config.provider} exited without producing a result`);
+          }
+        } else {
+          const detail = current.stderrText.trim() || current.accumulatedText.trim() || `exit code ${String(code)}`;
+          this.emitError(params.clientId, sessionId, 'chat_runner_exit', `${this.config.provider} exited before producing a result: ${detail}`);
+        }
+        this.cleanup(sessionId);
+      })();
+    });
+  }
+
+  getCatchup(sessionId: string): string | undefined {
+    return this.activeSubprocesses.get(sessionId)?.accumulatedText;
+  }
+
+  kill(sessionId: string): void {
+    const active = this.activeSubprocesses.get(sessionId);
+    if (!active) {
+      return;
+    }
+    active.process.kill('SIGTERM');
+    this.cleanup(sessionId);
+  }
+
+  private createChatSession(params: {
+    clientId: string;
+    sessionId: null;
+    provider: string;
+    model: string;
+    cwd: string;
+    message: string;
+    accountId?: string;
+    workspaceId?: string;
+    userId?: string;
+  }) {
+    const now = Date.now();
+    const sessionId = createSessionId();
+    this.options.store.insertSession({
+      id: sessionId,
+      provider: params.provider,
+      title: params.message.slice(0, 60),
+      projectPath: normalizeCwd(params.cwd),
+      accountId: params.accountId,
+      workspaceId: params.workspaceId,
+      userId: params.userId,
+      gatewayId: this.options.gatewayId(),
+      status: 'running',
+      attachState: 'detached',
+      tmuxSessionName: '',
+      command: this.config.command,
+      transport: 'chat',
+      createdAt: now,
+      updatedAt: now,
+      lastActiveAt: now
+    });
+    this.options.onSessionCreated(params.clientId, sessionId);
+    return this.options.store.getSession(sessionId);
+  }
+
+  private emitResult(sessionId: string, active: ActiveSubprocess, text: string, usage: ChatUsage): void {
+    active.completed = true;
+    active.accumulatedText = text;
+    const agentSessionId = active.agentSessionId ?? sessionId;
+    const resultEvent = this.options.store.appendChatEvent(sessionId, 'agent.result', { text, usage });
+    this.options.store.updateAgentSessionId(sessionId, agentSessionId);
+    this.options.store.touchSession(sessionId);
+    this.options.onAgentIdUpdate(sessionId, agentSessionId);
+    this.options.onResult({
+      clientId: active.clientId,
+      sessionId,
+      event: resultEvent,
+      text,
+      usage
+    });
+  }
+
+  private emitError(clientId: string, sessionId: string, code: string, message: string): void {
+    const event = this.options.store.appendChatEvent(sessionId, 'session.error', { code, message });
+    this.options.store.touchSession(sessionId);
+    this.options.onError({ clientId, sessionId, code, message, event });
+  }
+
+  private cleanup(sessionId: string): void {
+    const active = this.activeSubprocesses.get(sessionId);
+    if (!active) {
+      return;
+    }
+    this.activeSubprocesses.delete(sessionId);
+    rmSync(active.outputDir, { recursive: true, force: true });
+  }
 }
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {
@@ -438,7 +726,13 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
 
 function normalizeCwd(value: string): string {
   const trimmed = value.trim();
-  return trimmed || process.cwd();
+  if (!trimmed) {
+    return process.cwd();
+  }
+  if (trimmed === '~') {
+    return os.homedir();
+  }
+  return trimmed.startsWith('~/') ? path.join(os.homedir(), trimmed.slice(2)) : trimmed;
 }
 
 function readAssistantText(message: Record<string, unknown> | undefined): string | undefined {
@@ -480,4 +774,13 @@ function numberValue(value: unknown): number | undefined {
 function readSessionId(value: unknown): string | undefined {
   const record = recordValue(value);
   return typeof record?.session_id === 'string' ? record.session_id : undefined;
+}
+
+function readTextFile(file: string): string | undefined {
+  try {
+    const text = readFileSync(file, 'utf8').trimEnd();
+    return text || undefined;
+  } catch {
+    return undefined;
+  }
 }

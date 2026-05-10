@@ -35,6 +35,31 @@ export default class ChatController extends Controller {
     ctx.success({ messages });
   }
 
+  public async renameSession(): Promise<void> {
+    const { ctx } = this;
+    const { accountId, workspaceId, userId } = authScope(ctx);
+    const { sessionId } = ctx.params as { sessionId: string };
+    const { title } = ctx.request.body as { title?: string };
+    if (!sessionId || typeof title !== 'string' || !title.trim()) {
+      ctx.throw(400, 'sessionId and title are required');
+      return;
+    }
+    await ctx.service.chatRepository.renameSession(sessionId, accountId, workspaceId, userId, title.trim());
+    ctx.success({ ok: true });
+  }
+
+  public async deleteSession(): Promise<void> {
+    const { ctx } = this;
+    const { accountId, workspaceId, userId } = authScope(ctx);
+    const { sessionId } = ctx.params as { sessionId: string };
+    if (!sessionId) {
+      ctx.throw(400, 'sessionId is required');
+      return;
+    }
+    await ctx.service.chatRepository.deleteSession(sessionId, accountId, workspaceId, userId);
+    ctx.success({ ok: true });
+  }
+
   public async updateAgentSessionId(): Promise<void> {
     const { ctx } = this;
     const { sessionId } = ctx.params as { sessionId: string };

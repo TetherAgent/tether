@@ -78,7 +78,8 @@ export type RelayServerToGatewayFrame =
       workspaceId?: string;
       userId?: string;
     }
-  | { type: 'client.chat'; clientId: string; sessionId: string; message: string }
+  | { type: 'client.chat'; clientId: string; sessionId: string; message: string; model?: string }
+  | { type: 'client.cwd-suggest'; clientId: string; cwd: string }
   | { type: 'client.list-providers'; clientId: string }
   | { type: 'client.switch-model'; clientId: string; sessionId: string; provider: string; model: string };
 
@@ -92,7 +93,8 @@ export type RelayClientToServerFrame =
   | { type: 'client.stop'; sessionId: string }
   | { type: 'client.detach'; sessionId: string }
   | { type: 'client.chat'; sessionId: null; provider: string; model: string; cwd: string; message: string }
-  | { type: 'client.chat'; sessionId: string; message: string }
+  | { type: 'client.chat'; sessionId: string; message: string; model?: string }
+  | { type: 'client.cwd-suggest'; cwd: string }
   | { type: 'client.list-providers' }
   | { type: 'client.switch-model'; sessionId: string; provider: string; model: string };
 
@@ -110,4 +112,5 @@ export type RelayServerToClientFrame =
   | { type: 'agent.tool'; sessionId: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean }
   | { type: 'gateway.chat-catchup'; sessionId: string; text: string }
   | { type: 'gateway.providers'; providers: Array<{ provider: string; models: string[] }> }
+  | { type: 'gateway.cwd-suggestions'; cwd: string; suggestions: string[] }
   | { type: 'error'; sessionId?: string; code: string; message: string };

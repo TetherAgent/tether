@@ -28,16 +28,16 @@ export type NormalIdentity = {
   accountId: string;
   workspaceId: string;
   userId: string;
+  email: string;
   deviceId?: string;
-  tokenClass: 'normal_client_access';
-  expiresAt: number;
-  jti: string;
 };
 
 export type AuthStorageRecord<TIdentity> = {
   accessToken: string;
   refreshToken: string;
   identity?: TIdentity;
+  email?: string;
+  displayName?: string;
 };
 
 export const NORMAL_STORAGE_KEY = 'tether:web:normalAuth';
@@ -151,6 +151,28 @@ export async function requestGatewayWsTicket(input: {
         token: accessToken
       }
     );
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
+}
+
+export async function renameChatSession(sessionId: string, title: string, token?: string) {
+  try {
+    return await http.put<{ ok: boolean }>(`/api/server/chat-sessions/${sessionId}`, { title }, {
+      token: token ?? getStoredNormalAccessToken(),
+      suppressGlobalError: true
+    });
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
+}
+
+export async function deleteChatSession(sessionId: string, token?: string) {
+  try {
+    return await http.delete<{ ok: boolean }>(`/api/server/chat-sessions/${sessionId}`, {
+      token: token ?? getStoredNormalAccessToken(),
+      suppressGlobalError: true
+    });
   } catch (error) {
     throw normalizeRequestError(error);
   }

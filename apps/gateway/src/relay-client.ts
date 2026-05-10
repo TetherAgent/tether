@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -11,7 +12,7 @@ import type {
   RelayTerminalEvent
 } from '@tether/protocol';
 import { detectSelectOptions } from './agent-select-detect.js';
-import { ChatSessionRunner, CodexChatRunner, CopilotChatRunner, type IChatRunner } from './chat-session-runner.js';
+import { ChatSessionRunner, CodexChatRunner, CopilotChatRunner, type ChatRunnerOptions, type IChatRunner } from './chat-session-runner.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import { replaySessionEvents } from './replay.js';
 import type { SessionRunnerClient } from './session-runner-client.js';
@@ -60,7 +61,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   let connectionState: RelayConnectionStatus['state'] = 'connecting';
   let lastChangedAt = Date.now();
   let effectiveGatewayId = options.gatewayId;
-  const chatRunner = new ChatSessionRunner({
+  const chatRunnerOptions: ChatRunnerOptions = {
     store: options.store,
     gatewayId: () => effectiveGatewayId,
     onSessionCreated: (clientId, sessionId) => {
@@ -114,33 +115,10 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     onAgentIdUpdate: (sessionId, agentSessionId) => {
       sendChatEvent(Date.now(), sessionId, 'session.agent-id-updated', { sessionId, agentSessionId });
     }
-  });
-  const codexChatRunner = new CodexChatRunner({
-    store: options.store,
-    gatewayId: () => effectiveGatewayId,
-    onSessionCreated: () => undefined,
-    onUserMessage: () => undefined,
-    onDelta: () => undefined,
-    onResult: () => undefined,
-    onTool: () => undefined,
-    onError: ({ clientId, sessionId, code, message }) => {
-      send({ type: 'gateway.error', gatewayId: effectiveGatewayId, clientId, sessionId, code, message });
-    },
-    onAgentIdUpdate: () => undefined
-  });
-  const copilotChatRunner = new CopilotChatRunner({
-    store: options.store,
-    gatewayId: () => effectiveGatewayId,
-    onSessionCreated: () => undefined,
-    onUserMessage: () => undefined,
-    onDelta: () => undefined,
-    onResult: () => undefined,
-    onTool: () => undefined,
-    onError: ({ clientId, sessionId, code, message }) => {
-      send({ type: 'gateway.error', gatewayId: effectiveGatewayId, clientId, sessionId, code, message });
-    },
-    onAgentIdUpdate: () => undefined
-  });
+  };
+  const chatRunner = new ChatSessionRunner(chatRunnerOptions);
+  const codexChatRunner = new CodexChatRunner(chatRunnerOptions);
+  const copilotChatRunner = new CopilotChatRunner(chatRunnerOptions);
 
   const setConnectionState = (state: RelayConnectionStatus['state']) => {
     if (connectionState === state) {
@@ -243,7 +221,9 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
 
   const sendProviders = async (clientId: string) => {
     const providers = [
-      isInstalled('claude') ? { provider: 'claude', models: await providerModels('claude') } : undefined
+      isInstalled('claude') ? { provider: 'claude', models: await providerModels('claude') } : undefined,
+      isInstalled('codex') ? { provider: 'codex', models: await providerModels('codex') } : undefined,
+      isCopilotInstalled() ? { provider: 'copilot', models: await providerModels('copilot') } : undefined
     ].filter((provider): provider is { provider: string; models: string[] } => provider !== undefined);
     sendChatEvent(0, '', 'gateway.providers', { clientId, providers });
   };
@@ -307,12 +287,16 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         void runnerForProvider(session.provider).run({
           clientId: frame.clientId,
           sessionId: frame.sessionId,
-          message: frame.message
+          message: frame.message,
+          model: frame.model
         });
         return;
       }
       case 'client.list-providers':
         void sendProviders(frame.clientId);
+        return;
+      case 'client.cwd-suggest':
+        void sendCwdSuggestions(frame.clientId, frame.cwd);
         return;
       case 'client.switch-model':
         send({
@@ -355,6 +339,14 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       result.push(updated ?? { ...session, status: 'lost' });
     }
     return result;
+  };
+
+  const sendCwdSuggestions = async (clientId: string, cwd: string) => {
+    sendChatEvent(0, '', 'gateway.cwd-suggestions', {
+      clientId,
+      cwd,
+      suggestions: await directorySuggestions(cwd)
+    });
   };
 
   const isLiveSession = async (session: Session): Promise<boolean> => {
@@ -732,16 +724,96 @@ function toRelaySession(session: Session): RelaySession {
 }
 
 async function providerModels(provider: string): Promise<string[]> {
+  const env = providerEffectiveEnv(provider, process.cwd());
   switch (provider) {
     case 'claude':
       return claudeModels();
     case 'codex':
-      return ['gpt-5.4', 'gpt-5.4-mini'];
+      return codexModels(env);
     case 'copilot':
-      return ['gpt-5.4', 'claude-sonnet-4.6'];
+      return copilotModels(env);
     default:
       return [];
   }
+}
+
+function codexModels(env: NodeJS.ProcessEnv): string[] {
+  return uniqueStrings([
+    env.CODEX_MODEL,
+    readCodexConfiguredModel(env),
+    ...readCodexCachedModels(env),
+    'gpt-5.5',
+    'gpt-5.4',
+    'gpt-5.4-mini',
+    'gpt-5.3-codex',
+    'gpt-5.3-codex-spark',
+    'gpt-5.2'
+  ]);
+}
+
+function readCodexConfiguredModel(env: NodeJS.ProcessEnv): string | undefined {
+  const configDir = env.CODEX_HOME ? resolveHomePath(env.CODEX_HOME) : path.join(os.homedir(), '.codex');
+  try {
+    const content = readFileSync(path.join(configDir, 'config.toml'), 'utf8');
+    const match = content.match(/(?:^|\n)\s*model\s*=\s*["']([^"'\n]+)["']/);
+    return match?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
+function readCodexCachedModels(env: NodeJS.ProcessEnv): string[] {
+  const configDir = env.CODEX_HOME ? resolveHomePath(env.CODEX_HOME) : path.join(os.homedir(), '.codex');
+  try {
+    const parsed = JSON.parse(readFileSync(path.join(configDir, 'models_cache.json'), 'utf8')) as { models?: unknown };
+    if (!Array.isArray(parsed.models)) {
+      return [];
+    }
+    return parsed.models.flatMap((model) => {
+      if (!model || typeof model !== 'object') {
+        return [];
+      }
+      const slug = (model as { slug?: unknown }).slug;
+      return typeof slug === 'string' ? [slug] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function copilotModels(env: NodeJS.ProcessEnv): string[] {
+  return uniqueStrings([
+    env.COPILOT_MODEL,
+    env.COPILOT_PROVIDER_MODEL_ID,
+    readCopilotConfiguredModel(),
+    ...copilotModelsFromHelp(),
+    'gpt-5.5',
+    'gpt-5.4',
+    'gpt-5.2',
+    'claude-sonnet-4'
+  ]);
+}
+
+function readCopilotConfiguredModel(): string | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(path.join(os.homedir(), '.copilot', 'settings.json'), 'utf8')) as { model?: unknown };
+    return typeof parsed.model === 'string' ? parsed.model : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function copilotModelsFromHelp(): string[] {
+  const result = spawnSync('gh', ['copilot', 'help', 'config'], { encoding: 'utf8', timeout: 2000 });
+  const help = typeof result.stdout === 'string' ? result.stdout : '';
+  const models: string[] = [];
+  for (const line of help.split('\n')) {
+    const match = line.match(/^\s*-\s+"([^"]+)"/);
+    if (match?.[1]) {
+      models.push(match[1]);
+    }
+  }
+  return models;
 }
 
 async function claudeModels(): Promise<string[]> {
@@ -827,6 +899,46 @@ function uniqueStrings(values: Array<string | undefined>): string[] {
 function isInstalled(command: string): boolean {
   const result = spawnSync(command, ['--version'], { stdio: 'ignore' });
   return result.status === 0 || result.error === undefined;
+}
+
+function isCopilotInstalled(): boolean {
+  const result = spawnSync('gh', ['copilot', '--help'], { stdio: 'ignore', timeout: 2000 });
+  return result.status === 0;
+}
+
+async function directorySuggestions(input: string): Promise<string[]> {
+  const trimmed = input.trim();
+  const expanded = resolveInputPath(trimmed);
+  const shouldListChildren = !trimmed || trimmed.endsWith('/') || trimmed === '~';
+  const baseDir = shouldListChildren ? expanded : path.dirname(expanded);
+  const prefix = shouldListChildren ? '' : path.basename(expanded).toLowerCase();
+  const showHidden = prefix.startsWith('.') || path.basename(baseDir).startsWith('.');
+  try {
+    const entries = await readdir(baseDir, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isDirectory())
+      .filter((entry) => showHidden || !entry.name.startsWith('.'))
+      .filter((entry) => !prefix || entry.name.toLowerCase().startsWith(prefix))
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .slice(0, 20)
+      .map((entry) => path.join(baseDir, entry.name));
+  } catch {
+    return [];
+  }
+}
+
+function resolveInputPath(input: string): string {
+  if (!input) {
+    return os.homedir();
+  }
+  return path.resolve(resolveHomePath(input));
+}
+
+function resolveHomePath(value: string): string {
+  if (value === '~') {
+    return os.homedir();
+  }
+  return value.startsWith('~/') ? path.join(os.homedir(), value.slice(2)) : value;
 }
 
 function toRelayEvent(event: SessionEvent): RelayTerminalEvent {

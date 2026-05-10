@@ -92,7 +92,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const refreshed = await refreshNormal(stored.refreshToken);
         const next: AuthStorageRecord<NormalIdentity> = {
           accessToken: refreshed.accessToken,
-          refreshToken: refreshed.refreshToken
+          refreshToken: refreshed.refreshToken,
+          email: refreshed.account?.email ?? refreshed.user?.email ?? stored.email,
+          displayName: refreshed.account?.displayName ?? stored.displayName
         };
         const identity = await validateNormal(refreshed.accessToken);
         persistNormal({ ...next, identity });
@@ -128,7 +130,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const result = await loginNormal(input);
       const record: AuthStorageRecord<NormalIdentity> = {
         accessToken: result.accessToken,
-        refreshToken: result.refreshToken
+        refreshToken: result.refreshToken,
+        email: result.account?.email ?? result.user?.email,
+        displayName: result.account?.displayName
       };
       persistNormal(record);
       validateNormal(result.accessToken)
@@ -139,7 +143,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const result = await registerNormal(input);
       const record: AuthStorageRecord<NormalIdentity> = {
         accessToken: result.accessToken,
-        refreshToken: result.refreshToken
+        refreshToken: result.refreshToken,
+        email: result.account?.email ?? result.user?.email,
+        displayName: result.account?.displayName
       };
       persistNormal(record);
       validateNormal(result.accessToken)

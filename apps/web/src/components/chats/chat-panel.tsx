@@ -1,10 +1,11 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUp, Loader2, Send } from 'lucide-react';
+import { ArrowUp, Check, Copy, Loader2, PanelLeftOpen } from 'lucide-react';
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from '@tether/design';
 import { createHttpClient } from '@tether/http';
 import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
+import { getStoredNormalAccessToken } from '../../lib/api.js';
 import { ChatBubbleAgent } from './chat-bubble-agent.js';
 import { ChatBubbleUser } from './chat-bubble-user.js';
 import { SystemMessage } from './system-message.js';
@@ -20,7 +21,7 @@ type MessageItem =
   | { kind: 'permission'; id: string; toolName: string };
 type HistoryMessage = { role: string; content: string; usageJson?: Usage; createdAt: string };
 type ProviderOption = { provider: string; models: string[] };
-type ChatSessionRecord = { id: string; agentSessionId?: string };
+type ChatSessionRecord = { id: string; provider?: string; agentSessionId?: string };
 
 const RELAY_URL_KEY = 'tether:relayUrl';
 const DEFAULT_RELAY_URL = import.meta.env.VITE_TETHER_RELAY_URL ?? 'wss://tether.earntools.me';
@@ -59,7 +60,7 @@ function isProviderOption(value: unknown): value is ProviderOption {
   );
 }
 
-export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
+export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionId?: string; onExpandSidebar?: () => void }) {
   const navigate = useNavigate();
   const { normalAuth } = useAuth();
   const { t } = useI18n();
@@ -70,17 +71,38 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
   const [providerOptions, setProviderOptions] = React.useState<ProviderOption[]>(DEFAULT_PROVIDER_OPTIONS);
   const [selectedProvider, setSelectedProvider] = React.useState(DEFAULT_PROVIDER_OPTIONS[0]!.provider);
   const [selectedModel, setSelectedModel] = React.useState(DEFAULT_PROVIDER_OPTIONS[0]!.models[0]!);
+  const [activeSessionProvider, setActiveSessionProvider] = React.useState<string | undefined>(undefined);
+  const [activeSessionModel, setActiveSessionModel] = React.useState<string | undefined>(undefined);
   const [cwd, setCwd] = React.useState('');
+  const [cwdSuggestions, setCwdSuggestions] = React.useState<string[]>([]);
+  const [cwdSuggestionsOpen, setCwdSuggestionsOpen] = React.useState(false);
   const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(undefined);
   const [wsReady, setWsReady] = React.useState(false);
+  const [copiedAgentId, setCopiedAgentId] = React.useState(false);
   const wsRef = React.useRef<WebSocket | null>(null);
   const currentAgentIdRef = React.useRef<string | null>(null);
   const inflightStartedAtRef = React.useRef<number>(0);
+  const cwdRef = React.useRef(cwd);
   const skipNextHistoryLoadSessionIdRef = React.useRef<string | null>(null);
+  const pendingSessionProviderRef = React.useRef<string | undefined>(undefined);
+  const pendingSessionModelRef = React.useRef<string | undefined>(undefined);
+  const createdSessionIdRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    cwdRef.current = cwd;
+  }, [cwd]);
 
   React.useEffect(() => {
     setCurrentSessionId(activeSessionId);
     setAgentSessionId(undefined);
+    if (activeSessionId && activeSessionId === createdSessionIdRef.current) {
+      setActiveSessionProvider(pendingSessionProviderRef.current);
+      setActiveSessionModel(pendingSessionModelRef.current);
+      createdSessionIdRef.current = null;
+    } else {
+      setActiveSessionProvider(undefined);
+      setActiveSessionModel(undefined);
+    }
   }, [activeSessionId]);
 
   React.useEffect(() => {
@@ -94,12 +116,13 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
       skipNextHistoryLoadSessionIdRef.current = null;
       return;
     }
+    const token = normalAuth?.accessToken ?? getStoredNormalAccessToken();
     const http = createHttpClient();
     void http
       .get<{ messages: HistoryMessage[] }>(
         `/api/server/chat-sessions/${activeSessionId}/messages`,
         undefined,
-        { token: normalAuth?.accessToken }
+        { token }
       )
       .then((data: { messages: HistoryMessage[] }) => {
         const items: MessageItem[] = (data.messages ?? []).map((message: HistoryMessage, index: number) =>
@@ -112,7 +135,7 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
                 isStreaming: false,
                 isWaiting: false,
                 isLost: false,
-                provider: selectedProvider,
+                provider: activeSessionProvider ?? 'agent',
                 usage: message.usageJson
               }
         );
@@ -124,7 +147,7 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
             isStreaming: false,
             isWaiting: true,
             isLost: false,
-            provider: selectedProvider
+            provider: activeSessionProvider ?? 'agent'
           });
           currentAgentIdRef.current = 'history-waiting';
           setIsInflight(true);
@@ -137,21 +160,24 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
       .catch(() => {
         setMessages([{ kind: 'system', id: 'history-error', text: t.chatsHistoryFail }]);
       });
-  }, [activeSessionId, normalAuth?.accessToken, selectedProvider, t.chatsHistoryFail]);
+  }, [activeSessionId, activeSessionProvider, normalAuth?.accessToken, t.chatsHistoryFail]);
 
   React.useEffect(() => {
-    if (!activeSessionId || !normalAuth?.accessToken) {
+    const token = normalAuth?.accessToken ?? getStoredNormalAccessToken();
+    if (!activeSessionId || !token) {
       return;
     }
     const http = createHttpClient();
     void http
       .get<{ sessions: ChatSessionRecord[] }>('/api/server/chat-sessions', undefined, {
-        token: normalAuth.accessToken,
+        token,
         suppressGlobalError: true
       })
       .then((data) => {
         const session = (data.sessions ?? []).find((item) => item.id === activeSessionId);
         setAgentSessionId(session?.agentSessionId);
+        setActiveSessionProvider(session?.provider);
+        setActiveSessionModel(undefined);
       })
       .catch(() => undefined);
   }, [activeSessionId, normalAuth?.accessToken]);
@@ -194,9 +220,22 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
         }
         return;
       }
+      if (frame.type === 'gateway.cwd-suggestions') {
+        if (typeof frame.cwd === 'string' && frame.cwd === cwdRef.current) {
+          const suggestions = Array.isArray(frame.suggestions)
+            ? frame.suggestions.filter((item: unknown): item is string => typeof item === 'string')
+            : [];
+          setCwdSuggestions(suggestions);
+          setCwdSuggestionsOpen(suggestions.length > 0);
+        }
+        return;
+      }
       if (frame.type === 'gateway.session-created' && typeof frame.sessionId === 'string') {
         skipNextHistoryLoadSessionIdRef.current = frame.sessionId;
+        createdSessionIdRef.current = frame.sessionId;
         setAgentSessionId(undefined);
+        setActiveSessionProvider(pendingSessionProviderRef.current);
+        setActiveSessionModel(pendingSessionModelRef.current);
         setCurrentSessionId(frame.sessionId);
         navigate(`/chats/${frame.sessionId}`, { replace: true });
         setMessages((items) => [...items, { kind: 'system', id: `started-${frame.sessionId}`, text: t.chatsSessionStarted }]);
@@ -241,7 +280,7 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
           currentAgentIdRef.current = id;
           return [
             ...items,
-            { kind: 'agent', id, text: frameText, isStreaming: true, isWaiting: false, isLost: false, provider: selectedProvider }
+            { kind: 'agent', id, text: frameText, isStreaming: true, isWaiting: false, isLost: false, provider: activeSessionProvider ?? 'agent' }
           ];
         });
         return;
@@ -261,7 +300,7 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
             isStreaming: false,
             isWaiting: false,
             isLost: false,
-            provider: selectedProvider,
+            provider: activeSessionProvider ?? 'agent',
             usage,
             durationMs: Date.now() - inflightStartedAtRef.current
           };
@@ -328,7 +367,19 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
       ws.close();
       wsRef.current = null;
     };
-  }, [navigate, normalAuth?.accessToken, selectedProvider, t.chatsProviderFail, t.chatsSessionStarted]);
+  }, [activeSessionProvider, navigate, normalAuth?.accessToken, selectedProvider, t.chatsProviderFail, t.chatsSessionStarted]);
+
+  React.useEffect(() => {
+    if (currentSessionId || !wsReady || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      setCwdSuggestions([]);
+      setCwdSuggestionsOpen(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      wsRef.current?.send(JSON.stringify({ type: 'client.cwd-suggest', cwd }));
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [currentSessionId, cwd, wsReady]);
 
   React.useEffect(() => {
     const models = providerOptions.find((provider) => provider.provider === selectedProvider)?.models ?? [];
@@ -346,20 +397,25 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
   const sendMessage = React.useCallback(() => {
     const text = inputText.trim();
     if (!text || isInflight || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    const existingProviderModels = providerOptions.find((provider) => provider.provider === activeSessionProvider)?.models ?? [];
+    const messageProvider = currentSessionId ? (activeSessionProvider ?? 'agent') : selectedProvider;
+    const messageModel = currentSessionId ? (activeSessionModel ?? existingProviderModels[0]) : selectedModel;
     inflightStartedAtRef.current = Date.now();
     const pendingAgentId = `agent-${Date.now()}`;
     currentAgentIdRef.current = pendingAgentId;
     setMessages((items) => [
       ...items,
       { kind: 'user', id: `user-${Date.now()}`, content: text, ts: Date.now() },
-      { kind: 'agent', id: pendingAgentId, text: '', isStreaming: false, isWaiting: true, isLost: false, provider: selectedProvider }
+      { kind: 'agent', id: pendingAgentId, text: '', isStreaming: false, isWaiting: true, isLost: false, provider: messageProvider }
     ]);
     setInputText('');
     setIsInflight(true);
     if (currentSessionId) {
-      wsRef.current.send(JSON.stringify({ type: 'client.chat', sessionId: currentSessionId, message: text }));
+      wsRef.current.send(JSON.stringify({ type: 'client.chat', sessionId: currentSessionId, message: text, model: messageModel }));
       return;
     }
+    pendingSessionProviderRef.current = selectedProvider;
+    pendingSessionModelRef.current = selectedModel;
     wsRef.current.send(
       JSON.stringify({
         type: 'client.chat',
@@ -370,7 +426,7 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
         message: text
       })
     );
-  }, [cwd, currentSessionId, inputText, isInflight, selectedModel, selectedProvider]);
+  }, [activeSessionModel, activeSessionProvider, cwd, currentSessionId, inputText, isInflight, providerOptions, selectedModel, selectedProvider]);
 
   const isNewSession = !currentSessionId && messages.length === 0;
 
@@ -381,37 +437,40 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
     }
   };
 
+  const canSend = !isInflight && inputText.trim().length > 0;
+
   const sendButton = (
-    <Button
+    <button
       onClick={sendMessage}
-      disabled={isInflight || inputText.trim().length === 0}
-      size="icon"
-      className="h-8 w-8 shrink-0 rounded-full"
+      disabled={!canSend}
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all ${
+        canSend
+          ? 'bg-brand text-black hover:opacity-90'
+          : 'bg-muted text-muted-foreground cursor-not-allowed'
+      }`}
     >
-      {isInflight ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
-    </Button>
+      {isInflight
+        ? <Loader2 className="h-4 w-4 animate-spin" />
+        : <ArrowUp className="h-4 w-4" />}
+    </button>
   );
 
-  if (isNewSession) {
-    return (
-      <div className="chat-surface flex h-full flex-col items-center justify-center bg-background px-4">
-        <div className="mb-8 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 text-lg font-bold text-white">
-            T
-          </div>
-          <h1 className="text-2xl font-semibold">{t.chatsWelcomeGreeting}</h1>
-        </div>
-
-        <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-          <Textarea
-            value={inputText}
-            onChange={(event) => setInputText(event.target.value)}
-            placeholder={t.chatsInputPlaceholder.replace('{model}', selectedModel || selectedProvider)}
-            disabled={isInflight}
-            className="max-h-40 min-h-[80px] resize-none rounded-none border-0 bg-transparent px-4 pt-4 text-base shadow-none focus-visible:ring-0"
-            onKeyDown={onKeyDown}
-          />
-          <div className="flex flex-wrap items-center gap-2 px-3 pb-3 pt-1">
+  const displayProvider = currentSessionId ? (activeSessionProvider ?? 'agent') : selectedProvider;
+  const displayProviderModels = providerOptions.find((provider) => provider.provider === displayProvider)?.models ?? [];
+  const displayModel = currentSessionId ? (activeSessionModel ?? displayProviderModels[0]) : selectedModel;
+  const inputCard = (withControls: boolean) => (
+    <div className="overflow-hidden rounded-2xl border border-border bg-card" style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
+      <Textarea
+        value={inputText}
+        onChange={(event) => setInputText(event.target.value)}
+        placeholder={t.chatsInputPlaceholder.replace('{model}', (withControls ? selectedModel : displayModel) || displayProvider)}
+        disabled={isInflight}
+        className="max-h-44 min-h-[88px] resize-none rounded-none border-0 bg-transparent px-4 pt-4 text-[15px] leading-relaxed shadow-none focus-visible:ring-0"
+        onKeyDown={onKeyDown}
+      />
+      <div className="relative flex items-center gap-2 border-t border-border/50 px-3 py-2.5">
+        {withControls && (
+          <>
             <Select
               value={selectedProvider}
               onValueChange={(value) => {
@@ -419,7 +478,7 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
                 setSelectedModel(providerOptions.find((p) => p.provider === value)?.models[0] ?? '');
               }}
             >
-              <SelectTrigger className="h-8 w-auto gap-1 rounded-lg border-0 bg-muted px-2 text-xs font-medium shadow-none">
+              <SelectTrigger className="h-7 w-auto gap-1 rounded-full border-0 bg-muted px-3 text-[12px] font-medium shadow-none ring-0 focus:ring-0">
                 <SelectValue placeholder={t.chatsSelectProvider} />
               </SelectTrigger>
               <SelectContent>
@@ -429,7 +488,7 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
               </SelectContent>
             </Select>
             <Select value={selectedModel} onValueChange={setSelectedModel}>
-              <SelectTrigger className="h-8 w-auto gap-1 rounded-lg border-0 bg-muted px-2 text-xs font-medium shadow-none">
+              <SelectTrigger className="h-7 w-auto gap-1 rounded-full border-0 bg-muted px-3 text-[12px] font-medium shadow-none ring-0 focus:ring-0">
                 <SelectValue placeholder={t.chatsSelectModel} />
               </SelectTrigger>
               <SelectContent>
@@ -440,37 +499,143 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
             </Select>
             <Input
               value={cwd}
-              onChange={(event) => setCwd(event.target.value)}
+              onChange={(event) => {
+                setCwd(event.target.value);
+                setCwdSuggestionsOpen(true);
+              }}
+              onFocus={() => {
+                setCwdSuggestionsOpen(cwdSuggestions.length > 0);
+                if (wsRef.current?.readyState === WebSocket.OPEN) {
+                  wsRef.current.send(JSON.stringify({ type: 'client.cwd-suggest', cwd }));
+                }
+              }}
+              onBlur={() => window.setTimeout(() => setCwdSuggestionsOpen(false), 120)}
               placeholder={t.chatsCwd}
-              className="h-8 min-w-32 flex-1 rounded-lg border-0 bg-muted text-xs shadow-none"
+              className="h-7 w-36 rounded-full border-0 bg-muted px-3 text-[12px] shadow-none focus-visible:ring-0"
             />
-            {sendButton}
+            {cwdSuggestionsOpen && cwdSuggestions.length > 0 && (
+              <div className="absolute left-3 right-12 top-[calc(100%-6px)] z-20 max-h-52 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg">
+                {cwdSuggestions.map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      setCwd(suggestion);
+                      setCwdSuggestionsOpen(false);
+                    }}
+                    className="block w-full truncate rounded-lg px-3 py-1.5 text-left font-mono text-[11px] text-popover-foreground hover:bg-accent"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="flex-1" />
+          </>
+        )}
+        {!withControls && (
+          <>
+            <span className="flex h-7 items-center rounded-full bg-muted px-3 text-[12px] font-medium text-muted-foreground">
+              {displayProvider}
+            </span>
+            {displayProviderModels.length > 0 && displayModel && (
+              <Select value={displayModel} onValueChange={setActiveSessionModel}>
+                <SelectTrigger className="h-7 w-auto gap-1 rounded-full border-0 bg-muted px-3 text-[12px] font-medium shadow-none ring-0 focus:ring-0">
+                  <SelectValue placeholder={t.chatsSelectModel} />
+                </SelectTrigger>
+                <SelectContent>
+                  {displayProviderModels.map((model) => (
+                    <SelectItem key={model} value={model}>{model}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <div className="flex-1" />
+          </>
+        )}
+        {sendButton}
+      </div>
+    </div>
+  );
+
+  if (isNewSession) {
+    return (
+      <div className="chat-surface relative flex h-full flex-col items-center justify-center bg-background px-6">
+        {onExpandSidebar && (
+          <button
+            onClick={onExpandSidebar}
+            className="absolute left-3 top-3 hidden h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground md:flex"
+          >
+            <PanelLeftOpen className="h-[15px] w-[15px]" />
+          </button>
+        )}
+        <div className="mb-10 flex flex-col items-center gap-4">
+          <div
+            className="flex h-14 w-14 items-center justify-center rounded-2xl text-xl font-bold text-black shadow-md"
+            style={{ background: 'var(--gradient-brand)' }}
+          >
+            T
           </div>
+          <h1 className="text-[26px] font-semibold tracking-tight text-foreground">
+            {t.chatsWelcomeGreeting}
+          </h1>
         </div>
 
-        {!wsReady && (
-          <div className="mt-4 text-xs text-muted-foreground">{t.gatewayNotConnected}</div>
-        )}
-        <div className="mt-3 text-xs text-muted-foreground">{t.chatsCwdNote}</div>
+        <div className="w-full max-w-[680px]">
+          {inputCard(true)}
+          <div className="mt-3 flex items-center justify-center gap-1">
+            {!wsReady && (
+              <span className="text-[11px] text-muted-foreground/70">{t.gatewayNotConnected} · </span>
+            )}
+            <span className="text-[11px] text-muted-foreground/70">{t.chatsCwdNote}</span>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="chat-surface flex h-full flex-col bg-background">
-      <div className="border-b border-border px-4 py-3">
-        <div className="font-mono text-sm text-muted-foreground">{currentSessionId}</div>
-        {currentSessionId && (
-          <div className="text-xs text-muted-foreground">{t.chatsSessionResumed}</div>
+      {/* Session header */}
+      <div className="flex items-center gap-2 border-b border-border bg-card/60 px-4 py-2.5 backdrop-blur-sm">
+        {onExpandSidebar && (
+          <button
+            onClick={onExpandSidebar}
+            className="hidden h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground md:flex"
+          >
+            <PanelLeftOpen className="h-[15px] w-[15px]" />
+          </button>
         )}
-        {agentSessionId ? (
-          <div className="mt-0.5 text-xs text-muted-foreground">
-            {t.chatsAgentSessionId}: <span className="font-mono">{agentSessionId}</span>
-          </div>
-        ) : null}
+        <div className="flex-1" />
+        <span className="shrink-0 rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+          {displayProvider}
+        </span>
+        {agentSessionId && (
+          <>
+            <span className="max-w-[200px] truncate font-mono text-[11px] text-muted-foreground/50">
+              {agentSessionId}
+            </span>
+            <button
+              onClick={() => {
+                void navigator.clipboard.writeText(agentSessionId);
+                setCopiedAgentId(true);
+                setTimeout(() => setCopiedAgentId(false), 1500);
+              }}
+              title={t.copyAgentSessionId}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/40 transition-colors hover:text-muted-foreground"
+            >
+              {copiedAgentId
+                ? <Check className="h-3 w-3 text-brand" />
+                : <Copy className="h-3 w-3" />}
+            </button>
+          </>
+        )}
       </div>
-      <div className="flex-1 overflow-y-auto px-4 py-4">
-        <div className="space-y-4">
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-5">
+        <div className="mx-auto max-w-3xl space-y-4">
           {messages.map((message) => {
             if (message.kind === 'user') {
               return <ChatBubbleUser key={message.id} content={message.content} />;
@@ -508,17 +673,11 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
           })}
         </div>
       </div>
-      <div className="border-t border-border px-4 py-3">
-        <div className="flex items-end gap-3">
-          <Textarea
-            value={inputText}
-            onChange={(event) => setInputText(event.target.value)}
-            placeholder={t.chatsInputPlaceholder.replace('{model}', selectedModel || selectedProvider)}
-            disabled={isInflight}
-            className="max-h-40 min-h-20 resize-none"
-            onKeyDown={onKeyDown}
-          />
-          {sendButton}
+
+      {/* Input */}
+      <div className="px-4 pb-4 pt-2">
+        <div className="mx-auto max-w-3xl">
+          {inputCard(false)}
         </div>
       </div>
     </div>

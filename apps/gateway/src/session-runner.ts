@@ -392,8 +392,31 @@ export function latestNewCodexSessionId(before: Set<string>, home = os.homedir()
   return undefined;
 }
 
+export function latestNewCopilotSessionId(before: Set<string>, home = os.homedir()): string | undefined {
+  const dir = path.join(home, '.copilot', 'session-state');
+  try {
+    const newFiles = readdirSync(dir)
+      .filter((file) => !before.has(file))
+      .map((file) => ({ file, mtimeMs: statSync(path.join(dir, file)).mtimeMs }))
+      .sort((left, right) => right.mtimeMs - left.mtimeMs);
+    return newFiles[0]?.file;
+  } catch {
+    return undefined;
+  }
+}
+
+export function latestNewAgentSessionId(provider: string, before: Set<string>, home = os.homedir()): string | undefined {
+  if (provider === 'codex') {
+    return latestNewCodexSessionId(before, home);
+  }
+  if (provider === 'copilot') {
+    return latestNewCopilotSessionId(before, home);
+  }
+  return undefined;
+}
+
 // Call this BEFORE pty.spawn() to capture a snapshot of existing session files.
-function snapshotAgentDir(provider: string, projectPath: string): Set<string> {
+export function snapshotAgentDir(provider: string, projectPath: string): Set<string> {
   const home = os.homedir();
   try {
     if (provider === 'claude') {
@@ -419,7 +442,7 @@ function snapshotAgentDir(provider: string, projectPath: string): Set<string> {
 }
 
 // Call this AFTER pty.spawn() with the snapshot taken before spawn.
-async function pollAgentSessionId(
+export async function pollAgentSessionId(
   provider: string,
   projectPath: string,
   pid: number,
@@ -469,8 +492,9 @@ async function pollAgentSessionId(
     for (let i = 0; shouldContinue(i); i++) {
       await sleep(DETECT_POLL_INTERVAL_MS);
       try {
-        for (const f of readdirSync(dir)) {
-          if (!before.has(f)) return f;
+        const sessionId = latestNewCopilotSessionId(before, home);
+        if (sessionId) {
+          return sessionId;
         }
       } catch { /* dir may not exist yet */ }
     }
