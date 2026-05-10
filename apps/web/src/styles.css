@@ -1,4 +1,5 @@
 @import "@tether/theme/globals.css";
+@import "highlight.js/styles/github-dark.css";
 
 body {
   margin: 0;
@@ -81,20 +82,179 @@ body {
   animation-delay: 320ms;
 }
 
-.chat-markdown pre {
-  overflow-x: auto;
+/* ── Code block (with header) ── */
+.chat-code-block {
+  margin: .7em 0;
   border-radius: 12px;
-  background: var(--code-bg);
-  color: var(--code-text);
-  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  overflow: hidden;
 }
 
-.chat-markdown code {
-  border-radius: 6px;
+.chat-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 12px;
+  background: color-mix(in srgb, var(--code-bg) 90%, var(--muted));
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.chat-code-lang {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  text-transform: lowercase;
+}
+
+.chat-code-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background .1s, color .1s;
+}
+
+.chat-code-copy:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.chat-code-block pre {
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  background: var(--code-bg) !important;
+}
+
+.chat-code-block pre code.hljs {
+  padding: 13px 15px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12.5px;
+  line-height: 1.7;
+  background: var(--code-bg) !important;
+  color: var(--code-text);
+}
+
+/* inline code */
+.chat-markdown :not(pre) > code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: .82em;
+  border-radius: 5px;
   background: var(--code-bg);
   color: var(--code-text);
-  padding: 0.1rem 0.35rem;
+  padding: .1rem .38rem;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
+
+/* blockquote */
+.chat-markdown blockquote {
+  border-left: 3px solid var(--brand);
+  padding: .45em .9em;
+  margin: .7em 0;
+  background: var(--brand-muted);
+  border-radius: 0 8px 8px 0;
+  color: var(--muted-foreground);
+}
+
+/* h2 divider */
+.chat-markdown h2 {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: .3em;
+}
+
+/* links */
+.chat-markdown a {
+  color: var(--brand-text);
+  text-underline-offset: 2px;
+}
+
+.dark .chat-markdown a {
+  color: var(--brand);
+}
+
+/* table */
+.chat-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin: .7em 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  display: block;
+  overflow-x: auto;
+}
+
+.chat-markdown th {
+  background: var(--muted);
+  font-weight: 600;
+  text-align: left;
+  padding: 7px 11px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--muted-foreground);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+
+.chat-markdown td {
+  padding: 6px 11px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  vertical-align: top;
+}
+
+.chat-markdown tr:last-child td {
+  border-bottom: none;
+}
+
+/* ── hljs token overrides for light mode ── */
+/* Dark mode uses github-dark.css (imported globally).
+   These rules restore github.css token colors when not in dark mode. */
+:root:not(.dark) .hljs                              { color: #24292e; }
+:root:not(.dark) .hljs-doctag,
+:root:not(.dark) .hljs-keyword,
+:root:not(.dark) .hljs-template-tag,
+:root:not(.dark) .hljs-template-variable,
+:root:not(.dark) .hljs-type,
+:root:not(.dark) .hljs-variable\.language_          { color: #d73a49; }
+:root:not(.dark) .hljs-title,
+:root:not(.dark) .hljs-title\.class_,
+:root:not(.dark) .hljs-title\.function_             { color: #6f42c1; }
+:root:not(.dark) .hljs-attr,
+:root:not(.dark) .hljs-attribute,
+:root:not(.dark) .hljs-literal,
+:root:not(.dark) .hljs-meta,
+:root:not(.dark) .hljs-number,
+:root:not(.dark) .hljs-operator,
+:root:not(.dark) .hljs-selector-attr,
+:root:not(.dark) .hljs-selector-class,
+:root:not(.dark) .hljs-selector-id,
+:root:not(.dark) .hljs-variable                     { color: #005cc5; }
+:root:not(.dark) .hljs-meta .hljs-string,
+:root:not(.dark) .hljs-regexp,
+:root:not(.dark) .hljs-string                       { color: #032f62; }
+:root:not(.dark) .hljs-built_in,
+:root:not(.dark) .hljs-symbol                       { color: #e36209; }
+:root:not(.dark) .hljs-code,
+:root:not(.dark) .hljs-comment,
+:root:not(.dark) .hljs-formula                      { color: #6a737d; }
+:root:not(.dark) .hljs-name,
+:root:not(.dark) .hljs-quote,
+:root:not(.dark) .hljs-selector-pseudo,
+:root:not(.dark) .hljs-selector-tag                 { color: #22863a; }
+:root:not(.dark) .hljs-subst                        { color: #24292e; }
+:root:not(.dark) .hljs-section                      { color: #005cc5; }
+:root:not(.dark) .hljs-bullet                       { color: #735c0f; }
+:root:not(.dark) .hljs-addition                     { color: #22863a; background-color: #f0fff4; }
+:root:not(.dark) .hljs-deletion                     { color: #b31d28; background-color: #ffeef0; }
 
 /* =================================================================
    TETHER LANDING V4 — rebuilt page

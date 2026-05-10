@@ -61,6 +61,24 @@ export default class RuntimeSyncRepositoryService extends Service {
     return Array.isArray(rows) && rows.length > 0;
   }
 
+  private async sessionDeleted(
+    sessionId: string,
+    scope: RuntimeSyncScope,
+    userId?: string
+  ): Promise<boolean> {
+    const rows = await this.ctx.service.db.query(
+      `SELECT session_id FROM gateway_deleted_sessions
+       WHERE session_id = ?
+         AND account_id = ?
+         AND workspace_id = ?
+         AND user_id = ?
+         AND (gateway_id IS NULL OR gateway_id = ?)
+       LIMIT 1`,
+      [sessionId, scope.accountId, scope.workspaceId, userId ?? '', scope.gatewayId]
+    );
+    return Array.isArray(rows) && rows.length > 0;
+  }
+
   public async upsertGatewaySession(
     session: {
       id: string;
@@ -76,6 +94,17 @@ export default class RuntimeSyncRepositoryService extends Service {
     scope: RuntimeSyncScope
   ): Promise<void> {
     if (!this.mysqlModeEnabled()) {
+      return;
+    }
+    if (await this.sessionDeleted(session.id, scope, session.userId)) {
+      await this.ctx.service.db.query('DELETE FROM gateway_chat_messages WHERE session_id = ?', [session.id]);
+      await this.ctx.service.db.query('DELETE FROM gateway_runtime_events WHERE session_id = ?', [session.id]);
+      await this.ctx.service.db.query('DELETE FROM gateway_sync_cursors WHERE session_id = ?', [session.id]);
+      await this.ctx.service.db.query(
+        `DELETE FROM gateway_sessions
+         WHERE id = ? AND account_id = ? AND workspace_id = ? AND gateway_id = ?`,
+        [session.id, scope.accountId, scope.workspaceId, scope.gatewayId]
+      );
       return;
     }
     await this.ctx.service.db.query(
@@ -123,6 +152,17 @@ export default class RuntimeSyncRepositoryService extends Service {
     if (!this.mysqlModeEnabled() || !RUNTIME_EVENT_WHITELIST.has(eventType)) {
       return;
     }
+    const sessionRows = await this.ctx.service.db.query(
+      `SELECT user_id FROM gateway_sessions
+       WHERE id = ? AND gateway_id = ? AND account_id = ? AND workspace_id = ? LIMIT 1`,
+      [sessionId, scope.gatewayId, scope.accountId, scope.workspaceId]
+    );
+    const userId = Array.isArray(sessionRows) && sessionRows.length > 0
+      ? String((sessionRows[0] as { user_id?: unknown }).user_id ?? '')
+      : '';
+    if (await this.sessionDeleted(sessionId, scope, userId)) {
+      return;
+    }
     if (!await this.sessionWithinScope(sessionId, scope)) {
       console.warn(`[server] upsertRuntimeEvent scope mismatch: ${sessionId}`);
       return;
@@ -148,6 +188,17 @@ export default class RuntimeSyncRepositoryService extends Service {
     createdAt?: unknown
   ): Promise<void> {
     if (!this.mysqlModeEnabled()) {
+      return;
+    }
+    const sessionRows = await this.ctx.service.db.query(
+      `SELECT user_id FROM gateway_sessions
+       WHERE id = ? AND gateway_id = ? AND account_id = ? AND workspace_id = ? LIMIT 1`,
+      [sessionId, scope.gatewayId, scope.accountId, scope.workspaceId]
+    );
+    const userId = Array.isArray(sessionRows) && sessionRows.length > 0
+      ? String((sessionRows[0] as { user_id?: unknown }).user_id ?? '')
+      : '';
+    if (await this.sessionDeleted(sessionId, scope, userId)) {
       return;
     }
     if (await this.sessionScopeConflict(sessionId, scope)) {

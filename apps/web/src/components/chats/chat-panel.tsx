@@ -125,6 +125,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
   const messagesRef = React.useRef<MessageItem[]>([]);
   const activeSessionProviderRef = React.useRef(activeSessionProvider);
   const selectedProviderRef = React.useRef(selectedProvider);
+  const currentSessionIdRef = React.useRef(currentSessionId);
   const cwdRef = React.useRef(cwd);
   const skipNextHistoryLoadSessionIdRef = React.useRef<string | null>(null);
   const pendingCreatedSessionIdRef = React.useRef<string | null>(null);
@@ -149,6 +150,10 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
   }, [selectedProvider]);
 
   React.useEffect(() => {
+    currentSessionIdRef.current = currentSessionId;
+  }, [currentSessionId]);
+
+  React.useEffect(() => {
     return () => {
       if (revealTimerRef.current !== undefined) {
         window.clearInterval(revealTimerRef.current);
@@ -157,6 +162,10 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
   }, []);
 
   React.useEffect(() => {
+    if (revealTimerRef.current !== undefined) {
+      window.clearInterval(revealTimerRef.current);
+      revealTimerRef.current = undefined;
+    }
     setCurrentSessionId(activeSessionId);
     setAgentSessionId(undefined);
     if (activeSessionId && activeSessionId === createdSessionIdRef.current) {
@@ -315,7 +324,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
         const relayEvent = frame.event as { sessionId?: unknown; type?: unknown; payload?: unknown };
         if (
           relayEvent.type === 'session.agent-id-updated' &&
-          relayEvent.sessionId === currentSessionId &&
+          relayEvent.sessionId === currentSessionIdRef.current &&
           relayEvent.payload &&
           typeof relayEvent.payload === 'object' &&
           typeof (relayEvent.payload as { agentSessionId?: unknown }).agentSessionId === 'string'
@@ -498,6 +507,8 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
     };
     ws.onclose = () => {
       setWsReady(false);
+      setIsInflight(false);
+      currentAgentIdRef.current = null;
     };
     return () => {
       ws.close();

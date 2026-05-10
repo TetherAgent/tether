@@ -64,13 +64,24 @@ export default class ChatRepositoryService extends Service {
   public async deleteSession(sessionId: string, accountId: string, workspaceId: string, userId: string): Promise<void> {
     if (!this.mysqlModeEnabled()) return;
     const rows = await this.ctx.service.db.query(
-      `SELECT id FROM gateway_sessions WHERE id = ? AND account_id = ? AND workspace_id = ? AND user_id = ? AND transport = 'chat' LIMIT 1`,
+      `SELECT id, gateway_id FROM gateway_sessions WHERE id = ? AND account_id = ? AND workspace_id = ? AND user_id = ? AND transport = 'chat' LIMIT 1`,
       [sessionId, accountId, workspaceId, userId]
     );
     if (!Array.isArray(rows) || rows.length === 0) {
       this.ctx.throw(403, 'Session not found or access denied');
     }
+    const row = rows[0] as { gateway_id?: unknown };
+    await this.ctx.service.db.query(
+      `INSERT INTO gateway_deleted_sessions (session_id, account_id, workspace_id, user_id, gateway_id, deleted_at)
+       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON DUPLICATE KEY UPDATE
+         gateway_id = VALUES(gateway_id),
+         deleted_at = CURRENT_TIMESTAMP`,
+      [sessionId, accountId, workspaceId, userId, typeof row.gateway_id === 'string' ? row.gateway_id : null]
+    );
     await this.ctx.service.db.query('DELETE FROM gateway_chat_messages WHERE session_id = ?', [sessionId]);
+    await this.ctx.service.db.query('DELETE FROM gateway_runtime_events WHERE session_id = ?', [sessionId]);
+    await this.ctx.service.db.query('DELETE FROM gateway_sync_cursors WHERE session_id = ?', [sessionId]);
     await this.ctx.service.db.query('DELETE FROM gateway_sessions WHERE id = ?', [sessionId]);
   }
 
