@@ -65,24 +65,61 @@
 <decisions>
 ## Implementation Decisions
 
-### 执行链路架构（关键）
-- **D-00:** **新建完全独立的 chat 执行链路，不污染现有 PTY/JournalWatcher 路径。**
-  - 现有链路（CLI `tether run` → PTY → JournalWatcher → `agent.turn`）保持不变，暂时供 `apps/web` 使用，**但 JournalWatcher 链路未来可能删除**。
-  - 新链路是长期目标架构：web 创建 → Gateway subprocess（`claude -p --output-format stream-json`）→ 解析 `content_block_delta` → relay → mobile-web。
-  - Gateway 侧新增 `ChatSessionRunner`（区别于现有 `SessionRunner`），只做 piped subprocess，不起 PTY。
-  - **设计要求：新链路不依赖 JournalWatcher，不以 JournalWatcher 为基础做扩展，独立可运行。**
+### 完整 Chat 链路（确认版）
 
-### 会话创建路径
-- **D-01:** 从客户端创建 session 走 **Relay WS 新帧**，在 `RelayClientToServerFrame` 加 `client.create-session` 帧，包含 `provider` 和 `initialMessage` 字段。Relay 收到后转发给对应 Gateway，Gateway 起 `ChatSessionRunner`，成功后 Relay 回 `server.session-created` 帧含 `sessionId`。
-- **D-01b:** Gateway 收到后执行 `spawn('claude', ['-p', message, '--output-format', 'stream-json'])`（piped 子进程，非 PTY）。后续追加消息如何处理（新 spawn vs 进程复用）由 planner 研究后决定。
-- **D-02:** 认证复用现有 WS 通道（`client.auth` → `client.auth.ok`），不新增 HTTP 端点。
+**发送一条消息的完整数据流：**
+```
+网页 --[WS client.chat]--> Relay --[WS]--> Gateway
+  Gateway: spawn(claude -p <msg> [--resume <session_id>] --output-format stream-json)
+    ↓ stdout: content_block_delta (text)
+  Gateway emit agent.delta --[WS]--> Relay --[WS]--> 网页（打字机实时渲染）
+    ↓ stdout: message_stop (usage/stop_reason)
+  Gateway emit agent.result --[WS]--> Relay --[WS]--> 网页（追加花费卡片，文本不替换）
+```
+
+**存储：**
+```
+Gateway 本地 SQLite:
+  - 用户消息（发送时立即写）
+  - AI 完整回复（message_stop 后写）
+  - usage 统计（message_stop 后写）
+  - claude session_id（message_stop 后写，用于下次 --resume）
+Relay 同步 → Server DB（全量事件实时推送）
+```
+
+**会话续接：**
+```
+同一对话再发消息 → Gateway 查本地 SQLite 取 claude session_id
+→ spawn(claude -p <msg> --resume <session_id> --output-format stream-json)
+```
+
+### 执行链路架构（关键）
+- **D-00:** 全新独立 chat 链路，不依赖 PTY / JournalWatcher（均已删除）。
+  - Gateway 侧新增 `ChatSessionRunner`：piped subprocess（非 PTY），每条消息一次 spawn，通过 `--resume` 续接上下文。
+  - **设计要求：独立可运行，不复用任何 PTY 或 JournalWatcher 代码。**
+
+### 消息发送路径
+- **D-01:** Web 发消息走 `client.chat` WS 帧（`{ type: 'client.chat', sessionId, message }`），Relay 转发给 Gateway。
+- **D-01b:** Gateway 执行：`spawn('claude', ['-p', message, '--output-format', 'stream-json', ...(sessionId ? ['--resume', claudeSessionId] : [])])`
+- **D-02:** 认证复用现有 WS 通道（`client.auth` → `client.auth.ok`）。
 
 ### 新链路事件类型
-- **D-02b:** Gateway 解析 `--output-format stream-json` 输出，映射到新 Relay 事件（加入 `packages/protocol/src/index.ts`，不改现有事件）：
-  - `content_block_delta` text → `agent.delta`（流式文本片段，供打字机效果）
-  - `message_stop` → `agent.result`（含 usage: tokens/花费/stop_reason）
-  - tool_use block → `agent.tool`（tool 调用卡片数据）
+- **D-02b:** Gateway 解析 `--output-format stream-json` stdout，映射到新 Relay 事件（加入 `packages/protocol/src/index.ts`）：
+  - `content_block_delta` text → `agent.delta`（流式文本片段）
+  - `message_stop` → `agent.result`（usage: input_tokens / output_tokens / cost / stop_reason）
+  - tool_use block → `agent.tool`（tool 调用卡片）
   - `error` → `session.error`（已有，复用）
+- **D-02c:** `agent.result` 到网页后**追加花费卡片**，不替换流式拼出的文本。
+
+### 存储策略
+- **D-20:** Gateway 在本地 SQLite 写入：
+  - 用户消息（`client.chat` 收到时立即写）
+  - AI 完整回复 + usage（`message_stop` 后写）
+  - `claude_session_id`（`message_stop` 后写，关联到 Tether sessionId）
+- **D-21:** Relay 将全量事件（`agent.delta` / `agent.result` / `agent.tool`）实时同步到 Server DB。
+- **D-22:** 同一对话再发消息时，Gateway 用 Tether sessionId 查本地 SQLite 取 `claude_session_id`，通过 `--resume` 传给 claude CLI 续接上下文。
+
+> **待研究（planner 确认）：** `--output-format stream-json` 输出里 `claude_session_id` 具体在哪个 event 字段返回（需查 claude CLI 文档或实测）。
 
 ### Model 选择
 - **D-03:** 新增 `client.list-providers` 帧，Gateway 回 `gateway.providers` 帧，包含当前可用的 provider 列表（从现有白名单动态读取）。
