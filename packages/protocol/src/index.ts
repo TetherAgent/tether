@@ -66,6 +66,7 @@ export type RelayServerToGatewayFrame =
   | { type: 'client.resize'; clientId: string; sessionId: string; cols: number; rows: number }
   | { type: 'client.stop'; clientId: string; sessionId: string }
   | { type: 'client.detach'; clientId: string; sessionId: string }
+  | { type: 'client.permission_response'; clientId: string; sessionId: string; requestId: string; decision: 'allow' | 'deny' }
   | {
       type: 'client.chat';
       clientId: string;
@@ -96,7 +97,8 @@ export type RelayClientToServerFrame =
   | { type: 'client.chat'; sessionId: string; message: string; model?: string }
   | { type: 'client.cwd-suggest'; cwd: string }
   | { type: 'client.list-providers' }
-  | { type: 'client.switch-model'; sessionId: string; provider: string; model: string };
+  | { type: 'client.switch-model'; sessionId: string; provider: string; model: string }
+  | { type: 'client.permission_response'; sessionId: string; requestId: string; decision: 'allow' | 'deny' };
 
 export type RelayServerToClientFrame =
   | { type: 'client.auth.ok'; clientId: string }
@@ -108,8 +110,9 @@ export type RelayServerToClientFrame =
   | { type: 'replay.done'; sessionId: string; latestEventId: number }
   | { type: 'gateway.session-created'; sessionId: string }
   | { type: 'agent.delta'; sessionId: string; text: string }
-  | { type: 'agent.result'; sessionId: string; text: string; usage: { input_tokens: number; output_tokens: number; cost_usd?: number }; stop_reason?: string }
+  | { type: 'agent.result'; sessionId: string; text: string; usage: { input_tokens: number; output_tokens: number; cost_usd?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }; stop_reason?: string; contextWindow?: number; rateLimitInfo?: { resetsAt: number; rateLimitType: string; status: string } }
   | { type: 'agent.tool'; sessionId: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean }
+  | { type: 'agent.permission_request'; sessionId: string; requestId: string; toolName: string; input: Record<string, unknown> }
   | { type: 'gateway.chat-catchup'; sessionId: string; text: string }
   | { type: 'gateway.providers'; providers: Array<{ provider: string; models: string[] }> }
   | { type: 'gateway.cwd-suggestions'; cwd: string; suggestions: string[] }

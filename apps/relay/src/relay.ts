@@ -65,6 +65,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     'agent.status',
     'agent.result',
     'agent.tool',
+    'agent.permission_request',
     'gateway.session-created'
   ]);
 
@@ -270,10 +271,31 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
                 input_tokens: number;
                 output_tokens: number;
                 cost_usd?: number;
+                cache_creation_input_tokens?: number;
+                cache_read_input_tokens?: number;
               },
               ...(typeof frame.event.payload.stop_reason === 'string'
                 ? { stop_reason: frame.event.payload.stop_reason }
+                : {}),
+              ...(typeof frame.event.payload.contextWindow === 'number'
+                ? { contextWindow: frame.event.payload.contextWindow }
+                : {}),
+              ...(frame.event.payload.rateLimitInfo && typeof frame.event.payload.rateLimitInfo === 'object'
+                ? { rateLimitInfo: frame.event.payload.rateLimitInfo as { resetsAt: number; rateLimitType: string; status: string } }
                 : {})
+            });
+          }
+        } else if (frame.event.type === 'agent.permission_request') {
+          const clientId = typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined;
+          if (clientId) {
+            sendToClient(clientId, {
+              type: 'agent.permission_request',
+              sessionId: frame.event.sessionId,
+              requestId: String(frame.event.payload.requestId ?? ''),
+              toolName: String(frame.event.payload.toolName ?? ''),
+              input: (frame.event.payload.input && typeof frame.event.payload.input === 'object'
+                ? frame.event.payload.input
+                : {}) as Record<string, unknown>
             });
           }
         } else if (frame.event.type === 'session.error') {
@@ -598,6 +620,15 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           sessionId: frame.sessionId,
           provider: frame.provider,
           model: frame.model
+        });
+        break;
+      case 'client.permission_response':
+        forwardToSessionGateway({
+          type: 'client.permission_response',
+          clientId,
+          sessionId: frame.sessionId,
+          requestId: frame.requestId,
+          decision: frame.decision
         });
         break;
       case 'client.detach':

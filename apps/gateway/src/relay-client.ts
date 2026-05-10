@@ -78,12 +78,22 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     onDelta: ({ clientId, sessionId, text }) => {
       sendChatEvent(0, sessionId, 'agent.delta', { clientId: chatClientBindings.get(sessionId) ?? clientId, text });
     },
-    onResult: ({ clientId, sessionId, event, text, usage, stopReason }) => {
+    onResult: ({ clientId, sessionId, event, text, usage, stopReason, contextWindow, rateLimitInfo }) => {
       sendChatEvent(event.id, sessionId, 'agent.result', {
         clientId: chatClientBindings.get(sessionId) ?? clientId,
         text,
         usage,
-        ...(stopReason ? { stop_reason: stopReason } : {})
+        ...(stopReason ? { stop_reason: stopReason } : {}),
+        ...(contextWindow !== undefined ? { contextWindow } : {}),
+        ...(rateLimitInfo ? { rateLimitInfo } : {})
+      });
+    },
+    onPermissionRequest: ({ clientId, sessionId, requestId, toolName, input }) => {
+      sendChatEvent(Date.now(), sessionId, 'agent.permission_request', {
+        clientId: chatClientBindings.get(sessionId) ?? clientId,
+        requestId,
+        toolName,
+        input
       });
     },
     onTool: ({ clientId, sessionId, event, name, input, result, isError }) => {
@@ -315,6 +325,13 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
           message: '模型切换功能将在后续版本中实现'
         });
         return;
+      case 'client.permission_response': {
+        const session = options.store.getSession(frame.sessionId);
+        if (session) {
+          runnerForProvider(session.provider).respondToPermission(frame.sessionId, frame.requestId, frame.decision);
+        }
+        return;
+      }
     }
   };
 

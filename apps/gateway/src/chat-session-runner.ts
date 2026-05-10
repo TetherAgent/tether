@@ -12,12 +12,21 @@ export type ChatUsage = {
   input_tokens: number;
   output_tokens: number;
   cost_usd?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+};
+
+export type RateLimitInfo = {
+  resetsAt: number;
+  rateLimitType: string;
+  status: string;
 };
 
 export type ChatRunnerOptions = {
   store: Store;
   gatewayId: () => string;
   onSessionCreated: (clientId: string, sessionId: string) => void;
+  onPermissionRequest: (event: { clientId: string; sessionId: string; requestId: string; toolName: string; input: Record<string, unknown> }) => void;
   onUserMessage: (event: { clientId: string; sessionId: string; event: ChatEvent<{ message: string }> }) => void;
   onDelta: (event: { clientId: string; sessionId: string; text: string }) => void;
   onResult: (event: {
@@ -27,6 +36,8 @@ export type ChatRunnerOptions = {
     text: string;
     usage: ChatUsage;
     stopReason?: string;
+    contextWindow?: number;
+    rateLimitInfo?: RateLimitInfo;
   }) => void;
   onTool: (event: {
     clientId: string;
@@ -65,6 +76,7 @@ export interface IChatRunner {
   ): Promise<void>;
   getCatchup(sessionId: string): string | undefined;
   kill(sessionId: string): void;
+  respondToPermission(sessionId: string, requestId: string, decision: 'allow' | 'deny'): void;
 }
 
 type ActiveSubprocess = {
@@ -77,6 +89,9 @@ type ActiveSubprocess = {
   agentSessionId?: string;
   lineBuffer: string;
   completed: boolean;
+  rateLimitInfo?: RateLimitInfo;
+  contextWindow?: number;
+  pendingPermissions: Map<string, (decision: 'allow' | 'deny') => void>;
 };
 
 type CliRunnerConfig = {
@@ -149,7 +164,7 @@ export class ChatSessionRunner implements IChatRunner {
       providerArgs,
       {
         cwd,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ['pipe', 'pipe', 'pipe'],
         env: providerEffectiveEnv('claude', cwd)
       }
     );
@@ -167,7 +182,8 @@ export class ChatSessionRunner implements IChatRunner {
       lastUsage: ZERO_USAGE,
       agentSessionId: session.agentSessionId,
       lineBuffer: '',
-      completed: false
+      completed: false,
+      pendingPermissions: new Map()
     };
     this.activeSubprocesses.set(sessionId, active);
 
@@ -332,6 +348,34 @@ export class ChatSessionRunner implements IChatRunner {
       return;
     }
 
+    if (eventType === 'rate_limit_event') {
+      const info = recordValue(event.rate_limit_info);
+      if (info) {
+        const resetsAt = numberValue(info.resetsAt);
+        const rateLimitType = typeof info.rateLimitType === 'string' ? info.rateLimitType : '';
+        const status = typeof info.status === 'string' ? info.status : 'unknown';
+        if (resetsAt !== undefined) {
+          active.rateLimitInfo = { resetsAt, rateLimitType, status };
+        }
+      }
+      return;
+    }
+
+    if (eventType === 'control_request') {
+      const requestId = typeof event.request_id === 'string' ? event.request_id : undefined;
+      const request = recordValue(event.request);
+      if (requestId && request && request.subtype === 'can_use_tool' && typeof request.tool_name === 'string') {
+        const toolName = request.tool_name;
+        const input = recordValue(request.input) ?? {};
+        active.pendingPermissions.set(requestId, (decision) => {
+          const response = JSON.stringify({ type: 'control_response', subtype: decision === 'allow' ? 'success' : 'deny', request_id: requestId });
+          active.process.stdin?.write(`${response}\n`);
+        });
+        this.options.onPermissionRequest({ clientId: active.clientId, sessionId, requestId, toolName, input });
+      }
+      return;
+    }
+
     if (eventType === 'error') {
       const error = recordValue(event.error);
       this.emitError(active.clientId, sessionId, 'chat_runner_error', String(error?.message ?? 'chat runner error'));
@@ -352,6 +396,14 @@ export class ChatSessionRunner implements IChatRunner {
           ? event.terminal_reason
           : undefined;
       active.agentSessionId = readSessionId(event) ?? active.agentSessionId;
+      // Extract contextWindow from modelUsage
+      const modelUsage = recordValue(event.modelUsage);
+      if (modelUsage) {
+        const firstKey = Object.keys(modelUsage)[0];
+        const modelData = firstKey ? recordValue((modelUsage as Record<string, unknown>)[firstKey]) : undefined;
+        const cw = modelData ? numberValue(modelData.contextWindow) : undefined;
+        if (cw !== undefined) active.contextWindow = cw;
+      }
       this.emitResult(sessionId, active, text, usage, stopReason);
       return;
     }
@@ -382,9 +434,20 @@ export class ChatSessionRunner implements IChatRunner {
       event: resultEvent,
       text,
       usage,
-      stopReason
+      stopReason,
+      contextWindow: active.contextWindow,
+      rateLimitInfo: active.rateLimitInfo
     });
     this.activeSubprocesses.delete(sessionId);
+  }
+
+  respondToPermission(sessionId: string, requestId: string, decision: 'allow' | 'deny'): void {
+    const active = this.activeSubprocesses.get(sessionId);
+    const callback = active?.pendingPermissions.get(requestId);
+    if (callback) {
+      callback(decision);
+      active!.pendingPermissions.delete(requestId);
+    }
   }
 
   private emitTool(sessionId: string, clientId: string, name: string, input: Record<string, unknown>, result?: string, isError?: boolean): void {
@@ -449,6 +512,10 @@ export class CodexChatRunner implements IChatRunner {
   kill(sessionId: string): void {
     this.runner.kill(sessionId);
   }
+
+  respondToPermission(_sessionId: string, _requestId: string, _decision: 'allow' | 'deny'): void {
+    // codex does not support interactive permission flow
+  }
 }
 
 export class CopilotChatRunner implements IChatRunner {
@@ -485,6 +552,10 @@ export class CopilotChatRunner implements IChatRunner {
 
   kill(sessionId: string): void {
     this.runner.kill(sessionId);
+  }
+
+  respondToPermission(_sessionId: string, _requestId: string, _decision: 'allow' | 'deny'): void {
+    // copilot does not support interactive permission flow
   }
 }
 
@@ -567,6 +638,7 @@ class NonInteractiveCliChatRunner implements IChatRunner {
       agentSessionId: session.agentSessionId,
       lineBuffer: '',
       completed: false,
+      pendingPermissions: new Map<string, (decision: 'allow' | 'deny') => void>(),
       stderrText: '',
       outputDir,
       outputFile
@@ -651,6 +723,10 @@ class NonInteractiveCliChatRunner implements IChatRunner {
     }
     active.process.kill('SIGTERM');
     this.cleanup(sessionId);
+  }
+
+  respondToPermission(_sessionId: string, _requestId: string, _decision: 'allow' | 'deny'): void {
+    // non-interactive CLI runners do not support permission flow
   }
 
   private createChatSession(params: {
@@ -761,10 +837,14 @@ function normalizeUsage(value: unknown): ChatUsage | undefined {
     return undefined;
   }
   const cost_usd = numberValue(usage.cost_usd);
+  const cache_creation_input_tokens = numberValue(usage.cache_creation_input_tokens);
+  const cache_read_input_tokens = numberValue(usage.cache_read_input_tokens);
   return {
     input_tokens,
     output_tokens,
-    ...(cost_usd === undefined ? {} : { cost_usd })
+    ...(cost_usd === undefined ? {} : { cost_usd }),
+    ...(cache_creation_input_tokens === undefined ? {} : { cache_creation_input_tokens }),
+    ...(cache_read_input_tokens === undefined ? {} : { cache_read_input_tokens })
   };
 }
 

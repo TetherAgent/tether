@@ -30,7 +30,7 @@ type MessageItem =
   | { kind: 'agent'; id: string; text: string; isStreaming: boolean; isWaiting: boolean; isLost: boolean; provider: string; usage?: Usage; durationMs?: number }
   | { kind: 'tool'; id: string; toolName: string; input: Record<string, unknown>; result?: string; isError: boolean; isInFlight: boolean }
   | { kind: 'system'; id: string; text: string }
-  | { kind: 'permission'; id: string; toolName: string };
+  | { kind: 'permission'; id: string; requestId: string; toolName: string; decided?: 'allow' | 'deny' };
 type HistoryMessage = { role: string; content: string; usageJson?: Usage; createdAt: string };
 type ProviderOption = { provider: string; models: string[] };
 type ChatSessionRecord = { id: string; provider?: string; projectPath?: string; agentSessionId?: string };
@@ -122,6 +122,37 @@ function findLatestOpenAgentId(items: MessageItem[]): string | undefined {
   return undefined;
 }
 
+function formatResetCountdown(resetsAt: number): string {
+  const diffMs = resetsAt * 1000 - Date.now();
+  if (diffMs <= 0) return '刷新中';
+  const totalMin = Math.floor(diffMs / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function UsageStatsChip({ contextPct, rateLimitResetsAt, rateLimitType }: { contextPct?: number; rateLimitResetsAt?: number; rateLimitType?: string }) {
+  const [, forceUpdate] = React.useReducer((n: number) => n + 1, 0);
+  React.useEffect(() => {
+    if (!rateLimitResetsAt) return;
+    const id = window.setInterval(() => forceUpdate(), 60000);
+    return () => window.clearInterval(id);
+  }, [rateLimitResetsAt]);
+
+  const parts: string[] = [];
+  if (contextPct !== undefined) parts.push(`ctx ${contextPct}%`);
+  if (rateLimitResetsAt) {
+    const label = rateLimitType === 'five_hour' ? '5h' : rateLimitType ?? 'limit';
+    parts.push(`${label} resets ${formatResetCountdown(rateLimitResetsAt)}`);
+  }
+  if (parts.length === 0) return null;
+  return (
+    <span className="flex h-7 items-center rounded-full bg-muted px-3 font-mono text-[11px] text-muted-foreground/70 tabular-nums">
+      {parts.join(' · ')}
+    </span>
+  );
+}
+
 export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { activeSessionId?: string; onExpandSidebar?: () => void; onOpenDrawer?: () => void }) {
   const navigate = useNavigate();
   const { normalAuth } = useAuth();
@@ -143,6 +174,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(undefined);
   const [wsReady, setWsReady] = React.useState(false);
   const [connectionError, setConnectionError] = React.useState<string | undefined>(undefined);
+  const [usageStats, setUsageStats] = React.useState<{ contextPct?: number; rateLimitResetsAt?: number; rateLimitType?: string } | undefined>(undefined);
   const [copiedAgentId, setCopiedAgentId] = React.useState(false);
   const wsRef = React.useRef<WebSocket | null>(null);
   const messageScrollRef = React.useRef<HTMLDivElement | null>(null);
@@ -447,6 +479,19 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
         if (typeof frame.sessionId === 'string' && frame.sessionId === pendingCreatedSessionIdRef.current) {
           pendingCreatedSessionIdRef.current = null;
         }
+        // Update usage stats (context % and rate limit)
+        const resultContextWindow = typeof frame.contextWindow === 'number' ? frame.contextWindow : undefined;
+        const resultUsage = frame.usage as { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | undefined;
+        if (resultContextWindow && resultUsage) {
+          const totalTokens = (resultUsage.input_tokens ?? 0) + (resultUsage.output_tokens ?? 0) + (resultUsage.cache_read_input_tokens ?? 0) + (resultUsage.cache_creation_input_tokens ?? 0);
+          const contextPct = Math.round((totalTokens / resultContextWindow) * 100);
+          const rateLimitInfo = frame.rateLimitInfo as { resetsAt?: number; rateLimitType?: string } | undefined;
+          setUsageStats({
+            contextPct,
+            rateLimitResetsAt: rateLimitInfo?.resetsAt,
+            rateLimitType: rateLimitInfo?.rateLimitType
+          });
+        }
         const frameText = frame.text;
         const usage = typeof frame.usage === 'object' && frame.usage && !Array.isArray(frame.usage)
           ? frame.usage as Usage
@@ -530,6 +575,14 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
             isError: Boolean(frame.isError),
             isInFlight: false
           }
+        ]);
+        return;
+      }
+      if (frame.type === 'agent.permission_request' && typeof frame.requestId === 'string' && typeof frame.toolName === 'string') {
+        const { requestId, toolName } = frame as { requestId: string; toolName: string; input?: Record<string, unknown> };
+        setMessages((items) => [
+          ...items,
+          { kind: 'permission', id: `permission-${requestId}`, requestId, toolName }
         ]);
         return;
       }
@@ -644,6 +697,14 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
       })
     );
   }, [activeSessionModel, activeSessionProvider, cwd, currentSessionId, inputText, isInflight, providerOptions, selectedModel, selectedProvider]);
+
+  const sendPermissionResponse = React.useCallback((requestId: string, decision: 'allow' | 'deny') => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !currentSessionIdRef.current) return;
+    setMessages((items) => items.map((item) =>
+      item.kind === 'permission' && item.requestId === requestId ? { ...item, decided: decision } : item
+    ));
+    wsRef.current.send(JSON.stringify({ type: 'client.permission_response', sessionId: currentSessionIdRef.current, requestId, decision }));
+  }, []);
 
   const isNewSession = !currentSessionId && messages.length === 0;
 
@@ -823,6 +884,9 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
               </span>
             )}
             <div className="flex-1" />
+            {usageStats && (
+              <UsageStatsChip contextPct={usageStats.contextPct} rateLimitResetsAt={usageStats.rateLimitResetsAt} rateLimitType={usageStats.rateLimitType} />
+            )}
           </>
         )}
         {sendButton}
@@ -952,7 +1016,16 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
               );
             }
             if (message.kind === 'permission') {
-              return <PermissionPrompt key={message.id} toolName={message.toolName} />;
+              return (
+                <PermissionPrompt
+                  key={message.id}
+                  toolName={message.toolName}
+                  requestId={message.requestId}
+                  onAllow={(id) => sendPermissionResponse(id, 'allow')}
+                  onDeny={(id) => sendPermissionResponse(id, 'deny')}
+                  decided={message.decided}
+                />
+              );
             }
             return <SystemMessage key={message.id} text={message.text} />;
           })}

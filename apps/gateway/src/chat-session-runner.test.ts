@@ -79,6 +79,7 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
         resolveResult?.();
       },
       onTool: () => undefined,
+      onPermissionRequest: () => undefined,
       onError: ({ message }) => {
         errors.push(message);
       },
@@ -177,6 +178,7 @@ test('chat runner streams Claude content block text deltas', async () => {
         resolveResult?.();
       },
       onTool: () => undefined,
+      onPermissionRequest: () => undefined,
       onError: ({ message }) => {
         assert.fail(message);
       },
