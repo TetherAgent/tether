@@ -124,7 +124,14 @@ export class ChatSessionRunner implements IChatRunner {
     const cwd = params.sessionId === null ? params.cwd : session.projectPath;
     const child = spawn(
       'claude',
-      ['-p', params.message, '--output-format', 'stream-json', ...(session.agentSessionId ? ['--resume', session.agentSessionId] : [])],
+      [
+        '-p',
+        params.message,
+        '--output-format',
+        'stream-json',
+        '--verbose',
+        ...(session.agentSessionId ? ['--resume', session.agentSessionId] : [])
+      ],
       {
         cwd,
         stdio: ['ignore', 'pipe', 'pipe'],
