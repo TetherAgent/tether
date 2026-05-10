@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createSessionId } from './ids.js';
@@ -17,9 +18,14 @@ export type ChatUsage = {
 };
 
 export type RateLimitInfo = {
-  resetsAt: number;
-  rateLimitType: string;
-  status: string;
+  // Claude-style
+  resetsAt?: number;
+  rateLimitType?: string;
+  status?: string;
+  // Codex-style (read from ~/.codex session jsonl)
+  primary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
+  secondary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
+  planType?: string;
 };
 
 export type ChatRunnerOptions = {
@@ -143,6 +149,12 @@ export interface CliProviderAdapter {
    * Omit if the provider does not support bidirectional permission flow.
    */
   respondToPermission?(process: ChildProcess, requestId: string, decision: 'allow' | 'deny'): void;
+  /**
+   * Called after each turn completes, before onResult fires.
+   * Use to read out-of-band usage data (e.g. local session files).
+   * Return null to skip; returned info is merged into rateLimitInfo if not already set.
+   */
+  afterTurn?(cwd: string): Promise<RateLimitInfo | null>;
 }
 
 // ─── Internal ─────────────────────────────────────────────────────────────────
@@ -279,7 +291,7 @@ class CliChatRunner implements IChatRunner {
       if (current?.process !== child) return;
       if (!current.completed) {
         if (code === 0 && current.accumulatedText) {
-          this.finishResult(sessionId, current, current.accumulatedText, current.lastUsage);
+          void this.finishResult(sessionId, current, current.accumulatedText, current.lastUsage);
           return;
         }
         emit.error(
@@ -319,7 +331,7 @@ class CliChatRunner implements IChatRunner {
         this.options.onDelta({ clientId: active.clientId, sessionId, text });
       },
       result: (text, usage, opts) => {
-        this.finishResult(sessionId, active, text, usage, opts?.stopReason);
+        void this.finishResult(sessionId, active, text, usage, opts?.stopReason);
       },
       rateLimitInfo: (info) => { active.rateLimitInfo = info; },
       contextWindow: (tokens) => { active.contextWindow = tokens; },
@@ -342,9 +354,12 @@ class CliChatRunner implements IChatRunner {
     };
   }
 
-  private finishResult(sessionId: string, active: ActiveSubprocess, text: string, usage: ChatUsage, stopReason?: string): void {
+  private async finishResult(sessionId: string, active: ActiveSubprocess, text: string, usage: ChatUsage, stopReason?: string): Promise<void> {
     active.completed = true;
     active.accumulatedText = text;
+    if (this.adapter.afterTurn && !active.rateLimitInfo) {
+      active.rateLimitInfo = await this.adapter.afterTurn(active.cwd).catch(() => null) ?? undefined;
+    }
     const agentSessionId = active.agentSessionId ?? randomUUID();
     const resultEvent = this.options.store.appendChatEvent(sessionId, 'agent.result', {
       text,
@@ -610,6 +625,10 @@ class CodexAdapter implements CliProviderAdapter {
       emit.error('chat_runner_error', String(event.message ?? 'codex error'));
     }
   }
+
+  async afterTurn(_cwd: string): Promise<RateLimitInfo | null> {
+    return readCodexRateLimits();
+  }
 }
 
 class CopilotAdapter implements CliProviderAdapter {
@@ -731,4 +750,49 @@ function numberValue(value: unknown): number | undefined {
 function readSessionId(value: unknown): string | undefined {
   const record = recordValue(value);
   return typeof record?.session_id === 'string' ? record.session_id : undefined;
+}
+
+async function readCodexRateLimits(): Promise<RateLimitInfo | null> {
+  const sessionsDir = path.join(os.homedir(), '.codex', 'sessions');
+  const entries = await fsp.readdir(sessionsDir, { recursive: true }).catch(() => [] as string[]);
+  const jsonlFiles = (entries as string[])
+    .filter(e => path.basename(e).startsWith('rollout-') && e.endsWith('.jsonl'))
+    .map(e => path.join(sessionsDir, e));
+  if (!jsonlFiles.length) return null;
+
+  const withStats = await Promise.all(
+    jsonlFiles.map(f => fsp.stat(f).then(s => ({ f, mtime: s.mtimeMs })).catch(() => null))
+  );
+  const valid = withStats.filter((x): x is { f: string; mtime: number } => x !== null);
+  valid.sort((a, b) => b.mtime - a.mtime);
+  const newest = valid[0]?.f;
+  if (!newest) return null;
+
+  const content = await fsp.readFile(newest, 'utf8').catch(() => '');
+  const lines = content.split('\n').filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      const event = JSON.parse(lines[i]) as Record<string, unknown>;
+      const payload = recordValue(event.payload);
+      if (payload?.type !== 'token_count') continue;
+      const rl = recordValue(payload.rate_limits);
+      if (!rl) continue;
+      const primary = recordValue(rl.primary);
+      const secondary = recordValue(rl.secondary);
+      return {
+        primary: primary ? {
+          usedPercent: numberValue(primary.used_percent) ?? 0,
+          windowMinutes: numberValue(primary.window_minutes),
+          resetsAt: numberValue(primary.resets_at)
+        } : undefined,
+        secondary: secondary ? {
+          usedPercent: numberValue(secondary.used_percent) ?? 0,
+          windowMinutes: numberValue(secondary.window_minutes),
+          resetsAt: numberValue(secondary.resets_at)
+        } : undefined,
+        planType: typeof rl.plan_type === 'string' ? rl.plan_type : undefined
+      };
+    } catch { /* skip malformed line */ }
+  }
+  return null;
 }

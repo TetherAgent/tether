@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowUp, Check, Copy, Loader2, Menu, PanelLeftOpen } from 'lucide-react';
+import { NotificationBell } from './notification-bell.js';
 import {
   Button,
   Input,
@@ -886,6 +887,9 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
             <PanelLeftOpen className="h-[15px] w-[15px]" />
           </button>
         )}
+        <div className="absolute right-3 top-3">
+          <NotificationBell />
+        </div>
         <div className="chat-new-session-hero mb-10 flex flex-col items-center gap-4">
           <div
             className="flex h-14 w-14 items-center justify-center rounded-2xl text-xl font-bold text-black shadow-md"
@@ -953,6 +957,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
             </button>
           </>
         )}
+        <NotificationBell />
       </div>
 
       {/* Messages */}

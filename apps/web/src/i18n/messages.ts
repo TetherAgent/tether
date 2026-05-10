@@ -328,7 +328,12 @@ export const WEB_MESSAGES = {
     chatsHistoryFail: '无法加载会话历史',
     chatsSettingsAppearance: '外观',
     chatsSettingsLanguage: '语言',
-    chatsWelcomeGreeting: '你好，我是 Tether'
+    chatsWelcomeGreeting: '你好，我是 Tether',
+    notificationsTitle: '通知',
+    notificationsEmpty: '暂无通知',
+    updateAvailableTitle: '新版本可用',
+    updateAvailableBody: '当前 {current}，最新 {latest}',
+    updateDismiss: '本版本不再提示'
   },
   en: {
     appName: 'Tether',
@@ -654,7 +659,12 @@ export const WEB_MESSAGES = {
     chatsHistoryFail: 'Could not load chat history',
     chatsSettingsAppearance: 'Appearance',
     chatsSettingsLanguage: 'Language',
-    chatsWelcomeGreeting: 'Hi, I\'m Tether'
+    chatsWelcomeGreeting: 'Hi, I\'m Tether',
+    notificationsTitle: 'Notifications',
+    notificationsEmpty: 'No notifications',
+    updateAvailableTitle: 'Update available',
+    updateAvailableBody: 'Current {current}, latest {latest}',
+    updateDismiss: 'Don\'t remind me for this version'
   }
 } as const;
 

@@ -16,6 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import readline from 'node:readline/promises';
+import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import WebSocket from 'ws';
 import type { RawData } from 'ws';
@@ -64,6 +65,7 @@ import { runningSessionIds } from './session-stop.js';
 
 const program = new Command();
 const TERMINAL_RESET_SEQUENCE = '\x1b[?2004l\x1b[?1004l\x1b[<u\x1b[0m\x1b[?25h';
+const TETHER_VERSION = resolvePackageVersion(import.meta.url, '@tether-labs/cli') ?? '0.0.0-dev';
 
 process.stdout.on('error', (error: NodeJS.ErrnoException) => {
   if (error.code === 'EPIPE') {
@@ -75,7 +77,7 @@ process.stdout.on('error', (error: NodeJS.ErrnoException) => {
 program
   .name('tether')
   .description('跨设备接管同一个 CLI Agent 会话的控制台')
-  .version('0.1.0', '-V, --version', '输出版本号')
+  .version(TETHER_VERSION, '-V, --version', '输出版本号')
   .helpOption('-h, --help', '显示帮助')
   .addHelpCommand('help [command]', '显示指定命令的帮助');
 
@@ -1507,6 +1509,29 @@ function normalizeServerUrl(value: string | undefined): string | undefined {
     return undefined;
   }
   return value.replace(/\/+$/, '');
+}
+
+function resolvePackageVersion(startUrl: string, packageName: string): string | undefined {
+  let current = path.dirname(fileURLToPath(startUrl));
+  for (let depth = 0; depth < 8; depth += 1) {
+    const packageJsonPath = path.join(current, 'package.json');
+    if (fs.existsSync(packageJsonPath)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as { name?: unknown; version?: unknown };
+        if (parsed.name === packageName && typeof parsed.version === 'string') {
+          return parsed.version;
+        }
+      } catch {
+        return undefined;
+      }
+    }
+    const next = path.dirname(current);
+    if (next === current) {
+      break;
+    }
+    current = next;
+  }
+  return undefined;
 }
 
 async function promptLine(prompt: string): Promise<string> {

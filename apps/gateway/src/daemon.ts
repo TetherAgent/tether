@@ -1,4 +1,5 @@
 import { exec } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
@@ -68,6 +69,7 @@ type WsTicketPayload = AuthScopePayload & {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webDistDir = path.resolve(__dirname, '../../web/dist');
+const TETHER_VERSION = resolvePackageVersion(import.meta.url, ['@tether-labs/cli', '@tether/gateway']) ?? '0.0.0-dev';
 
 export function localLanAddress(): string | undefined {
   for (const entries of Object.values(os.networkInterfaces())) {
@@ -217,6 +219,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     }
     return c.json({
       ok: true,
+      version: TETHER_VERSION,
       pid: process.pid,
       url,
       host: options.host,
@@ -1152,6 +1155,33 @@ function parseGatewayAuthState(raw: string): GatewayAuthState | undefined {
     }
   } catch {
     return undefined;
+  }
+  return undefined;
+}
+
+function resolvePackageVersion(startUrl: string, packageNames: string[]): string | undefined {
+  let current = path.dirname(fileURLToPath(startUrl));
+  for (let depth = 0; depth < 8; depth += 1) {
+    const packageJsonPath = path.join(current, 'package.json');
+    if (existsSync(packageJsonPath)) {
+      try {
+        const parsed = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { name?: unknown; version?: unknown };
+        if (
+          typeof parsed.name === 'string' &&
+          packageNames.includes(parsed.name) &&
+          typeof parsed.version === 'string'
+        ) {
+          return parsed.version;
+        }
+      } catch {
+        return undefined;
+      }
+    }
+    const next = path.dirname(current);
+    if (next === current) {
+      break;
+    }
+    current = next;
   }
   return undefined;
 }
