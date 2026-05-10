@@ -1,7 +1,19 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowUp, Check, Copy, Loader2, PanelLeftOpen } from 'lucide-react';
-import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from '@tether/design';
+import {
+  Button,
+  Input,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Textarea
+} from '@tether/design';
 import { createHttpClient } from '@tether/http';
 import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
@@ -60,6 +72,32 @@ function isProviderOption(value: unknown): value is ProviderOption {
   );
 }
 
+function compactPathLabel(value: string): string {
+  const normalized = value.trim();
+  if (!normalized || normalized === '~') {
+    return '~';
+  }
+  const parts = normalized.split('/').filter(Boolean);
+  if (normalized.startsWith('/Users/') && parts.length >= 2) {
+    const tail = parts.slice(-2).join('/');
+    return `~/${tail}`;
+  }
+  if (parts.length <= 3) {
+    return normalized;
+  }
+  return `.../${parts.slice(-2).join('/')}`;
+}
+
+function findLatestOpenAgentId(items: MessageItem[]): string | undefined {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item?.kind === 'agent' && (item.isWaiting || item.isStreaming)) {
+      return item.id;
+    }
+  }
+  return undefined;
+}
+
 export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionId?: string; onExpandSidebar?: () => void }) {
   const navigate = useNavigate();
   const { normalAuth } = useAuth();
@@ -73,17 +111,23 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
   const [selectedModel, setSelectedModel] = React.useState(DEFAULT_PROVIDER_OPTIONS[0]!.models[0]!);
   const [activeSessionProvider, setActiveSessionProvider] = React.useState<string | undefined>(undefined);
   const [activeSessionModel, setActiveSessionModel] = React.useState<string | undefined>(undefined);
-  const [cwd, setCwd] = React.useState('');
+  const [cwd, setCwd] = React.useState('~');
   const [cwdSuggestions, setCwdSuggestions] = React.useState<string[]>([]);
-  const [cwdSuggestionsOpen, setCwdSuggestionsOpen] = React.useState(false);
+  const [cwdPickerOpen, setCwdPickerOpen] = React.useState(false);
+  const [cwdActiveIndex, setCwdActiveIndex] = React.useState(0);
   const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(undefined);
   const [wsReady, setWsReady] = React.useState(false);
   const [copiedAgentId, setCopiedAgentId] = React.useState(false);
   const wsRef = React.useRef<WebSocket | null>(null);
   const currentAgentIdRef = React.useRef<string | null>(null);
   const inflightStartedAtRef = React.useRef<number>(0);
+  const revealTimerRef = React.useRef<number | undefined>(undefined);
+  const messagesRef = React.useRef<MessageItem[]>([]);
+  const activeSessionProviderRef = React.useRef(activeSessionProvider);
+  const selectedProviderRef = React.useRef(selectedProvider);
   const cwdRef = React.useRef(cwd);
   const skipNextHistoryLoadSessionIdRef = React.useRef<string | null>(null);
+  const pendingCreatedSessionIdRef = React.useRef<string | null>(null);
   const pendingSessionProviderRef = React.useRef<string | undefined>(undefined);
   const pendingSessionModelRef = React.useRef<string | undefined>(undefined);
   const createdSessionIdRef = React.useRef<string | null>(null);
@@ -91,6 +135,26 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
   React.useEffect(() => {
     cwdRef.current = cwd;
   }, [cwd]);
+
+  React.useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  React.useEffect(() => {
+    activeSessionProviderRef.current = activeSessionProvider;
+  }, [activeSessionProvider]);
+
+  React.useEffect(() => {
+    selectedProviderRef.current = selectedProvider;
+  }, [selectedProvider]);
+
+  React.useEffect(() => {
+    return () => {
+      if (revealTimerRef.current !== undefined) {
+        window.clearInterval(revealTimerRef.current);
+      }
+    };
+  }, []);
 
   React.useEffect(() => {
     setCurrentSessionId(activeSessionId);
@@ -112,7 +176,10 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
       setAgentSessionId(undefined);
       return;
     }
-    if (skipNextHistoryLoadSessionIdRef.current === activeSessionId) {
+    if (
+      skipNextHistoryLoadSessionIdRef.current === activeSessionId ||
+      pendingCreatedSessionIdRef.current === activeSessionId
+    ) {
       skipNextHistoryLoadSessionIdRef.current = null;
       return;
     }
@@ -135,7 +202,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
                 isStreaming: false,
                 isWaiting: false,
                 isLost: false,
-                provider: activeSessionProvider ?? 'agent',
+                provider: activeSessionProviderRef.current ?? 'agent',
                 usage: message.usageJson
               }
         );
@@ -147,7 +214,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
             isStreaming: false,
             isWaiting: true,
             isLost: false,
-            provider: activeSessionProvider ?? 'agent'
+            provider: activeSessionProviderRef.current ?? 'agent'
           });
           currentAgentIdRef.current = 'history-waiting';
           setIsInflight(true);
@@ -160,7 +227,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
       .catch(() => {
         setMessages([{ kind: 'system', id: 'history-error', text: t.chatsHistoryFail }]);
       });
-  }, [activeSessionId, activeSessionProvider, normalAuth?.accessToken, t.chatsHistoryFail]);
+  }, [activeSessionId, normalAuth?.accessToken, t.chatsHistoryFail]);
 
   React.useEffect(() => {
     const token = normalAuth?.accessToken ?? getStoredNormalAccessToken();
@@ -212,7 +279,9 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
               : nextProviders[0]!.provider
           );
           setSelectedModel((currentModel) => {
-            const provider = nextProviders.find((item: ProviderOption) => item.provider === selectedProvider) ?? nextProviders[0]!;
+            const provider =
+              nextProviders.find((item: ProviderOption) => item.provider === selectedProviderRef.current) ??
+              nextProviders[0]!;
             return provider.models.includes(currentModel) ? currentModel : provider.models[0]!;
           });
         } else {
@@ -226,12 +295,13 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
             ? frame.suggestions.filter((item: unknown): item is string => typeof item === 'string')
             : [];
           setCwdSuggestions(suggestions);
-          setCwdSuggestionsOpen(suggestions.length > 0);
+          setCwdActiveIndex(0);
         }
         return;
       }
       if (frame.type === 'gateway.session-created' && typeof frame.sessionId === 'string') {
         skipNextHistoryLoadSessionIdRef.current = frame.sessionId;
+        pendingCreatedSessionIdRef.current = frame.sessionId;
         createdSessionIdRef.current = frame.sessionId;
         setAgentSessionId(undefined);
         setActiveSessionProvider(pendingSessionProviderRef.current);
@@ -256,6 +326,10 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
       }
       if (frame.type === 'gateway.chat-catchup' && typeof frame.text === 'string') {
         const frameText = frame.text;
+        const fallbackAgentId = currentAgentIdRef.current ?? findLatestOpenAgentId(messagesRef.current);
+        if (fallbackAgentId) {
+          currentAgentIdRef.current = fallbackAgentId;
+        }
         setMessages((items) =>
           items.map((item) =>
             item.kind === 'agent' && item.id === currentAgentIdRef.current
@@ -266,7 +340,15 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
         return;
       }
       if (frame.type === 'agent.delta' && typeof frame.text === 'string') {
+        if (revealTimerRef.current !== undefined) {
+          window.clearInterval(revealTimerRef.current);
+          revealTimerRef.current = undefined;
+        }
         const frameText = frame.text;
+        const fallbackAgentId = currentAgentIdRef.current ?? findLatestOpenAgentId(messagesRef.current);
+        if (fallbackAgentId) {
+          currentAgentIdRef.current = fallbackAgentId;
+        }
         setMessages((items) => {
           const existingId = currentAgentIdRef.current;
           if (existingId) {
@@ -280,39 +362,90 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
           currentAgentIdRef.current = id;
           return [
             ...items,
-            { kind: 'agent', id, text: frameText, isStreaming: true, isWaiting: false, isLost: false, provider: activeSessionProvider ?? 'agent' }
+            {
+              kind: 'agent',
+              id,
+              text: frameText,
+              isStreaming: true,
+              isWaiting: false,
+              isLost: false,
+              provider: activeSessionProviderRef.current ?? 'agent'
+            }
           ];
         });
         return;
       }
       if (frame.type === 'agent.result' && typeof frame.text === 'string') {
+        if (typeof frame.sessionId === 'string' && frame.sessionId === pendingCreatedSessionIdRef.current) {
+          pendingCreatedSessionIdRef.current = null;
+        }
         const frameText = frame.text;
         const usage = typeof frame.usage === 'object' && frame.usage && !Array.isArray(frame.usage)
           ? frame.usage as Usage
           : undefined;
+        const durationMs = Date.now() - inflightStartedAtRef.current;
+        const existingOpenAgentId = currentAgentIdRef.current ?? findLatestOpenAgentId(messagesRef.current);
+        const agentId = existingOpenAgentId ?? `agent-${Date.now()}`;
+        const existingById = messagesRef.current.find((item) => item.kind === 'agent' && item.id === agentId);
+        const duplicateIndex = messagesRef.current.findIndex(
+          (item) => item.kind === 'agent' && item.text === frameText && !item.isWaiting
+        );
+        const existingText = existingById?.kind === 'agent' ? existingById.text : '';
+        const shouldReveal =
+          duplicateIndex < 0 &&
+          frameText.length > 80 &&
+          (!existingText || frameText.length - existingText.length > 80);
+        const revealStartLength = shouldReveal ? existingText.length : 0;
+        currentAgentIdRef.current = null;
         setMessages((items) => {
-          const agentId = currentAgentIdRef.current ?? `agent-${Date.now()}`;
-          currentAgentIdRef.current = null;
+          if (duplicateIndex >= 0 && !existingById) {
+            return items.map((item, index) =>
+              index === duplicateIndex && item.kind === 'agent'
+                ? { ...item, isStreaming: false, isWaiting: false, usage, durationMs }
+                : item
+            );
+          }
           const replacement: MessageItem = {
             kind: 'agent',
             id: agentId,
-            text: frameText,
-            isStreaming: false,
+            text: shouldReveal ? existingText : frameText,
+            isStreaming: shouldReveal,
             isWaiting: false,
             isLost: false,
-            provider: activeSessionProvider ?? 'agent',
-            usage,
-            durationMs: Date.now() - inflightStartedAtRef.current
+            provider: activeSessionProviderRef.current ?? 'agent',
+            usage: shouldReveal ? undefined : usage,
+            durationMs: shouldReveal ? undefined : durationMs
           };
-          const next: MessageItem[] = items.some((item) => item.kind === 'agent' && item.id === agentId)
-            ? items.map((item) =>
+          return items.some((item) => item.kind === 'agent' && item.id === agentId)
+            ? items.map((item) => item.kind === 'agent' && item.id === agentId ? { ...item, ...replacement } : item)
+            : [...items, replacement];
+        });
+        if (shouldReveal) {
+          let cursor = revealStartLength;
+          if (revealTimerRef.current !== undefined) {
+            window.clearInterval(revealTimerRef.current);
+          }
+          revealTimerRef.current = window.setInterval(() => {
+            cursor = Math.min(cursor + 18, frameText.length);
+            setMessages((items) =>
+              items.map((item) =>
                 item.kind === 'agent' && item.id === agentId
-                  ? { ...item, ...replacement }
+                  ? {
+                      ...item,
+                      text: frameText.slice(0, cursor),
+                      isStreaming: cursor < frameText.length,
+                      usage: cursor >= frameText.length ? usage : item.usage,
+                      durationMs: cursor >= frameText.length ? durationMs : item.durationMs
+                    }
                   : item
               )
-            : [...items, replacement];
-          return next;
-        });
+            );
+            if (cursor >= frameText.length && revealTimerRef.current !== undefined) {
+              window.clearInterval(revealTimerRef.current);
+              revealTimerRef.current = undefined;
+            }
+          }, 16);
+        }
         setIsInflight(false);
         return;
       }
@@ -343,6 +476,9 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
             )
           );
           setIsInflight(false);
+          if (typeof frame.sessionId === 'string' && frame.sessionId === pendingCreatedSessionIdRef.current) {
+            pendingCreatedSessionIdRef.current = null;
+          }
         } else {
           const agentId = currentAgentIdRef.current;
           currentAgentIdRef.current = null;
@@ -367,19 +503,19 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
       ws.close();
       wsRef.current = null;
     };
-  }, [activeSessionProvider, navigate, normalAuth?.accessToken, selectedProvider, t.chatsProviderFail, t.chatsSessionStarted]);
+  }, [navigate, normalAuth?.accessToken, t.chatsProviderFail, t.chatsSessionStarted]);
 
   React.useEffect(() => {
-    if (currentSessionId || !wsReady || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+    if (!cwdPickerOpen || currentSessionId || !wsReady || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       setCwdSuggestions([]);
-      setCwdSuggestionsOpen(false);
+      setCwdActiveIndex(0);
       return;
     }
     const timer = window.setTimeout(() => {
       wsRef.current?.send(JSON.stringify({ type: 'client.cwd-suggest', cwd }));
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [currentSessionId, cwd, wsReady]);
+  }, [currentSessionId, cwd, cwdPickerOpen, wsReady]);
 
   React.useEffect(() => {
     const models = providerOptions.find((provider) => provider.provider === selectedProvider)?.models ?? [];
@@ -497,40 +633,82 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
                 ))}
               </SelectContent>
             </Select>
-            <Input
-              value={cwd}
-              onChange={(event) => {
-                setCwd(event.target.value);
-                setCwdSuggestionsOpen(true);
-              }}
-              onFocus={() => {
-                setCwdSuggestionsOpen(cwdSuggestions.length > 0);
-                if (wsRef.current?.readyState === WebSocket.OPEN) {
+            <Popover
+              open={cwdPickerOpen}
+              onOpenChange={(open) => {
+                setCwdPickerOpen(open);
+                if (open && wsRef.current?.readyState === WebSocket.OPEN) {
                   wsRef.current.send(JSON.stringify({ type: 'client.cwd-suggest', cwd }));
                 }
               }}
-              onBlur={() => window.setTimeout(() => setCwdSuggestionsOpen(false), 120)}
-              placeholder={t.chatsCwd}
-              className="h-7 w-36 rounded-full border-0 bg-muted px-3 text-[12px] shadow-none focus-visible:ring-0"
-            />
-            {cwdSuggestionsOpen && cwdSuggestions.length > 0 && (
-              <div className="absolute left-3 right-12 top-[calc(100%-6px)] z-20 max-h-52 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg">
-                {cwdSuggestions.map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    type="button"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => {
-                      setCwd(suggestion);
-                      setCwdSuggestionsOpen(false);
-                    }}
-                    className="block w-full truncate rounded-lg px-3 py-1.5 text-left font-mono text-[11px] text-popover-foreground hover:bg-accent"
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
-            )}
+            >
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  title={cwd}
+                  className="flex h-7 max-w-[260px] min-w-[132px] items-center rounded-full bg-muted px-3 font-mono text-[12px] text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <span className="truncate">{cwd ? compactPathLabel(cwd) : '请选择工作目录'}</span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="top" align="start" sideOffset={10} className="w-[520px] gap-2 p-2">
+                <Input
+                  value={cwd}
+                  onChange={(event) => setCwd(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'ArrowDown') {
+                      event.preventDefault();
+                      setCwdActiveIndex((index) => Math.min(index + 1, Math.max(cwdSuggestions.length - 1, 0)));
+                      return;
+                    }
+                    if (event.key === 'ArrowUp') {
+                      event.preventDefault();
+                      setCwdActiveIndex((index) => Math.max(index - 1, 0));
+                      return;
+                    }
+                    if (event.key === 'Enter') {
+                      const suggestion = cwdSuggestions[cwdActiveIndex];
+                      if (suggestion) {
+                        event.preventDefault();
+                        setCwd(suggestion);
+                        setCwdPickerOpen(false);
+                      }
+                      return;
+                    }
+                    if (event.key === 'Escape') {
+                      setCwdPickerOpen(false);
+                    }
+                  }}
+                  autoFocus
+                  placeholder={t.chatsCwd}
+                  className="h-9 rounded-lg bg-muted font-mono text-[12px]"
+                />
+                <div className="max-h-64 overflow-y-auto">
+                  {cwdSuggestions.length > 0 ? (
+                    cwdSuggestions.map((suggestion, index) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        onClick={() => {
+                          setCwd(suggestion);
+                          setCwdPickerOpen(false);
+                        }}
+                        onMouseEnter={() => setCwdActiveIndex(index)}
+                        className={`block w-full truncate rounded-lg px-3 py-2 text-left font-mono text-[12px] text-popover-foreground ${
+                          index === cwdActiveIndex ? 'bg-accent' : 'hover:bg-accent'
+                        }`}
+                      >
+                        {suggestion}
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">
+                      {wsReady ? t.chatsCwd : t.gatewayNotConnected}
+                    </div>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
             <div className="flex-1" />
           </>
         )}

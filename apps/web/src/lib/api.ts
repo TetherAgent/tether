@@ -169,7 +169,7 @@ export async function renameChatSession(sessionId: string, title: string, token?
 
 export async function deleteChatSession(sessionId: string, token?: string) {
   try {
-    return await http.delete<{ ok: boolean }>(`/api/server/chat-sessions/${sessionId}`, {
+    return await http.delete<{ ok: boolean }>(`/api/server/chat-sessions/${sessionId}`, null, {
       token: token ?? getStoredNormalAccessToken(),
       suppressGlobalError: true
     });

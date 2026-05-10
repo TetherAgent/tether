@@ -55,6 +55,7 @@ export function ChatSessionList({
   const navigate = useNavigate();
   const [sessions, setSessions] = React.useState<ChatSessionRecord[]>([]);
   const [renameDialog, setRenameDialog] = React.useState<{ id: string; value: string } | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = React.useState<string | null>(null);
 
   const loadSessions = React.useCallback(() => {
     const token = getStoredNormalAccessToken();
@@ -86,7 +87,10 @@ export function ChatSessionList({
     }
   };
 
-  const handleDelete = async (sessionId: string) => {
+  const confirmDelete = async () => {
+    const sessionId = deleteConfirmId;
+    setDeleteConfirmId(null);
+    if (!sessionId) return;
     setSessions((prev) => prev.filter((s) => s.id !== sessionId));
     if (activeSessionId === sessionId) {
       navigate('/chats', { replace: true });
@@ -103,6 +107,19 @@ export function ChatSessionList({
 
   return (
     <>
+    <Dialog open={!!deleteConfirmId} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{t.deleteSessionConfirmTitle}</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">{t.deleteSessionConfirmDescription}</p>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>{t.cancel}</Button>
+          <Button variant="destructive" onClick={() => void confirmDelete()}>{t.deleteSessionConfirm}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
     <Dialog open={!!renameDialog} onOpenChange={(open) => { if (!open) setRenameDialog(null); }}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
@@ -211,13 +228,13 @@ export function ChatSessionList({
                             </button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent side="right" align="start" className="w-36">
-                            <DropdownMenuItem onSelect={() => setTimeout(() => startRename(session), 0)} className="gap-2">
+                            <DropdownMenuItem onClick={() => setTimeout(() => startRename(session), 0)} className="gap-2">
                               <Pencil className="h-3.5 w-3.5" />
                               {t.renameSession}
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
-                              onSelect={() => void handleDelete(session.id)}
+                              onClick={() => setDeleteConfirmId(session.id)}
                               className="gap-2 text-destructive focus:text-destructive"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -253,7 +270,7 @@ export function ChatSessionList({
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="start" className="w-52">
             <DropdownMenuItem
-              onSelect={logoutNormal}
+              onClick={logoutNormal}
               className="gap-2 text-destructive focus:text-destructive"
             >
               <LogOut className="h-4 w-4" />

@@ -111,12 +111,93 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
       '--output-format',
       'stream-json',
       '--verbose',
+      '--include-partial-messages',
       '--model',
       'claude-sonnet-4-5'
     ]);
   } finally {
     process.env.PATH = previousPath;
-    process.env.TETHER_FAKE_CLAUDE_ARGS_FILE = previousArgsFile;
+    if (previousArgsFile === undefined) {
+      delete process.env.TETHER_FAKE_CLAUDE_ARGS_FILE;
+    } else {
+      process.env.TETHER_FAKE_CLAUDE_ARGS_FILE = previousArgsFile;
+    }
+    fakeClaude.cleanup();
+    cleanupStore();
+  }
+});
+
+test('chat runner streams Claude content block text deltas', async () => {
+  const { store, cleanup: cleanupStore } = tempStore();
+  const fakeClaude = installFakeClaude([
+    {
+      type: 'message_start',
+      message: {
+        id: 'claude-session-2',
+        usage: { input_tokens: 5, output_tokens: 0 }
+      }
+    },
+    {
+      type: 'content_block_delta',
+      delta: { type: 'text', text: 'Hel' }
+    },
+    {
+      type: 'content_block_delta',
+      delta: { type: 'text', text: 'lo' }
+    },
+    {
+      type: 'message_stop',
+      message: {
+        usage: { input_tokens: 5, output_tokens: 2 }
+      }
+    }
+  ]);
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${fakeClaude.pathPrefix}${path.delimiter}${previousPath ?? ''}`;
+  try {
+    let createdSessionId = '';
+    const deltas: string[] = [];
+    const results: string[] = [];
+    let resolveResult: (() => void) | undefined;
+    const resultPromise = new Promise<void>((resolve) => {
+      resolveResult = resolve;
+    });
+    const runner = new ChatSessionRunner({
+      store,
+      gatewayId: () => 'gateway-test',
+      onSessionCreated: (_clientId, sessionId) => {
+        createdSessionId = sessionId;
+      },
+      onUserMessage: () => undefined,
+      onDelta: ({ text }) => {
+        deltas.push(text);
+      },
+      onResult: ({ text }) => {
+        results.push(text);
+        resolveResult?.();
+      },
+      onTool: () => undefined,
+      onError: ({ message }) => {
+        assert.fail(message);
+      },
+      onAgentIdUpdate: () => undefined
+    });
+
+    await runner.run({
+      clientId: 'client-test',
+      sessionId: null,
+      provider: 'claude',
+      model: 'sonnet',
+      cwd: '',
+      message: 'test'
+    });
+    await resultPromise;
+
+    assert.equal(createdSessionId.startsWith('tth_'), true);
+    assert.deepEqual(deltas, ['Hel', 'lo']);
+    assert.deepEqual(results, ['Hello']);
+  } finally {
+    process.env.PATH = previousPath;
     fakeClaude.cleanup();
     cleanupStore();
   }

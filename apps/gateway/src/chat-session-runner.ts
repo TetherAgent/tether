@@ -140,6 +140,7 @@ export class ChatSessionRunner implements IChatRunner {
       '--output-format',
       'stream-json',
       '--verbose',
+      '--include-partial-messages',
       ...(params.model ? ['--model', params.model] : []),
       ...(session.agentSessionId ? ['--resume', session.agentSessionId] : [])
     ];
@@ -271,7 +272,7 @@ export class ChatSessionRunner implements IChatRunner {
     const eventType = typeof event.type === 'string' ? event.type : '';
     if (eventType === 'content_block_delta') {
       const delta = recordValue(event.delta);
-      if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+      if ((delta?.type === 'text_delta' || delta?.type === 'text') && typeof delta.text === 'string') {
         active.accumulatedText += delta.text;
         this.options.onDelta({ clientId: active.clientId, sessionId, text: delta.text });
       }
