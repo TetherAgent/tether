@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createSessionId } from './ids.js';
+import { providerEffectiveEnv } from './provider-env.js';
 import type { ChatEvent, Store } from './store.js';
 
 export type ChatUsage = {
@@ -138,7 +139,7 @@ export class ChatSessionRunner implements IChatRunner {
       {
         cwd,
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: process.env
+        env: providerEffectiveEnv('claude', cwd)
       }
     );
 

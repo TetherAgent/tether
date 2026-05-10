@@ -13,11 +13,12 @@ import type { ServerType } from '@hono/node-server';
 import { WebSocketServer } from 'ws';
 import { readTetherConfig, type TetherConfig } from '@tether/config';
 import { isProviderName, PROVIDERS } from '@tether/core';
-import { ResponseCode, type AuthScopePayload, type AuthTokenClass, type ProviderDefinition, type SessionAccessMode } from '@tether/core';
+import { ResponseCode, type AuthScopePayload, type AuthTokenClass, type SessionAccessMode } from '@tether/core';
 import { createSessionId } from './ids.js';
 import { maskSensitiveOutput } from './mask.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import { replaySessionEvents } from './replay.js';
+import { providerChildEnv } from './provider-env.js';
 import { listGateways, registerGateway, touchGateway, unregisterGateway } from './registry.js';
 import { detectSelectOptions } from './agent-select-detect.js';
 import { startRelayClient, type RunningRelayClient } from './relay-client.js';
@@ -979,7 +980,7 @@ function providerCommand(provider: string, config = readTetherConfig()): string 
 }
 
 function providerEnv(provider: string): Record<string, string> | undefined {
-  return isProviderName(provider) ? (PROVIDERS[provider] as ProviderDefinition).env : undefined;
+  return providerChildEnv(provider);
 }
 
 function pathListIncludes(value: string | undefined, needle: string): boolean {

@@ -80,7 +80,7 @@ export default class RuntimeSyncController extends Controller {
     if (eventType === 'user.message') {
       const payload = event.payload as { message?: unknown };
       if (typeof payload?.message === 'string') {
-        await ctx.service.runtimeSyncRepository.upsertChatMessage(sessionId, 'user', payload.message, null, scope);
+        await ctx.service.runtimeSyncRepository.upsertChatMessage(sessionId, 'user', payload.message, null, scope, event.ts);
       }
     }
     if (eventType === 'agent.result') {
@@ -94,7 +94,8 @@ export default class RuntimeSyncController extends Controller {
           'assistant',
           payload.text,
           payload.usage ?? null,
-          scope
+          scope,
+          event.ts
         );
       }
     }

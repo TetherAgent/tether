@@ -16,6 +16,7 @@ import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import { replaySessionEvents } from './replay.js';
 import type { SessionRunnerClient } from './session-runner-client.js';
 import type { Session, SessionEvent, Store } from './store.js';
+import { providerEffectiveEnv } from './provider-env.js';
 
 export type RelayClientOptions = {
   url: string;
@@ -242,7 +243,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
 
   const sendProviders = async (clientId: string) => {
     const providers = [
-      isInstalled('claude') ? { provider: 'claude', models: providerModels('claude') } : undefined
+      isInstalled('claude') ? { provider: 'claude', models: await providerModels('claude') } : undefined
     ].filter((provider): provider is { provider: string; models: string[] } => provider !== undefined);
     sendChatEvent(0, '', 'gateway.providers', { clientId, providers });
   };
@@ -730,10 +731,10 @@ function toRelaySession(session: Session): RelaySession {
   };
 }
 
-function providerModels(provider: string): string[] {
+async function providerModels(provider: string): Promise<string[]> {
   switch (provider) {
     case 'claude':
-      return claudeModelAliases();
+      return claudeModels();
     case 'codex':
       return ['gpt-5.4', 'gpt-5.4-mini'];
     case 'copilot':
@@ -743,17 +744,84 @@ function providerModels(provider: string): string[] {
   }
 }
 
-function claudeModelAliases(): string[] {
-  const result = spawnSync('claude', ['--help'], { encoding: 'utf8', timeout: 2000 });
+async function claudeModels(): Promise<string[]> {
+  const env = providerEffectiveEnv('claude', process.cwd());
+  const envModels = claudeModelsFromEnv(env);
+  if (envModels.length > 0) {
+    return envModels;
+  }
+  const gatewayModels = await claudeModelsFromGateway(env);
+  if (gatewayModels.length > 0) {
+    return gatewayModels;
+  }
+  return claudeModelAliases(env);
+}
+
+function claudeModelsFromEnv(env: NodeJS.ProcessEnv): string[] {
+  return uniqueStrings([
+    env.ANTHROPIC_DEFAULT_SONNET_MODEL,
+    env.ANTHROPIC_DEFAULT_OPUS_MODEL,
+    env.ANTHROPIC_DEFAULT_HAIKU_MODEL
+  ]);
+}
+
+async function claudeModelsFromGateway(env: NodeJS.ProcessEnv): Promise<string[]> {
+  const baseUrl = env.ANTHROPIC_BASE_URL?.trim();
+  if (!baseUrl || env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY !== '1') {
+    return [];
+  }
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+    url.pathname = `${url.pathname.replace(/\/$/, '')}/v1/models`;
+    url.search = 'limit=1000';
+  } catch {
+    return [];
+  }
+  const headers: Record<string, string> = {};
+  if (env.ANTHROPIC_API_KEY) {
+    headers['x-api-key'] = env.ANTHROPIC_API_KEY;
+  }
+  try {
+    const response = await fetch(url, { headers, signal: AbortSignal.timeout(2000) });
+    if (!response.ok) {
+      return [];
+    }
+    const json = (await response.json()) as { data?: unknown };
+    if (!Array.isArray(json.data)) {
+      return [];
+    }
+    return uniqueStrings(
+      json.data.flatMap((item) => {
+        if (!item || typeof item !== 'object') {
+          return [];
+        }
+        const id = (item as { id?: unknown }).id;
+        return typeof id === 'string' ? [id] : [];
+      })
+    );
+  } catch {
+    return [];
+  }
+}
+
+function claudeModelAliases(env: NodeJS.ProcessEnv): string[] {
+  const result = spawnSync('claude', ['--help'], { encoding: 'utf8', timeout: 2000, env });
   const help = typeof result.stdout === 'string' ? result.stdout : '';
   const modelLine = help.split('\n').find((line) => line.includes('--model'));
   if (!modelLine) {
-    return ['sonnet', 'opus'];
+    return ['sonnet', 'opus', 'haiku'];
   }
-  const aliases = Array.from(modelLine.matchAll(/'([^']+)'/g))
+  const aliasExample = modelLine.match(/alias[^()]*\(e\.g\.\s*([^)]+)\)/i)?.[1] ?? modelLine;
+  const aliases = Array.from(aliasExample.matchAll(/'([^']+)'/g))
     .map((match) => match[1])
-    .filter((model): model is string => Boolean(model && !model.startsWith('claude-')));
-  return aliases.length > 0 ? [...new Set(aliases)] : ['sonnet', 'opus'];
+    .filter((model): model is string => Boolean(model && /^[a-z][a-z0-9_-]*$/i.test(model) && !model.startsWith('claude-')));
+  const normalized = uniqueStrings([...aliases, 'haiku']);
+  return normalized.length > 0 ? normalized : ['sonnet', 'opus', 'haiku'];
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
 }
 
 function isInstalled(command: string): boolean {

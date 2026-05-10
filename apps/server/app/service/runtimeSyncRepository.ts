@@ -52,6 +52,15 @@ export default class RuntimeSyncRepositoryService extends Service {
     return Array.isArray(rows) && rows.length > 0;
   }
 
+  private async sessionScopeConflict(sessionId: string, scope: RuntimeSyncScope): Promise<boolean> {
+    const rows = await this.ctx.service.db.query(
+      `SELECT id FROM gateway_sessions
+       WHERE id = ? AND (gateway_id <> ? OR account_id <> ? OR workspace_id <> ?) LIMIT 1`,
+      [sessionId, scope.gatewayId, scope.accountId, scope.workspaceId]
+    );
+    return Array.isArray(rows) && rows.length > 0;
+  }
+
   public async upsertGatewaySession(
     session: {
       id: string;
@@ -135,23 +144,41 @@ export default class RuntimeSyncRepositoryService extends Service {
     role: 'user' | 'assistant',
     content: string,
     usage: unknown,
-    scope: RuntimeSyncScope
+    scope: RuntimeSyncScope,
+    createdAt?: unknown
   ): Promise<void> {
     if (!this.mysqlModeEnabled()) {
       return;
     }
-    if (!await this.sessionWithinScope(sessionId, scope)) {
+    if (await this.sessionScopeConflict(sessionId, scope)) {
       console.warn(`[server] upsertChatMessage scope mismatch: ${sessionId}`);
       return;
     }
+    const usageJson = usage == null ? null : truncatePayload(maskPayload(usage));
+    const createdAtDate = typeof createdAt === 'number' && Number.isFinite(createdAt) ? new Date(createdAt) : new Date();
     await this.ctx.service.db.query(
-      `INSERT INTO gateway_chat_messages (session_id, role, content, usage_json)
-       VALUES (?, ?, ?, ?)`,
+      `INSERT INTO gateway_chat_messages (session_id, role, content, usage_json, created_at)
+       SELECT ?, ?, ?, ?, ?
+       FROM DUAL
+       WHERE NOT EXISTS (
+         SELECT 1 FROM gateway_chat_messages
+         WHERE session_id = ?
+           AND role = ?
+           AND content = ?
+           AND ((usage_json IS NULL AND ? IS NULL) OR usage_json = ?)
+         LIMIT 1
+       )`,
       [
         sessionId,
         role,
         content,
-        usage == null ? null : truncatePayload(maskPayload(usage))
+        usageJson,
+        createdAtDate,
+        sessionId,
+        role,
+        content,
+        usageJson,
+        usageJson
       ]
     );
   }

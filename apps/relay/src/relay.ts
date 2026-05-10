@@ -245,6 +245,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
               'PATCH'
             );
           }
+          sendEventToSubscribers(frame.event);
           break;
         }
         if (frame.event.type === 'agent.delta') {

@@ -1,11 +1,11 @@
 import * as React from 'react';
 import { Link } from 'react-router-dom';
-import { Plus } from 'lucide-react';
-import { Button } from '@tether/design';
+import { MessageSquarePlus, LogOut } from 'lucide-react';
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@tether/design';
 import { createHttpClient } from '@tether/http';
+import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { getStoredNormalAccessToken } from '../../lib/api.js';
-import { ModelAvatar } from './model-avatar.js';
 
 type ChatSessionRecord = {
   id: string;
@@ -16,11 +16,6 @@ type ChatSessionRecord = {
   lastActiveAt?: number;
 };
 
-function formatTime(value?: number) {
-  if (!value) return '';
-  return new Date(value).toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-}
-
 export function ChatSessionList({
   activeSessionId,
   onSelect
@@ -29,6 +24,7 @@ export function ChatSessionList({
   onSelect?: () => void;
 }) {
   const { t } = useI18n();
+  const { normalAuth, logoutNormal } = useAuth();
   const [sessions, setSessions] = React.useState<ChatSessionRecord[]>([]);
 
   React.useEffect(() => {
@@ -40,47 +36,91 @@ export function ChatSessionList({
       .catch(() => setSessions([]));
   }, [activeSessionId]);
 
+  const accountInitial = (normalAuth?.identity?.accountId ?? 'T').slice(0, 1).toUpperCase();
+
   return (
     <div className="flex h-full flex-col bg-sidebar">
-      <div className="flex items-center justify-between border-b border-sidebar-border px-4 py-3">
-        <div className="text-sm font-semibold">{t.chatsNavLabel}</div>
-        <Button asChild size="icon-sm" variant="ghost">
-          <Link to="/chats" onClick={onSelect} aria-label={t.chatsNewSession}>
-            <Plus className="h-4 w-4" />
+      {/* Brand */}
+      <div className="px-5 pb-3 pt-5">
+        <div className="text-xl font-bold tracking-tight">Tether</div>
+      </div>
+
+      {/* New chat button */}
+      <div className="px-3 pb-3">
+        <Button asChild variant="outline" className="w-full justify-start gap-2 rounded-xl font-medium">
+          <Link to="/chats" onClick={onSelect}>
+            <MessageSquarePlus className="h-4 w-4 shrink-0" />
+            {t.chatsNewSession}
           </Link>
         </Button>
       </div>
-      <div className="flex-1 overflow-y-auto px-2 py-2">
-        {sessions.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-            <div className="text-sm font-semibold">{t.chatsEmptyTitle}</div>
-            <div className="text-xs text-muted-foreground">{t.chatsEmptyBody}</div>
+
+      {/* Session list */}
+      <div className="flex-1 overflow-y-auto">
+        {sessions.length > 0 && (
+          <div className="px-5 pb-1 pt-2">
+            <div className="text-xs font-medium text-muted-foreground">{t.chatsRecentLabel}</div>
           </div>
-        ) : (
-          <div className="space-y-1">
-            {sessions.map((session) => {
+        )}
+        <div className="px-2">
+          {sessions.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+              <div className="text-sm font-semibold">{t.chatsEmptyTitle}</div>
+              <div className="text-xs text-muted-foreground">{t.chatsEmptyBody}</div>
+            </div>
+          ) : (
+            sessions.map((session) => {
               const active = session.id === activeSessionId;
+              const title = session.projectPath
+                ? (session.projectPath.split('/').pop() ?? session.provider)
+                : session.provider;
               return (
                 <Link
                   key={session.id}
                   to={`/chats/${session.id}`}
                   onClick={onSelect}
-                  className={`flex min-h-16 items-center gap-3 rounded-2xl px-3 py-3 transition-colors ${active ? 'bg-sidebar-accent' : 'hover:bg-sidebar-accent/60'}`}
+                  className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
+                    active
+                      ? 'bg-sidebar-accent font-medium text-foreground'
+                      : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground'
+                  }`}
                 >
-                  <ModelAvatar provider={session.provider} label={session.provider} />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold">{session.provider}</div>
-                    <div className="truncate text-xs text-muted-foreground">{session.projectPath}</div>
-                  </div>
-                  <div className="text-right text-xs text-muted-foreground">
-                    <div>{formatTime(session.lastActiveAt)}</div>
-                    {session.status === 'running' ? <div className="mt-1 h-2 w-2 rounded-full bg-emerald-500" /> : null}
-                  </div>
+                  {session.status === 'running' && (
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                  )}
+                  <span className="truncate">{title}</span>
                 </Link>
               );
-            })}
-          </div>
-        )}
+            })
+          )}
+        </div>
+      </div>
+
+      {/* User menu */}
+      <div className="border-t border-sidebar-border px-3 py-3">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex w-full items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-sidebar-accent/60">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-500 text-xs font-semibold text-white">
+                {accountInitial}
+              </div>
+              <div className="min-w-0 flex-1 text-left">
+                <div className="truncate text-sm font-medium">
+                  {normalAuth?.identity?.accountId ?? t.chatsUserAccount}
+                </div>
+              </div>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" align="start" className="w-52">
+            <DropdownMenuItem
+              onSelect={logoutNormal}
+              className="gap-2 text-destructive focus:text-destructive"
+            >
+              <LogOut className="h-4 w-4" />
+              {t.signOut}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );

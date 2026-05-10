@@ -278,6 +278,8 @@ export const WEB_MESSAGES = {
     terminalView: '终端',
     chatsNavLabel: 'Chats',
     chatsNewSession: '新建会话',
+    chatsRecentLabel: '最近会话',
+    chatsUserAccount: '用户账号',
     chatsSend: '发送',
     chatsSending: '发送中',
     chatsInputPlaceholder: '发送给 {model}…',
@@ -298,6 +300,7 @@ export const WEB_MESSAGES = {
     chatsModelSwitched: '已切换至 {model}，上下文已摘要传入',
     chatsSessionStarted: '会话已开始',
     chatsSessionResumed: '已续接历史会话',
+    chatsAgentSessionId: 'AI 会话 ID',
     chatsEmptyTitle: '还没有会话',
     chatsEmptyBody: '选择模型，发送第一条消息开始',
     chatsStartTitle: '开始新对话',
@@ -311,7 +314,8 @@ export const WEB_MESSAGES = {
     chatsProviderFail: '无法获取可用模型，请确认 Gateway 在线',
     chatsHistoryFail: '无法加载会话历史',
     chatsSettingsAppearance: '外观',
-    chatsSettingsLanguage: '语言'
+    chatsSettingsLanguage: '语言',
+    chatsWelcomeGreeting: '你好，我是 Tether'
   },
   en: {
     appName: 'Tether',
@@ -587,6 +591,8 @@ export const WEB_MESSAGES = {
     terminalView: 'Terminal',
     chatsNavLabel: 'Chats',
     chatsNewSession: 'New chat',
+    chatsRecentLabel: 'Recent chats',
+    chatsUserAccount: 'User account',
     chatsSend: 'Send',
     chatsSending: 'Sending',
     chatsInputPlaceholder: 'Send to {model}…',
@@ -607,6 +613,7 @@ export const WEB_MESSAGES = {
     chatsModelSwitched: 'Switched to {model}. Context summary was carried over',
     chatsSessionStarted: 'Session started',
     chatsSessionResumed: 'Resumed previous session',
+    chatsAgentSessionId: 'AI session ID',
     chatsEmptyTitle: 'No chats yet',
     chatsEmptyBody: 'Pick a model and send the first message to begin',
     chatsStartTitle: 'Start a new conversation',
@@ -620,7 +627,8 @@ export const WEB_MESSAGES = {
     chatsProviderFail: 'Could not load models. Confirm Gateway is online',
     chatsHistoryFail: 'Could not load chat history',
     chatsSettingsAppearance: 'Appearance',
-    chatsSettingsLanguage: 'Language'
+    chatsSettingsLanguage: 'Language',
+    chatsWelcomeGreeting: 'Hi, I\'m Tether'
   }
 } as const;
 
