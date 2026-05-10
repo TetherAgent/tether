@@ -339,6 +339,8 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   );
 
   const handleRelayClose = React.useCallback(() => {
+    gatewayReadyRef.current = false;
+    setRelayGatewayId(undefined);
     setConnectionError(t.gatewayNotConnected);
     setIsInflight(false);
     currentAgentIdRef.current = null;
@@ -355,12 +357,32 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
         setRelayGatewayId(typeof frame.gatewayId === 'string' ? frame.gatewayId : undefined);
         return;
       }
+      if (frame.type === 'gateway.status' && typeof frame.gatewayId === 'string') {
+        if (frame.status === 'connected') {
+          gatewayReadyRef.current = true;
+          setRelayGatewayId(frame.gatewayId);
+          setConnectionError((current) => current === t.gatewayNotConnected ? undefined : current);
+          relay.sendFrame({ type: 'client.list-providers' });
+          return;
+        }
+        if (frame.status === 'disconnected') {
+          gatewayReadyRef.current = false;
+          setRelayGatewayId((current) => current === frame.gatewayId ? undefined : current);
+          setConnectionError(t.gatewayNotConnected);
+          return;
+        }
+      }
+      if (frame.type === 'sessions' && Array.isArray(frame.sessions) && frame.sessions.length === 0 && gatewayReadyRef.current) {
+        gatewayReadyRef.current = false;
+        setRelayGatewayId(undefined);
+        setConnectionError(t.gatewayNotConnected);
+        return;
+      }
       if (frame.type === 'gateway.providers') {
         const nextProviders = Array.isArray(frame.providers)
           ? frame.providers.filter((provider: unknown): provider is ProviderOption => isProviderOption(provider))
           : [];
         if (nextProviders.length > 0) {
-          gatewayReadyRef.current = true;
           setProviderOptions(nextProviders);
           setSelectedProvider((currentProvider) =>
             nextProviders.some((provider: ProviderOption) => provider.provider === currentProvider)
@@ -588,6 +610,10 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
           frame.code === 'forbidden' ||
           frame.code === 'wrong_ticket_scope'
         ) {
+          if (frame.code === 'gateway_unavailable') {
+            gatewayReadyRef.current = false;
+            setRelayGatewayId(undefined);
+          }
           setConnectionError(frame.code === 'gateway_unavailable'
             ? t.gatewayNotConnected
             : frame.code === 'forbidden' && frameMessage === 'session is outside client scope'

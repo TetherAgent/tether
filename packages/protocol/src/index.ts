@@ -105,6 +105,7 @@ export type RelayServerToClientFrame =
   | { type: 'client.auth.failed'; code: string; message: string }
   | { type: 'sessions'; sessions: RelaySession[] }
   | { type: 'hello'; clientId: string; gatewayId?: string }
+  | { type: 'gateway.status'; gatewayId: string; status: 'connected' | 'disconnected' }
   | { type: 'event'; event: RelayTerminalEvent }
   | { type: 'replay.output'; sessionId: string; data: string; latestEventId: number }
   | { type: 'replay.done'; sessionId: string; latestEventId: number }

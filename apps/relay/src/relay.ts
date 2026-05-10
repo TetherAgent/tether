@@ -215,6 +215,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           authenticated = true;
           clearTimeout(authTimer);
           sendToSocket<RelayServerToGatewayFrame>(socket, { type: 'gateway.auth.ok', gatewayId });
+          broadcastGatewayStatus(gatewayId, 'connected', auth.scope);
           return;
         }
 
@@ -239,6 +240,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         gateways.delete(gatewayId);
         dropSessionsForGateway(gatewayId);
         broadcastSessionList();
+        if (disconnectedScope) {
+          broadcastGatewayStatus(gatewayId, 'disconnected', disconnectedScope);
+        }
         // Notify only clients whose account has no remaining gateway
         if (disconnectedScope?.accountId && !firstGatewayForAccount(disconnectedScope.accountId)) {
           broadcastGatewayUnavailableForAccount(disconnectedScope.accountId);
@@ -500,6 +504,13 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             clientId,
             gatewayId
           });
+          if (gatewayId) {
+            sendToSocket<RelayServerToClientFrame>(socket, {
+              type: 'gateway.status',
+              gatewayId,
+              status: 'connected'
+            });
+          }
           return;
         }
 
@@ -746,6 +757,18 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
       if (client.scope?.accountId !== accountId) continue;
       sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'sessions', sessions: [] });
       sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'error', code: 'gateway_unavailable', message: 'gateway is not connected' });
+    }
+  }
+
+  function broadcastGatewayStatus(gatewayId: string, status: 'connected' | 'disconnected', gatewayScope: RelayAuthScope): void {
+    for (const client of clients.values()) {
+      if (client.scope?.accountId !== gatewayScope.accountId) continue;
+      if (client.scope?.workspaceId !== gatewayScope.workspaceId) continue;
+      if (client.gatewayId && client.gatewayId !== gatewayId) continue;
+      if (!client.gatewayId && status === 'connected') {
+        client.gatewayId = gatewayId;
+      }
+      sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'gateway.status', gatewayId, status });
     }
   }
 
