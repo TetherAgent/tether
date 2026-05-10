@@ -31,9 +31,10 @@
 
 ### 执行链路架构（关键）
 - **D-00:** **新建完全独立的 chat 执行链路，不污染现有 PTY/JournalWatcher 路径。**
-  - 现有链路（CLI `tether run` → PTY → JournalWatcher → `agent.turn`）保持不变，供 `apps/web` 使用。
-  - 新链路：web 创建 → Gateway subprocess（`claude -p --output-format stream-json`）→ 解析 `content_block_delta` → relay → mobile-web。
+  - 现有链路（CLI `tether run` → PTY → JournalWatcher → `agent.turn`）保持不变，暂时供 `apps/web` 使用，**但 JournalWatcher 链路未来可能删除**。
+  - 新链路是长期目标架构：web 创建 → Gateway subprocess（`claude -p --output-format stream-json`）→ 解析 `content_block_delta` → relay → mobile-web。
   - Gateway 侧新增 `ChatSessionRunner`（区别于现有 `SessionRunner`），只做 piped subprocess，不起 PTY。
+  - **设计要求：新链路不依赖 JournalWatcher，不以 JournalWatcher 为基础做扩展，独立可运行。**
 
 ### 会话创建路径
 - **D-01:** 从客户端创建 session 走 **Relay WS 新帧**，在 `RelayClientToServerFrame` 加 `client.create-session` 帧，包含 `provider` 和 `initialMessage` 字段。Relay 收到后转发给对应 Gateway，Gateway 起 `ChatSessionRunner`，成功后 Relay 回 `server.session-created` 帧含 `sessionId`。
