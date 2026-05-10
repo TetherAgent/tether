@@ -13,7 +13,6 @@ describe('test/app/service/audit.test.ts', () => {
   it('masks token and secret fields in audit payloads', async () => {
     await ctx.service.audit.recordAuditEvent({
       accountId: 'acct_1',
-      workspaceId: 'ws_1',
       action: 'auth.login.succeeded',
       payload: {
         accessToken: 'Bearer super-secret-token-value',

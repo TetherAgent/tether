@@ -6,15 +6,13 @@ import type {
   AdminUserRecord,
   DeviceRecord,
   RefreshTokenRecord,
-  UserRecord,
-  WorkspaceRecord
+  UserRecord
 } from './runtime';
 
 type RevokedTokenRecord = {
   jti: string;
   tokenClass?: string;
   accountId?: string;
-  workspaceId?: string;
   userId?: string;
   adminUserId?: string;
   deviceId?: string;
@@ -66,23 +64,10 @@ export default class AuthRepositoryService extends Service {
     };
   }
 
-  private workspaceFromRow(row: Record<string, unknown>): WorkspaceRecord {
-    return {
-      id: String(row.id),
-      accountId: String(row.account_id),
-      slug: String(row.slug),
-      name: String(row.name),
-      isDefault: Boolean(row.is_default),
-      createdAt: this.sqlDateToMs(row.created_at),
-      updatedAt: this.sqlDateToMs(row.updated_at)
-    };
-  }
-
   private userFromRow(row: Record<string, unknown>): UserRecord {
     return {
       id: String(row.id),
       accountId: String(row.account_id),
-      workspaceId: String(row.workspace_id),
       email: String(row.email),
       passwordHash: String(row.password_hash),
       status: row.status === 'disabled' ? 'disabled' : 'active',
@@ -95,7 +80,6 @@ export default class AuthRepositoryService extends Service {
     return {
       id: String(row.id),
       accountId: String(row.account_id),
-      workspaceId: String(row.workspace_id),
       email: String(row.email),
       passwordHash: String(row.password_hash),
       role: row.role === 'admin' ? 'admin' : 'super_admin',
@@ -109,7 +93,6 @@ export default class AuthRepositoryService extends Service {
     return {
       id: String(row.id),
       accountId: String(row.account_id),
-      workspaceId: String(row.workspace_id),
       userId: this.nullableId(row.user_id),
       adminUserId: this.nullableId(row.admin_user_id),
       name: String(row.name),
@@ -125,7 +108,6 @@ export default class AuthRepositoryService extends Service {
       jti: String(row.jti),
       tokenClass: String(row.token_class),
       accountId: String(row.account_id),
-      workspaceId: String(row.workspace_id),
       userId: this.nullableId(row.user_id),
       adminUserId: this.nullableId(row.admin_user_id),
       deviceId: this.nullableId(row.device_id),
@@ -144,20 +126,6 @@ export default class AuthRepositoryService extends Service {
     const rows = await ctx.service.db.query('SELECT * FROM accounts ORDER BY created_at ASC LIMIT 1');
     const row = (rows as Record<string, unknown>[])[0];
     return row ? this.accountFromRow(row) : undefined;
-  }
-
-  public async loadDefaultWorkspace(accountId: string): Promise<WorkspaceRecord | undefined> {
-    if (!this.mysqlModeEnabled()) {
-      return [...this.runtimeStore().workspaces.values()]
-        .find(workspace => workspace.accountId === accountId && workspace.isDefault);
-    }
-    const { ctx } = this;
-    const rows = await ctx.service.db.query(
-      'SELECT * FROM workspaces WHERE account_id = ? AND is_default = 1 LIMIT 1',
-      [accountId]
-    );
-    const row = (rows as Record<string, unknown>[])[0];
-    return row ? this.workspaceFromRow(row) : undefined;
   }
 
   public async loadUserByEmail(email: string): Promise<UserRecord | undefined> {
@@ -219,17 +187,15 @@ export default class AuthRepositoryService extends Service {
     return row ? this.deviceFromRow(row) : undefined;
   }
 
-  public async bootstrapAccountAndWorkspace(input: {
+  public async bootstrapAccount(input: {
     account: AccountRecord & { passwordHash?: string };
-    workspace: WorkspaceRecord;
-  }): Promise<{ accountId: string; workspaceId: string }> {
+  }): Promise<{ accountId: string }> {
     if (!this.mysqlModeEnabled()) {
       const store = this.runtimeStore();
       store.accounts.set(input.account.id, input.account);
-      store.workspaces.set(input.workspace.id, input.workspace);
-      return { accountId: input.account.id, workspaceId: input.workspace.id };
+      return { accountId: input.account.id };
     }
-    let accountId = '', workspaceId = '';
+    let accountId = '';
     await this.transaction(async connection => {
       const r1 = await connection.query(
         `INSERT INTO accounts (email, display_name, password_hash, status, created_at, updated_at)
@@ -237,36 +203,27 @@ export default class AuthRepositoryService extends Service {
         [input.account.email, input.account.displayName, input.account.passwordHash ?? '', input.account.status, input.account.createdAt, input.account.updatedAt]
       );
       accountId = String((r1 as { insertId: number }).insertId);
-      const r2 = await connection.query(
-        `INSERT INTO workspaces (account_id, slug, name, is_default, created_at, updated_at)
-         VALUES (?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
-        [accountId, input.workspace.slug, input.workspace.name, input.workspace.isDefault ? 1 : 0, input.workspace.createdAt, input.workspace.updatedAt]
-      );
-      workspaceId = String((r2 as { insertId: number }).insertId);
     });
-    return { accountId, workspaceId };
+    return { accountId };
   }
 
   public async createAccountOwnerUser(input: {
     account: AccountRecord & { passwordHash: string };
-    workspace: WorkspaceRecord;
     user: UserRecord;
     device: DeviceRecord;
-  }): Promise<{ accountId: string; workspaceId: string; userId: string; deviceId: string }> {
+  }): Promise<{ accountId: string; userId: string; deviceId: string }> {
     if (!this.mysqlModeEnabled()) {
       const store = this.runtimeStore();
       store.accounts.set(input.account.id, input.account);
-      store.workspaces.set(input.workspace.id, input.workspace);
       store.users.set(input.user.id, input.user);
       store.devices.set(input.device.id, input.device);
       return {
         accountId: input.account.id,
-        workspaceId: input.workspace.id,
         userId: input.user.id,
         deviceId: input.device.id
       };
     }
-    let accountId = '', workspaceId = '', userId = '', deviceId = '';
+    let accountId = '', userId = '', deviceId = '';
     await this.transaction(async connection => {
       const r1 = await connection.query(
         `INSERT INTO accounts (email, display_name, password_hash, status, created_at, updated_at)
@@ -274,21 +231,15 @@ export default class AuthRepositoryService extends Service {
         [input.account.email, input.account.displayName, input.account.passwordHash, input.account.status, input.account.createdAt, input.account.updatedAt]
       );
       accountId = String((r1 as { insertId: number }).insertId);
-      const r2 = await connection.query(
-        `INSERT INTO workspaces (account_id, slug, name, is_default, created_at, updated_at)
-         VALUES (?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
-        [accountId, input.workspace.slug, input.workspace.name, input.workspace.isDefault ? 1 : 0, input.workspace.createdAt, input.workspace.updatedAt]
-      );
-      workspaceId = String((r2 as { insertId: number }).insertId);
       const r3 = await connection.query(
-        `INSERT INTO users (account_id, workspace_id, email, password_hash, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
-        [accountId, workspaceId, input.user.email, input.user.passwordHash, input.user.status, input.user.createdAt, input.user.updatedAt]
+        `INSERT INTO users (account_id, email, password_hash, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
+        [accountId, input.user.email, input.user.passwordHash, input.user.status, input.user.createdAt, input.user.updatedAt]
       );
       userId = String((r3 as { insertId: number }).insertId);
-      deviceId = await this.insertDeviceWithConnection(connection, { ...input.device, accountId, workspaceId, userId });
+      deviceId = await this.insertDeviceWithConnection(connection, { ...input.device, accountId, userId });
     });
-    return { accountId, workspaceId, userId, deviceId };
+    return { accountId, userId, deviceId };
   }
 
   public async createNormalUser(input: {
@@ -304,9 +255,9 @@ export default class AuthRepositoryService extends Service {
     let userId = '', deviceId = '';
     await this.transaction(async connection => {
       const result = await connection.query(
-        `INSERT INTO users (account_id, workspace_id, email, password_hash, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
-        [input.user.accountId, input.user.workspaceId, input.user.email, input.user.passwordHash, input.user.status, input.user.createdAt, input.user.updatedAt]
+        `INSERT INTO users (account_id, email, password_hash, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
+        [input.user.accountId, input.user.email, input.user.passwordHash, input.user.status, input.user.createdAt, input.user.updatedAt]
       );
       userId = String((result as { insertId: number }).insertId);
       deviceId = await this.insertDeviceWithConnection(connection, { ...input.device, userId });
@@ -327,9 +278,9 @@ export default class AuthRepositoryService extends Service {
     let adminId = '', deviceId = '';
     await this.transaction(async connection => {
       const result = await connection.query(
-        `INSERT INTO admin_users (account_id, workspace_id, email, password_hash, role, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
-        [input.adminUser.accountId, input.adminUser.workspaceId, input.adminUser.email, input.adminUser.passwordHash, input.adminUser.role, input.adminUser.status, input.adminUser.createdAt, input.adminUser.updatedAt]
+        `INSERT INTO admin_users (account_id, email, password_hash, role, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
+        [input.adminUser.accountId, input.adminUser.email, input.adminUser.passwordHash, input.adminUser.role, input.adminUser.status, input.adminUser.createdAt, input.adminUser.updatedAt]
       );
       adminId = String((result as { insertId: number }).insertId);
       input.device.adminUserId = adminId;
@@ -353,11 +304,10 @@ export default class AuthRepositoryService extends Service {
   private async insertDeviceWithConnection(connection: any, device: DeviceRecord): Promise<string> {
     const result = await connection.query(
       `INSERT INTO devices (
-        account_id, workspace_id, user_id, admin_user_id, name, platform, token_class, jti, expires_at, revoked_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
+        account_id, user_id, admin_user_id, name, platform, token_class, jti, expires_at, revoked_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
       [
         device.accountId,
-        device.workspaceId,
         device.userId ?? null,
         device.adminUserId ?? null,
         device.name,
@@ -379,23 +329,23 @@ export default class AuthRepositoryService extends Service {
     if (record.gatewayId) {
       await this.query(
         `INSERT INTO gateway_refresh_tokens (
-          account_id, workspace_id, gateway_id, device_id, session_id, token_class, jti, expires_at, revoked_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, NULL, ?, ?, FROM_UNIXTIME(? / 1000), ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))
+          account_id, gateway_id, device_id, session_id, token_class, jti, expires_at, revoked_at, created_at, updated_at
+        ) VALUES (?, ?, ?, NULL, ?, ?, FROM_UNIXTIME(? / 1000), ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))
         ON DUPLICATE KEY UPDATE
           device_id = VALUES(device_id),
           token_class = VALUES(token_class),
           expires_at = VALUES(expires_at),
           revoked_at = VALUES(revoked_at),
           updated_at = VALUES(updated_at)`,
-        [record.accountId, record.workspaceId, record.gatewayId, record.deviceId ?? null, record.tokenClass, record.jti, record.expiresAt, record.revokedAt ? new Date(record.revokedAt) : null, record.createdAt, record.createdAt]
+        [record.accountId, record.gatewayId, record.deviceId ?? null, record.tokenClass, record.jti, record.expiresAt, record.revokedAt ? new Date(record.revokedAt) : null, record.createdAt, record.createdAt]
       );
       return;
     }
 
     await this.query(
       `INSERT INTO refresh_tokens (
-        account_id, workspace_id, user_id, admin_user_id, device_id, session_id, token_class, jti, expires_at, revoked_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, FROM_UNIXTIME(? / 1000), ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))
+        account_id, user_id, admin_user_id, device_id, session_id, token_class, jti, expires_at, revoked_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, NULL, ?, ?, FROM_UNIXTIME(? / 1000), ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))
       ON DUPLICATE KEY UPDATE
         user_id = VALUES(user_id),
         admin_user_id = VALUES(admin_user_id),
@@ -404,7 +354,7 @@ export default class AuthRepositoryService extends Service {
         expires_at = VALUES(expires_at),
         revoked_at = VALUES(revoked_at),
         updated_at = VALUES(updated_at)`,
-      [record.accountId, record.workspaceId, record.userId ?? null, record.adminUserId ?? null, record.deviceId ?? null, record.tokenClass, record.jti, record.expiresAt, record.revokedAt ? new Date(record.revokedAt) : null, record.createdAt, record.createdAt]
+      [record.accountId, record.userId ?? null, record.adminUserId ?? null, record.deviceId ?? null, record.tokenClass, record.jti, record.expiresAt, record.revokedAt ? new Date(record.revokedAt) : null, record.createdAt, record.createdAt]
     );
   }
 
@@ -413,10 +363,10 @@ export default class AuthRepositoryService extends Service {
       return this.runtimeStore().refreshTokens.get(jti);
     }
     const rows = await this.query(
-      `SELECT id, account_id, workspace_id, user_id, admin_user_id, device_id, NULL AS gateway_id, token_class, jti, expires_at, revoked_at, created_at
+      `SELECT id, account_id, user_id, admin_user_id, device_id, NULL AS gateway_id, token_class, jti, expires_at, revoked_at, created_at
        FROM refresh_tokens WHERE jti = ?
        UNION ALL
-       SELECT id, account_id, workspace_id, NULL AS user_id, NULL AS admin_user_id, device_id, gateway_id, token_class, jti, expires_at, revoked_at, created_at
+       SELECT id, account_id, NULL AS user_id, NULL AS admin_user_id, device_id, gateway_id, token_class, jti, expires_at, revoked_at, created_at
        FROM gateway_refresh_tokens WHERE jti = ?
        LIMIT 1`,
       [jti, jti]
@@ -450,14 +400,13 @@ export default class AuthRepositoryService extends Service {
     }
     await this.query(
       `INSERT INTO revoked_tokens (
-        jti, token_class, account_id, workspace_id, user_id, admin_user_id, device_id, gateway_id, expires_at, revoked_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        jti, token_class, account_id, user_id, admin_user_id, device_id, gateway_id, expires_at, revoked_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       ON DUPLICATE KEY UPDATE revoked_at = CURRENT_TIMESTAMP`,
       [
         record.jti,
         record.tokenClass ?? null,
         record.accountId ?? null,
-        record.workspaceId ?? null,
         record.userId ?? null,
         record.adminUserId ?? null,
         record.deviceId ?? null,

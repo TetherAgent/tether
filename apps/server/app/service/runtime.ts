@@ -11,20 +11,9 @@ export type AccountRecord = {
   updatedAt: number;
 };
 
-export type WorkspaceRecord = {
-  id: string;
-  accountId: string;
-  slug: string;
-  name: string;
-  isDefault: boolean;
-  createdAt: number;
-  updatedAt: number;
-};
-
 export type UserRecord = {
   id: string;
   accountId: string;
-  workspaceId: string;
   email: string;
   passwordHash: string;
   status: 'active' | 'disabled';
@@ -35,7 +24,6 @@ export type UserRecord = {
 export type AdminUserRecord = {
   id: string;
   accountId: string;
-  workspaceId: string;
   email: string;
   passwordHash: string;
   role: 'super_admin' | 'admin';
@@ -47,7 +35,6 @@ export type AdminUserRecord = {
 export type DeviceRecord = {
   id: string;
   accountId: string;
-  workspaceId: string;
   userId?: string;
   adminUserId?: string;
   name: string;
@@ -59,7 +46,6 @@ export type DeviceRecord = {
 export type GatewayRecord = {
   id: string;
   accountId: string;
-  workspaceId: string;
   userId: string;
   name: string;
   status: 'online' | 'offline';
@@ -73,7 +59,6 @@ export type RefreshTokenRecord = {
   jti: string;
   tokenClass: string;
   accountId: string;
-  workspaceId: string;
   userId?: string;
   adminUserId?: string;
   deviceId?: string;
@@ -86,7 +71,6 @@ export type RefreshTokenRecord = {
 export type AuditEventRecord = {
   id: number;
   accountId: string;
-  workspaceId?: string;
   userId?: string;
   adminUserId?: string;
   deviceId?: string;
@@ -103,7 +87,6 @@ export type AuditEventRecord = {
 
 export type NotificationEvent = {
   accountId: string;
-  workspaceId: string;
   eventType:
     | 'session.list.refresh'
     | 'session.started'
@@ -134,7 +117,6 @@ type NotificationSink = {
 
 export type RuntimeStore = {
   accounts: Map<string, AccountRecord>;
-  workspaces: Map<string, WorkspaceRecord>;
   users: Map<string, UserRecord>;
   adminUsers: Map<string, AdminUserRecord>;
   devices: Map<string, DeviceRecord>;
@@ -155,7 +137,6 @@ export default class RuntimeService extends Service {
   private createStore(): RuntimeStore {
     return {
       accounts: new Map(),
-      workspaces: new Map(),
       users: new Map(),
       adminUsers: new Map(),
       devices: new Map(),

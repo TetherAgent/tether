@@ -23,7 +23,6 @@ describe('test/app/service/gateway.test.ts', () => {
     const payload = await ctx.service.auth.verifyToken(bound.gatewayAccessToken)
     assert.strictEqual(payload.tokenClass, 'gateway_access')
     assert.strictEqual(payload.accountId, bound.accountId)
-    assert.strictEqual(payload.workspaceId, bound.workspaceId)
 
     const gatewayEvents = (await ctx.service.audit.auditEvents()).filter(
       (event) => event.action === 'gateway.bound',

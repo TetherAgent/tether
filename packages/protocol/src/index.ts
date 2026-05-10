@@ -13,7 +13,6 @@ export type RelayAuthTokenClass =
 
 export type RelayAuthScope = {
   accountId: string;
-  workspaceId: string;
   gatewayId?: string;
   sessionId?: string;
   userId?: string;
@@ -31,7 +30,6 @@ export type RelaySession = {
   title: string;
   projectPath: string;
   accountId?: string;
-  workspaceId?: string;
   gatewayId?: string;
   userId?: string;
   agentSessionId?: string;

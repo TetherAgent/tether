@@ -39,7 +39,6 @@ export type SessionAccessMode = 'control' | 'observe';
 
 export type AuthScopePayload = {
   accountId: string;
-  workspaceId: string;
   gatewayId?: string;
   sessionId?: string;
   userId?: string;

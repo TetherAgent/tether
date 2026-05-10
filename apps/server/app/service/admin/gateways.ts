@@ -20,8 +20,7 @@ export default class AdminGatewaysService extends Service {
   public async unlinkAdminGateway(
     gatewayId: string,
     adminUserId: string,
-    accountId: string,
-    workspaceId: string
+    accountId: string
   ) {
     const { ctx } = this;
     if (!adminUserId) ctx.throw(400, 'missing_admin_user_id');
@@ -32,7 +31,6 @@ export default class AdminGatewaysService extends Service {
     await ctx.service.gatewayRepository.deleteGatewayById(gatewayId);
     await ctx.service.audit.recordAuditEvent({
       accountId,
-      workspaceId,
       adminUserId,
       action: 'admin.gateway.unlinked',
       tokenClass: 'management_access',

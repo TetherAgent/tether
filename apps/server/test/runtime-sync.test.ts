@@ -10,7 +10,7 @@ describe('test/runtime-sync.test.ts', () => {
   })
 
   it('runtimeSyncRepository.upsertGatewaySession — MySQL 未启用时静默返回', async () => {
-    const scope = { accountId: 'acct_1', workspaceId: 'ws_1', gatewayId: 'gw_1' }
+    const scope = { accountId: 'acct_1', gatewayId: 'gw_1' }
     await assert.doesNotReject(async () => {
       await (
         ctx.service as unknown as {
@@ -26,7 +26,7 @@ describe('test/runtime-sync.test.ts', () => {
   })
 
   it('runtimeSyncRepository.upsertChatMessage — MySQL 未启用时静默返回', async () => {
-    const scope = { accountId: 'acct_1', workspaceId: 'ws_1', gatewayId: 'gw_1' }
+    const scope = { accountId: 'acct_1', gatewayId: 'gw_1' }
     await assert.doesNotReject(async () => {
       await (
         ctx.service as unknown as {
@@ -53,7 +53,7 @@ describe('test/runtime-sync.test.ts', () => {
   })
 
   it('runtimeSyncRepository.upsertRuntimeEvent — 非白名单事件不写入', async () => {
-    const scope = { accountId: 'acct_1', workspaceId: 'ws_1', gatewayId: 'gw_1' }
+    const scope = { accountId: 'acct_1', gatewayId: 'gw_1' }
     await assert.doesNotReject(async () => {
       await (
         ctx.service as unknown as {

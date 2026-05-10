@@ -19,7 +19,6 @@ export default class GatewayRepositoryService extends Service {
     return {
       id: String(row.id),
       accountId: String(row.account_id),
-      workspaceId: String(row.workspace_id),
       userId: String(row.user_id),
       name: String(row.name),
       status: row.status === 'offline' ? 'offline' : 'online',
@@ -37,15 +36,15 @@ export default class GatewayRepositoryService extends Service {
     }
     const result = await ctx.service.db.query(
       `INSERT INTO gateways (
-        account_id, workspace_id, device_id, user_id, admin_user_id, name, status, last_seen_at, created_at, updated_at
-      ) VALUES (?, ?, NULL, ?, NULL, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))
+        account_id, device_id, user_id, admin_user_id, name, status, last_seen_at, created_at, updated_at
+      ) VALUES (?, NULL, ?, NULL, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))
       ON DUPLICATE KEY UPDATE
         id = LAST_INSERT_ID(id),
         name = VALUES(name),
         status = VALUES(status),
         last_seen_at = VALUES(last_seen_at),
         updated_at = VALUES(updated_at)`,
-      [gateway.accountId, gateway.workspaceId, gateway.userId, gateway.name, gateway.status, gateway.lastSeenAt, gateway.createdAt, gateway.updatedAt]
+      [gateway.accountId, gateway.userId, gateway.name, gateway.status, gateway.lastSeenAt, gateway.createdAt, gateway.updatedAt]
     );
     return String((result as { insertId: number }).insertId);
   }

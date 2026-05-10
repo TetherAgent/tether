@@ -12,9 +12,9 @@ export default class AdminDevicesController extends Controller {
 
   public async revoke(): Promise<void> {
     const { ctx } = this;
-    const identity = ctx.state.auth as { adminUserId?: string; accountId: string; workspaceId: string };
+    const identity = ctx.state.auth as { adminUserId?: string; accountId: string };
     const { id } = ctx.params as Record<string, string>;
-    await ctx.service.admin.devices.revokeAdminDevice(id, identity.adminUserId ?? '', identity.accountId, identity.workspaceId);
+    await ctx.service.admin.devices.revokeAdminDevice(id, identity.adminUserId ?? '', identity.accountId);
     ctx.success({ ok: true });
   }
 }

@@ -13,7 +13,6 @@ type BindGatewayInput = {
 
 type BindGatewayForUserInput = {
   accountId: string;
-  workspaceId: string;
   userId: string;
   gatewayName?: string;
   ip?: string;
@@ -40,7 +39,6 @@ export default class GatewayService extends Service {
     const gateway: GatewayRecord = existing ?? {
       id: createId('gateway'),
       accountId: login.user.accountId,
-      workspaceId: login.user.workspaceId,
       userId: login.user.id,
       name: input.gatewayName ?? 'local-gateway',
       status: 'online',
@@ -57,7 +55,6 @@ export default class GatewayService extends Service {
 
     const gatewayTokens = ctx.service.auth.issueGatewayTokenBundle({
       accountId: login.user.accountId,
-      workspaceId: login.user.workspaceId,
       gatewayId: gateway.id,
       userId: login.user.id,
       deviceId: login.device.id
@@ -66,7 +63,6 @@ export default class GatewayService extends Service {
 
     await ctx.service.audit.recordAuditEvent({
       accountId: gateway.accountId,
-      workspaceId: gateway.workspaceId,
       userId: login.user.id,
       gatewayId: gateway.id,
       action: 'gateway.bound',
@@ -77,7 +73,6 @@ export default class GatewayService extends Service {
     });
     ctx.service.notification.emitNotification({
       accountId: gateway.accountId,
-      workspaceId: gateway.workspaceId,
       userId: login.user.id,
       gatewayId: gateway.id,
       eventType: 'gateway.online',
@@ -87,7 +82,6 @@ export default class GatewayService extends Service {
     return {
       gateway,
       accountId: gateway.accountId,
-      workspaceId: gateway.workspaceId,
       gatewayAccessToken: gatewayTokens.accessToken,
       gatewayRefreshToken: gatewayTokens.refreshToken
     };
@@ -100,7 +94,6 @@ export default class GatewayService extends Service {
     const gateway: GatewayRecord = existing ?? {
       id: createId('gateway'),
       accountId: input.accountId,
-      workspaceId: input.workspaceId,
       userId: input.userId,
       name: input.gatewayName ?? 'local-gateway',
       status: 'online',
@@ -117,7 +110,6 @@ export default class GatewayService extends Service {
 
     const gatewayTokens = ctx.service.auth.issueGatewayTokenBundle({
       accountId: input.accountId,
-      workspaceId: input.workspaceId,
       gatewayId: gateway.id,
       userId: input.userId
     });
@@ -125,7 +117,6 @@ export default class GatewayService extends Service {
 
     await ctx.service.audit.recordAuditEvent({
       accountId: gateway.accountId,
-      workspaceId: gateway.workspaceId,
       userId: input.userId,
       gatewayId: gateway.id,
       action: 'gateway.bound',
@@ -136,7 +127,6 @@ export default class GatewayService extends Service {
     });
     ctx.service.notification.emitNotification({
       accountId: gateway.accountId,
-      workspaceId: gateway.workspaceId,
       userId: input.userId,
       gatewayId: gateway.id,
       eventType: 'gateway.online',
@@ -146,7 +136,6 @@ export default class GatewayService extends Service {
     return {
       gateway,
       accountId: gateway.accountId,
-      workspaceId: gateway.workspaceId,
       gatewayAccessToken: gatewayTokens.accessToken,
       gatewayRefreshToken: gatewayTokens.refreshToken
     };
@@ -176,9 +165,4 @@ export default class GatewayService extends Service {
     await ctx.service.auth.revokeToken(token, 'gateway_revoke');
   }
 
-  public async currentGatewayWorkspace() {
-    const { ctx } = this;
-    const account = await ctx.service.authRepository.loadPrimaryAccount();
-    return account ? await ctx.service.authRepository.loadDefaultWorkspace(account.id) : undefined;
-  }
 }

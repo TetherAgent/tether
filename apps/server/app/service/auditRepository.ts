@@ -46,7 +46,6 @@ export default class AuditRepositoryService extends Service {
     return {
       id: Number(row.id),
       accountId: String(row.account_id),
-      workspaceId: this.nullableId(row.workspace_id),
       userId: this.nullableId(row.user_id),
       adminUserId: this.nullableId(row.admin_user_id),
       deviceId: this.nullableId(row.device_id),
@@ -75,12 +74,11 @@ export default class AuditRepositoryService extends Service {
     const createdAt = input.createdAt ?? Date.now();
     const result = await ctx.service.db.query(
       `INSERT INTO audit_events (
-        account_id, workspace_id, user_id, admin_user_id, device_id, gateway_id, session_id,
+        account_id, user_id, admin_user_id, device_id, gateway_id, session_id,
         token_class, jti, event_type, actor_type, actor_id, payload_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(? / 1000), FROM_UNIXTIME(? / 1000))`,
       [
         input.accountId,
-        input.workspaceId ?? null,
         input.userId ?? null,
         input.adminUserId ?? null,
         input.deviceId ?? null,
@@ -100,7 +98,6 @@ export default class AuditRepositoryService extends Service {
       id: Number((result as { insertId: number }).insertId),
       createdAt,
       accountId: input.accountId,
-      workspaceId: input.workspaceId,
       userId: input.userId,
       adminUserId: input.adminUserId,
       deviceId: input.deviceId,

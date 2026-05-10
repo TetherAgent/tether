@@ -6,7 +6,6 @@ export default class AuditController extends Controller {
     const body = ctx.request.body as Record<string, unknown>;
     const event = await ctx.service.audit.recordAuditEvent({
       accountId: String(body.accountId),
-      workspaceId: body.workspaceId ? String(body.workspaceId) : undefined,
       userId: body.userId ? String(body.userId) : undefined,
       adminUserId: body.adminUserId ? String(body.adminUserId) : undefined,
       deviceId: body.deviceId ? String(body.deviceId) : undefined,

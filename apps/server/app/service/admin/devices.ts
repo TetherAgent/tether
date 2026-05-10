@@ -24,8 +24,7 @@ export default class AdminDevicesService extends Service {
   public async revokeAdminDevice(
     deviceId: string,
     adminUserId: string,
-    accountId: string,
-    workspaceId: string
+    accountId: string
   ) {
     const { ctx } = this;
     if (!adminUserId) ctx.throw(400, 'missing_admin_user_id');
@@ -37,7 +36,6 @@ export default class AdminDevicesService extends Service {
     await ctx.service.authRepository.revokeRefreshTokensByDeviceId(deviceId);
     await ctx.service.audit.recordAuditEvent({
       accountId,
-      workspaceId,
       adminUserId,
       action: 'admin.device.revoked',
       tokenClass: 'management_access',

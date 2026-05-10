@@ -19,8 +19,7 @@ export default class AdminAdminsService extends Service {
   public async deleteAdminManager(
     id: string,
     adminUserId: string,
-    accountId: string,
-    workspaceId: string
+    accountId: string
   ) {
     const { ctx } = this;
 
@@ -30,7 +29,6 @@ export default class AdminAdminsService extends Service {
     await ctx.service.authRepository.deleteAdminUserById(id);
     await ctx.service.audit.recordAuditEvent({
       accountId,
-      workspaceId,
       adminUserId,
       action: 'admin.admin_user.deleted',
       tokenClass: 'management_access',

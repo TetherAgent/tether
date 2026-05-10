@@ -24,9 +24,9 @@ export default class AdminAdminsController extends Controller {
 
   public async destroy(): Promise<void> {
     const { ctx } = this;
-    const identity = ctx.state.auth as { adminUserId?: string; accountId: string; workspaceId: string };
+    const identity = ctx.state.auth as { adminUserId?: string; accountId: string };
     const { id } = ctx.params as Record<string, string>;
-    await ctx.service.admin.admins.deleteAdminManager(id, identity.adminUserId ?? '', identity.accountId, identity.workspaceId);
+    await ctx.service.admin.admins.deleteAdminManager(id, identity.adminUserId ?? '', identity.accountId);
     ctx.success({ ok: true });
   }
 }

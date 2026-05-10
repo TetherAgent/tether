@@ -658,7 +658,6 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
               cwd: frame.cwd,
               message: frame.message,
               accountId: clientScope.accountId,
-              workspaceId: clientScope.workspaceId,
               userId: clientScope.userId
             }
           : { type: 'client.chat', clientId, sessionId: frame.sessionId, message: frame.message, model: frame.model });
@@ -897,7 +896,6 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     if (!session.userId) return undefined;
     return firstGatewayMatching((gatewayScope) =>
       gatewayScope?.accountId === session.accountId &&
-      gatewayScope?.workspaceId === session.workspaceId &&
       gatewayScope?.userId === session.userId
     );
   }
@@ -916,7 +914,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     if (clientScope.gatewayId) {
       return gatewayScope.gatewayId === clientScope.gatewayId;
     }
-    if (gatewayScope.accountId !== clientScope.accountId || gatewayScope.workspaceId !== clientScope.workspaceId) {
+    if (gatewayScope.accountId !== clientScope.accountId) {
       return false;
     }
     if (clientScope.userId) {
@@ -1001,13 +999,10 @@ function clientCanSeeSession(clientScope: RelayAuthScope | undefined, authMethod
   if (!clientScope) {
     return false;
   }
-  if (!session.accountId || !session.workspaceId || !session.gatewayId) {
+  if (!session.accountId || !session.gatewayId) {
     return false;
   }
   if (session.accountId && session.accountId !== clientScope.accountId) {
-    return false;
-  }
-  if (session.workspaceId && session.workspaceId !== clientScope.workspaceId) {
     return false;
   }
   if (session.gatewayId && clientScope.gatewayId && session.gatewayId !== clientScope.gatewayId) {

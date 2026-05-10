@@ -17,8 +17,7 @@ import type {
   DeviceRecord,
   NotificationEvent,
   RefreshTokenRecord,
-  UserRecord,
-  WorkspaceRecord
+  UserRecord
 } from './runtime';
 
 export type { AuthConfig, TokenBundle, VerifiedToken };
@@ -111,7 +110,6 @@ export default class AuthService extends Service {
   private normalTokenPayload(user: UserRecord, device: DeviceRecord) {
     return {
       accountId: user.accountId,
-      workspaceId: user.workspaceId,
       userId: user.id,
       deviceId: device.id
     };
@@ -120,7 +118,6 @@ export default class AuthService extends Service {
   private managementTokenPayload(user: AdminUserRecord, device: DeviceRecord) {
     return {
       accountId: user.accountId,
-      workspaceId: user.workspaceId,
       adminUserId: user.id,
       adminEmail: user.email,
       deviceId: device.id
@@ -133,7 +130,6 @@ export default class AuthService extends Service {
       jti: payload.jti,
       tokenClass: payload.tokenClass,
       accountId: payload.accountId,
-      workspaceId: payload.workspaceId,
       userId: payload.userId,
       adminUserId: payload.adminUserId,
       deviceId: payload.deviceId,
@@ -148,7 +144,6 @@ export default class AuthService extends Service {
 
   private async createDevice(base: {
     accountId: string;
-    workspaceId: string;
     userId?: string;
     adminUserId?: string;
     deviceName?: string;
@@ -158,7 +153,6 @@ export default class AuthService extends Service {
     const device: DeviceRecord = {
       id: this.newId('device'),
       accountId: base.accountId,
-      workspaceId: base.workspaceId,
       userId: base.userId,
       adminUserId: base.adminUserId,
       name: base.deviceName ?? 'web-browser',
@@ -177,11 +171,6 @@ export default class AuthService extends Service {
   private async primaryAccountRecord(): Promise<AccountRecord | undefined> {
     const { ctx } = this;
     return await ctx.service.authRepository.loadPrimaryAccount();
-  }
-
-  private async defaultWorkspaceRecord(accountId: string): Promise<WorkspaceRecord | undefined> {
-    const { ctx } = this;
-    return await ctx.service.authRepository.loadDefaultWorkspace(accountId);
   }
 
   private async normalUserByEmail(email: string): Promise<UserRecord | undefined> {
@@ -255,11 +244,9 @@ export default class AuthService extends Service {
 
       const createdAt = this.now();
       let account = await this.primaryAccountRecord();
-      let workspace: WorkspaceRecord | undefined;
 
       if (!account) {
         const passwordHash = await this.hashPassword(input.password);
-        const workspaceId = this.newId('ws');
         account = {
           id: this.newId('acct'),
           email: input.email,
@@ -268,19 +255,9 @@ export default class AuthService extends Service {
           createdAt,
           updatedAt: createdAt
         };
-        workspace = {
-          id: workspaceId,
-          accountId: account.id,
-          slug: 'default',
-          name: 'Default Workspace',
-          isDefault: true,
-          createdAt,
-          updatedAt: createdAt
-        };
         const user: UserRecord = {
           id: this.newId('user'),
           accountId: account.id,
-          workspaceId: workspace.id,
           email: input.email,
           passwordHash,
           status: 'active',
@@ -289,7 +266,6 @@ export default class AuthService extends Service {
         };
         const device = await this.createDevice({
           accountId: account.id,
-          workspaceId: workspace.id,
           userId: user.id,
           deviceName: input.deviceName,
           platform: input.platform
@@ -297,26 +273,20 @@ export default class AuthService extends Service {
 
         const ids = await ctx.service.authRepository.createAccountOwnerUser({
             account: { ...account, passwordHash },
-            workspace,
             user,
             device
         });
         account.id = ids.accountId;
-        workspace.id = ids.workspaceId;
-        workspace.accountId = ids.accountId;
         user.id = ids.userId;
         user.accountId = ids.accountId;
-        user.workspaceId = ids.workspaceId;
         device.id = ids.deviceId;
         device.accountId = ids.accountId;
-        device.workspaceId = ids.workspaceId;
         device.userId = ids.userId;
 
         const tokens = this.issueTokenBundle(this.normalTokenPayload(user, device), 'normal_client_access', 'normal_client_refresh');
         await this.persistRefreshTokenPayload(tokens.refreshPayload);
         await this.recordAuthAudit({
           accountId: account.id,
-          workspaceId: workspace.id,
           userId: user.id,
           deviceId: device.id,
           action: 'auth.registered',
@@ -327,7 +297,6 @@ export default class AuthService extends Service {
         });
         this.emitAuthNotification({
           accountId: account.id,
-          workspaceId: workspace.id,
           userId: user.id,
           deviceId: device.id,
           eventType: 'auth.state.changed',
@@ -336,23 +305,16 @@ export default class AuthService extends Service {
 
         return {
           account,
-          workspace,
           user,
           device,
           ...tokens
         };
       }
 
-      workspace = await this.defaultWorkspaceRecord(account.id);
-      if (!workspace) {
-        return ctx.throw(400, 'default_workspace_missing');
-      }
-
       const passwordHash = await this.hashPassword(input.password);
       const user: UserRecord = {
         id: this.newId('user'),
         accountId: account.id,
-        workspaceId: workspace.id,
         email: input.email,
         passwordHash,
         status: 'active',
@@ -361,7 +323,6 @@ export default class AuthService extends Service {
       };
       const device = await this.createDevice({
         accountId: account.id,
-        workspaceId: workspace.id,
         userId: user.id,
         deviceName: input.deviceName,
         platform: input.platform
@@ -376,7 +337,6 @@ export default class AuthService extends Service {
       await this.persistRefreshTokenPayload(tokens.refreshPayload);
       await this.recordAuthAudit({
         accountId: account.id,
-        workspaceId: workspace.id,
         userId: user.id,
         deviceId: device.id,
         action: 'auth.registered',
@@ -387,7 +347,6 @@ export default class AuthService extends Service {
       });
       this.emitAuthNotification({
         accountId: account.id,
-        workspaceId: workspace.id,
         userId: user.id,
         deviceId: device.id,
         eventType: 'auth.state.changed',
@@ -396,7 +355,6 @@ export default class AuthService extends Service {
 
       return {
         account,
-        workspace,
         user,
         device,
         ...tokens
@@ -414,7 +372,6 @@ export default class AuthService extends Service {
         if (user) {
           await this.recordAuthAudit({
             accountId: user.accountId,
-            workspaceId: user.workspaceId,
             userId: user.id,
             action: 'auth.login.failed',
             failureReason: 'invalid_credentials',
@@ -428,7 +385,6 @@ export default class AuthService extends Service {
 
       const device = await this.createDevice({
         accountId: user.accountId,
-        workspaceId: user.workspaceId,
         userId: user.id,
         deviceName: input.deviceName,
         platform: input.platform
@@ -437,7 +393,6 @@ export default class AuthService extends Service {
       await this.persistRefreshTokenPayload(tokens.refreshPayload);
       await this.recordAuthAudit({
         accountId: user.accountId,
-        workspaceId: user.workspaceId,
         userId: user.id,
         deviceId: device.id,
         action: 'auth.login.succeeded',
@@ -448,7 +403,6 @@ export default class AuthService extends Service {
       });
       this.emitAuthNotification({
         accountId: user.accountId,
-        workspaceId: user.workspaceId,
         deviceId: device.id,
         eventType: 'auth.state.changed',
         ts: this.now()
@@ -468,9 +422,8 @@ export default class AuthService extends Service {
     const { ctx } = this;
     try {
       let account = await this.primaryAccountRecord();
-      let workspace = account ? await this.defaultWorkspaceRecord(account.id) : undefined;
 
-      if (!account || !workspace) {
+      if (!account) {
         const bootstrapAt = this.now();
         account = {
           id: this.newId('acct'),
@@ -480,19 +433,8 @@ export default class AuthService extends Service {
           createdAt: bootstrapAt,
           updatedAt: bootstrapAt
         };
-        workspace = {
-          id: this.newId('ws'),
-          accountId: account.id,
-          slug: 'default',
-          name: 'Default Workspace',
-          isDefault: true,
-          createdAt: bootstrapAt,
-          updatedAt: bootstrapAt
-        };
-        const ids = await ctx.service.authRepository.bootstrapAccountAndWorkspace({ account, workspace });
+        const ids = await ctx.service.authRepository.bootstrapAccount({ account });
         account.id = ids.accountId;
-        workspace.id = ids.workspaceId;
-        workspace.accountId = ids.accountId;
       }
 
       const existing = await this.managementUserByEmail(input.email);
@@ -504,7 +446,6 @@ export default class AuthService extends Service {
       const adminUser: AdminUserRecord = {
         id: this.newId('admin'),
         accountId: account.id,
-        workspaceId: workspace.id,
         email: input.email,
         passwordHash: await this.hashPassword(input.password),
         role: (await this.adminUserCount()) === 0 ? 'super_admin' : 'admin',
@@ -515,7 +456,6 @@ export default class AuthService extends Service {
 
       const device = await this.createDevice({
         accountId: account.id,
-        workspaceId: workspace.id,
         adminUserId: adminUser.id,
         deviceName: input.deviceName,
         platform: input.platform
@@ -530,7 +470,6 @@ export default class AuthService extends Service {
       await this.persistRefreshTokenPayload(tokens.refreshPayload);
       await this.recordAuthAudit({
         accountId: account.id,
-        workspaceId: workspace.id,
         adminUserId: adminUser.id,
         deviceId: device.id,
         action: 'admin.registered',
@@ -558,7 +497,6 @@ export default class AuthService extends Service {
         if (adminUser) {
           await this.recordAuthAudit({
             accountId: adminUser.accountId,
-            workspaceId: adminUser.workspaceId,
             adminUserId: adminUser.id,
             action: 'admin.login.failed',
             failureReason: 'invalid_credentials',
@@ -572,7 +510,6 @@ export default class AuthService extends Service {
 
       const device = await this.createDevice({
         accountId: adminUser.accountId,
-        workspaceId: adminUser.workspaceId,
         adminUserId: adminUser.id,
         deviceName: input.deviceName,
         platform: input.platform
@@ -581,7 +518,6 @@ export default class AuthService extends Service {
       await this.persistRefreshTokenPayload(tokens.refreshPayload);
       await this.recordAuthAudit({
         accountId: adminUser.accountId,
-        workspaceId: adminUser.workspaceId,
         adminUserId: adminUser.id,
         deviceId: device.id,
         action: 'admin.login.succeeded',
@@ -643,7 +579,6 @@ export default class AuthService extends Service {
         }
         const tokens = this.issueTokenBundle({
           accountId: gateway.accountId,
-          workspaceId: gateway.workspaceId,
           gatewayId: gateway.id,
           userId: gateway.userId,
           deviceId: record.deviceId
@@ -666,7 +601,6 @@ export default class AuthService extends Service {
           jti: payload.jti,
           tokenClass: payload.tokenClass,
           accountId: payload.accountId,
-          workspaceId: payload.workspaceId,
           userId: payload.userId,
           adminUserId: payload.adminUserId,
           deviceId: payload.deviceId,
@@ -677,7 +611,6 @@ export default class AuthService extends Service {
 
       await this.recordAuthAudit({
         accountId: payload.accountId,
-        workspaceId: payload.workspaceId,
         userId: payload.userId,
         adminUserId: payload.adminUserId,
         deviceId: payload.deviceId,
@@ -689,7 +622,6 @@ export default class AuthService extends Service {
       });
       this.emitAuthNotification({
         accountId: payload.accountId,
-        workspaceId: payload.workspaceId,
         userId: payload.userId,
         adminUserId: payload.adminUserId,
         deviceId: payload.deviceId,
@@ -708,7 +640,6 @@ export default class AuthService extends Service {
       await this.revokeToken(rawToken, 'logout');
       await this.recordAuthAudit({
         accountId: payload.accountId,
-        workspaceId: payload.workspaceId,
         userId: payload.userId,
         adminUserId: payload.adminUserId,
         deviceId: payload.deviceId,
@@ -719,7 +650,6 @@ export default class AuthService extends Service {
       });
       this.emitAuthNotification({
         accountId: payload.accountId,
-        workspaceId: payload.workspaceId,
         userId: payload.userId,
         adminUserId: payload.adminUserId,
         deviceId: payload.deviceId,
@@ -745,7 +675,6 @@ export default class AuthService extends Service {
       }
       return {
         accountId: user.accountId,
-        workspaceId: user.workspaceId,
         userId: user.id,
         email: user.email,
         deviceId: payload.deviceId
