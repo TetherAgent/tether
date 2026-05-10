@@ -187,6 +187,10 @@ export class ChatSessionRunner implements IChatRunner {
     };
     this.activeSubprocesses.set(sessionId, active);
 
+    // Write a newline immediately so the claude CLI's "no stdin data" 3-second wait is skipped.
+    // stdin stays open so we can later write control_response frames for permission prompts.
+    child.stdin?.write('\n');
+
     child.stdout?.on('data', (chunk: Buffer | string) => {
       const current = this.activeSubprocesses.get(sessionId);
       if (!current) {
