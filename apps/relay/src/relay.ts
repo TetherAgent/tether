@@ -477,7 +477,15 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
       case 'client.subscribe': {
         const session = latestSessions.get(frame.sessionId);
         const client = clients.get(clientId);
-        if (!client || !session || !clientCanSeeRelaySession(client, session)) {
+        if (!client) {
+          sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });
+          break;
+        }
+        if (!session) {
+          sendGatewayUnavailable(clientId);
+          break;
+        }
+        if (!clientCanSeeRelaySession(client, session)) {
           sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });
           break;
         }

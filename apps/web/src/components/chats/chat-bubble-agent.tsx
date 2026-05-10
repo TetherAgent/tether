@@ -74,7 +74,7 @@ export function ChatBubbleAgent({
   return (
     <div className="flex items-start gap-3">
       <ModelAvatar provider={provider} label={provider} />
-      <div className="max-w-[80%]">
+      <div className="min-w-0 max-w-[80%]">
         <div className="rounded-3xl rounded-bl-md bg-[var(--agent-bubble)] px-4 py-3 text-sm shadow-sm">
           {isWaiting ? (
             <div className="flex items-center gap-2 text-muted-foreground">

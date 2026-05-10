@@ -368,6 +368,33 @@ test('relay clears visible sessions when gateway disconnects', async () => {
   }
 });
 
+test('relay reports gateway unavailable when subscribing to an uncached session', async () => {
+  const relay = await createRelay();
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+
+  try {
+    await authenticateClient(client);
+
+    const emptySessionsPromise = waitForJson(
+      client,
+      (message) => message.type === 'sessions' && Array.isArray(message.sessions) && message.sessions.length === 0
+    );
+    const unavailablePromise = waitForJson(
+      client,
+      (message) => message.type === 'error' && message.code === 'gateway_unavailable'
+    );
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_missing_cache', mode: 'control' }));
+
+    const emptySessions = await emptySessionsPromise;
+    assert.deepEqual(emptySessions.sessions, []);
+    const unavailable = await unavailablePromise;
+    assert.equal(unavailable.message, 'gateway is not connected');
+  } finally {
+    client.close();
+    await relay.close();
+  }
+});
+
 test('relay keeps cached running sessions when gateway sends a transient empty list', async () => {
   const relay = await createRelay();
   const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);

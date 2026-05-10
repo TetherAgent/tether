@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUp, Check, Copy, Loader2, PanelLeftOpen } from 'lucide-react';
+import { ArrowUp, Check, Copy, Loader2, Menu, PanelLeftOpen } from 'lucide-react';
 import {
   Button,
   Input,
@@ -33,7 +33,7 @@ type MessageItem =
   | { kind: 'permission'; id: string; toolName: string };
 type HistoryMessage = { role: string; content: string; usageJson?: Usage; createdAt: string };
 type ProviderOption = { provider: string; models: string[] };
-type ChatSessionRecord = { id: string; provider?: string; agentSessionId?: string };
+type ChatSessionRecord = { id: string; provider?: string; projectPath?: string; agentSessionId?: string };
 
 const RELAY_URL_KEY = 'tether:relayUrl';
 const DEFAULT_RELAY_URL = import.meta.env.VITE_TETHER_RELAY_URL ?? 'wss://tether.earntools.me';
@@ -88,6 +88,30 @@ function compactPathLabel(value: string): string {
   return `.../${parts.slice(-2).join('/')}`;
 }
 
+function compactProjectPath(value: string): string {
+  const normalized = value.trim();
+  if (!normalized) {
+    return '请选择工作目录';
+  }
+  if (normalized === '~') {
+    return '~';
+  }
+  const parts = normalized.split('/').filter(Boolean);
+  if (normalized.startsWith('/Users/') && parts.length >= 2) {
+    return `~/${parts.slice(2).join('/')}`;
+  }
+  if (parts.length <= 3) {
+    return normalized;
+  }
+  return `.../${parts.slice(-3).join('/')}`;
+}
+
+function buildResumeCommand(provider: string, agentSessionId: string): string {
+  if (provider === 'codex') return `codex exec resume ${agentSessionId}`;
+  if (provider === 'copilot') return `gh copilot --resume=${agentSessionId}`;
+  return `claude --resume ${agentSessionId}`;
+}
+
 function findLatestOpenAgentId(items: MessageItem[]): string | undefined {
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index];
@@ -98,7 +122,7 @@ function findLatestOpenAgentId(items: MessageItem[]): string | undefined {
   return undefined;
 }
 
-export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionId?: string; onExpandSidebar?: () => void }) {
+export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { activeSessionId?: string; onExpandSidebar?: () => void; onOpenDrawer?: () => void }) {
   const navigate = useNavigate();
   const { normalAuth } = useAuth();
   const { t } = useI18n();
@@ -111,12 +135,14 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
   const [selectedModel, setSelectedModel] = React.useState(DEFAULT_PROVIDER_OPTIONS[0]!.models[0]!);
   const [activeSessionProvider, setActiveSessionProvider] = React.useState<string | undefined>(undefined);
   const [activeSessionModel, setActiveSessionModel] = React.useState<string | undefined>(undefined);
+  const [activeSessionProjectPath, setActiveSessionProjectPath] = React.useState<string | undefined>(undefined);
   const [cwd, setCwd] = React.useState('~');
   const [cwdSuggestions, setCwdSuggestions] = React.useState<string[]>([]);
   const [cwdPickerOpen, setCwdPickerOpen] = React.useState(false);
   const [cwdActiveIndex, setCwdActiveIndex] = React.useState(0);
   const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(undefined);
   const [wsReady, setWsReady] = React.useState(false);
+  const [connectionError, setConnectionError] = React.useState<string | undefined>(undefined);
   const [copiedAgentId, setCopiedAgentId] = React.useState(false);
   const wsRef = React.useRef<WebSocket | null>(null);
   const currentAgentIdRef = React.useRef<string | null>(null);
@@ -168,6 +194,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
     }
     setCurrentSessionId(activeSessionId);
     setAgentSessionId(undefined);
+    setActiveSessionProjectPath(undefined);
     if (activeSessionId && activeSessionId === createdSessionIdRef.current) {
       setActiveSessionProvider(pendingSessionProviderRef.current);
       setActiveSessionModel(pendingSessionModelRef.current);
@@ -183,6 +210,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
       setMessages([]);
       setIsInflight(false);
       setAgentSessionId(undefined);
+      setActiveSessionProjectPath(undefined);
       return;
     }
     if (
@@ -253,6 +281,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
         const session = (data.sessions ?? []).find((item) => item.id === activeSessionId);
         setAgentSessionId(session?.agentSessionId);
         setActiveSessionProvider(session?.provider);
+        setActiveSessionProjectPath(session?.projectPath);
         setActiveSessionModel(undefined);
       })
       .catch(() => undefined);
@@ -273,6 +302,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
       if (!frame) return;
       if (frame.type === 'client.auth.ok') {
         setWsReady(true);
+        setConnectionError(undefined);
         ws.send(JSON.stringify({ type: 'client.list-providers' }));
         return;
       }
@@ -309,6 +339,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
         return;
       }
       if (frame.type === 'gateway.session-created' && typeof frame.sessionId === 'string') {
+        setConnectionError(undefined);
         skipNextHistoryLoadSessionIdRef.current = frame.sessionId;
         pendingCreatedSessionIdRef.current = frame.sessionId;
         createdSessionIdRef.current = frame.sessionId;
@@ -349,6 +380,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
         return;
       }
       if (frame.type === 'agent.delta' && typeof frame.text === 'string') {
+        setConnectionError(undefined);
         if (revealTimerRef.current !== undefined) {
           window.clearInterval(revealTimerRef.current);
           revealTimerRef.current = undefined;
@@ -385,6 +417,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
         return;
       }
       if (frame.type === 'agent.result' && typeof frame.text === 'string') {
+        setConnectionError(undefined);
         if (typeof frame.sessionId === 'string' && frame.sessionId === pendingCreatedSessionIdRef.current) {
           pendingCreatedSessionIdRef.current = null;
         }
@@ -476,6 +509,16 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
       }
       if (frame.type === 'error' && typeof frame.message === 'string') {
         const frameMessage = frame.message;
+        if (
+          frame.code === 'gateway_unavailable' ||
+          frame.code === 'forbidden' ||
+          frame.code === 'wrong_ticket_scope'
+        ) {
+          setConnectionError(frameMessage);
+          setIsInflight(false);
+          currentAgentIdRef.current = null;
+          return;
+        }
         if (frame.code === 'session_lost') {
           setMessages((items) =>
             items.map((item) =>
@@ -507,6 +550,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
     };
     ws.onclose = () => {
       setWsReady(false);
+      setConnectionError(t.gatewayNotConnected);
       setIsInflight(false);
       currentAgentIdRef.current = null;
     };
@@ -514,7 +558,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
       ws.close();
       wsRef.current = null;
     };
-  }, [navigate, normalAuth?.accessToken, t.chatsProviderFail, t.chatsSessionStarted]);
+  }, [navigate, normalAuth?.accessToken, t.chatsProviderFail, t.chatsSessionStarted, t.gatewayNotConnected]);
 
   React.useEffect(() => {
     if (!cwdPickerOpen || currentSessionId || !wsReady || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
@@ -584,7 +628,14 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
     }
   };
 
-  const canSend = !isInflight && inputText.trim().length > 0;
+  const hasConnectionError = !wsReady || Boolean(connectionError);
+  const canSend = !hasConnectionError && !isInflight && inputText.trim().length > 0;
+  const isInputDisabled = isInflight || hasConnectionError;
+  const connectionBanner = hasConnectionError ? (
+    <div className="mb-2 rounded-xl border border-destructive/40 bg-destructive/15 px-3 py-2 text-center text-[12px] font-medium text-destructive">
+      {connectionError ?? t.gatewayNotConnected}
+    </div>
+  ) : null;
 
   const sendButton = (
     <button
@@ -611,7 +662,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
         value={inputText}
         onChange={(event) => setInputText(event.target.value)}
         placeholder={t.chatsInputPlaceholder.replace('{model}', (withControls ? selectedModel : displayModel) || displayProvider)}
-        disabled={isInflight}
+        disabled={isInputDisabled}
         className="max-h-44 min-h-[88px] resize-none rounded-none border-0 bg-transparent px-4 pt-4 text-[15px] leading-relaxed shadow-none focus-visible:ring-0"
         onKeyDown={onKeyDown}
       />
@@ -725,9 +776,6 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
         )}
         {!withControls && (
           <>
-            <span className="flex h-7 items-center rounded-full bg-muted px-3 text-[12px] font-medium text-muted-foreground">
-              {displayProvider}
-            </span>
             {displayProviderModels.length > 0 && displayModel && (
               <Select value={displayModel} onValueChange={setActiveSessionModel}>
                 <SelectTrigger className="h-7 w-auto gap-1 rounded-full border-0 bg-muted px-3 text-[12px] font-medium shadow-none ring-0 focus:ring-0">
@@ -740,6 +788,14 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
                 </SelectContent>
               </Select>
             )}
+            {activeSessionProjectPath && (
+              <span
+                title={activeSessionProjectPath}
+                className="flex h-7 max-w-[260px] min-w-0 items-center rounded-full bg-muted px-3 font-mono text-[12px] font-medium text-muted-foreground"
+              >
+                <span className="truncate">{compactProjectPath(activeSessionProjectPath)}</span>
+              </span>
+            )}
             <div className="flex-1" />
           </>
         )}
@@ -751,6 +807,14 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
   if (isNewSession) {
     return (
       <div className="chat-surface relative flex h-full flex-col items-center justify-center bg-background px-6">
+        {onOpenDrawer && (
+          <button
+            onClick={onOpenDrawer}
+            className="absolute left-3 top-3 flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground md:hidden"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
+        )}
         {onExpandSidebar && (
           <button
             onClick={onExpandSidebar}
@@ -772,11 +836,9 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
         </div>
 
         <div className="w-full max-w-[680px]">
+          {connectionBanner}
           {inputCard(true)}
           <div className="mt-3 flex items-center justify-center gap-1">
-            {!wsReady && (
-              <span className="text-[11px] text-muted-foreground/70">{t.gatewayNotConnected} · </span>
-            )}
             <span className="text-[11px] text-muted-foreground/70">{t.chatsCwdNote}</span>
           </div>
         </div>
@@ -788,6 +850,14 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
     <div className="chat-surface flex h-full flex-col bg-background">
       {/* Session header */}
       <div className="flex items-center gap-2 border-b border-border bg-card/60 px-4 py-2.5 backdrop-blur-sm">
+        {onOpenDrawer && (
+          <button
+            onClick={onOpenDrawer}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground md:hidden"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
+        )}
         {onExpandSidebar && (
           <button
             onClick={onExpandSidebar}
@@ -807,7 +877,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
             </span>
             <button
               onClick={() => {
-                void navigator.clipboard.writeText(agentSessionId);
+                void navigator.clipboard.writeText(buildResumeCommand(displayProvider, agentSessionId));
                 setCopiedAgentId(true);
                 setTimeout(() => setCopiedAgentId(false), 1500);
               }}
@@ -866,6 +936,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar }: { activeSessionI
       {/* Input */}
       <div className="px-4 pb-4 pt-2">
         <div className="mx-auto max-w-3xl">
+          {connectionBanner}
           {inputCard(false)}
         </div>
       </div>

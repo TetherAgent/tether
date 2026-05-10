@@ -1,10 +1,11 @@
 import * as React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LogOut, MoreHorizontal, PanelLeftClose, Pencil, Trash2 } from 'lucide-react';
+import { LogOut, Moon, MoreHorizontal, PanelLeftClose, Pencil, Sun, Trash2 } from 'lucide-react';
 import { Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Input } from '@tether/design';
 import { createHttpClient } from '@tether/http';
 import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
+import { useUiPreferences } from '../../hooks/use-ui-preferences.js';
 import { deleteChatSession, getStoredNormalAccessToken, renameChatSession } from '../../lib/api.js';
 
 type ChatSessionRecord = {
@@ -41,6 +42,25 @@ function groupSessions(sessions: ChatSessionRecord[], t: { groupToday: string; g
   return groups;
 }
 
+function compactProjectPath(projectPath: string): string {
+  const value = projectPath.trim();
+  if (!value) {
+    return '未选择工作目录';
+  }
+  const homePrefix = '/Users/dream';
+  if (value === homePrefix) {
+    return '~';
+  }
+  if (value.startsWith(`${homePrefix}/`)) {
+    return `~/${value.slice(homePrefix.length + 1)}`;
+  }
+  const parts = value.split('/').filter(Boolean);
+  if (parts.length <= 3) {
+    return value;
+  }
+  return `.../${parts.slice(-3).join('/')}`;
+}
+
 export function ChatSessionList({
   activeSessionId,
   onSelect,
@@ -52,6 +72,7 @@ export function ChatSessionList({
 }) {
   const { t } = useI18n();
   const { normalAuth, logoutNormal } = useAuth();
+  const { isDark, toggleTheme } = useUiPreferences();
   const navigate = useNavigate();
   const [sessions, setSessions] = React.useState<ChatSessionRecord[]>([]);
   const [renameDialog, setRenameDialog] = React.useState<{ id: string; value: string } | null>(null);
@@ -200,26 +221,32 @@ export function ChatSessionList({
                     const title = session.title || (session.projectPath
                       ? (session.projectPath.split('/').pop() ?? session.provider)
                       : session.provider);
+                    const meta = `${session.provider || 'agent'} · ${compactProjectPath(session.projectPath)}`;
                     return (
                       <div
                         key={session.id}
-                        className={`group flex items-center gap-2.5 rounded-lg px-3 py-[7px] text-[13px] leading-snug transition-colors ${
+                        className={`group flex items-start gap-2.5 rounded-lg px-3 py-2 text-[13px] leading-snug transition-colors ${
                           active
                             ? 'bg-sidebar-accent font-medium text-foreground'
                             : 'text-muted-foreground hover:bg-sidebar-accent/70 hover:text-foreground'
                         }`}
                       >
                         <span
-                          className={`mt-px h-[7px] w-[7px] shrink-0 rounded-full transition-colors ${
+                          className={`mt-[7px] h-[7px] w-[7px] shrink-0 rounded-full transition-colors ${
                             session.status === 'running' ? 'bg-brand' : 'bg-transparent'
                           }`}
                         />
                         <Link
                           to={`/chats/${session.id}`}
                           onClick={onSelect}
-                          className="min-w-0 flex-1 truncate"
+                          className="min-w-0 flex-1"
                         >
-                          {title}
+                          <span className="block truncate">{title}</span>
+                          <span className={`mt-0.5 block truncate text-[11px] font-normal ${
+                            active ? 'text-muted-foreground' : 'text-muted-foreground/70'
+                          }`}>
+                            {meta}
+                          </span>
                         </Link>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -269,6 +296,11 @@ export function ChatSessionList({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="start" className="w-52">
+            <DropdownMenuItem onClick={toggleTheme} className="gap-2">
+              {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              {isDark ? t.light : t.dark}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={logoutNormal}
               className="gap-2 text-destructive focus:text-destructive"

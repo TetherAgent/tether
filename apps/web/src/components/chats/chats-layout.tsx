@@ -1,11 +1,8 @@
 import * as React from 'react';
-import { Menu } from 'lucide-react';
-import { useI18n } from '../../hooks/use-i18n.js';
 import { ChatPanel } from './chat-panel.js';
 import { ChatSessionList } from './chat-session-list.js';
 
 export function ChatsLayout({ activeSessionId }: { activeSessionId?: string }) {
-  const { t } = useI18n();
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
 
@@ -40,19 +37,10 @@ export function ChatsLayout({ activeSessionId }: { activeSessionId?: string }) {
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Mobile top bar */}
-        <div className="flex items-center border-b border-border px-3 py-2 md:hidden">
-          <button
-            onClick={() => setDrawerOpen(true)}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
-          >
-            <Menu className="h-4 w-4" />
-          </button>
-          <div className="ml-3 text-sm font-semibold">{t.chatsNavLabel}</div>
-        </div>
         <ChatPanel
           activeSessionId={activeSessionId}
           onExpandSidebar={!sidebarOpen ? () => setSidebarOpen(true) : undefined}
+          onOpenDrawer={() => setDrawerOpen(true)}
         />
       </div>
     </div>

@@ -151,6 +151,8 @@ body {
   color: var(--code-text);
   padding: .1rem .38rem;
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  overflow-wrap: break-word;
+  word-break: break-all;
 }
 
 /* blockquote */
