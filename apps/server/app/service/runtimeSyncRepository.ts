@@ -266,6 +266,7 @@ export default class RuntimeSyncRepositoryService extends Service {
         ? { ...payload.usage as object } as Record<string, unknown>
         : {};
       if (typeof payload.contextWindow === 'number') usage.contextWindow = payload.contextWindow;
+      if (typeof payload.contextInputTokens === 'number') usage.contextInputTokens = payload.contextInputTokens;
       if (payload.rateLimitInfo !== undefined) usage.rateLimitInfo = payload.rateLimitInfo;
       return { role: 'assistant', content: payload.text, usage };
     }

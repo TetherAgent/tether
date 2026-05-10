@@ -44,6 +44,7 @@ export type ChatRunnerOptions = {
     stopReason?: string;
     contextWindow?: number;
     rateLimitInfo?: RateLimitInfo;
+    contextInputTokens?: number;
   }) => void;
   onTool: (event: {
     clientId: string;
@@ -136,6 +137,7 @@ export type LineEmitter = {
   result(text: string, usage: ChatUsage, opts?: { stopReason?: string }): void;
   rateLimitInfo(info: RateLimitInfo): void;
   contextWindow(tokens: number): void;
+  contextInputTokens(tokens: number): void;
   agentSessionId(id: string): void;
   tool(name: string, input: Record<string, unknown>): void;
   permissionRequest(requestId: string, toolName: string, input: Record<string, unknown>): void;
@@ -190,6 +192,7 @@ type ActiveSubprocess = {
   completed: boolean;
   rateLimitInfo?: RateLimitInfo;
   contextWindow?: number;
+  contextInputTokens?: number;
   pendingPermissions: Map<string, (decision: 'allow' | 'deny') => void>;
 };
 
@@ -351,6 +354,7 @@ class CliChatRunner implements IChatRunner {
       },
       rateLimitInfo: (info) => { active.rateLimitInfo = info; },
       contextWindow: (tokens) => { active.contextWindow = tokens; },
+      contextInputTokens: (tokens) => { active.contextInputTokens = tokens; },
       agentSessionId: (id) => {
         active.agentSessionId = id;
         this.options.store.updateAgentSessionId(sessionId, id);
@@ -393,7 +397,8 @@ class CliChatRunner implements IChatRunner {
       usage,
       stopReason,
       contextWindow: active.contextWindow,
-      rateLimitInfo: active.rateLimitInfo
+      rateLimitInfo: active.rateLimitInfo,
+      contextInputTokens: active.contextInputTokens
     });
     this.activeSubprocesses.delete(sessionId);
   }
@@ -559,12 +564,25 @@ class ClaudeAdapter implements CliProviderAdapter {
         typeof event.terminal_reason === 'string' ? event.terminal_reason : undefined;
       const id = readSessionId(event);
       if (id) emit.agentSessionId(id);
+      // Extract contextWindow from modelUsage
       const modelUsage = recordValue(event.modelUsage);
       if (modelUsage) {
         const firstKey = Object.keys(modelUsage)[0];
         const modelData = firstKey ? recordValue((modelUsage as Record<string, unknown>)[firstKey]) : undefined;
-        const cw = modelData ? numberValue(modelData.contextWindow) : undefined;
-        if (cw !== undefined) emit.contextWindow(cw);
+        if (modelData) {
+          const cw = numberValue(modelData.contextWindow);
+          if (cw !== undefined) emit.contextWindow(cw);
+        }
+      }
+      // Extract last iteration's input tokens for accurate context % (top-level totals accumulate across all agentic sub-calls)
+      const rawUsage = recordValue(event.usage);
+      const iterations = Array.isArray(rawUsage?.iterations) ? rawUsage!.iterations as unknown[] : [];
+      const lastIter = iterations.length > 0 ? recordValue(iterations[iterations.length - 1]) : undefined;
+      if (lastIter) {
+        const iterInput = numberValue(lastIter.input_tokens) ?? 0;
+        const iterCacheRead = numberValue(lastIter.cache_read_input_tokens) ?? 0;
+        const iterCacheCreate = numberValue(lastIter.cache_creation_input_tokens) ?? 0;
+        emit.contextInputTokens(iterInput + iterCacheRead + iterCacheCreate);
       }
       emit.result(text, usage, { stopReason });
       return;

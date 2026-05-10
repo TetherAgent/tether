@@ -75,13 +75,13 @@ export function ChatBubbleAgent({
     <div className="flex items-start gap-3">
       <ModelAvatar provider={provider} label={provider} />
       <div className="min-w-0 max-w-[80%]">
-        <div className="rounded-3xl rounded-bl-md bg-[var(--agent-bubble)] px-4 py-3 text-sm shadow-sm">
+        <div className="overflow-hidden rounded-3xl rounded-bl-md bg-[var(--agent-bubble)] px-4 py-3 text-sm shadow-sm">
           {isWaiting ? (
             <div className="flex items-center gap-2 text-muted-foreground">
               <ThinkingDots />
             </div>
           ) : (
-            <div className="chat-markdown prose prose-sm dark:prose-invert max-w-none">
+            <div className="chat-markdown prose prose-sm dark:prose-invert max-w-none overflow-x-auto">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeHighlight]}

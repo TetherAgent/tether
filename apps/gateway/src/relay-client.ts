@@ -86,14 +86,15 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     onDelta: ({ clientId, sessionId, text }) => {
       sendChatEvent(0, sessionId, 'agent.delta', { clientId: chatClientBindings.get(sessionId) ?? clientId, text });
     },
-    onResult: ({ clientId, sessionId, event, text, usage, stopReason, contextWindow, rateLimitInfo }) => {
+    onResult: ({ clientId, sessionId, event, text, usage, stopReason, contextWindow, rateLimitInfo, contextInputTokens }) => {
       sendChatEvent(event.id, sessionId, 'agent.result', {
         clientId: chatClientBindings.get(sessionId) ?? clientId,
         text,
         usage,
         ...(stopReason ? { stop_reason: stopReason } : {}),
         ...(contextWindow !== undefined ? { contextWindow } : {}),
-        ...(rateLimitInfo ? { rateLimitInfo } : {})
+        ...(rateLimitInfo ? { rateLimitInfo } : {}),
+        ...(contextInputTokens !== undefined ? { contextInputTokens } : {})
       });
     },
     onPermissionRequest: ({ clientId, sessionId, requestId, toolName, input }) => {

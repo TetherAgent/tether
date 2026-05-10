@@ -25,6 +25,7 @@ export type ChatMessageRecord = {
     cache_read_input_tokens?: number;
     cache_creation_input_tokens?: number;
     contextWindow?: number;
+    contextInputTokens?: number;
     rateLimitInfo?: {
       resetsAt?: number;
       rateLimitType?: string;

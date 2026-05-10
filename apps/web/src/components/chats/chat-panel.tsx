@@ -31,6 +31,7 @@ type HistoryUsage = Usage & {
   cache_read_input_tokens?: number;
   cache_creation_input_tokens?: number;
   contextWindow?: number;
+  contextInputTokens?: number;
   rateLimitInfo?: {
     resetsAt?: number;
     rateLimitType?: string;
@@ -408,8 +409,10 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
         if (lastAssistant?.usageJson?.contextWindow != null) {
           const u = lastAssistant.usageJson;
           const contextWindow = u.contextWindow!;
-          const totalTokens = (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
-          const contextPct = Math.round((totalTokens / contextWindow) * 100);
+          const totalTokens = u.contextInputTokens !== undefined
+            ? u.contextInputTokens
+            : (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+          const contextPct = Math.min(100, Math.round((totalTokens / contextWindow) * 100));
           const rl = u.rateLimitInfo;
           const rateLimitStillValid = rl?.resetsAt !== undefined && rl.resetsAt * 1000 > Date.now();
           setUsageStats({
@@ -642,8 +645,11 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
         const resultContextWindow = typeof frame.contextWindow === 'number' ? frame.contextWindow : undefined;
         const resultUsage = frame.usage as { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | undefined;
         if (resultContextWindow && resultUsage) {
-          const totalTokens = (resultUsage.input_tokens ?? 0) + (resultUsage.output_tokens ?? 0) + (resultUsage.cache_read_input_tokens ?? 0) + (resultUsage.cache_creation_input_tokens ?? 0);
-          const contextPct = Math.round((totalTokens / resultContextWindow) * 100);
+          // Prefer contextInputTokens (last agentic iteration's input) over cumulative totals which can exceed contextWindow
+          const totalTokens = typeof frame.contextInputTokens === 'number'
+            ? frame.contextInputTokens
+            : (resultUsage.input_tokens ?? 0) + (resultUsage.cache_read_input_tokens ?? 0) + (resultUsage.cache_creation_input_tokens ?? 0);
+          const contextPct = Math.min(100, Math.round((totalTokens / resultContextWindow) * 100));
           const rateLimitInfo = frame.rateLimitInfo as {
             resetsAt?: number;
             rateLimitType?: string;
