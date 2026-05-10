@@ -29,9 +29,23 @@
 <decisions>
 ## Implementation Decisions
 
+### 执行链路架构（关键）
+- **D-00:** **新建完全独立的 chat 执行链路，不污染现有 PTY/JournalWatcher 路径。**
+  - 现有链路（CLI `tether run` → PTY → JournalWatcher → `agent.turn`）保持不变，供 `apps/web` 使用。
+  - 新链路：web 创建 → Gateway subprocess（`claude -p --output-format stream-json`）→ 解析 `content_block_delta` → relay → mobile-web。
+  - Gateway 侧新增 `ChatSessionRunner`（区别于现有 `SessionRunner`），只做 piped subprocess，不起 PTY。
+
 ### 会话创建路径
-- **D-01:** 从客户端创建 session 走 **Relay WS 新帧**，在 `RelayClientToServerFrame` 加 `client.create-session` 帧，包含 `provider` 字段。Relay 收到后转发给对应 Gateway，Gateway 起新 PTY + AI agent，成功后 Relay 回 `server.session-created` 帧含 `sessionId`。
-- **D-02:** 复用现有 WS 认证通道（`client.auth` → `client.auth.ok`），不新增 HTTP 端点。
+- **D-01:** 从客户端创建 session 走 **Relay WS 新帧**，在 `RelayClientToServerFrame` 加 `client.create-session` 帧，包含 `provider` 和 `initialMessage` 字段。Relay 收到后转发给对应 Gateway，Gateway 起 `ChatSessionRunner`，成功后 Relay 回 `server.session-created` 帧含 `sessionId`。
+- **D-01b:** Gateway 收到后执行 `spawn('claude', ['-p', message, '--output-format', 'stream-json'])`（piped 子进程，非 PTY）。后续追加消息如何处理（新 spawn vs 进程复用）由 planner 研究后决定。
+- **D-02:** 认证复用现有 WS 通道（`client.auth` → `client.auth.ok`），不新增 HTTP 端点。
+
+### 新链路事件类型
+- **D-02b:** Gateway 解析 `--output-format stream-json` 输出，映射到新 Relay 事件（加入 `packages/protocol/src/index.ts`，不改现有事件）：
+  - `content_block_delta` text → `agent.delta`（流式文本片段，供打字机效果）
+  - `message_stop` → `agent.result`（含 usage: tokens/花费/stop_reason）
+  - tool_use block → `agent.tool`（tool 调用卡片数据）
+  - `error` → `session.error`（已有，复用）
 
 ### Model 选择
 - **D-03:** 新增 `client.list-providers` 帧，Gateway 回 `gateway.providers` 帧，包含当前可用的 provider 列表（从现有白名单动态读取）。
