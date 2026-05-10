@@ -4,6 +4,7 @@ import path from 'node:path';
 import { Service } from 'egg';
 
 let schemaReady: Promise<void> | undefined;
+const IDEMPOTENT_DDL_MISSING_CODES = new Set(['ER_CANT_DROP_FIELD_OR_KEY']);
 
 type MysqlApplication = {
   mysql: {
@@ -35,7 +36,15 @@ export default class DbService extends Service {
           .sort();
         for (const file of files) {
           const sql = await readFile(path.join(sqlDir, file), 'utf8');
-          await this.mysql().query(sql);
+          for (const statement of splitSqlStatements(sql)) {
+            try {
+              await this.mysql().query(statement);
+            } catch (error) {
+              if (!isIgnorableIdempotentDdlError(error, statement)) {
+                throw error;
+              }
+            }
+          }
         }
       })();
     }
@@ -55,4 +64,27 @@ export default class DbService extends Service {
       ctx
     ) as T;
   }
+}
+
+function splitSqlStatements(sql: string): string[] {
+  return sql
+    .split(';')
+    .map(statement => statement.trim())
+    .filter(Boolean);
+}
+
+function isIgnorableIdempotentDdlError(error: unknown, statement: string): boolean {
+  const code = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code ?? '') : '';
+  if (!IDEMPOTENT_DDL_MISSING_CODES.has(code)) {
+    return false;
+  }
+  return /^\s*ALTER\s+TABLE\s+\w+\s+DROP\s+/i.test(stripSqlLineComments(statement));
+}
+
+function stripSqlLineComments(statement: string): string {
+  return statement
+    .split('\n')
+    .filter(line => !line.trimStart().startsWith('--'))
+    .join('\n')
+    .trim();
 }

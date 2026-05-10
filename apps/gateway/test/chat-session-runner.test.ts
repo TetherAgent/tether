@@ -94,7 +94,6 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
       cwd: '',
       message: 'test',
       accountId: 'acct-test',
-      workspaceId: 'ws-test',
       userId: 'user-test'
     });
     await resultPromise;

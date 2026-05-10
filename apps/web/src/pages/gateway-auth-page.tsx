@@ -9,7 +9,6 @@ import { gatewayAuthHeaders, readGatewayData, readStoredNormalAuth } from '../li
 type GatewayBindResult = {
   gateway: { id: string };
   accountId: string;
-  workspaceId: string;
   gatewayAccessToken: string;
   gatewayRefreshToken: string;
 };
@@ -56,7 +55,6 @@ export function GatewayAuthPage() {
       const callbackUrl = new URL(`http://localhost:${port}/callback`);
       callbackUrl.searchParams.set('gatewayId', data.gateway.id);
       callbackUrl.searchParams.set('accountId', data.accountId);
-      callbackUrl.searchParams.set('workspaceId', data.workspaceId);
       callbackUrl.searchParams.set('gatewayAccessToken', data.gatewayAccessToken);
       callbackUrl.searchParams.set('gatewayRefreshToken', data.gatewayRefreshToken);
       setStatus('done');

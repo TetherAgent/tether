@@ -15,14 +15,12 @@ import { Store } from '../src/store.js';
 const SECRET = 'relay-client-test-secret';
 const GATEWAY_SCOPE = {
   accountId: 'acct_test',
-  workspaceId: 'ws_test',
   tokenClass: 'gateway_access',
   expiresAt: Date.now() + 60_000,
   jti: 'jti_gateway'
 } satisfies RelayAuthScope;
 const CLIENT_SCOPE = {
   accountId: 'acct_test',
-  workspaceId: 'ws_test',
   userId: 'user_test',
   tokenClass: 'normal_client_access',
   expiresAt: Date.now() + 60_000,
@@ -100,7 +98,6 @@ test('gateway relay client registers sessions', async () => {
     title: 'registered',
     projectPath: process.cwd(),
     accountId: 'acct_test',
-    workspaceId: 'ws_test',
     userId: 'user_test',
     gatewayId: 'gw_test_register',
     status: 'running',
@@ -139,7 +136,6 @@ test('gateway relay client uses authenticated gateway id for follow-up frames', 
     title: 'auth gateway id',
     projectPath: process.cwd(),
     accountId: 'acct_test',
-    workspaceId: 'ws_test',
     userId: 'user_test',
     gatewayId: 'gw_authenticated',
     status: 'running',
@@ -188,7 +184,6 @@ test('gateway relay client replays and forwards output', async () => {
     projectPath: process.cwd(),
     cols: 80,
     rows: 24,
-    owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_replay' }
   });
   const replayed = store.appendEvent(sessionId, 'terminal.output', { data: 'from replay\r\n', encoding: 'utf8' });
   const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_replay', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_replay' }, store, ptySessions });
@@ -240,7 +235,6 @@ test('gateway relay client paginates full relay replay before live subscription 
     title: 'paged replay',
     projectPath: process.cwd(),
     accountId: 'acct_test',
-    workspaceId: 'ws_test',
     userId: 'user_test',
     gatewayId: 'gw_test_paged_replay',
     status: 'running',
@@ -297,7 +291,6 @@ test('gateway relay client marks missing runner lost instead of crashing on subs
     title: 'missing runner',
     projectPath: process.cwd(),
     accountId: 'acct_test',
-    workspaceId: 'ws_test',
     userId: 'user_test',
     gatewayId: 'gw_test_missing_runner',
     status: 'running',
@@ -360,7 +353,6 @@ test('gateway relay client forwards control input to pty', async () => {
     projectPath: process.cwd(),
     cols: 80,
     rows: 24,
-    owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_input' }
   });
   const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_input', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_input' }, store, ptySessions });
   await waitForRelayClientConnected(relayClient);
@@ -408,7 +400,6 @@ test('gateway relay client forwards control resize to pty', async () => {
     projectPath: process.cwd(),
     cols: 80,
     rows: 24,
-    owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_resize' }
   });
   const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_resize', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_resize' }, store, ptySessions });
   await waitForRelayClientConnected(relayClient);
@@ -446,7 +437,6 @@ test('gateway relay client applies subscribe resize before replay', async () => 
     projectPath: process.cwd(),
     cols: 80,
     rows: 24,
-    owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_subscribe_resize' }
   });
   const relayClient = startRelayClient({
     url: relay.url,
@@ -491,7 +481,6 @@ test('gateway relay client forwards control stop to pty', async () => {
     projectPath: process.cwd(),
     cols: 80,
     rows: 24,
-    owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_stop' }
   });
   const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_stop', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_stop' }, store, ptySessions });
   await waitForRelayClientConnected(relayClient);
@@ -525,7 +514,6 @@ test('gateway relay client accepts stop immediately after subscribe', async () =
     projectPath: process.cwd(),
     cols: 80,
     rows: 24,
-    owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_immediate_stop' }
   });
   const relayClient = startRelayClient({
     url: relay.url,
@@ -565,7 +553,6 @@ test('gateway relay client blocks observe input', async () => {
     projectPath: process.cwd(),
     cols: 80,
     rows: 24,
-    owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_observe' }
   });
   const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_observe', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_observe' }, store, ptySessions });
   await waitForRelayClientConnected(relayClient);
@@ -605,7 +592,6 @@ test('gateway relay client blocks observe resize', async () => {
     projectPath: process.cwd(),
     cols: 80,
     rows: 24,
-    owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_observe_resize' }
   });
   const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_observe_resize', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_observe_resize' }, store, ptySessions });
   await waitForRelayClientConnected(relayClient);
@@ -645,7 +631,6 @@ test('gateway relay client blocks unsubscribed input', async () => {
     projectPath: process.cwd(),
     cols: 80,
     rows: 24,
-    owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_unsubscribed' }
   });
   const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_unsubscribed', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_unsubscribed' }, store, ptySessions });
   await waitForRelayClientConnected(relayClient);
@@ -683,7 +668,6 @@ test('gateway relay client blocks unsubscribed resize', async () => {
     projectPath: process.cwd(),
     cols: 80,
     rows: 24,
-    owner: { accountId: 'acct_test', workspaceId: 'ws_test', userId: 'user_test', gatewayId: 'gw_test_unsubscribed_resize' }
   });
   const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_unsubscribed_resize', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_unsubscribed_resize' }, store, ptySessions });
   await waitForRelayClientConnected(relayClient);

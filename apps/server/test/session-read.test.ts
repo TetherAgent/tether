@@ -14,29 +14,12 @@ describe('test/session-read.test.ts', () => {
       (
         ctx.service as unknown as {
           sessionRepository?: {
-            listSessions?: (accountId: string, workspaceId: string) => Promise<unknown[]>
+            listSessions?: (accountId: string) => Promise<unknown[]>
           }
         }
-      ).sessionRepository?.listSessions?.('acct_1', 'ws_1')
+      ).sessionRepository?.listSessions?.('acct_1')
     ) ?? []
     assert.deepStrictEqual(sessions, [])
-  })
-
-  it('sessionRepository.getConversation — MySQL 未启用时返回空数组', async () => {
-    const turns = await (
-      (
-        ctx.service as unknown as {
-          sessionRepository?: {
-            getConversation?: (
-              sessionId: string,
-              accountId: string,
-              workspaceId: string
-            ) => Promise<unknown[]>
-          }
-        }
-      ).sessionRepository?.getConversation?.('tth_missing', 'acct_1', 'ws_1')
-    ) ?? []
-    assert.deepStrictEqual(turns, [])
   })
 
   it('sessionRepository.listEvents — MySQL 未启用时返回空数组', async () => {
@@ -46,12 +29,11 @@ describe('test/session-read.test.ts', () => {
           sessionRepository?: {
             listEvents?: (
               sessionId: string,
-              accountId: string,
-              workspaceId: string
+              accountId: string
             ) => Promise<unknown[]>
           }
         }
-      ).sessionRepository?.listEvents?.('tth_missing', 'acct_1', 'ws_1')
+      ).sessionRepository?.listEvents?.('tth_missing', 'acct_1')
     ) ?? []
     assert.deepStrictEqual(events, [])
   })

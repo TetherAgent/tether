@@ -339,7 +339,6 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
             cwd: frame.cwd,
             message: frame.message,
             accountId: frame.accountId,
-            workspaceId: frame.workspaceId,
             userId: frame.userId
           });
           return;
@@ -786,7 +785,6 @@ function toRelaySession(session: Session): RelaySession {
     title: session.title,
     projectPath: session.projectPath,
     accountId: session.accountId,
-    workspaceId: session.workspaceId,
     gatewayId: session.gatewayId,
     userId: session.userId,
     agentSessionId: session.agentSessionId,
@@ -1063,14 +1061,12 @@ async function resolveRelayAuth(
   const parsed = JSON.parse(raw) as {
     gatewayId?: unknown;
     accountId?: unknown;
-    workspaceId?: unknown;
     accessToken?: unknown;
     expiresAt?: unknown;
   };
   if (
     typeof parsed.gatewayId !== 'string' ||
     typeof parsed.accountId !== 'string' ||
-    typeof parsed.workspaceId !== 'string' ||
     typeof parsed.accessToken !== 'string' ||
     typeof parsed.expiresAt !== 'number'
   ) {
@@ -1084,7 +1080,6 @@ async function resolveRelayAuth(
     token: parsed.accessToken,
     scope: {
       accountId: parsed.accountId,
-      workspaceId: parsed.workspaceId,
       gatewayId: parsed.gatewayId,
       tokenClass: 'gateway_access',
       expiresAt: parsed.expiresAt,

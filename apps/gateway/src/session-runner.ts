@@ -54,7 +54,7 @@ export type CreateSessionRunnerOptions = {
   cols: number;
   rows: number;
   socketDir?: string;
-  owner?: Pick<AuthScopePayload, 'accountId' | 'workspaceId' | 'userId' | 'deviceId' | 'gatewayId'>;
+  owner?: Pick<AuthScopePayload, 'accountId' | 'userId' | 'deviceId' | 'gatewayId'>;
 };
 
 type RunnerClientConnection = {
@@ -95,7 +95,6 @@ export class SessionRunner {
       title: this.options.title ?? path.basename(this.options.projectPath),
       projectPath: this.options.projectPath,
       accountId: this.options.owner?.accountId,
-      workspaceId: this.options.owner?.workspaceId,
       userId: this.options.owner?.userId,
       deviceId: this.options.owner?.deviceId,
       gatewayId: this.options.owner?.gatewayId,

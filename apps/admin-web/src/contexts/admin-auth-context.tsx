@@ -17,7 +17,6 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
 
 type ManagementIdentity = {
   accountId: string;
-  workspaceId: string;
   adminUserId: string;
   adminEmail: string;
   deviceId?: string;
@@ -95,7 +94,6 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
           adminUserId: jwtPayload.adminUserId as string,
           adminEmail: typeof jwtPayload.adminEmail === 'string' ? jwtPayload.adminEmail : '',
           accountId: typeof jwtPayload.accountId === 'string' ? jwtPayload.accountId : '',
-          workspaceId: typeof jwtPayload.workspaceId === 'string' ? jwtPayload.workspaceId : '',
           tokenClass: 'management_access',
           expiresAt: typeof jwtPayload.expiresAt === 'number' ? jwtPayload.expiresAt : 0,
           jti: typeof jwtPayload.jti === 'string' ? jwtPayload.jti : ''

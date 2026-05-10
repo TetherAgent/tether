@@ -75,7 +75,6 @@ export interface IChatRunner {
           cwd: string;
           message: string;
           accountId?: string;
-          workspaceId?: string;
           userId?: string;
         }
       | { clientId: string; sessionId: string; message: string; model?: string }
@@ -196,7 +195,6 @@ class CliChatRunner implements IChatRunner {
           cwd: string;
           message: string;
           accountId?: string;
-          workspaceId?: string;
           userId?: string;
         }
       | { clientId: string; sessionId: string; message: string; model?: string }
@@ -402,7 +400,6 @@ class CliChatRunner implements IChatRunner {
     cwd: string;
     message: string;
     accountId?: string;
-    workspaceId?: string;
     userId?: string;
   }) {
     const now = Date.now();
@@ -413,7 +410,6 @@ class CliChatRunner implements IChatRunner {
       title: params.message.slice(0, 60),
       projectPath: normalizeCwd(params.cwd),
       accountId: params.accountId,
-      workspaceId: params.workspaceId,
       userId: params.userId,
       gatewayId: this.options.gatewayId(),
       status: 'running',

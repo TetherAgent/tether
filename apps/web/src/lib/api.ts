@@ -26,7 +26,6 @@ export type NormalAuthPayload = {
 
 export type NormalIdentity = {
   accountId: string;
-  workspaceId: string;
   userId: string;
   email: string;
   deviceId?: string;

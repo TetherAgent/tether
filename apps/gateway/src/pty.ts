@@ -15,7 +15,7 @@ export type CreatePtySessionOptions = {
   title?: string;
   cols: number;
   rows: number;
-  owner?: Pick<AuthScopePayload, 'accountId' | 'workspaceId' | 'userId' | 'deviceId' | 'gatewayId'>;
+  owner?: Pick<AuthScopePayload, 'accountId' | 'userId' | 'deviceId' | 'gatewayId'>;
 };
 
 export type PtyInputOptions = {
@@ -69,7 +69,6 @@ export class PtySessionManager {
       title,
       projectPath: options.projectPath,
       accountId: options.owner?.accountId,
-      workspaceId: options.owner?.workspaceId,
       userId: options.owner?.userId,
       deviceId: options.owner?.deviceId,
       gatewayId: options.owner?.gatewayId,

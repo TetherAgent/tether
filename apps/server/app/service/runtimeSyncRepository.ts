@@ -34,7 +34,6 @@ function truncatePayload(value: string): string {
 
 type RuntimeSyncScope = {
   accountId: string;
-  workspaceId: string;
   gatewayId: string;
 };
 
@@ -50,8 +49,8 @@ export default class RuntimeSyncRepositoryService extends Service {
   private async sessionWithinScope(sessionId: string, scope: RuntimeSyncScope, db: Queryable = this.ctx.service.db): Promise<boolean> {
     const rows = await db.query(
       `SELECT id FROM gateway_sessions
-       WHERE id = ? AND gateway_id = ? AND account_id = ? AND workspace_id = ? LIMIT 1`,
-      [sessionId, scope.gatewayId, scope.accountId, scope.workspaceId]
+       WHERE id = ? AND gateway_id = ? AND account_id = ? LIMIT 1`,
+      [sessionId, scope.gatewayId, scope.accountId]
     );
     return Array.isArray(rows) && rows.length > 0;
   }
@@ -59,8 +58,8 @@ export default class RuntimeSyncRepositoryService extends Service {
   private async sessionScopeConflict(sessionId: string, scope: RuntimeSyncScope, db: Queryable = this.ctx.service.db): Promise<boolean> {
     const rows = await db.query(
       `SELECT id FROM gateway_sessions
-       WHERE id = ? AND (gateway_id <> ? OR account_id <> ? OR workspace_id <> ?) LIMIT 1`,
-      [sessionId, scope.gatewayId, scope.accountId, scope.workspaceId]
+       WHERE id = ? AND (gateway_id <> ? OR account_id <> ?) LIMIT 1`,
+      [sessionId, scope.gatewayId, scope.accountId]
     );
     return Array.isArray(rows) && rows.length > 0;
   }
@@ -75,11 +74,10 @@ export default class RuntimeSyncRepositoryService extends Service {
       `SELECT session_id FROM gateway_deleted_sessions
        WHERE session_id = ?
          AND account_id = ?
-         AND workspace_id = ?
          AND (? IS NULL OR user_id = ?)
          AND (gateway_id IS NULL OR gateway_id = ?)
        LIMIT 1`,
-      [sessionId, scope.accountId, scope.workspaceId, userId ?? null, userId ?? null, scope.gatewayId]
+      [sessionId, scope.accountId, userId ?? null, userId ?? null, scope.gatewayId]
     );
     return Array.isArray(rows) && rows.length > 0;
   }
@@ -108,19 +106,18 @@ export default class RuntimeSyncRepositoryService extends Service {
         await connection.query('DELETE FROM gateway_sync_cursors WHERE session_id = ?', [session.id]);
         await connection.query(
           `DELETE FROM gateway_sessions
-           WHERE id = ? AND account_id = ? AND workspace_id = ? AND gateway_id = ?`,
-          [session.id, scope.accountId, scope.workspaceId, scope.gatewayId]
+           WHERE id = ? AND account_id = ? AND gateway_id = ?`,
+          [session.id, scope.accountId, scope.gatewayId]
         );
         return;
       }
       await connection.query(
         `INSERT INTO gateway_sessions (
-           id, account_id, workspace_id, gateway_id, user_id, provider, title, project_path,
+           id, account_id, gateway_id, user_id, provider, title, project_path,
            agent_session_id, status, transport, last_active_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            account_id = VALUES(account_id),
-           workspace_id = VALUES(workspace_id),
            gateway_id = VALUES(gateway_id),
            user_id = VALUES(user_id),
            provider = VALUES(provider),
@@ -134,7 +131,6 @@ export default class RuntimeSyncRepositoryService extends Service {
         [
           session.id,
           scope.accountId,
-          scope.workspaceId,
           scope.gatewayId,
           session.userId ?? null,
           session.provider,
@@ -163,8 +159,8 @@ export default class RuntimeSyncRepositoryService extends Service {
     await this.ctx.service.db.transaction(async connection => {
       const sessionRows = await connection.query(
         `SELECT user_id FROM gateway_sessions
-         WHERE id = ? AND gateway_id = ? AND account_id = ? AND workspace_id = ? LIMIT 1`,
-        [sessionId, scope.gatewayId, scope.accountId, scope.workspaceId]
+         WHERE id = ? AND gateway_id = ? AND account_id = ? LIMIT 1`,
+        [sessionId, scope.gatewayId, scope.accountId]
       );
       const userId = Array.isArray(sessionRows) && sessionRows.length > 0
         ? String((sessionRows[0] as { user_id?: unknown }).user_id ?? '')

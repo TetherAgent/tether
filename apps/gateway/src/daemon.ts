@@ -47,7 +47,6 @@ type GatewayAuthState = {
   serverUrl: string;
   gatewayId: string;
   accountId: string;
-  workspaceId: string;
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
@@ -186,7 +185,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     }
     const ticket = issueWsTicket({
       accountId: actor.payload.accountId,
-      workspaceId: actor.payload.workspaceId,
       gatewayId: actor.payload.gatewayId ?? authState.value.gatewayId,
       userId: actor.payload.userId,
       deviceId: actor.payload.deviceId,
@@ -339,7 +337,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         rows: terminalRows,
         owner: {
           accountId: actor.payload.accountId,
-          workspaceId: actor.payload.workspaceId,
           userId: actor.payload.userId,
           deviceId: actor.payload.deviceId,
           gatewayId: actor.payload.gatewayId ?? actor.gatewayId
@@ -1094,9 +1091,6 @@ function authorizeSessionAccess(
   if (session.accountId && session.accountId !== actor.accountId) {
     return { ok: false, status: 403, error: 'forbidden_account' };
   }
-  if (session.workspaceId && session.workspaceId !== actor.workspaceId) {
-    return { ok: false, status: 403, error: 'forbidden_workspace' };
-  }
   if (session.userId && actor.userId && session.userId !== actor.userId) {
     return { ok: false, status: 403, error: 'forbidden_owner' };
   }
@@ -1146,7 +1140,6 @@ function parseGatewayAuthState(raw: string): GatewayAuthState | undefined {
       typeof value.serverUrl === 'string' &&
       typeof value.gatewayId === 'string' &&
       typeof value.accountId === 'string' &&
-      typeof value.workspaceId === 'string' &&
       typeof value.accessToken === 'string' &&
       typeof value.refreshToken === 'string' &&
       typeof value.expiresAt === 'number'
@@ -1217,7 +1210,6 @@ function unwrapServerApiData<T>(body: unknown): T | undefined {
 function isAuthenticatedActor(payload: Partial<AuthenticatedActor>): payload is AuthenticatedActor {
   return (
     typeof payload.accountId === 'string' &&
-    typeof payload.workspaceId === 'string' &&
     typeof payload.tokenClass === 'string' &&
     typeof payload.expiresAt === 'number' &&
     typeof payload.jti === 'string'

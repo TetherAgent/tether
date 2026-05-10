@@ -142,7 +142,6 @@ type GatewayAuthState = {
   serverUrl: string;
   gatewayId: string;
   accountId: string;
-  workspaceId: string;
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
@@ -1371,7 +1370,6 @@ async function performGatewayLogin(options: {
     serverUrl,
     gatewayId: result.gatewayId,
     accountId: result.accountId,
-    workspaceId: result.workspaceId,
     accessToken: result.gatewayAccessToken,
     refreshToken: result.gatewayRefreshToken,
     expiresAt: payload.expiresAt
@@ -1398,7 +1396,6 @@ async function findAvailablePort(): Promise<number> {
 type GatewayAuthCallbackResult = {
   gatewayId: string;
   accountId: string;
-  workspaceId: string;
   gatewayAccessToken: string;
   gatewayRefreshToken: string;
 };
@@ -1419,11 +1416,10 @@ async function waitForGatewayAuthCallback(port: number, timeoutMs: number): Prom
       const get = (k: string) => url.searchParams.get(k);
       const gatewayId = get('gatewayId');
       const accountId = get('accountId');
-      const workspaceId = get('workspaceId');
       const gatewayAccessToken = get('gatewayAccessToken');
       const gatewayRefreshToken = get('gatewayRefreshToken');
 
-      if (!gatewayId || !accountId || !workspaceId || !gatewayAccessToken || !gatewayRefreshToken) {
+      if (!gatewayId || !accountId || !gatewayAccessToken || !gatewayRefreshToken) {
         res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' })
           .end('<html><body>授权失败：参数缺失。</body></html>');
         clearTimeout(timer);
@@ -1437,7 +1433,7 @@ async function waitForGatewayAuthCallback(port: number, timeoutMs: number): Prom
       );
       clearTimeout(timer);
       server.close();
-      resolve({ gatewayId, accountId, workspaceId, gatewayAccessToken, gatewayRefreshToken });
+      resolve({ gatewayId, accountId, gatewayAccessToken, gatewayRefreshToken });
     });
 
     server.listen(port, '127.0.0.1');
@@ -1477,7 +1473,6 @@ async function readGatewayAuthState(): Promise<GatewayAuthState> {
     typeof parsed.serverUrl !== 'string' ||
     typeof parsed.gatewayId !== 'string' ||
     typeof parsed.accountId !== 'string' ||
-    typeof parsed.workspaceId !== 'string' ||
     typeof parsed.accessToken !== 'string' ||
     typeof parsed.refreshToken !== 'string' ||
     typeof parsed.expiresAt !== 'number'

@@ -252,6 +252,79 @@ claude · ~/code/tether · dreamdeMacBook-Pro.local · Gateway 离线
 - 当前选中的 Gateway 不等于 session.gatewayId 时，不改变会话路由。
 - session.gatewayId 对应 Gateway offline 时，历史可读，输入框禁用并显示离线状态。
 
+## 对 PTY session 的影响
+
+多设备 Gateway 路由方案不要求重写 PTY runner 或事件流。PTY 的底层运行模型保持不变，
+变化集中在“创建入口”和“路由归属”。
+
+不变的部分：
+
+- PTY runner 的启动、stdin/stdout/stderr 处理方式不变。
+- `session_events` / runtime event 的 append-only 记录方式不变。
+- `terminal.output`、`client.input`、`client.resize`、`client.stop` 的事件语义不变。
+- 一旦 session 已经有明确 `session.gatewayId`，后续控制仍走原来的 Gateway -> PTY runner。
+
+需要改变的部分：
+
+1. 新建 PTY session 前必须先选 Gateway。
+
+```text
+用户点击新建/发送第一条消息
+  -> Web 必须已有 selectedGatewayId
+  -> Relay / Server 校验 selectedGatewayId 属于当前用户且在线
+  -> Gateway 在本机创建 PTY session
+```
+
+2. PTY session 创建后必须绑定具体 Gateway。
+
+```text
+session.gatewayId = selectedGatewayId
+session.accountId = currentAccountId
+session.workspaceId = currentWorkspaceId
+session.userId = currentUserId
+```
+
+3. Web 当前选择 Gateway 不改变旧 PTY session。
+
+示例：
+
+```text
+MacBook 上创建 session A
+Web 当前 Gateway 后来切到 Mac mini
+用户点进 session A
+  -> 仍然路由到 MacBook 的 session.gatewayId
+  -> 不因为当前选择是 Mac mini 就改路由
+```
+
+4. Gateway 离线判断必须按 session 所属 Gateway。
+
+不能用“当前用户任意 Gateway 在线”判断 PTY session 是否可控。
+
+正确判断：
+
+```text
+session.gatewayId 对应 Gateway online -> 可以控制
+session.gatewayId 对应 Gateway offline -> 历史可读，控制禁用
+```
+
+5. 禁止 PTY fallback 到其他 Gateway。
+
+以下行为都不允许：
+
+```text
+session.gatewayId 缺失时找同 workspace 的 Gateway
+session.gatewayId 缺失时找同 userId 的 Gateway
+session.gatewayId 对应 Gateway offline 时切到另一台电脑的 Gateway
+```
+
+结论：
+
+```text
+PTY 事件流不需要重写
+PTY session ownership / routing 必须强绑定 gatewayId
+Web 创建和控制前要选择或校验具体 Gateway
+```
+
 ## 本机自动选择
 
 本机自动选择只是体验优化，不是安全边界。

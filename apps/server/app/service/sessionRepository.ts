@@ -3,7 +3,6 @@ import { Service } from 'egg';
 type GatewaySessionRecord = {
   id: string;
   accountId: string;
-  workspaceId: string;
   gatewayId: string;
   userId?: string;
   provider: string;
@@ -57,7 +56,6 @@ export default class SessionRepositoryService extends Service {
     return {
       id: String(row.id),
       accountId: String(row.account_id),
-      workspaceId: String(row.workspace_id),
       gatewayId: String(row.gateway_id),
       userId: this.nullableString(row.user_id),
       provider: String(row.provider),
@@ -85,20 +83,18 @@ export default class SessionRepositoryService extends Service {
   private async sessionWithinScope(
     sessionId: string,
     accountId: string,
-    workspaceId: string,
     userId: string
   ): Promise<boolean> {
     const rows = await this.ctx.service.db.query(
       `SELECT id FROM gateway_sessions
-       WHERE id = ? AND account_id = ? AND workspace_id = ? AND user_id = ? LIMIT 1`,
-      [sessionId, accountId, workspaceId, userId]
+       WHERE id = ? AND account_id = ? AND user_id = ? LIMIT 1`,
+      [sessionId, accountId, userId]
     );
     return Array.isArray(rows) && rows.length > 0;
   }
 
   public async listSessions(
     accountId: string,
-    workspaceId: string,
     userId: string,
     limit = 50,
     offset = 0
@@ -108,10 +104,10 @@ export default class SessionRepositoryService extends Service {
     }
     const rows = await this.ctx.service.db.query(
       `SELECT * FROM gateway_sessions
-       WHERE account_id = ? AND workspace_id = ? AND user_id = ?
+       WHERE account_id = ? AND user_id = ?
         ORDER BY last_active_at DESC, updated_at DESC
         LIMIT ? OFFSET ?`,
-      [accountId, workspaceId, userId, limit, offset]
+      [accountId, userId, limit, offset]
     );
     return (rows as Record<string, unknown>[]).map((row) => this.sessionFromRow(row));
   }
@@ -138,7 +134,6 @@ export default class SessionRepositoryService extends Service {
   public async listEvents(
     sessionId: string,
     accountId: string,
-    workspaceId: string,
     userId: string,
     options: {
       limit?: number;
@@ -146,7 +141,7 @@ export default class SessionRepositoryService extends Service {
       after?: number;
     } = {}
   ): Promise<RuntimeEventRecord[]> {
-    if (!this.mysqlModeEnabled() || !await this.sessionWithinScope(sessionId, accountId, workspaceId, userId)) {
+    if (!this.mysqlModeEnabled() || !await this.sessionWithinScope(sessionId, accountId, userId)) {
       return [];
     }
     const limit = Math.min(Math.max(options.limit ?? 100, 1), 5000);

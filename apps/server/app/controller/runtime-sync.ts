@@ -2,7 +2,6 @@ import { Controller } from 'egg';
 
 type RuntimeSyncScope = {
   accountId: string;
-  workspaceId: string;
   gatewayId: string;
 };
 
@@ -11,12 +10,11 @@ function parseScope(input: unknown): RuntimeSyncScope | undefined {
     return undefined;
   }
   const scope = input as Record<string, unknown>;
-  if (!scope.accountId || !scope.workspaceId || !scope.gatewayId) {
+  if (!scope.accountId || !scope.gatewayId) {
     return undefined;
   }
   return {
     accountId: String(scope.accountId),
-    workspaceId: String(scope.workspaceId),
     gatewayId: String(scope.gatewayId)
   };
 }

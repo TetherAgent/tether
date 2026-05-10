@@ -2,15 +2,13 @@ import { Controller } from 'egg';
 
 type AuthScope = {
   accountId?: string;
-  workspaceId?: string;
   userId?: string;
 };
 
-function authScope(ctx: Controller['ctx']): { accountId: string; workspaceId: string; userId: string } {
+function authScope(ctx: Controller['ctx']): { accountId: string; userId: string } {
   const auth = ctx.state.auth as AuthScope | undefined;
   return {
     accountId: auth?.accountId ?? '',
-    workspaceId: auth?.workspaceId ?? '',
     userId: auth?.userId ?? ''
   };
 }
@@ -18,45 +16,45 @@ function authScope(ctx: Controller['ctx']): { accountId: string; workspaceId: st
 export default class ChatController extends Controller {
   public async sessions(): Promise<void> {
     const { ctx } = this;
-    const { accountId, workspaceId, userId } = authScope(ctx);
-    const sessions = await ctx.service.chatRepository.listChatSessions(accountId, workspaceId, userId);
+    const { accountId, userId } = authScope(ctx);
+    const sessions = await ctx.service.chatRepository.listChatSessions(accountId, userId);
     ctx.success({ sessions });
   }
 
   public async messages(): Promise<void> {
     const { ctx } = this;
-    const { accountId, workspaceId, userId } = authScope(ctx);
+    const { accountId, userId } = authScope(ctx);
     const { sessionId } = ctx.params as { sessionId: string };
     if (!sessionId) {
       ctx.throw(400, 'sessionId is required');
       return;
     }
-    const messages = await ctx.service.chatRepository.listMessages(sessionId, accountId, workspaceId, userId);
+    const messages = await ctx.service.chatRepository.listMessages(sessionId, accountId, userId);
     ctx.success({ messages });
   }
 
   public async renameSession(): Promise<void> {
     const { ctx } = this;
-    const { accountId, workspaceId, userId } = authScope(ctx);
+    const { accountId, userId } = authScope(ctx);
     const { sessionId } = ctx.params as { sessionId: string };
     const { title } = ctx.request.body as { title?: string };
     if (!sessionId || typeof title !== 'string' || !title.trim()) {
       ctx.throw(400, 'sessionId and title are required');
       return;
     }
-    await ctx.service.chatRepository.renameSession(sessionId, accountId, workspaceId, userId, title.trim());
+    await ctx.service.chatRepository.renameSession(sessionId, accountId, userId, title.trim());
     ctx.success({ ok: true });
   }
 
   public async deleteSession(): Promise<void> {
     const { ctx } = this;
-    const { accountId, workspaceId, userId } = authScope(ctx);
+    const { accountId, userId } = authScope(ctx);
     const { sessionId } = ctx.params as { sessionId: string };
     if (!sessionId) {
       ctx.throw(400, 'sessionId is required');
       return;
     }
-    await ctx.service.chatRepository.deleteSession(sessionId, accountId, workspaceId, userId);
+    await ctx.service.chatRepository.deleteSession(sessionId, accountId, userId);
     ctx.success({ ok: true });
   }
 

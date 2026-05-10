@@ -98,14 +98,13 @@ function readReplayMode(): ReplayMode {
 
 function sessionCursorKey(
   sessionId: string,
-  identity: { accountId?: string; workspaceId?: string; userId?: string } | undefined,
+  identity: { accountId?: string; userId?: string } | undefined,
   connectionSettings: { relayUrl: string }
 ): string {
   const accountId = identity?.accountId ?? 'anonymous';
-  const workspaceId = identity?.workspaceId ?? 'default-workspace';
   const userId = identity?.userId ?? 'default-user';
   const gatewayHint = connectionSettings.relayUrl.trim() || 'relay';
-  return `tether:${accountId}:${workspaceId}:${userId}:relay:${gatewayHint}:${sessionId}:latestEventId`;
+  return `tether:${accountId}:${userId}:relay:${gatewayHint}:${sessionId}:latestEventId`;
 }
 
 function buildRelayClientUrl(relayUrl: string, t: WebMessages): string {

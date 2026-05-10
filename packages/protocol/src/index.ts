@@ -74,7 +74,6 @@ export type RelayServerToGatewayFrame =
       cwd: string;
       message: string;
       accountId?: string;
-      workspaceId?: string;
       userId?: string;
     }
   | { type: 'client.chat'; clientId: string; sessionId: string; message: string; model?: string }

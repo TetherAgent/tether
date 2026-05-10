@@ -43,7 +43,6 @@ async function withAuthFixture<T>(run: (fixture: {
         msg: 'success',
         data: {
           accountId: 'acct_test',
-          workspaceId: 'ws_test',
           gatewayId: 'gw_test',
           userId: 'user_test',
           deviceId: 'device_test',
@@ -61,7 +60,6 @@ async function withAuthFixture<T>(run: (fixture: {
         msg: 'success',
         data: {
           accountId: 'acct_test',
-          workspaceId: 'ws_test',
           userId: 'user_test',
           deviceId: 'device_test',
           tokenClass: 'normal_client_access',
@@ -78,7 +76,6 @@ async function withAuthFixture<T>(run: (fixture: {
         msg: 'success',
         data: {
           accountId: 'acct_test',
-          workspaceId: 'ws_test',
           userId: 'user_other',
           deviceId: 'device_other',
           tokenClass: 'normal_client_access',
@@ -95,7 +92,6 @@ async function withAuthFixture<T>(run: (fixture: {
         msg: 'success',
         data: {
           accountId: 'acct_test',
-          workspaceId: 'ws_test',
           adminUserId: 'admin_test',
           tokenClass: 'management_access',
           expiresAt: Date.now() + 60_000,
@@ -118,7 +114,6 @@ async function withAuthFixture<T>(run: (fixture: {
     serverUrl: `http://127.0.0.1:${address.port}`,
     gatewayId: 'gw_test',
     accountId: 'acct_test',
-    workspaceId: 'ws_test',
     accessToken: TOKEN_GATEWAY,
     refreshToken: 'refresh_test_secret',
     expiresAt: Date.now() + 60_000
@@ -276,7 +271,6 @@ test('direct read endpoints require auth and enforce session ownership', async (
     rows: 24,
     owner: {
       accountId: 'acct_test',
-      workspaceId: 'ws_test',
       userId: 'user_test',
       deviceId: 'device_test'
     }
@@ -675,7 +669,6 @@ test('stop marks unavailable pty session lost instead of failing hard', async ()
     title: 'lost',
     projectPath: process.cwd(),
     accountId: 'acct_test',
-    workspaceId: 'ws_test',
     userId: 'user_test',
     deviceId: 'device_test',
     status: 'running',
@@ -887,7 +880,6 @@ test('ws ticket rejects same-account token for a different owner session', async
     rows: 24,
     owner: {
       accountId: 'acct_test',
-      workspaceId: 'ws_test',
       userId: 'user_test',
       deviceId: 'device_test'
     }
@@ -925,7 +917,6 @@ test('ws ticket rejects sessions owned by a different gateway', async () => {
     rows: 24,
     owner: {
       accountId: 'acct_test',
-      workspaceId: 'ws_test',
       userId: 'user_test',
       deviceId: 'device_test',
       gatewayId: 'gw_other'

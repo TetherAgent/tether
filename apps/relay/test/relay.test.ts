@@ -21,7 +21,6 @@ function createRelay(options?: { allowLegacySecret?: boolean; omitGatewayIdInSco
       if (token === GATEWAY_TOKEN) {
         return {
           accountId: 'acct_1',
-          workspaceId: 'ws_1',
           gatewayId: options?.omitGatewayIdInScope ? undefined : 'gateway-test',
           userId: 'user_1',
           tokenClass: 'gateway_access',
@@ -32,7 +31,6 @@ function createRelay(options?: { allowLegacySecret?: boolean; omitGatewayIdInSco
       if (token === CLIENT_TOKEN) {
         return {
           accountId: 'acct_1',
-          workspaceId: 'ws_1',
           userId: 'user_1',
           tokenClass: 'normal_client_access',
           expiresAt: Date.now() + 60_000,
@@ -42,7 +40,6 @@ function createRelay(options?: { allowLegacySecret?: boolean; omitGatewayIdInSco
       if (token === CLIENT_TICKET) {
         return {
           accountId: 'acct_1',
-          workspaceId: 'ws_1',
           gatewayId: 'gateway-test',
           sessionId: 'tth_ticket_test',
           mode: 'observe',
@@ -110,7 +107,6 @@ test('relay forwards session list from gateway to client', async () => {
       title: 'Relay Test',
       projectPath: process.cwd(),
       accountId: 'acct_1',
-      workspaceId: 'ws_1',
       gatewayId: 'gateway-test',
       userId: 'user_1',
       status: 'running',
@@ -146,7 +142,6 @@ test('relay HTTP APIs proxy session data and commands through gateway RPC', asyn
     title: 'HTTP RPC',
     projectPath: process.cwd(),
     accountId: 'acct_1',
-    workspaceId: 'ws_1',
     gatewayId: 'gateway-test',
     userId: 'user_1',
     status: 'running',
@@ -253,7 +248,6 @@ test('relay HTTP conversation enforces scope, gateway availability and timeout',
     title: 'Forbidden HTTP',
     projectPath: process.cwd(),
     accountId: 'acct_1',
-    workspaceId: 'ws_1',
     gatewayId: 'gateway-test',
     userId: 'user_2',
     status: 'running',
@@ -305,7 +299,6 @@ test('relay accepts gateway.sessions when gateway token has no gatewayId in scop
       title: 'Relay Scope Missing',
       projectPath: process.cwd(),
       accountId: 'acct_1',
-      workspaceId: 'ws_1',
       gatewayId: 'gateway-test',
       userId: 'user_1',
       status: 'running',
@@ -345,7 +338,6 @@ test('relay clears visible sessions when gateway disconnects', async () => {
         title: 'Gateway Disconnect',
         projectPath: process.cwd(),
         accountId: 'acct_1',
-        workspaceId: 'ws_1',
         gatewayId: 'gateway-test',
         userId: 'user_1',
         status: 'running',
@@ -421,7 +413,6 @@ test('relay keeps cached running sessions when gateway sends a transient empty l
     title: 'Transient Empty',
     projectPath: process.cwd(),
     accountId: 'acct_1',
-    workspaceId: 'ws_1',
     gatewayId: 'gateway-test',
     userId: 'user_1',
     status: 'running',
@@ -473,7 +464,6 @@ test('relay does not clear one gateway sessions when another gateway disconnects
     title: 'Gateway One',
     projectPath: process.cwd(),
     accountId: 'acct_1',
-    workspaceId: 'ws_1',
     gatewayId: 'gateway-test',
     userId: 'user_1',
     status: 'running',
@@ -486,7 +476,6 @@ test('relay does not clear one gateway sessions when another gateway disconnects
     title: 'Gateway Two',
     projectPath: process.cwd(),
     accountId: 'acct_1',
-    workspaceId: 'ws_1',
     gatewayId: 'gateway-two',
     userId: 'user_1',
     status: 'running',
@@ -552,7 +541,6 @@ test('relay forwards subscribed input and resize to gateway', async () => {
         title: 'Input Test',
         projectPath: process.cwd(),
         accountId: 'acct_1',
-        workspaceId: 'ws_1',
         gatewayId: 'gateway-test',
         userId: 'user_1',
         status: 'running',
@@ -624,7 +612,6 @@ test('relay forwards subscribed chat messages to gateway', async () => {
         title: 'Chat Test',
         projectPath: process.cwd(),
         accountId: 'acct_1',
-        workspaceId: 'ws_1',
         gatewayId: 'gateway-test',
         userId: 'user_1',
         status: 'running',
@@ -676,7 +663,6 @@ test('relay waits for final paged replay frame before replay.done', async () => 
         title: 'Paged Replay Test',
         projectPath: process.cwd(),
         accountId: 'acct_1',
-        workspaceId: 'ws_1',
         gatewayId: 'gateway-test',
         userId: 'user_1',
         status: 'running',
@@ -754,7 +740,6 @@ test('relay rejects unsubscribed input and resize', async () => {
         title: 'Unsubscribed Test',
         projectPath: process.cwd(),
         accountId: 'acct_1',
-        workspaceId: 'ws_1',
         gatewayId: 'gateway-test',
         userId: 'user_1',
         status: 'running',
@@ -795,7 +780,6 @@ test('relay rejects control frames after session scope changes', async () => {
         title: 'Scope Drift',
         projectPath: process.cwd(),
         accountId: 'acct_1',
-        workspaceId: 'ws_1',
         gatewayId: 'gateway-test',
         userId: 'user_1',
         status: 'running',
@@ -817,7 +801,6 @@ test('relay rejects control frames after session scope changes', async () => {
         title: 'Scope Drift Moved',
         projectPath: process.cwd(),
         accountId: 'acct_2',
-        workspaceId: 'ws_2',
         gatewayId: 'gateway-test',
         status: 'running',
         transport: 'pty-event-stream',
@@ -861,7 +844,6 @@ test('relay rejects observe input and resize', async () => {
         title: 'Observe Test',
         projectPath: process.cwd(),
         accountId: 'acct_1',
-        workspaceId: 'ws_1',
         gatewayId: 'gateway-test',
         userId: 'user_1',
         status: 'running',
@@ -941,8 +923,6 @@ test('relay rejects cross-account session list and wrong-session ticket subscrib
       type: 'gateway.sessions',
       gatewayId: 'gateway-test',
       sessions: [
-        { id: 'tth_ticket_test', provider: 'codex', title: 'ok', projectPath: process.cwd(), accountId: 'acct_1', workspaceId: 'ws_1', gatewayId: 'gateway-test', status: 'running', transport: 'pty-event-stream', lastActiveAt: Date.now() },
-        { id: 'tth_other_account', provider: 'codex', title: 'no', projectPath: process.cwd(), accountId: 'acct_2', workspaceId: 'ws_2', gatewayId: 'gateway-test', status: 'running', transport: 'pty-event-stream', lastActiveAt: Date.now() }
       ]
     }));
 
@@ -997,7 +977,6 @@ test('relay rejects unscoped sessions for legacy secret clients', async () => {
   const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
   const legacyScope: RelayAuthScope = {
     accountId: 'acct_legacy',
-    workspaceId: 'ws_legacy',
     userId: 'user_legacy',
     tokenClass: 'normal_client_access',
     expiresAt: Date.now() + 60_000,
@@ -1043,7 +1022,6 @@ test('relay rejects observe tickets that send control frames', async () => {
       type: 'gateway.sessions',
       gatewayId: 'gateway-test',
       sessions: [
-        { id: 'tth_ticket_test', provider: 'codex', title: 'ticket', projectPath: process.cwd(), accountId: 'acct_1', workspaceId: 'ws_1', gatewayId: 'gateway-test', status: 'running', transport: 'pty-event-stream', lastActiveAt: Date.now() }
       ]
     }));
     await waitForJson(ticketClient, (message) => message.type === 'sessions');
@@ -1072,7 +1050,6 @@ test('relay gateway.event syncToServer failure does not block frame forwarding',
       if (token === GATEWAY_TOKEN) {
         return {
           accountId: 'acct_1',
-          workspaceId: 'ws_1',
           gatewayId: 'gateway-test',
           tokenClass: 'gateway_access',
           expiresAt: Date.now() + 60_000,
@@ -1082,7 +1059,6 @@ test('relay gateway.event syncToServer failure does not block frame forwarding',
       if (token === CLIENT_TOKEN) {
         return {
           accountId: 'acct_1',
-          workspaceId: 'ws_1',
           userId: 'user_1',
           tokenClass: 'normal_client_access',
           expiresAt: Date.now() + 60_000,
@@ -1108,7 +1084,6 @@ test('relay gateway.event syncToServer failure does not block frame forwarding',
         title: 'Sync Fail Test',
         projectPath: process.cwd(),
         accountId: 'acct_1',
-        workspaceId: 'ws_1',
         gatewayId: 'gateway-test',
         userId: 'user_1',
         status: 'running',
@@ -1152,9 +1127,6 @@ test('relay routes client frames to matching account gateway only', async () => 
     port: 0,
     secret: SECRET,
     validateToken: async (token) => {
-      if (token === GW_TOKEN_1) return { accountId: 'acct_1', workspaceId: 'ws_1', userId: 'user_1', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw1' };
-      if (token === GW_TOKEN_2) return { accountId: 'acct_2', workspaceId: 'ws_2', userId: 'user_2', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw2' };
-      if (token === CLIENT_TOKEN_1) return { accountId: 'acct_1', workspaceId: 'ws_1', userId: 'user_1', tokenClass: 'normal_client_access', expiresAt: Date.now() + 60_000, jti: 'jti_cl1' };
       return undefined;
     }
   });
@@ -1210,7 +1182,6 @@ test('relay prefers matching user gateway within the same account', async () => 
       if (token === GW_TOKEN_USER_3) {
         return {
           accountId: 'acct_1',
-          workspaceId: 'ws_1',
           gatewayId: 'gateway-user3',
           userId: 'user_3',
           tokenClass: 'gateway_access',
@@ -1221,7 +1192,6 @@ test('relay prefers matching user gateway within the same account', async () => 
       if (token === GW_TOKEN_USER_5) {
         return {
           accountId: 'acct_1',
-          workspaceId: 'ws_1',
           gatewayId: 'gateway-user5',
           userId: 'user_5',
           tokenClass: 'gateway_access',
@@ -1232,7 +1202,6 @@ test('relay prefers matching user gateway within the same account', async () => 
       if (token === CLIENT_TOKEN_USER_3) {
         return {
           accountId: 'acct_1',
-          workspaceId: 'ws_1',
           userId: 'user_3',
           tokenClass: 'normal_client_access',
           expiresAt: Date.now() + 60_000,
@@ -1293,7 +1262,6 @@ test('relay does not bind a normal client to another user gateway in the same wo
       if (token === GW_TOKEN_USER_5) {
         return {
           accountId: 'acct_1',
-          workspaceId: 'ws_1',
           gatewayId: 'gateway-user5',
           userId: 'user_5',
           tokenClass: 'gateway_access',
@@ -1304,7 +1272,6 @@ test('relay does not bind a normal client to another user gateway in the same wo
       if (token === CLIENT_TOKEN_USER_3) {
         return {
           accountId: 'acct_1',
-          workspaceId: 'ws_1',
           userId: 'user_3',
           tokenClass: 'normal_client_access',
           expiresAt: Date.now() + 60_000,
@@ -1364,13 +1331,10 @@ test('relay rebinds client to subscribed session gateway', async () => {
     secret: SECRET,
     validateToken: async (token) => {
       if (token === GW_TOKEN_1) {
-        return { accountId: 'acct_1', workspaceId: 'ws_1', gatewayId: 'gateway-1', userId: 'user_3', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw_session1' };
       }
       if (token === GW_TOKEN_2) {
-        return { accountId: 'acct_1', workspaceId: 'ws_1', gatewayId: 'gateway-2', userId: 'user_3', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw_session2' };
       }
       if (token === CLIENT_TOKEN_USER_3) {
-        return { accountId: 'acct_1', workspaceId: 'ws_1', userId: 'user_3', tokenClass: 'normal_client_access', expiresAt: Date.now() + 60_000, jti: 'jti_client_session_user3' };
       }
       return undefined;
     }
@@ -1386,7 +1350,6 @@ test('relay rebinds client to subscribed session gateway', async () => {
     title: 'Rebind',
     projectPath: process.cwd(),
     accountId: 'acct_1',
-    workspaceId: 'ws_1',
     gatewayId: 'gateway-1',
     userId: 'user_3',
     status: 'running',

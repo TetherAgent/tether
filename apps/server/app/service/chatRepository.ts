@@ -38,47 +38,47 @@ export default class ChatRepositoryService extends Service {
     return typeof value === 'string' && value ? value : undefined;
   }
 
-  public async listChatSessions(accountId: string, workspaceId: string, userId: string): Promise<ChatSessionRecord[]> {
+  public async listChatSessions(accountId: string, userId: string): Promise<ChatSessionRecord[]> {
     if (!this.mysqlModeEnabled()) {
       return [];
     }
     const rows = await this.ctx.service.db.query(
       `SELECT id, gateway_id, provider, project_path, title, agent_session_id, status, transport, last_active_at, created_at
        FROM gateway_sessions
-       WHERE account_id = ? AND workspace_id = ? AND user_id = ? AND transport = 'chat'
+       WHERE account_id = ? AND user_id = ? AND transport = 'chat'
        ORDER BY last_active_at DESC, created_at DESC
        LIMIT 50`,
-      [accountId, workspaceId, userId]
+      [accountId, userId]
     );
     return (rows as Record<string, unknown>[]).map((row) => this.sessionFromRow(row));
   }
 
-  public async renameSession(sessionId: string, accountId: string, workspaceId: string, userId: string, title: string): Promise<void> {
+  public async renameSession(sessionId: string, accountId: string, userId: string, title: string): Promise<void> {
     if (!this.mysqlModeEnabled()) return;
     await this.ctx.service.db.query(
       `UPDATE gateway_sessions SET title = ?, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND account_id = ? AND workspace_id = ? AND user_id = ?`,
-      [title, sessionId, accountId, workspaceId, userId]
+       WHERE id = ? AND account_id = ? AND user_id = ?`,
+      [title, sessionId, accountId, userId]
     );
   }
 
-  public async deleteSession(sessionId: string, accountId: string, workspaceId: string, userId: string): Promise<void> {
+  public async deleteSession(sessionId: string, accountId: string, userId: string): Promise<void> {
     if (!this.mysqlModeEnabled()) return;
     const rows = await this.ctx.service.db.query(
-      `SELECT id, gateway_id FROM gateway_sessions WHERE id = ? AND account_id = ? AND workspace_id = ? AND user_id = ? AND transport = 'chat' LIMIT 1`,
-      [sessionId, accountId, workspaceId, userId]
+      `SELECT id, gateway_id FROM gateway_sessions WHERE id = ? AND account_id = ? AND user_id = ? AND transport = 'chat' LIMIT 1`,
+      [sessionId, accountId, userId]
     );
     if (!Array.isArray(rows) || rows.length === 0) {
       this.ctx.throw(403, 'Session not found or access denied');
     }
     const row = rows[0] as { gateway_id?: unknown };
     await this.ctx.service.db.query(
-      `INSERT INTO gateway_deleted_sessions (session_id, account_id, workspace_id, user_id, gateway_id, deleted_at)
-       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `INSERT INTO gateway_deleted_sessions (session_id, account_id, user_id, gateway_id, deleted_at)
+       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
        ON DUPLICATE KEY UPDATE
          gateway_id = VALUES(gateway_id),
          deleted_at = CURRENT_TIMESTAMP`,
-      [sessionId, accountId, workspaceId, userId, typeof row.gateway_id === 'string' ? row.gateway_id : null]
+      [sessionId, accountId, userId, typeof row.gateway_id === 'string' ? row.gateway_id : null]
     );
     await this.ctx.service.db.query('DELETE FROM gateway_chat_messages WHERE session_id = ?', [sessionId]);
     await this.ctx.service.db.query('DELETE FROM gateway_runtime_events WHERE session_id = ?', [sessionId]);
@@ -89,7 +89,6 @@ export default class ChatRepositoryService extends Service {
   public async listMessages(
     sessionId: string,
     accountId: string,
-    workspaceId: string,
     userId: string
   ): Promise<ChatMessageRecord[]> {
     if (!this.mysqlModeEnabled()) {
@@ -97,9 +96,9 @@ export default class ChatRepositoryService extends Service {
     }
     const sessionRows = await this.ctx.service.db.query(
       `SELECT id FROM gateway_sessions
-       WHERE id = ? AND account_id = ? AND workspace_id = ? AND user_id = ? AND transport = 'chat'
+       WHERE id = ? AND account_id = ? AND user_id = ? AND transport = 'chat'
        LIMIT 1`,
-      [sessionId, accountId, workspaceId, userId]
+      [sessionId, accountId, userId]
     );
     if (!Array.isArray(sessionRows) || sessionRows.length === 0) {
       this.ctx.throw(403, 'Session not found or access denied');
