@@ -11,7 +11,7 @@
 回复、权限提示等）。
 
 **本 phase 交付：**
-- 全新独立 app `apps/mobile-web`（React，移动端优先 PWA）
+- 在现有 `apps/web` 中新增类微信聊天界面（新路由，不删旧页面）
 - 左侧导航（会话列表、新建会话入口、设置/账号）+ 右侧聊天区，类微信布局
 - 通过 Relay WS 新帧创建 session（不依赖 CLI）
 - Gateway 动态提供可用 model 列表
@@ -19,7 +19,8 @@
 - Relay 同步**全量事件**到 Server DB
 
 **不在本 phase：**
-- 修改 apps/web（保持现状）
+- 新建独立 app（沿用 apps/web）
+- 删除现有 apps/web 旧页面（两套路由并存）
 - Flutter 客户端（Phase 9）
 - 多 workspace 支持（Phase 10）
 - 离线模式/PWA push 通知
@@ -54,7 +55,7 @@
 - **D-05:** UI 中不同 model 对应不同头像/颜色：Claude = 紫色，Codex = 蓝色，opencode = 橙色（可扩展）。
 
 ### UI 结构（类微信）
-- **D-06:** 新建 `apps/mobile-web`，独立 React 应用，不改动 `apps/web`。
+- **D-06:** 在现有 `apps/web` 中新增路由和页面，不新建独立 app。新旧路由并存，不删旧页面。
 - **D-07:** 布局：左侧固定窄导航栏（图标 tab）+ 右侧两列区（会话列表 + 聊天区）。移动端折叠为单列（会话列表 ↔ 聊天区）。
 - **D-08:** 左侧导航 tab：① 会话列表 ② 新建会话（`+`按钮触发 model 选择弹窗）③ 设置/账号。
 - **D-09:** 会话列表每行显示：AI model 头像（颜色圆形）+ model 名称、最后一条消息预览（截断 50 字）、时间戳、session 运行状态指示（闪烁绿点）。
