@@ -6,11 +6,11 @@ import test from 'node:test';
 import WebSocket, { WebSocketServer } from 'ws';
 import type { RelayAuthScope, RelayGatewayToServerFrame, RelayServerToClientFrame } from '@tether/protocol';
 import { startRelayServer } from '../../relay/src/relay.js';
-import { createSessionId } from './ids.js';
-import { PtySessionManager } from './pty.js';
-import { relayGatewayUrl, startRelayClient } from './relay-client.js';
-import type { SessionRunnerClient } from './session-runner-client.js';
-import { Store } from './store.js';
+import { createSessionId } from '../src/ids.js';
+import { PtySessionManager } from '../src/pty.js';
+import { relayGatewayUrl, startRelayClient } from '../src/relay-client.js';
+import type { SessionRunnerClient } from '../src/session-runner-client.js';
+import { Store } from '../src/store.js';
 
 const SECRET = 'relay-client-test-secret';
 const GATEWAY_SCOPE = {

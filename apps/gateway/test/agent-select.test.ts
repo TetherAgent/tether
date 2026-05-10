@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { detectSelectOptions } from './agent-select-detect.js';
+import { detectSelectOptions } from '../src/agent-select-detect.js';
 
 test('detects two consecutive numbered lines', () => {
   assert.deepEqual(detectSelectOptions(['1. Option A', '2. Option B']), [

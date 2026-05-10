@@ -4,7 +4,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
-import { Store } from './store.js';
+import { Store } from '../src/store.js';
 
 function tempStore(): { store: Store; cleanup: () => void } {
   const dir = mkdtempSync(path.join(tmpdir(), 'tether-store-'));

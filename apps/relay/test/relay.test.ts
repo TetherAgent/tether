@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import WebSocket from 'ws';
 import type { RelayAuthScope, RelayServerToClientFrame, RelaySession } from '@tether/protocol';
-import { startRelayServer } from './relay.js';
+import { startRelayServer } from '../src/relay.js';
 
 const SECRET = 'test-relay-secret';
 const GATEWAY_TOKEN = 'gateway-token';

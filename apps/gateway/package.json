@@ -10,7 +10,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --experimental-sqlite --no-warnings=ExperimentalWarning --import tsx --test src/*.test.ts"
+    "test": "node --experimental-sqlite --no-warnings=ExperimentalWarning --import tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.4",

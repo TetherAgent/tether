@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import path from 'node:path';
 import { PROVIDERS } from '@tether/core';
-import { buildCreateSessionPayload } from './forwarding.js';
+import { buildCreateSessionPayload } from '../src/forwarding.js';
+
+const mainSource = () => readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
 
 test('does not include command-shaped fields in forwarded create payload', () => {
   const payload = buildCreateSessionPayload(
@@ -40,12 +41,12 @@ test('session title is Tether metadata and is not forwarded as provider args', (
 });
 
 test('provider command declares --title before provider args passthrough', () => {
-  const source = readFileSync(path.resolve(process.cwd(), 'src/main.ts'), 'utf8');
+  const source = mainSource();
   assert.match(source, /\.option\('--title <title>', '前端展示的 session 标题'\)[\s\S]*\.argument\('\[providerArgs\.\.\.\]'\)/);
 });
 
 test('gateway login wiring is present in main.ts', () => {
-  const source = readFileSync(path.resolve(process.cwd(), 'src/main.ts'), 'utf8');
+  const source = mainSource();
   assert.match(source, /gateway'\)\s*[\s\S]*command\('login'\)/);
   assert.match(source, /TETHER_SERVER_URL/);
   assert.match(source, /auth\.json/);
@@ -53,7 +54,7 @@ test('gateway login wiring is present in main.ts', () => {
 });
 
 test('gateway login defaults to prod and keeps local as an explicit environment', () => {
-  const source = readFileSync(path.resolve(process.cwd(), 'src/main.ts'), 'utf8');
+  const source = mainSource();
   assert.match(source, /\.option\('--env <env>'/);
   assert.match(source, /process\.env\.TETHER_SERVER_URL/);
   assert.match(source, /options\.env === 'local' \? LOCAL_SERVER_URL : DEFAULT_SERVER_URL/);
@@ -61,21 +62,21 @@ test('gateway login defaults to prod and keeps local as an explicit environment'
 });
 
 test('foreground gateway checks port before prompting for auth', () => {
-  const source = readFileSync(path.resolve(process.cwd(), 'src/main.ts'), 'utf8');
+  const source = mainSource();
   assert.match(source, /assertGatewayPortAvailable\(resolved\.gateway\.host, resolved\.gateway\.port\);[\s\S]*ensureGatewayAuthForProfile/);
   assert.match(source, /EADDRINUSE/);
   assert.match(source, /pnpm tether gateway stop/);
 });
 
 test('launchd gateway profile skips interactive prompt', () => {
-  const source = readFileSync(path.resolve(process.cwd(), 'src/main.ts'), 'utf8');
+  const source = mainSource();
   assert.match(source, /gatewayProfileFromEnv/);
   assert.match(source, /process\.env\.TETHER_GATEWAY_PROFILE/);
   assert.match(source, /startGatewayForeground\(launchdProfile\)/);
 });
 
 test('gateway delete-db requires confirmation and removes sqlite sidecar files', () => {
-  const source = readFileSync(path.resolve(process.cwd(), 'src/main.ts'), 'utf8');
+  const source = mainSource();
   assert.match(source, /command\('delete-db'\)/);
   assert.match(source, /\.option\('--yes'/);
   assert.match(source, /删除数据库会清空 session 历史和回放数据/);
@@ -85,7 +86,7 @@ test('gateway delete-db requires confirmation and removes sqlite sidecar files',
 });
 
 test('pty attach defaults to reconnect with fresh tickets and event cursor', () => {
-  const source = readFileSync(path.resolve(process.cwd(), 'src/main.ts'), 'utf8');
+  const source = mainSource();
   assert.match(source, /\.option\('--no-reconnect'/);
   assert.match(source, /const reconnect = options\.reconnect !== false/);
   assert.match(source, /attempt = await attachPtySessionOnce/);
@@ -100,7 +101,7 @@ test('pty attach defaults to reconnect with fresh tickets and event cursor', () 
 });
 
 test('pty attach maps Ctrl-C to session stop and Ctrl-A to local detach', () => {
-  const source = readFileSync(path.resolve(process.cwd(), 'src/main.ts'), 'utf8');
+  const source = mainSource();
   assert.match(source, /Press Ctrl-C to stop, Ctrl-A to detach/);
   assert.match(source, /const stopAttachedSession = \(\) =>/);
   assert.match(source, /stopPtySessionViaGateway\(id, `http:\/\/\$\{options\.host\}:\$\{options\.port\}`\)/);
@@ -111,7 +112,7 @@ test('pty attach maps Ctrl-C to session stop and Ctrl-A to local detach', () => 
 });
 
 test('pty attach prints explicit terminal closeout for stop, exit, detach and lost states', () => {
-  const source = readFileSync(path.resolve(process.cwd(), 'src/main.ts'), 'utf8');
+  const source = mainSource();
   assert.match(source, /Session 已停止：\$\{id\}/);
   assert.match(source, /已退出本地 attach，session 继续运行：\$\{id\}/);
   assert.match(source, /Session 已失联：\$\{id\}/);
@@ -120,7 +121,7 @@ test('pty attach prints explicit terminal closeout for stop, exit, detach and lo
 });
 
 test('stop prints success and can fall back to runner socket', () => {
-  const source = readFileSync(path.resolve(process.cwd(), 'src/main.ts'), 'utf8');
+  const source = mainSource();
   assert.match(source, /console\.log\(result === 'already-stopped'/);
   assert.match(source, /已关闭 \$\{id\}/);
   assert.match(source, /stopPtySessionViaGateway/);

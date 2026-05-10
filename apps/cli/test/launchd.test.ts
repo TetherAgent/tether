@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildGatewayPlist, launchdServiceTarget } from './launchd.js';
+import { buildGatewayPlist, launchdServiceTarget } from '../src/launchd.js';
 
 test('plist uses absolute node and launcher paths', () => {
   const plist = buildGatewayPlist({

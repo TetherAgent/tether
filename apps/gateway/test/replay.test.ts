@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { replaySessionEvents, type ReplayPage } from './replay.js';
-import { Store, type Session } from './store.js';
+import { replaySessionEvents, type ReplayPage } from '../src/replay.js';
+import { Store, type Session } from '../src/store.js';
 
 function tempStore(): { store: Store; cleanup: () => void } {
   const dir = mkdtempSync(path.join(tmpdir(), 'tether-replay-'));

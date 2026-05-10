@@ -5,10 +5,10 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import WebSocket from 'ws';
-import { startDaemon } from './daemon.js';
-import { createSessionId } from './ids.js';
-import { PtySessionManager } from './pty.js';
-import { Store } from './store.js';
+import { startDaemon } from '../src/daemon.js';
+import { createSessionId } from '../src/ids.js';
+import { PtySessionManager } from '../src/pty.js';
+import { Store } from '../src/store.js';
 
 const TOKEN_GATEWAY = 'gateway-test-token';
 const TOKEN_NORMAL = 'normal-test-token';
@@ -29,7 +29,7 @@ async function withAuthFixture<T>(run: (fixture: {
   const dir = mkdtempSync(path.join(tmpdir(), 'tether-auth-'));
   const authPath = path.join(dir, 'auth.json');
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    if (req.method !== 'POST' || req.url !== '/api/token/validate') {
+    if (req.method !== 'POST' || req.url !== '/api/server/token/validate') {
       res.statusCode = 404;
       res.end();
       return;

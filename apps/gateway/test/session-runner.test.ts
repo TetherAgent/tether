@@ -6,9 +6,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { latestNewCodexSessionId, readCodexSessionId, SessionRunner, runnerSocketPath } from './session-runner.js';
-import { SessionRunnerClient } from './session-runner-client.js';
-import { Store } from './store.js';
+import { latestNewCodexSessionId, readCodexSessionId, SessionRunner, runnerSocketPath } from '../src/session-runner.js';
+import { SessionRunnerClient } from '../src/session-runner-client.js';
+import { Store } from '../src/store.js';
 
 function tempRunnerFixture(): { store: Store; dir: string; socketDir: string; cleanup: () => void } {
   const dir = mkdtempSync(path.join(tmpdir(), 'tether-runner-'));
@@ -133,7 +133,7 @@ test('runner client can ping, write, subscribe events and stop', async () => {
 
 test('detached runner process survives parent process exit', async () => {
   const { store, dir, socketDir, cleanup } = tempRunnerFixture();
-  const fixture = fileURLToPath(new URL('./session-runner-detach-fixture.ts', import.meta.url));
+  const fixture = fileURLToPath(new URL('../src/session-runner-detach-fixture.ts', import.meta.url));
   const payload = Buffer.from(JSON.stringify({
     dbPath: path.join(dir, 'tether.db'),
     socketDir,

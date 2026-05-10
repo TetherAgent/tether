@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { AgentStatusPublisher } from './session-status-deriver.js';
-import { Store, type SessionEvent } from './store.js';
+import { AgentStatusPublisher } from '../src/session-status-deriver.js';
+import { Store, type SessionEvent } from '../src/store.js';
 
 test('AgentStatusPublisher emits submitted then running for PTY input/output', () => {
   const { store, cleanup } = createTempStore();

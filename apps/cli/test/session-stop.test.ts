@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { runningSessionIds } from './session-stop.js';
+import { runningSessionIds } from '../src/session-stop.js';
 
 test('runningSessionIds returns only running sessions in list order', () => {
   assert.deepEqual(

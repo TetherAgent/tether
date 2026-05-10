@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ChatSessionRunner } from './chat-session-runner.js';
-import { Store } from './store.js';
+import { ChatSessionRunner } from '../src/chat-session-runner.js';
+import { Store } from '../src/store.js';
 
 function tempStore(): { store: Store; cleanup: () => void } {
   const dir = mkdtempSync(path.join(tmpdir(), 'tether-chat-runner-'));
