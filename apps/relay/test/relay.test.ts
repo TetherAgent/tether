@@ -23,6 +23,7 @@ function createRelay(options?: { allowLegacySecret?: boolean; omitGatewayIdInSco
           accountId: 'acct_1',
           workspaceId: 'ws_1',
           gatewayId: options?.omitGatewayIdInScope ? undefined : 'gateway-test',
+          userId: 'user_1',
           tokenClass: 'gateway_access',
           expiresAt: Date.now() + 60_000,
           jti: 'jti_gateway'
@@ -990,7 +991,7 @@ test('relay hides unscoped sessions from token clients', async () => {
   }
 });
 
-test('relay allows unscoped sessions only for legacy secret clients', async () => {
+test('relay rejects unscoped sessions for legacy secret clients', async () => {
   const relay = await createRelay({ allowLegacySecret: true });
   const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
   const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
@@ -1005,7 +1006,7 @@ test('relay allows unscoped sessions only for legacy secret clients', async () =
 
   try {
     await authenticateGateway(gateway);
-    const clientId = await authenticateLegacyClient(client, legacyScope);
+    await authenticateLegacyClient(client, legacyScope);
 
     const sessionsPromise = waitForJson(client, (message) => message.type === 'sessions');
     gateway.send(JSON.stringify({
@@ -1017,12 +1018,11 @@ test('relay allows unscoped sessions only for legacy secret clients', async () =
     }));
 
     const sessions = await sessionsPromise;
-    assert.equal((sessions.sessions as RelaySession[]).some((session) => session.id === 'tth_legacy_unscoped'), true);
+    assert.deepEqual(sessions.sessions, []);
 
-    const subscribePromise = waitForJson(gateway, (message) => message.type === 'client.subscribe');
     client.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_legacy_unscoped', after: 0, mode: 'control' }));
-    const subscribe = await subscribePromise;
-    assert.equal(subscribe.clientId, clientId);
+    const error = await waitForJson(client, (message) => message.type === 'error' && message.code === 'gateway_unavailable');
+    assert.equal(error.message, 'gateway is not connected');
   } finally {
     gateway.close();
     client.close();
@@ -1152,8 +1152,8 @@ test('relay routes client frames to matching account gateway only', async () => 
     port: 0,
     secret: SECRET,
     validateToken: async (token) => {
-      if (token === GW_TOKEN_1) return { accountId: 'acct_1', workspaceId: 'ws_1', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw1' };
-      if (token === GW_TOKEN_2) return { accountId: 'acct_2', workspaceId: 'ws_2', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw2' };
+      if (token === GW_TOKEN_1) return { accountId: 'acct_1', workspaceId: 'ws_1', userId: 'user_1', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw1' };
+      if (token === GW_TOKEN_2) return { accountId: 'acct_2', workspaceId: 'ws_2', userId: 'user_2', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw2' };
       if (token === CLIENT_TOKEN_1) return { accountId: 'acct_1', workspaceId: 'ws_1', userId: 'user_1', tokenClass: 'normal_client_access', expiresAt: Date.now() + 60_000, jti: 'jti_cl1' };
       return undefined;
     }
@@ -1275,6 +1275,78 @@ test('relay prefers matching user gateway within the same account', async () => 
     assert.equal(leakCheck, 'isolated');
   } finally {
     gatewayUser3.close();
+    gatewayUser5.close();
+    client.close();
+    await relay.close();
+  }
+});
+
+test('relay does not bind a normal client to another user gateway in the same workspace', async () => {
+  const GW_TOKEN_USER_5 = 'gw-token-only-user5';
+  const CLIENT_TOKEN_USER_3 = 'client-token-only-user3';
+
+  const relay = await startRelayServer({
+    host: '127.0.0.1',
+    port: 0,
+    secret: SECRET,
+    validateToken: async (token) => {
+      if (token === GW_TOKEN_USER_5) {
+        return {
+          accountId: 'acct_1',
+          workspaceId: 'ws_1',
+          gatewayId: 'gateway-user5',
+          userId: 'user_5',
+          tokenClass: 'gateway_access',
+          expiresAt: Date.now() + 60_000,
+          jti: 'jti_gw_only_user5'
+        };
+      }
+      if (token === CLIENT_TOKEN_USER_3) {
+        return {
+          accountId: 'acct_1',
+          workspaceId: 'ws_1',
+          userId: 'user_3',
+          tokenClass: 'normal_client_access',
+          expiresAt: Date.now() + 60_000,
+          jti: 'jti_client_only_user3'
+        };
+      }
+      return undefined;
+    }
+  });
+
+  const wsUrl = relay.url.replace('http', 'ws');
+  const gatewayUser5 = new WebSocket(`${wsUrl}/ws/gateway`);
+  const client = new WebSocket(`${wsUrl}/ws/client`);
+
+  try {
+    await waitForOpen(gatewayUser5);
+    gatewayUser5.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-user5', token: GW_TOKEN_USER_5 }));
+    await waitForJson(gatewayUser5, (m) => m.type === 'gateway.auth.ok');
+
+    await waitForOpen(client);
+    const helloPromise = waitForJson(client, (m) => m.type === 'hello');
+    client.send(JSON.stringify({ type: 'client.auth', token: CLIENT_TOKEN_USER_3 }));
+    await waitForJson(client, (m) => m.type === 'client.auth.ok');
+    const hello = await helloPromise;
+    assert.equal(hello.gatewayId, undefined);
+
+    const statusCheck = await Promise.race([
+      waitForJson(client, (m) => m.type === 'gateway.status' && m.status === 'connected').then(() => 'leaked'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('isolated'), 300))
+    ]);
+    assert.equal(statusCheck, 'isolated');
+
+    client.send(JSON.stringify({ type: 'client.list-providers' }));
+    const unavailable = await waitForJson(client, (m) => m.type === 'error' && m.code === 'gateway_unavailable');
+    assert.equal(unavailable.message, 'gateway is not connected');
+
+    const leakCheck = await Promise.race([
+      waitForJson(gatewayUser5, (m) => m.type === 'client.list-providers').then(() => 'leaked'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('isolated'), 300))
+    ]);
+    assert.equal(leakCheck, 'isolated');
+  } finally {
     gatewayUser5.close();
     client.close();
     await relay.close();

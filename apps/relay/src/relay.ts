@@ -243,9 +243,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         if (disconnectedScope) {
           broadcastGatewayStatus(gatewayId, 'disconnected', disconnectedScope);
         }
-        // Notify only clients whose account has no remaining gateway
-        if (disconnectedScope?.accountId && !firstGatewayForAccount(disconnectedScope.accountId)) {
-          broadcastGatewayUnavailableForAccount(disconnectedScope.accountId);
+        if (disconnectedScope && !firstGatewayForScope(disconnectedScope)) {
+          broadcastGatewayUnavailableForScope(gatewayId, disconnectedScope);
         }
       }
     });
@@ -742,10 +741,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     if (client.gatewayId) {
       return client.gatewayId;
     }
-    const accountId = client.scope?.accountId;
     const gatewayId = client.scope?.gatewayId ??
-      firstGatewayForScope(client.scope)?.gatewayId ??
-      (accountId ? firstGatewayForAccount(accountId)?.gatewayId : firstConnectedGateway()?.gatewayId);
+      firstGatewayForScope(client.scope)?.gatewayId;
     client.gatewayId = gatewayId;
     return gatewayId;
   }
@@ -783,9 +780,10 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     return true;
   }
 
-  function broadcastGatewayUnavailableForAccount(accountId: string): void {
+  function broadcastGatewayUnavailableForScope(gatewayId: string, gatewayScope: RelayAuthScope): void {
     for (const client of clients.values()) {
-      if (client.scope?.accountId !== accountId) continue;
+      if (!clientCanUseGateway(client.scope, gatewayScope)) continue;
+      if (client.gatewayId && client.gatewayId !== gatewayId) continue;
       sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'sessions', sessions: [] });
       sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'error', code: 'gateway_unavailable', message: 'gateway is not connected' });
     }
@@ -793,8 +791,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
 
   function broadcastGatewayStatus(gatewayId: string, status: 'connected' | 'disconnected', gatewayScope: RelayAuthScope): void {
     for (const client of clients.values()) {
-      if (client.scope?.accountId !== gatewayScope.accountId) continue;
-      if (client.scope?.workspaceId !== gatewayScope.workspaceId) continue;
+      if (!clientCanUseGateway(client.scope, gatewayScope)) continue;
       if (client.gatewayId && client.gatewayId !== gatewayId) continue;
       if (!client.gatewayId && status === 'connected') {
         client.gatewayId = gatewayId;
@@ -879,8 +876,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
 
   function gatewayForSession(session: RelaySession): GatewayState | undefined {
     if (session.gatewayId) return gateways.get(session.gatewayId);
-    // No gatewayId on session — scope-limited fallback to avoid cross-account visibility
-    return firstGatewayForSession(session) ?? (session.accountId ? firstGatewayForAccount(session.accountId) : undefined);
+    return firstGatewayForSession(session);
   }
 
   function firstConnectedGateway(): GatewayState | undefined {
@@ -894,31 +890,16 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
 
   function firstGatewayForScope(scope: RelayAuthScope | undefined): GatewayState | undefined {
     if (!scope) return undefined;
-    return firstGatewayMatching((gatewayScope) =>
-      gatewayScope?.accountId === scope.accountId &&
-      gatewayScope?.workspaceId === scope.workspaceId &&
-      Boolean(scope.userId) &&
-      gatewayScope?.userId === scope.userId
-    ) ?? firstGatewayMatching((gatewayScope) =>
-      gatewayScope?.accountId === scope.accountId &&
-      gatewayScope?.workspaceId === scope.workspaceId
-    ) ?? firstGatewayForAccount(scope.accountId);
+    return firstGatewayMatching((gatewayScope) => clientCanUseGateway(scope, gatewayScope));
   }
 
   function firstGatewayForSession(session: RelaySession): GatewayState | undefined {
+    if (!session.userId) return undefined;
     return firstGatewayMatching((gatewayScope) =>
       gatewayScope?.accountId === session.accountId &&
       gatewayScope?.workspaceId === session.workspaceId &&
-      Boolean(session.userId) &&
       gatewayScope?.userId === session.userId
-    ) ?? firstGatewayMatching((gatewayScope) =>
-      gatewayScope?.accountId === session.accountId &&
-      gatewayScope?.workspaceId === session.workspaceId
     );
-  }
-
-  function firstGatewayForAccount(accountId: string): GatewayState | undefined {
-    return firstGatewayMatching((gatewayScope) => gatewayScope?.accountId === accountId);
   }
 
   function firstGatewayMatching(matches: (scope: RelayAuthScope | undefined) => boolean): GatewayState | undefined {
@@ -928,6 +909,20 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
       }
     }
     return undefined;
+  }
+
+  function clientCanUseGateway(clientScope: RelayAuthScope | undefined, gatewayScope: RelayAuthScope | undefined): boolean {
+    if (!clientScope || !gatewayScope) return false;
+    if (clientScope.gatewayId) {
+      return gatewayScope.gatewayId === clientScope.gatewayId;
+    }
+    if (gatewayScope.accountId !== clientScope.accountId || gatewayScope.workspaceId !== clientScope.workspaceId) {
+      return false;
+    }
+    if (clientScope.userId) {
+      return gatewayScope.userId === clientScope.userId;
+    }
+    return false;
   }
 
   function hasConnectedGateway(): boolean {
@@ -1006,7 +1001,7 @@ function clientCanSeeSession(clientScope: RelayAuthScope | undefined, authMethod
   if (!clientScope) {
     return false;
   }
-  if (authMethod === 'token' && (!session.accountId || !session.workspaceId || !session.gatewayId)) {
+  if (!session.accountId || !session.workspaceId || !session.gatewayId) {
     return false;
   }
   if (session.accountId && session.accountId !== clientScope.accountId) {
