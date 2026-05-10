@@ -5,15 +5,15 @@
   "scripts": {
     "dev": "egg-bin dev --ts",
     "debug": "egg-bin debug --ts",
-    "build": "pnpm tsc",
+    "build": "pnpm run tsc",
     "tsc": "tsc -p tsconfig.json",
-    "start": "pnpm clean && pnpm tsc && pnpm stop && egg-scripts start --require ts-node/register --daemon --workers=1 --port=4800 --title=egg-server-tether-api",
+    "start": "pnpm run clean && pnpm run tsc && pnpm run stop && egg-scripts start --require ts-node/register --daemon --workers=1 --port=4800 --title=egg-server-tether-api",
     "stop": "egg-scripts stop --title=egg-server-tether-api",
     "clean": "find app config test -type f \\( -name '*.js' -o -name '*.js.map' \\) -delete && find . -maxdepth 1 -type f \\( -name '*.js' -o -name '*.js.map' \\) ! -name '.autod.conf.js' -delete && find ../../packages/core/src -type f \\( -name '*.js' -o -name '*.js.map' -o -name '*.d.ts' -o -name '*.d.ts.map' \\) -delete && tsc -b --clean && rm -rf dist",
     "test-local": "egg-bin test",
-    "test": "pnpm test-local",
+    "test": "pnpm run test-local",
     "cov": "egg-bin cov",
-    "typecheck": "pnpm tsc",
+    "typecheck": "pnpm run tsc",
     "ets": "ets"
   },
   "dependencies": {
