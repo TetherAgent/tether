@@ -71,6 +71,7 @@ type ActiveSubprocess = {
   lastUsage: ChatUsage;
   agentSessionId?: string;
   lineBuffer: string;
+  completed: boolean;
 };
 
 const SUPPORTED_PROVIDER = 'claude';
@@ -121,17 +122,19 @@ export class ChatSessionRunner implements IChatRunner {
     }
 
     const sessionId = session.id;
-    const cwd = params.sessionId === null ? params.cwd : session.projectPath;
+    const cwd = normalizeCwd(params.sessionId === null ? params.cwd : session.projectPath);
+    const providerArgs = [
+      '-p',
+      params.message,
+      '--output-format',
+      'stream-json',
+      '--verbose',
+      ...('model' in params && params.model ? ['--model', params.model] : []),
+      ...(session.agentSessionId ? ['--resume', session.agentSessionId] : [])
+    ];
     const child = spawn(
       'claude',
-      [
-        '-p',
-        params.message,
-        '--output-format',
-        'stream-json',
-        '--verbose',
-        ...(session.agentSessionId ? ['--resume', session.agentSessionId] : [])
-      ],
+      providerArgs,
       {
         cwd,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -151,7 +154,8 @@ export class ChatSessionRunner implements IChatRunner {
       cwd,
       lastUsage: ZERO_USAGE,
       agentSessionId: session.agentSessionId,
-      lineBuffer: ''
+      lineBuffer: '',
+      completed: false
     };
     this.activeSubprocesses.set(sessionId, active);
 
@@ -184,9 +188,21 @@ export class ChatSessionRunner implements IChatRunner {
       this.emitError(params.clientId, sessionId, 'chat_runner_stderr', message);
     });
 
-    child.on('close', () => {
+    child.on('error', (error) => {
+      this.emitError(params.clientId, sessionId, 'chat_runner_spawn_failed', error.message);
+      this.activeSubprocesses.delete(sessionId);
+    });
+
+    child.on('close', (code) => {
       const current = this.activeSubprocesses.get(sessionId);
       if (current?.process === child) {
+        if (!current.completed) {
+          if (code === 0 && current.accumulatedText) {
+            this.emitResult(sessionId, current, current.accumulatedText, current.lastUsage);
+            return;
+          }
+          this.emitError(params.clientId, sessionId, 'chat_runner_exit', `chat runner exited before producing a result${typeof code === 'number' ? ` (${code})` : ''}`);
+        }
         this.activeSubprocesses.delete(sessionId);
       }
     });
@@ -222,7 +238,7 @@ export class ChatSessionRunner implements IChatRunner {
       id: sessionId,
       provider: params.provider,
       title: params.message.slice(0, 60),
-      projectPath: params.cwd,
+      projectPath: normalizeCwd(params.cwd),
       accountId: params.accountId,
       workspaceId: params.workspaceId,
       userId: params.userId,
@@ -261,6 +277,24 @@ export class ChatSessionRunner implements IChatRunner {
       return;
     }
 
+    if (eventType === 'assistant') {
+      const message = recordValue(event.message);
+      active.agentSessionId = readSessionId(event) ?? readSessionId(message) ?? active.agentSessionId;
+      const text = readAssistantText(message);
+      if (text) {
+        const delta = text.startsWith(active.accumulatedText) ? text.slice(active.accumulatedText.length) : text;
+        active.accumulatedText = text;
+        if (delta) {
+          this.options.onDelta({ clientId: active.clientId, sessionId, text: delta });
+        }
+      }
+      const usage = normalizeUsage(message?.usage);
+      if (usage) {
+        active.lastUsage = usage;
+      }
+      return;
+    }
+
     if (eventType === 'message_delta' || eventType === 'message') {
       const message = recordValue(event.message);
       const usage = normalizeUsage(event.usage ?? message?.usage);
@@ -292,28 +326,53 @@ export class ChatSessionRunner implements IChatRunner {
       return;
     }
 
+    if (eventType === 'result') {
+      if (event.is_error === true) {
+        this.emitError(active.clientId, sessionId, 'chat_runner_error', String(event.result ?? 'chat runner error'));
+        this.activeSubprocesses.delete(sessionId);
+        return;
+      }
+      const text = typeof event.result === 'string' ? event.result : active.accumulatedText;
+      const usage = normalizeUsage(event.usage) ?? active.lastUsage;
+      const stopReason = typeof event.stop_reason === 'string'
+        ? event.stop_reason
+        : typeof event.terminal_reason === 'string'
+          ? event.terminal_reason
+          : undefined;
+      active.agentSessionId = readSessionId(event) ?? active.agentSessionId;
+      this.emitResult(sessionId, active, text, usage, stopReason);
+      return;
+    }
+
     if (eventType === 'message_stop') {
       const usage = normalizeUsage(event.usage ?? recordValue(event.message)?.usage) ?? active.lastUsage;
       const stopReason = typeof event.stop_reason === 'string' ? event.stop_reason : undefined;
-      const agentSessionId = readSessionId(event) ?? readSessionId(recordValue(event.message)) ?? active.agentSessionId ?? randomUUID();
-      const resultEvent = this.options.store.appendChatEvent(sessionId, 'agent.result', {
-        text: active.accumulatedText,
-        usage,
-        ...(stopReason ? { stop_reason: stopReason } : {})
-      });
-      this.options.store.updateAgentSessionId(sessionId, agentSessionId);
-      this.options.store.touchSession(sessionId);
-      this.options.onAgentIdUpdate(sessionId, agentSessionId);
-      this.options.onResult({
-        clientId: active.clientId,
-        sessionId,
-        event: resultEvent,
-        text: active.accumulatedText,
-        usage,
-        stopReason
-      });
-      this.activeSubprocesses.delete(sessionId);
+      active.agentSessionId = readSessionId(event) ?? readSessionId(recordValue(event.message)) ?? active.agentSessionId;
+      this.emitResult(sessionId, active, active.accumulatedText, usage, stopReason);
     }
+  }
+
+  private emitResult(sessionId: string, active: ActiveSubprocess, text: string, usage: ChatUsage, stopReason?: string): void {
+    active.completed = true;
+    active.accumulatedText = text;
+    const agentSessionId = active.agentSessionId ?? randomUUID();
+    const resultEvent = this.options.store.appendChatEvent(sessionId, 'agent.result', {
+      text,
+      usage,
+      ...(stopReason ? { stop_reason: stopReason } : {})
+    });
+    this.options.store.updateAgentSessionId(sessionId, agentSessionId);
+    this.options.store.touchSession(sessionId);
+    this.options.onAgentIdUpdate(sessionId, agentSessionId);
+    this.options.onResult({
+      clientId: active.clientId,
+      sessionId,
+      event: resultEvent,
+      text,
+      usage,
+      stopReason
+    });
+    this.activeSubprocesses.delete(sessionId);
   }
 
   private emitTool(sessionId: string, clientId: string, name: string, input: Record<string, unknown>, result?: string, isError?: boolean): void {
@@ -374,6 +433,25 @@ export class CopilotChatRunner implements IChatRunner {
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
+}
+
+function normalizeCwd(value: string): string {
+  const trimmed = value.trim();
+  return trimmed || process.cwd();
+}
+
+function readAssistantText(message: Record<string, unknown> | undefined): string | undefined {
+  const content = message?.content;
+  if (!Array.isArray(content)) {
+    return undefined;
+  }
+  const text = content
+    .map((item) => {
+      const block = recordValue(item);
+      return block?.type === 'text' && typeof block.text === 'string' ? block.text : '';
+    })
+    .join('');
+  return text || undefined;
 }
 
 function normalizeUsage(value: unknown): ChatUsage | undefined {

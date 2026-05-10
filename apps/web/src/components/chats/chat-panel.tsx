@@ -151,9 +151,6 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
       if (frame.type === 'client.auth.ok') {
         setWsReady(true);
         ws.send(JSON.stringify({ type: 'client.list-providers' }));
-        if (currentSessionId) {
-          ws.send(JSON.stringify({ type: 'client.subscribe', sessionId: currentSessionId, mode: 'control' }));
-        }
         return;
       }
       if (frame.type === 'gateway.providers') {
@@ -273,7 +270,19 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
           );
           setIsInflight(false);
         } else {
-          setMessages((items) => [...items, { kind: 'system', id: `error-${Date.now()}`, text: frameMessage }]);
+          const agentId = currentAgentIdRef.current;
+          currentAgentIdRef.current = null;
+          setMessages((items) => {
+            const nextItems = agentId
+              ? items.map((item) =>
+                  item.kind === 'agent' && item.id === agentId
+                    ? { ...item, isStreaming: false, isWaiting: false, isLost: true }
+                    : item
+                )
+              : items;
+            return [...nextItems, { kind: 'system', id: `error-${Date.now()}`, text: frameMessage }];
+          });
+          setIsInflight(false);
         }
       }
     };
@@ -284,7 +293,7 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
       ws.close();
       wsRef.current = null;
     };
-  }, [currentSessionId, navigate, normalAuth?.accessToken, selectedProvider, t.chatsProviderFail, t.chatsSessionStarted]);
+  }, [navigate, normalAuth?.accessToken, selectedProvider, t.chatsProviderFail, t.chatsSessionStarted]);
 
   React.useEffect(() => {
     const models = providerOptions.find((provider) => provider.provider === selectedProvider)?.models ?? [];
