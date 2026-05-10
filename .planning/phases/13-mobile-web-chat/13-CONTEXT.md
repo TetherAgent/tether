@@ -115,11 +115,32 @@ Relay 同步 → Server DB（全量事件实时推送）
 - **D-20:** Gateway 在本地 SQLite 写入：
   - 用户消息（`client.chat` 收到时立即写）
   - AI 完整回复 + usage（`message_stop` 后写）
-  - `claude_session_id`（`message_stop` 后写，关联到 Tether sessionId）
-- **D-21:** Relay 将全量事件（`agent.delta` / `agent.result` / `agent.tool`）实时同步到 Server DB。
-- **D-22:** 同一对话再发消息时，Gateway 用 Tether sessionId 查本地 SQLite 取 `claude_session_id`，通过 `--resume` 传给 claude CLI 续接上下文。
+  - `ai_session_id`（工具返回的续接 ID，`message_stop` 后写，关联到 Tether sessionId）
+- **D-21:** Relay 将全量事件实时同步到 Server DB，**`ai_session_id` 必须同时写入 Server DB**（手机端跨设备续接对话需要从 Server 读取，不能只在 Gateway 本地）。
+- **D-22:** 同一对话再发消息时，Gateway 优先查本地 SQLite 取 `ai_session_id`，本地无则从 Server DB 拉取，通过对应工具的续接参数传入。
 
-> **待研究（planner 确认）：** `--output-format stream-json` 输出里 `claude_session_id` 具体在哪个 event 字段返回（需查 claude CLI 文档或实测）。
+> **待研究（planner 确认）：** `--output-format stream-json` 输出里 `ai_session_id` 具体在哪个 event 字段返回（需查 claude CLI 文档或实测）。
+
+### 多工具支持（Claude / Codex / Copilot）
+- **D-23:** Gateway 新增**工具归一化层**：无论底层是哪个 AI CLI，输出统一映射成 `agent.delta` / `agent.result` / `agent.tool` 事件，上层协议不感知差异。
+- **D-24:** 每个工具对应独立的 Runner 实现（`ClaudeChatRunner` / `CodexChatRunner` / `CopilotChatRunner`），共享同一接口（spawn / parseEvent / resumeFlag）。
+- **D-25:** **待研究（planner）：** Codex CLI 和 Copilot CLI 的流式输出格式、session 续接机制、工具可用性检测（是否已安装在 Gateway 机器上）。
+
+### Model 选择（两层）
+- **D-26:** 创建会话时两层选择：① 选 AI 工具（claude / codex / copilot）② 选具体模型（如 claude → sonnet / opus / haiku）。
+- **D-27:** 工具列表由 Gateway 动态检测（检查 CLI 是否已安装并可用），模型列表由各 Runner 提供已知型号。
+- **D-28:** `client.create-session` 帧携带 `{ provider: 'claude', model: 'claude-sonnet-4-5' }`，Gateway 校验合法性后按参数执行。
+
+### 中途换模型
+- **D-29:** 支持对话中途切换工具/模型，切换流程：
+  1. 客户端发 `client.switch-model` 帧（含新 provider + model）
+  2. Gateway 调用当前工具对已有对话做**摘要**（用当前模型生成，内容：用户意图 + 关键结论）
+  3. 以摘要作为新工具/模型的 system prompt，开启新的 `ai_session_id`
+  4. 前端气泡不清空，插入一条系统消息"已切换至 X 模型，上下文已摘要传入"
+
+### 订阅信息
+- **D-30:** 从 Claude CLI 读取账户订阅信息（剩余额度、上下文窗口大小）。**待研究（planner）：** `claude` 命令是否暴露此信息（`claude config` / `claude status` 等），以及 Codex / Copilot 对应的接口。
+- **D-31:** 订阅信息在 UI 的设置/账号 tab 展示，不影响聊天主流程。
 
 ### Model 选择
 - **D-03:** 新增 `client.list-providers` 帧，Gateway 回 `gateway.providers` 帧，包含当前可用的 provider 列表（从现有白名单动态读取）。
