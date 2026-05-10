@@ -222,7 +222,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
       case 'gateway.replay':
         sendReplay(frame.clientId, frame.sessionId, frame.events, frame.done !== false, frame.latestEventId);
         for (const event of frame.events) {
-          if (event.type === 'agent.turn' || RUNTIME_EVENT_WHITELIST.has(event.type)) {
+          if (RUNTIME_EVENT_WHITELIST.has(event.type)) {
             void syncToServer('/api/relay/runtime-sync/gateway/event', {
               gatewayId: frame.gatewayId,
               event,
@@ -231,17 +231,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           }
         }
         break;
-      case 'gateway.conversation':
-        sendConversation(frame.clientId, frame.sessionId, frame.turns);
-        void syncToServer('/api/relay/runtime-sync/gateway/conversation', {
-          sessionId: frame.sessionId,
-          turns: frame.turns,
-          scope: gatewayScope
-        });
-        break;
       case 'gateway.event':
         sendEventToSubscribers(frame.event);
-        if (frame.event.type === 'agent.turn' || RUNTIME_EVENT_WHITELIST.has(frame.event.type)) {
+        if (RUNTIME_EVENT_WHITELIST.has(frame.event.type)) {
           void syncToServer('/api/relay/runtime-sync/gateway/event', {
             gatewayId: frame.gatewayId,
             event: frame.event,
@@ -391,13 +383,6 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         });
         break;
       }
-      case 'client.conversation':
-        if (!clientCanAccessSession(clientScope, authMethod, frame.sessionId)) {
-          sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });
-          break;
-        }
-        forwardToSessionGateway({ type: 'client.conversation', clientId, sessionId: frame.sessionId });
-        break;
       case 'client.input':
         if (!clientCanAccessSession(clientScope, authMethod, frame.sessionId, 'control')) {
           sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });
@@ -560,18 +545,6 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     }
   }
 
-  function sendConversation(
-    clientId: string,
-    sessionId: string,
-    turns: Extract<RelayGatewayToServerFrame, { type: 'gateway.conversation' }>['turns']
-  ): void {
-    const client = clients.get(clientId);
-    if (!client || !clientCanAccessSession(client.scope, client.authMethod, sessionId)) {
-      return;
-    }
-    sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'conversation', sessionId, turns });
-  }
-
   function sendEventToSubscribers(event: RelayTerminalEvent): void {
     for (const client of clients.values()) {
       if (client.subscriptions.has(event.sessionId) && clientCanAccessSession(client.scope, client.authMethod, event.sessionId)) {
@@ -696,8 +669,6 @@ function gatewayFrameWithinScope(frame: RelayGatewayToServerFrame, gatewayScope:
         ? frame.sessions.every((session) => session.gatewayId === undefined || session.gatewayId === scopedGatewayId)
         : true;
     case 'gateway.replay':
-      return gatewayScope.sessionId ? gatewayScope.sessionId === frame.sessionId : true;
-    case 'gateway.conversation':
       return gatewayScope.sessionId ? gatewayScope.sessionId === frame.sessionId : true;
     case 'gateway.event':
       return gatewayScope.sessionId ? gatewayScope.sessionId === frame.event.sessionId : true;

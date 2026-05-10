@@ -8,7 +8,7 @@ import WebSocket from 'ws';
 import { startDaemon } from './daemon.js';
 import { createSessionId } from './ids.js';
 import { PtySessionManager } from './pty.js';
-import { Store, type SessionEvent } from './store.js';
+import { Store } from './store.js';
 
 const TOKEN_GATEWAY = 'gateway-test-token';
 const TOKEN_NORMAL = 'normal-test-token';
@@ -798,65 +798,6 @@ test('direct websocket controller can resize pty', async () => {
         () => store.listEvents(sessionId).some((event) => event.type === 'terminal.resize' && event.payload.cols === 100),
         1000
       );
-      ws.close();
-    });
-  } finally {
-    ptySessions.stop(sessionId);
-    await daemon.close();
-    cleanup();
-  }
-});
-
-test('direct websocket chat emits user turn, agent.typing and conversation API returns turns', async () => {
-  const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
-  const sessionId = createSessionId();
-  ptySessions.create({
-    id: sessionId,
-    provider: 'codex',
-    command: '/bin/cat',
-    projectPath: process.cwd(),
-    cols: 80,
-    rows: 24,
-    owner: {
-      accountId: 'acct_test',
-      workspaceId: 'ws_test',
-      userId: 'user_test',
-      deviceId: 'device_test'
-    }
-  });
-  const port = 5500 + Math.floor(Math.random() * 1000);
-  const daemon = await startDaemon({ host: '127.0.0.1', port, store, ptySessions });
-
-  try {
-    await withAuthFixture(async ({ authHeaders }) => {
-      const ticket = await requestTicket(port, sessionId, 'control', authHeaders());
-      const ws = new WebSocket(`ws://127.0.0.1:${port}/api/sessions/${sessionId}/stream?mode=control&surface=test`, [`tether-ticket.${ticket}`]);
-      await waitForMessage(ws, (text) => text.includes('replay.done'));
-      const ptyOutput = waitForMessage(ws, (text) => text.includes('hello direct chat'));
-      const subscriberEvent = new Promise<SessionEvent>((resolve) => {
-        const unsubscribe = ptySessions.subscribe(sessionId, (event) => {
-          if (event.type === 'agent.turn' && event.payload.content === 'hello direct chat') {
-            unsubscribe();
-            resolve(event);
-          }
-        });
-      });
-      ws.send(JSON.stringify({ type: 'chat', message: 'hello direct chat' }));
-      const userTurn = await waitForMessage(ws, (text) => text.includes('"agent.turn"') && text.includes('"hello direct chat"'));
-      assert.match(userTurn, /"agent\.turn"/);
-      const event = await waitForMessage(ws, (text) => text.includes('"agent.typing"'));
-      assert.match(event, /"agent\.typing"/);
-      assert.equal((await subscriberEvent).type, 'agent.turn');
-      await ptyOutput;
-      await waitFor(() => store.listAgentTurns(sessionId).some((turn) => turn.role === 'user' && turn.content === 'hello direct chat'), 1000);
-
-      const response = await fetch(`http://127.0.0.1:${port}/api/sessions/${sessionId}/conversation`, {
-        headers: authHeaders()
-      });
-      assert.equal(response.status, 200);
-      const body = (await response.json()) as { turns?: Array<{ role?: string; content?: string }> };
-      assert.equal(body.turns?.some((turn) => turn.role === 'user' && turn.content === 'hello direct chat'), true);
       ws.close();
     });
   } finally {

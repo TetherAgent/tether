@@ -5,7 +5,6 @@ import path from 'node:path';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
 import type { AuthScopePayload } from '@tether/core';
-import { JournalWatcher } from './journal-watcher.js';
 import { maskSensitiveOutput } from './mask.js';
 import { isValidTerminalSize } from './pty.js';
 import { AgentStatusPublisher } from './session-status-deriver.js';
@@ -68,7 +67,6 @@ export class SessionRunner {
   private term?: IPty;
   private heartbeat?: NodeJS.Timeout;
   private exited = false;
-  private journalWatcher?: JournalWatcher;
   private statusPublisher?: AgentStatusPublisher;
   private readonly clients = new Set<RunnerClientConnection>();
   readonly socketPath: string;
@@ -128,16 +126,6 @@ export class SessionRunner {
       .then((agentSessionId) => {
         if (agentSessionId) {
           this.store.updateAgentSessionId(this.options.id, agentSessionId);
-          this.journalWatcher = new JournalWatcher(
-            this.options.id,
-            this.options.provider,
-            agentSessionId,
-            this.options.projectPath,
-            this.store,
-            (event) => this.publishEvent(event),
-            this.statusPublisher
-          );
-          this.journalWatcher.start();
         }
       })
       .catch(() => { /* detection failure is non-fatal */ });
@@ -298,7 +286,6 @@ export class SessionRunner {
       return;
     }
     this.exited = true;
-    this.journalWatcher?.stop();
     if (this.heartbeat) {
       clearInterval(this.heartbeat);
       this.heartbeat = undefined;
@@ -311,7 +298,6 @@ export class SessionRunner {
   }
 
   private async closeServer(): Promise<void> {
-    this.journalWatcher?.stop();
     if (this.heartbeat) {
       clearInterval(this.heartbeat);
       this.heartbeat = undefined;

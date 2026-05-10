@@ -19,7 +19,6 @@ import { maskSensitiveOutput } from './mask.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import { replaySessionEvents } from './replay.js';
 import { listGateways, registerGateway, touchGateway, unregisterGateway } from './registry.js';
-import { handleChatMessage } from './chat-handler.js';
 import { detectSelectOptions } from './agent-select-detect.js';
 import { startRelayClient, type RunningRelayClient } from './relay-client.js';
 import { SessionRunnerClient } from './session-runner-client.js';
@@ -381,23 +380,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     const raw = await capturePane(session.tmuxSessionName);
     const text = maskSensitiveOutput(raw);
     return c.json({ session, text, capturedAt: Date.now() });
-  });
-
-  app.get('/api/sessions/:id/conversation', async (c) => {
-    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
-    if (!actor.ok) {
-      return c.json({ error: actor.error }, actor.status);
-    }
-    const session = options.store.getSession(c.req.param('id'));
-    if (!session) {
-      return c.json({ error: 'session not found' }, 404);
-    }
-    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
-    if (!ownership.ok) {
-      return c.json({ error: ownership.error }, ownership.status);
-    }
-    const conversationTurns = options.store.listAgentTurns(session.id);
-    return c.json({ turns: conversationTurns });
   });
 
   app.post('/api/sessions/:id/send', async (c) => {
@@ -912,40 +894,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         if (!ok) {
           socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));
         }
-        return;
-      }
-      if (frame.type === 'chat' && typeof frame.message === 'string') {
-        client.lastSeenAt = Date.now();
-        if (client.mode === 'observe' || controllers.get(session.id) !== clientId) {
-          socket.send(JSON.stringify({
-            type: 'error',
-            code: client.mode === 'observe' ? 'observe_only' : 'not_controller',
-            message: client.mode === 'observe' ? 'observer clients cannot send input' : 'client is not the active controller'
-          }));
-          return;
-        }
-        void handleChatMessage(session.id, frame.message, options.store, runnerClient ?? undefined, (data, clientId) => {
-          const ok = options.ptySessions?.write(session.id, { clientId, data }) ?? false;
-          if (!ok) {
-            throw new Error('PTY session is no longer running');
-          }
-        })
-          .then((events) => {
-            if (!runnerClient) {
-              for (const event of events) {
-                options.ptySessions?.publishEvent(event);
-              }
-              return;
-            }
-            if (socket.readyState === socket.OPEN) {
-              for (const event of events) {
-                socket.send(JSON.stringify({ type: 'event', event }));
-              }
-            }
-          })
-          .catch(() => {
-            socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));
-          });
         return;
       }
     });

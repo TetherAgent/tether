@@ -62,38 +62,6 @@ export default class RuntimeSyncController extends Controller {
     ctx.success({ ok: true });
   }
 
-  public async conversation(): Promise<void> {
-    const { ctx } = this;
-    const body = ctx.request.body as Record<string, unknown>;
-    const scope = requireScope(ctx, body.scope);
-    const sessionId = String(body.sessionId ?? '');
-    const turns = Array.isArray(body.turns) ? body.turns : [];
-    if (!sessionId) {
-      ctx.throw(400, 'Missing sessionId or scope');
-    }
-    for (const item of turns) {
-      const turn = item as Record<string, unknown>;
-      await ctx.service.runtimeSyncRepository.upsertChatMessage(
-        sessionId,
-        Number(turn.turnIndex ?? 0),
-        String(turn.role ?? 'assistant'),
-        String(turn.content ?? ''),
-        turn.tools ? JSON.stringify(turn.tools) : null,
-        scope
-      );
-    }
-    const lastTurn = turns[turns.length - 1] as Record<string, unknown> | undefined;
-    if (lastTurn) {
-      await ctx.service.runtimeSyncRepository.upsertSyncCursor(
-        sessionId,
-        null,
-        Number(lastTurn.turnIndex ?? 0),
-        scope
-      );
-    }
-    ctx.success({ ok: true });
-  }
-
   public async event(): Promise<void> {
     const { ctx } = this;
     const body = ctx.request.body as Record<string, unknown>;
@@ -102,25 +70,6 @@ export default class RuntimeSyncController extends Controller {
     const eventType = String(event.type ?? '');
     const sessionId = String(event.sessionId ?? '');
     const eventId = Number(event.id ?? 0);
-    if (eventType === 'agent.turn') {
-      const payload = (event.payload as Record<string, unknown> | undefined) ?? {};
-      await ctx.service.runtimeSyncRepository.upsertChatMessage(
-        sessionId,
-        Number(payload.turnIndex ?? 0),
-        String(payload.role ?? 'assistant'),
-        String(payload.content ?? ''),
-        payload.tools ? JSON.stringify(payload.tools) : null,
-        scope
-      );
-      await ctx.service.runtimeSyncRepository.upsertSyncCursor(
-        sessionId,
-        eventId,
-        Number(payload.turnIndex ?? 0),
-        scope
-      );
-      ctx.success({ ok: true });
-      return;
-    }
     await ctx.service.runtimeSyncRepository.upsertRuntimeEvent(
       sessionId,
       eventId,

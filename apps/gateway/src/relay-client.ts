@@ -10,11 +10,10 @@ import type {
   RelayTerminalEvent
 } from '@tether/protocol';
 import { detectSelectOptions } from './agent-select-detect.js';
-import { handleChatMessage } from './chat-handler.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import { replaySessionEvents } from './replay.js';
 import type { SessionRunnerClient } from './session-runner-client.js';
-import type { AgentTurn, Session, SessionEvent, Store } from './store.js';
+import type { Session, SessionEvent, Store } from './store.js';
 
 export type RelayClientOptions = {
   url: string;
@@ -154,34 +153,9 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       case 'client.subscribe':
         void subscribeClient(frame.clientId, frame.sessionId, frame.after ?? 0, frame.mode, frame.tail, frame.cols, frame.rows);
         return;
-      case 'client.conversation':
-        sendConversation(frame.clientId, frame.sessionId);
-        return;
       case 'client.input':
         void writeInput(frame.clientId, frame.sessionId, frame.data);
         return;
-      case 'client.chat': {
-        const session = options.store.getSession(frame.sessionId);
-        if (!session) {
-          return;
-        }
-        const runnerClient = options.runnerClientForSession?.(session);
-        void handleChatMessage(frame.sessionId, frame.message, options.store, runnerClient, (data, clientId) => {
-          const ok = options.ptySessions?.write(frame.sessionId, { clientId, data }) ?? false;
-          if (!ok) {
-            throw new Error('PTY session is no longer running');
-          }
-        })
-          .then((events) => {
-            for (const event of events) {
-              send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(event) });
-            }
-          })
-          .catch(() => {
-            sendError(frame.clientId, frame.sessionId, 'session_lost', 'PTY session is no longer running');
-          });
-        return;
-      }
       case 'client.resize':
         void resizePty(frame.clientId, frame.sessionId, frame.cols, frame.rows);
         return;
@@ -379,29 +353,6 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
           latestEventId
         });
       }
-    });
-  };
-
-  const sendConversation = (clientId: string, sessionId: string): void => {
-    const session = options.store.getSession(sessionId);
-    if (!session) {
-      sendError(clientId, sessionId, 'not_found', 'session not found');
-      return;
-    }
-    send({
-      type: 'gateway.conversation',
-      gatewayId: effectiveGatewayId,
-      clientId,
-      sessionId,
-      turns: options.store.listAgentTurns(sessionId).map((turn) => ({
-        id: turn.id,
-        sessionId: turn.sessionId,
-        turnIndex: turn.turnIndex,
-        role: turn.role,
-        content: turn.content,
-        tools: turn.tools,
-        createdAt: turn.createdAt
-      }))
     });
   };
 

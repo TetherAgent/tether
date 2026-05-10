@@ -48,21 +48,10 @@ export type RelayTerminalEvent = {
   payload: Record<string, unknown>;
 };
 
-export type RelayConversationTurn = {
-  id: number;
-  sessionId: string;
-  turnIndex: number;
-  role: 'user' | 'assistant';
-  content: string;
-  tools: unknown[];
-  createdAt: number;
-};
-
 export type RelayGatewayToServerFrame =
   | { type: 'gateway.auth'; gatewayId: string; token?: string; secret?: string; scope?: RelayAuthScope }
   | { type: 'gateway.sessions'; gatewayId: string; sessions: RelaySession[] }
   | { type: 'gateway.replay'; gatewayId: string; clientId: string; sessionId: string; events: RelayTerminalEvent[]; done?: boolean; latestEventId?: number }
-  | { type: 'gateway.conversation'; gatewayId: string; clientId: string; sessionId: string; turns: RelayConversationTurn[] }
   | { type: 'gateway.event'; gatewayId: string; event: RelayTerminalEvent }
   | { type: 'gateway.error'; gatewayId: string; clientId?: string; sessionId?: string; code: string; message: string };
 
@@ -71,7 +60,6 @@ export type RelayServerToGatewayFrame =
   | { type: 'gateway.auth.failed'; code: string; message: string }
   | { type: 'client.list'; clientId: string }
   | { type: 'client.subscribe'; clientId: string; sessionId: string; after?: number; tail?: number; mode: RelayClientMode; cols?: number; rows?: number }
-  | { type: 'client.conversation'; clientId: string; sessionId: string }
   | { type: 'client.input'; clientId: string; sessionId: string; data: string }
   | { type: 'client.resize'; clientId: string; sessionId: string; cols: number; rows: number }
   | { type: 'client.stop'; clientId: string; sessionId: string }
@@ -84,7 +72,6 @@ export type RelayClientToServerFrame =
   | { type: 'client.auth'; token?: string; ticket?: string; scope?: RelayAuthScope; secret?: string }
   | { type: 'client.list' }
   | { type: 'client.subscribe'; sessionId: string; after?: number; tail?: number; mode: RelayClientMode; cols?: number; rows?: number }
-  | { type: 'client.conversation'; sessionId: string }
   | { type: 'client.input'; sessionId: string; data: string }
   | { type: 'client.resize'; sessionId: string; cols: number; rows: number }
   | { type: 'client.stop'; sessionId: string }
@@ -97,7 +84,6 @@ export type RelayServerToClientFrame =
   | { type: 'sessions'; sessions: RelaySession[] }
   | { type: 'hello'; clientId: string; gatewayId?: string }
   | { type: 'event'; event: RelayTerminalEvent }
-  | { type: 'conversation'; sessionId: string; turns: RelayConversationTurn[] }
   | { type: 'replay.output'; sessionId: string; data: string; latestEventId: number }
   | { type: 'replay.done'; sessionId: string; latestEventId: number }
   | { type: 'error'; sessionId?: string; code: string; message: string };

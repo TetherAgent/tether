@@ -101,33 +101,6 @@ export default class RuntimeSyncRepositoryService extends Service {
     );
   }
 
-  public async upsertChatMessage(
-    sessionId: string,
-    turnIndex: number,
-    role: string,
-    content: string,
-    toolsJson: string | null,
-    scope: RuntimeSyncScope
-  ): Promise<void> {
-    if (!this.mysqlModeEnabled()) {
-      return;
-    }
-    if (!await this.sessionWithinScope(sessionId, scope)) {
-      console.warn(`[server] upsertChatMessage scope mismatch: ${sessionId}`);
-      return;
-    }
-    await this.ctx.service.db.query(
-      `INSERT INTO gateway_chat_messages (session_id, turn_index, role, content, tools_json)
-       VALUES (?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         role = VALUES(role),
-         content = VALUES(content),
-         tools_json = VALUES(tools_json),
-         updated_at = CURRENT_TIMESTAMP`,
-      [sessionId, turnIndex, role, content, toolsJson]
-    );
-  }
-
   public async upsertRuntimeEvent(
     sessionId: string,
     eventId: number,

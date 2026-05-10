@@ -50,9 +50,7 @@ export type SessionEventType =
   | 'approval.requested'
   | 'diff.detected'
   | 'agent.handoff'
-  | 'agent.typing'
   | 'agent.status'
-  | 'agent.turn'
   | 'agent.select';
 
 export type SessionEvent<TPayload extends Record<string, unknown> = Record<string, unknown>> = {
@@ -61,16 +59,6 @@ export type SessionEvent<TPayload extends Record<string, unknown> = Record<strin
   type: SessionEventType;
   ts: number;
   payload: TPayload;
-};
-
-export type AgentTurn = {
-  id: number;
-  sessionId: string;
-  turnIndex: number;
-  role: 'user' | 'assistant';
-  content: string;
-  tools: unknown[];
-  createdAt: number;
 };
 
 type SessionRow = {
@@ -257,26 +245,12 @@ export class Store {
          VALUES (?, ?, ?, ?)`
       )
       .run(sessionId, type, ts, JSON.stringify(payload));
-    let normalizedPayload = payload;
-    if (
-      type === 'agent.turn' &&
-      typeof payload.turnIndex === 'number' &&
-      payload.turnIndex === 0
-    ) {
-      normalizedPayload = {
-        ...payload,
-        turnIndex: Number(result.lastInsertRowid)
-      };
-      this.db
-        .prepare('UPDATE session_events SET payload_json = ? WHERE id = ?')
-        .run(JSON.stringify(normalizedPayload), Number(result.lastInsertRowid));
-    }
     return {
       id: Number(result.lastInsertRowid),
       sessionId,
       type,
       ts,
-      payload: normalizedPayload
+      payload
     };
   }
 
@@ -291,38 +265,6 @@ export class Store {
       )
       .all(sessionId, after, safeLimit) as SessionEventRow[];
     return rows.map(eventFromRow).filter((event): event is SessionEvent => event !== null);
-  }
-
-  listAgentTurns(sessionId: string): AgentTurn[] {
-    const rows = this.db
-      .prepare(
-        `SELECT * FROM session_events
-         WHERE session_id = ? AND type = 'agent.turn'
-         ORDER BY id ASC`
-      )
-      .all(sessionId) as SessionEventRow[];
-    return rows.flatMap((row) => {
-      let payload: Record<string, unknown>;
-      try {
-        payload = JSON.parse(row.payload_json) as Record<string, unknown>;
-      } catch {
-        return [];
-      }
-      const role = payload.role;
-      const content = payload.content;
-      if ((role !== 'user' && role !== 'assistant') || typeof content !== 'string') {
-        return [];
-      }
-      return [{
-        id: row.id,
-        sessionId: row.session_id,
-        turnIndex: typeof payload.turnIndex === 'number' ? payload.turnIndex : row.id,
-        role,
-        content,
-        tools: Array.isArray(payload.tools) ? payload.tools : [],
-        createdAt: typeof payload.createdAt === 'number' ? payload.createdAt : row.ts
-      }];
-    });
   }
 
   listRecentEvents(sessionId: string, limit = 500): SessionEvent[] {

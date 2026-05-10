@@ -6,7 +6,7 @@ import { Button, Textarea } from '@tether/design';
 import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { useUiPreferences } from '../../hooks/use-ui-preferences.js';
-import { gatewayAuthHeaders, readGatewayData, requestGatewayWsTicket } from '../../lib/api.js';
+import { requestGatewayWsTicket } from '../../lib/api.js';
 import { ChatBubble, ChatThinkingBubble } from './chat-bubble.js';
 import { ChatMarkdown } from './chat-markdown.js';
 import { TerminalSurfaceSkeleton } from './session-detail-chrome.js';
@@ -37,7 +37,6 @@ type RelayServerToClientFrame =
   | { type: 'client.auth.failed'; code: string; message: string }
   | { type: 'hello'; clientId: string; gatewayId?: string }
   | { type: 'event'; event: SessionEvent }
-  | { type: 'conversation'; sessionId: string; turns: RelayConversationTurn[] }
   | { type: 'replay.done'; sessionId: string; latestEventId: number }
   | { type: 'error'; sessionId?: string; code: string; message: string };
 
@@ -60,18 +59,6 @@ type ChatMessage = {
 };
 type AgentRuntimeStatus = 'idle' | 'submitted' | 'running' | 'responding' | 'done' | 'exited' | 'disconnected';
 type ChatActivityState = 'idle' | 'submitted' | 'processing' | 'thinking' | 'responding' | 'waiting' | 'done';
-type ConversationTurn = {
-  id: number;
-  sessionId: string;
-  turnIndex: number;
-  role: 'user' | 'assistant';
-  content: string;
-  tools: string | null;
-  createdAt: number;
-};
-type RelayConversationTurn = Omit<ConversationTurn, 'tools'> & {
-  tools: ToolInfo[];
-};
 
 const RELAY_VIRTUAL_COLS = 200;
 const RELAY_VIRTUAL_ROWS = 50;
@@ -199,17 +186,6 @@ function parseWsFrame(data: unknown): Record<string, unknown> | undefined {
     return undefined;
   }
   return undefined;
-}
-
-function gatewayRequest(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
-  const headers = new Headers(init.headers);
-  const authHeaders = gatewayAuthHeaders();
-  if (authHeaders) {
-    for (const [key, value] of new Headers(authHeaders).entries()) {
-      headers.set(key, value);
-    }
-  }
-  return fetch(input, { ...init, headers });
 }
 
 function displayMessage(message: string, t: WebMessages): string {
@@ -425,40 +401,6 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     return () => document.removeEventListener('visibilitychange', handler);
   }, []);
 
-  const refreshConversation = React.useCallback(async (): Promise<number | undefined> => {
-    try {
-      const response = await gatewayRequest(`/api/server/sessions/${encodeURIComponent(sessionId)}/conversation`);
-      if (response.status === 401) {
-        logoutNormal();
-        return undefined;
-      }
-      if (!response.ok) {
-        return undefined;
-      }
-      const data = await readGatewayData<{ turns: Array<ConversationTurn | RelayConversationTurn>; latestEventId?: number | null }>(response);
-      setChatMessages((prev) => {
-        let next = prev;
-        for (const turn of data.turns) {
-          const tools = Array.isArray(turn.tools)
-            ? turn.tools
-            : turn.tools
-              ? (JSON.parse(turn.tools) as ToolInfo[])
-              : [];
-          next = upsertChatMessage(next, {
-            id: `turn:${turn.turnIndex}`,
-            role: turn.role,
-            content: turn.content,
-            tools,
-            createdAt: turn.createdAt
-          });
-        }
-        return next;
-      });
-      return data.latestEventId ?? undefined;
-    } catch {
-      return undefined;
-    }
-  }, [logoutNormal, sessionId]);
 
   const updateMessageStatus = React.useCallback(
     (localId: string, status: ChatMessageStatus, predicate?: (current: ChatMessage) => boolean) => {
@@ -604,37 +546,6 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
         return;
       }
 
-      if (event.type === 'agent.turn') {
-        const turn = event.payload as {
-          role?: string;
-          content?: string;
-          tools?: ToolInfo[];
-          turnIndex?: number;
-          createdAt?: number;
-        };
-        const message: ChatMessage = {
-          id: typeof turn.turnIndex === 'number' ? `turn:${turn.turnIndex}` : `event:${event.id}`,
-          role: turn.role === 'user' ? 'user' : 'assistant',
-          content: typeof turn.content === 'string' ? turn.content : '',
-          tools: Array.isArray(turn.tools) ? turn.tools : [],
-          createdAt: turn.createdAt ?? Date.now()
-        };
-        setChatMessages((prev) => upsertChatMessage(prev, message));
-        if (message.role === 'assistant') {
-          setTypingVisible(false);
-          setActivityState('done');
-          setAgentRuntimeStatus('done');
-        } else {
-          setActivityState('submitted');
-        }
-        return;
-      }
-      if (event.type === 'agent.typing') {
-        setTypingVisible(true);
-        setActivityState('thinking');
-        setAgentRuntimeStatus('responding');
-        return;
-      }
       if (event.type === 'terminal.output') {
         setActivityState((current) => current === 'thinking' || current === 'responding' ? current : 'processing');
         return;
@@ -823,12 +734,6 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     };
 
     const startStream = async () => {
-      if (normalAuth?.accessToken) {
-        const latestEventId = await refreshConversation();
-        if (latestEventId != null) {
-          after = latestEventId;
-        }
-      }
       await connectStream();
     };
     startStream().catch((error: unknown) => {
@@ -858,7 +763,6 @@ export function ChatSessionSurface({ sessionId, connectionSettings }: ChatSessio
     logoutNormal,
     normalAuth?.accessToken,
     reconnectKey,
-    refreshConversation,
     sessionId
   ]);
 

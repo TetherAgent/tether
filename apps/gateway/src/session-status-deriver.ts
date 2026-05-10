@@ -9,7 +9,7 @@ export type AgentRuntimeStatus =
   | 'exited'
   | 'disconnected';
 
-export type AgentStatusSource = 'pty' | 'journal' | 'runner';
+export type AgentStatusSource = 'pty' | 'runner';
 
 export class AgentStatusPublisher {
   private current?: AgentRuntimeStatus;
@@ -48,22 +48,6 @@ export class AgentStatusPublisher {
     if (this.current === 'submitted') {
       this.emit('running', 'terminal_output', 'pty');
     }
-  }
-
-  onAgentTurn(role: 'user' | 'assistant'): void {
-    if (role === 'user') {
-      this.emit('submitted', 'journal_user_turn', 'journal');
-      return;
-    }
-    this.emit('done', 'journal_assistant_turn', 'journal');
-  }
-
-  onTaskStarted(): void {
-    this.emit('responding', 'journal_task_started', 'journal');
-  }
-
-  onTaskCompleted(): void {
-    this.emit('done', 'journal_task_completed', 'journal');
   }
 
   onExited(): void {

@@ -24,22 +24,6 @@ test('AgentStatusPublisher emits submitted then running for PTY input/output', (
   cleanup();
 });
 
-test('AgentStatusPublisher emits done for assistant journal turn', () => {
-  const { store, cleanup } = createTempStore();
-  const published: SessionEvent[] = [];
-  const publisher = new AgentStatusPublisher('tth_status', store, (event) => published.push(event));
-
-  publisher.onUserInput('\r');
-  publisher.onTaskStarted();
-  publisher.onAgentTurn('assistant');
-
-  assert.deepEqual(
-    published.map((event) => event.payload.status),
-    ['submitted', 'responding', 'done']
-  );
-  cleanup();
-});
-
 function createTempStore(): { store: Store; cleanup: () => void } {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tether-status-'));
   const store = new Store(path.join(dir, 'tether.db'));

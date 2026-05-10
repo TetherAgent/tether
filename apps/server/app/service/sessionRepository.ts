@@ -17,16 +17,6 @@ type GatewaySessionRecord = {
   updatedAt: number;
 };
 
-type ChatMessageRecord = {
-  id: number;
-  sessionId: string;
-  turnIndex: number;
-  role: string;
-  content: string;
-  tools: unknown[];
-  createdAt: number;
-};
-
 type RuntimeEventRecord = {
   id: number;
   sessionId: string;
@@ -63,18 +53,6 @@ export default class SessionRepositoryService extends Service {
     }
   }
 
-  private parseJsonArray(value: unknown): unknown[] {
-    if (typeof value !== 'string') {
-      return [];
-    }
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }
-
   private sessionFromRow(row: Record<string, unknown>): GatewaySessionRecord {
     return {
       id: String(row.id),
@@ -91,18 +69,6 @@ export default class SessionRepositoryService extends Service {
       lastActiveAt: row.last_active_at ? this.sqlDateToMs(row.last_active_at) : undefined,
       createdAt: this.sqlDateToMs(row.created_at),
       updatedAt: this.sqlDateToMs(row.updated_at)
-    };
-  }
-
-  private chatMessageFromRow(row: Record<string, unknown>): ChatMessageRecord {
-    return {
-      id: Number(row.id),
-      sessionId: String(row.session_id),
-      turnIndex: Number(row.turn_index),
-      role: String(row.role),
-      content: String(row.content),
-      tools: this.parseJsonArray(row.tools_json),
-      createdAt: this.sqlDateToMs(row.created_at)
     };
   }
 
@@ -148,31 +114,6 @@ export default class SessionRepositoryService extends Service {
       [accountId, workspaceId, userId, limit, offset]
     );
     return (rows as Record<string, unknown>[]).map((row) => this.sessionFromRow(row));
-  }
-
-  public async getConversation(
-    sessionId: string,
-    accountId: string,
-    workspaceId: string,
-    userId: string
-  ): Promise<{ turns: ChatMessageRecord[]; latestEventId: number | null }> {
-    if (!this.mysqlModeEnabled() || !await this.sessionWithinScope(sessionId, accountId, workspaceId, userId)) {
-      return { turns: [], latestEventId: null };
-    }
-    const [rows, cursorRows] = await Promise.all([
-      this.ctx.service.db.query(
-        `SELECT * FROM gateway_chat_messages WHERE session_id = ? ORDER BY turn_index ASC`,
-        [sessionId]
-      ),
-      this.ctx.service.db.query(
-        `SELECT last_event_id FROM gateway_sync_cursors WHERE session_id = ? LIMIT 1`,
-        [sessionId]
-      )
-    ]);
-    const turns = (rows as Record<string, unknown>[]).map((row) => this.chatMessageFromRow(row));
-    const cursor = (cursorRows as Record<string, unknown>[])[0];
-    const latestEventId = cursor?.last_event_id != null ? Number(cursor.last_event_id) : null;
-    return { turns, latestEventId };
   }
 
   private mergeConsecutiveOutput(events: RuntimeEventRecord[]): RuntimeEventRecord[] {
