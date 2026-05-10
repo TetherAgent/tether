@@ -3,6 +3,41 @@
 **Gathered:** 2026-05-10
 **Status:** Ready for planning
 
+<completed_prereqs>
+## 已完成的前置工作（Phase 13 范围内，已提交）
+
+### JournalWatcher 链路删除（commit 6f422f4）
+本 phase 讨论期间完成的清理工作，为新 stream-json 链路腾出干净的基础：
+
+**删除的文件：**
+- `apps/gateway/src/journal-watcher.ts`
+- `apps/gateway/src/journal-watcher.test.ts`
+- `apps/gateway/src/chat-handler.ts`
+- `apps/gateway/src/chat-handler.test.ts`
+
+**新建：**
+- `apps/server/sql/003_drop_chat_messages.sql` — DROP TABLE gateway_chat_messages
+
+**修改的文件（17 处）：**
+- `apps/gateway/src/session-runner.ts` — 移除 JournalWatcher 实例化
+- `apps/gateway/src/store.ts` — 移除 agent.turn/agent.typing 事件类型、AgentTurn 类型、listAgentTurns()
+- `apps/gateway/src/session-status-deriver.ts` — 移除 onAgentTurn/onTaskStarted/onTaskCompleted
+- `apps/gateway/src/relay-client.ts` — 移除 client.conversation 处理、client.chat 分支
+- `apps/gateway/src/daemon.ts` — 移除 /api/sessions/:id/conversation 端点、chat 帧处理
+- `apps/relay/src/relay.ts` — 移除 gateway.conversation/client.conversation 分支
+- `packages/protocol/src/index.ts` — 移除 RelayConversationTurn、conversation 相关帧类型
+- `apps/web/src/components/session/chat-session-surface.tsx` — 移除 agent.turn/agent.typing 渲染
+- `apps/server/app/controller/runtime-sync.ts` — 移除 conversation() 方法
+- `apps/server/app/service/runtimeSyncRepository.ts` — 移除 gateway_chat_messages 操作
+- `apps/server/app/service/sessionRepository.ts` — 移除 getConversation()
+- `apps/server/app/controller/session.ts` — 移除 conversation() 方法
+- `apps/server/app/router.ts` — 移除两条 conversation 路由
+- 相关测试文件同步清理
+
+**验证：** TypeScript 编译全部通过（protocol / gateway / relay / web / server）
+
+</completed_prereqs>
+
 <domain>
 ## Phase Boundary
 
