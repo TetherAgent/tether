@@ -103,14 +103,6 @@ type SessionEventRow = {
   payload_json: string;
 };
 
-type ChatEventRow = {
-  id: number;
-  session_id: string;
-  type: ChatEventType;
-  ts: number;
-  payload_json: string;
-};
-
 export class Store {
   private readonly db: DatabaseSync;
 
@@ -151,17 +143,6 @@ export class Store {
 
       CREATE INDEX IF NOT EXISTS idx_session_events_cursor
       ON session_events(session_id, id);
-
-      CREATE TABLE IF NOT EXISTS session_chats_events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id TEXT NOT NULL,
-        type TEXT NOT NULL,
-        ts INTEGER NOT NULL,
-        payload_json TEXT NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_session_chats_events_cursor
-      ON session_chats_events(session_id, id);
 
     `);
     this.migrate();
@@ -309,31 +290,6 @@ export class Store {
     return rows.map(eventFromRow).filter((event): event is SessionEvent => event !== null);
   }
 
-  appendChatEvent<TPayload extends Record<string, unknown>>(
-    sessionId: string,
-    type: ChatEventType,
-    payload: TPayload,
-    ts = Date.now()
-  ): ChatEvent<TPayload> {
-    const result = this.db
-      .prepare('INSERT INTO session_chats_events (session_id, type, ts, payload_json) VALUES (?, ?, ?, ?)')
-      .run(sessionId, type, ts, JSON.stringify(payload));
-    return {
-      id: Number(result.lastInsertRowid),
-      sessionId,
-      type,
-      ts,
-      payload
-    };
-  }
-
-  listChatEvents(sessionId: string): ChatEvent[] {
-    const rows = this.db
-      .prepare('SELECT * FROM session_chats_events WHERE session_id = ? ORDER BY id ASC')
-      .all(sessionId) as ChatEventRow[];
-    return rows.map(chatEventFromRow).filter((event): event is ChatEvent => event !== null);
-  }
-
   latestEventId(sessionId: string): number {
     const row = this.db
       .prepare('SELECT id FROM session_events WHERE session_id = ? ORDER BY id DESC LIMIT 1')
@@ -466,22 +422,6 @@ function toRow(session: Session): SessionRow {
 }
 
 function eventFromRow(row: SessionEventRow): SessionEvent | null {
-  let payload: Record<string, unknown>;
-  try {
-    payload = JSON.parse(row.payload_json) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-  return {
-    id: row.id,
-    sessionId: row.session_id,
-    type: row.type,
-    ts: row.ts,
-    payload
-  };
-}
-
-function chatEventFromRow(row: ChatEventRow): ChatEvent | null {
   let payload: Record<string, unknown>;
   try {
     payload = JSON.parse(row.payload_json) as Record<string, unknown>;

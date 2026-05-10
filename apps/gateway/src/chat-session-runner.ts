@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createSessionId } from './ids.js';
 import { providerEffectiveEnv } from './provider-env.js';
-import type { ChatEvent, Store } from './store.js';
+import type { ChatEvent, ChatEventType, Store } from './store.js';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -63,6 +63,24 @@ export type ChatRunnerOptions = {
   }) => void;
   onAgentIdUpdate: (sessionId: string, agentSessionId: string) => void;
 };
+
+let chatEventSequence = 0;
+
+function createChatEvent<TPayload extends Record<string, unknown>>(
+  sessionId: string,
+  type: ChatEventType,
+  payload: TPayload,
+  ts = Date.now()
+): ChatEvent<TPayload> {
+  chatEventSequence = (chatEventSequence + 1) % 1000;
+  return {
+    id: (ts * 1000) + chatEventSequence,
+    sessionId,
+    type,
+    ts,
+    payload
+  };
+}
 
 export interface IChatRunner {
   run(
@@ -239,7 +257,7 @@ class CliChatRunner implements IChatRunner {
       env: providerEffectiveEnv(this.adapter.provider, cwd)
     });
 
-    const userEvent = this.options.store.appendChatEvent(sessionId, 'user.message', { message: params.message });
+    const userEvent = createChatEvent(sessionId, 'user.message', { message: params.message });
     this.options.store.touchSession(sessionId);
     this.options.onUserMessage({ clientId: params.clientId, sessionId, event: userEvent });
 
@@ -359,7 +377,7 @@ class CliChatRunner implements IChatRunner {
       active.rateLimitInfo = await this.adapter.afterTurn(active.cwd).catch(() => null) ?? undefined;
     }
     const agentSessionId = active.agentSessionId ?? randomUUID();
-    const resultEvent = this.options.store.appendChatEvent(sessionId, 'agent.result', {
+    const resultEvent = createChatEvent(sessionId, 'agent.result', {
       text,
       usage,
       ...(stopReason ? { stop_reason: stopReason } : {})
@@ -381,13 +399,13 @@ class CliChatRunner implements IChatRunner {
   }
 
   private emitTool(sessionId: string, clientId: string, name: string, input: Record<string, unknown>): void {
-    const event = this.options.store.appendChatEvent(sessionId, 'agent.tool', { name, input });
+    const event = createChatEvent(sessionId, 'agent.tool', { name, input });
     this.options.store.touchSession(sessionId);
     this.options.onTool({ clientId, sessionId, event, name, input });
   }
 
   private emitError(clientId: string, sessionId: string, code: string, message: string): void {
-    const event = this.options.store.appendChatEvent(sessionId, 'session.error', { code, message });
+    const event = createChatEvent(sessionId, 'session.error', { code, message });
     this.options.store.touchSession(sessionId);
     this.options.onError({ clientId, sessionId, code, message, event });
   }

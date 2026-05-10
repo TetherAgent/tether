@@ -5,6 +5,7 @@ import { Service } from 'egg';
 
 let schemaReady: Promise<void> | undefined;
 const IDEMPOTENT_DDL_MISSING_CODES = new Set(['ER_CANT_DROP_FIELD_OR_KEY']);
+const IDEMPOTENT_DDL_EXISTS_CODES = new Set(['ER_DUP_KEYNAME']);
 
 type MysqlApplication = {
   mysql: {
@@ -75,10 +76,14 @@ function splitSqlStatements(sql: string): string[] {
 
 function isIgnorableIdempotentDdlError(error: unknown, statement: string): boolean {
   const code = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code ?? '') : '';
-  if (!IDEMPOTENT_DDL_MISSING_CODES.has(code)) {
-    return false;
+  const normalized = stripSqlLineComments(statement);
+  if (IDEMPOTENT_DDL_MISSING_CODES.has(code)) {
+    return /^\s*ALTER\s+TABLE\s+\w+\s+DROP\s+/i.test(normalized);
   }
-  return /^\s*ALTER\s+TABLE\s+\w+\s+DROP\s+/i.test(stripSqlLineComments(statement));
+  if (IDEMPOTENT_DDL_EXISTS_CODES.has(code)) {
+    return /^\s*ALTER\s+TABLE\s+\w+\s+ADD\s+(?:INDEX|KEY)\s+/i.test(normalized);
+  }
+  return false;
 }
 
 function stripSqlLineComments(statement: string): string {

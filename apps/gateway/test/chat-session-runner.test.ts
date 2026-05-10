@@ -60,6 +60,7 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
     const deltas: string[] = [];
     const results: string[] = [];
     const errors: string[] = [];
+    const chatEventTypes: string[] = [];
     let resolveResult: (() => void) | undefined;
     const resultPromise = new Promise<void>((resolve) => {
       resolveResult = resolve;
@@ -70,11 +71,14 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
       onSessionCreated: (_clientId, sessionId) => {
         createdSessionId = sessionId;
       },
-      onUserMessage: () => undefined,
+      onUserMessage: ({ event }) => {
+        chatEventTypes.push(event.type);
+      },
       onDelta: ({ text }) => {
         deltas.push(text);
       },
-      onResult: ({ text }) => {
+      onResult: ({ event, text }) => {
+        chatEventTypes.push(event.type);
         results.push(text);
         resolveResult?.();
       },
@@ -104,7 +108,7 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
     assert.deepEqual(results, ['OK']);
     assert.equal(store.getSession(createdSessionId)?.agentSessionId, 'claude-session-1');
     assert.equal(store.getSession(createdSessionId)?.projectPath, process.cwd());
-    assert.deepEqual(store.listChatEvents(createdSessionId).map((event) => event.type), ['user.message', 'agent.result']);
+    assert.deepEqual(chatEventTypes, ['user.message', 'agent.result']);
     assert.deepEqual(JSON.parse(readFileSync(argsFile, 'utf8')) as string[], [
       '-p',
       'test',
