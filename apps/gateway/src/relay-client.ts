@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import WebSocket from 'ws';
 import type {
   RelayAuthScope,
@@ -10,6 +11,7 @@ import type {
   RelayTerminalEvent
 } from '@tether/protocol';
 import { detectSelectOptions } from './agent-select-detect.js';
+import { ChatSessionRunner, CodexChatRunner, CopilotChatRunner, type IChatRunner } from './chat-session-runner.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import { replaySessionEvents } from './replay.js';
 import type { SessionRunnerClient } from './session-runner-client.js';
@@ -53,9 +55,91 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   let reconnectDelayMs = MIN_RECONNECT_DELAY_MS;
   let reconnectTimer: NodeJS.Timeout | undefined;
   const subscriptions = new Map<string, RelaySubscription>();
+  const chatClientBindings = new Map<string, string>();
   let connectionState: RelayConnectionStatus['state'] = 'connecting';
   let lastChangedAt = Date.now();
   let effectiveGatewayId = options.gatewayId;
+  const chatRunner = new ChatSessionRunner({
+    store: options.store,
+    gatewayId: () => effectiveGatewayId,
+    onSessionCreated: (clientId, sessionId) => {
+      chatClientBindings.set(sessionId, clientId);
+      send({ type: 'gateway.session-created', gatewayId: effectiveGatewayId, clientId, sessionId });
+      void sendSessions();
+    },
+    onUserMessage: ({ clientId, sessionId, event }) => {
+      sendChatEvent(event.id, sessionId, 'user.message', {
+        clientId: chatClientBindings.get(sessionId) ?? clientId,
+        message: event.payload.message
+      });
+    },
+    onDelta: ({ clientId, sessionId, text }) => {
+      sendChatEvent(0, sessionId, 'agent.delta', { clientId: chatClientBindings.get(sessionId) ?? clientId, text });
+    },
+    onResult: ({ clientId, sessionId, event, text, usage, stopReason }) => {
+      sendChatEvent(event.id, sessionId, 'agent.result', {
+        clientId: chatClientBindings.get(sessionId) ?? clientId,
+        text,
+        usage,
+        ...(stopReason ? { stop_reason: stopReason } : {})
+      });
+    },
+    onTool: ({ clientId, sessionId, event, name, input, result, isError }) => {
+      sendChatEvent(event.id, sessionId, 'agent.tool', {
+        clientId: chatClientBindings.get(sessionId) ?? clientId,
+        name,
+        input,
+        ...(result ? { result } : {}),
+        ...(isError !== undefined ? { isError } : {})
+      });
+    },
+    onError: ({ clientId, sessionId, code, message, event }) => {
+      if (event) {
+        sendChatEvent(event.id, sessionId, 'session.error', {
+          clientId: chatClientBindings.get(sessionId) ?? clientId,
+          code,
+          message
+        });
+      }
+      send({
+        type: 'gateway.error',
+        gatewayId: effectiveGatewayId,
+        clientId: chatClientBindings.get(sessionId) ?? clientId,
+        sessionId,
+        code,
+        message
+      });
+    },
+    onAgentIdUpdate: (sessionId, agentSessionId) => {
+      sendChatEvent(Date.now(), sessionId, 'session.agent-id-updated', { sessionId, agentSessionId });
+    }
+  });
+  const codexChatRunner = new CodexChatRunner({
+    store: options.store,
+    gatewayId: () => effectiveGatewayId,
+    onSessionCreated: () => undefined,
+    onUserMessage: () => undefined,
+    onDelta: () => undefined,
+    onResult: () => undefined,
+    onTool: () => undefined,
+    onError: ({ clientId, sessionId, code, message }) => {
+      send({ type: 'gateway.error', gatewayId: effectiveGatewayId, clientId, sessionId, code, message });
+    },
+    onAgentIdUpdate: () => undefined
+  });
+  const copilotChatRunner = new CopilotChatRunner({
+    store: options.store,
+    gatewayId: () => effectiveGatewayId,
+    onSessionCreated: () => undefined,
+    onUserMessage: () => undefined,
+    onDelta: () => undefined,
+    onResult: () => undefined,
+    onTool: () => undefined,
+    onError: ({ clientId, sessionId, code, message }) => {
+      send({ type: 'gateway.error', gatewayId: effectiveGatewayId, clientId, sessionId, code, message });
+    },
+    onAgentIdUpdate: () => undefined
+  });
 
   const setConnectionState = (state: RelayConnectionStatus['state']) => {
     if (connectionState === state) {
@@ -129,6 +213,42 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     }
   };
 
+  const sendChatEvent = (id: number, sessionId: string, type: string, payload: Record<string, unknown>) => {
+    send({
+      type: 'gateway.event',
+      gatewayId: effectiveGatewayId,
+      event: {
+        id,
+        sessionId,
+        type,
+        ts: Date.now(),
+        payload
+      }
+    });
+  };
+
+  const runnerForProvider = (provider: string): IChatRunner => {
+    switch (provider) {
+      case 'claude':
+        return chatRunner;
+      case 'codex':
+        return codexChatRunner;
+      case 'copilot':
+        return copilotChatRunner;
+      default:
+        return codexChatRunner;
+    }
+  };
+
+  const sendProviders = async (clientId: string) => {
+    const providers = [
+      isInstalled('claude') ? { provider: 'claude', models: providerModels('claude') } : undefined,
+      isInstalled('codex') ? { provider: 'codex', models: providerModels('codex') } : undefined,
+      isInstalled('github-copilot') ? { provider: 'copilot', models: providerModels('copilot') } : undefined
+    ].filter((provider): provider is { provider: string; models: string[] } => provider !== undefined);
+    sendChatEvent(0, '', 'gateway.providers', { clientId, providers });
+  };
+
   const sendSessions = async () => {
     send({
       type: 'gateway.sessions',
@@ -165,6 +285,53 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       case 'client.detach':
         removeSubscription(frame.clientId, frame.sessionId);
         return;
+      case 'client.chat': {
+        if (frame.sessionId === null) {
+          void runnerForProvider(frame.provider).run({
+            clientId: frame.clientId,
+            sessionId: null,
+            provider: frame.provider,
+            model: frame.model,
+            cwd: frame.cwd,
+            message: frame.message,
+            accountId: frame.accountId,
+            workspaceId: frame.workspaceId,
+            userId: frame.userId
+          });
+          return;
+        }
+        const session = options.store.getSession(frame.sessionId);
+        if (!session) {
+          send({ type: 'gateway.error', gatewayId: effectiveGatewayId, clientId: frame.clientId, sessionId: frame.sessionId, code: 'session_not_found', message: 'session not found' });
+          return;
+        }
+        void runnerForProvider(session.provider).run({
+          clientId: frame.clientId,
+          sessionId: frame.sessionId,
+          message: frame.message
+        });
+        return;
+      }
+      case 'client.list-providers':
+        void sendProviders(frame.clientId);
+        return;
+      case 'client.switch-model':
+        send({
+          type: 'gateway.chat-catchup',
+          gatewayId: effectiveGatewayId,
+          clientId: frame.clientId,
+          sessionId: frame.sessionId,
+          text: '模型切换功能将在后续版本中实现'
+        });
+        send({
+          type: 'gateway.error',
+          gatewayId: effectiveGatewayId,
+          clientId: frame.clientId,
+          sessionId: frame.sessionId,
+          code: 'switch_not_implemented',
+          message: '模型切换功能将在后续版本中实现'
+        });
+        return;
     }
   };
 
@@ -172,6 +339,10 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     const sessions = options.store.listSessions();
     const result: Session[] = [];
     for (const session of sessions) {
+      if (session.transport === 'chat') {
+        result.push(session);
+        continue;
+      }
       if (session.status !== 'running' || session.transport !== 'pty-event-stream') {
         continue;
       }
@@ -189,7 +360,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
 
   const isLiveSession = async (session: Session): Promise<boolean> => {
     const runnerClient = options.runnerClientForSession?.(session);
-    if (runnerClient) {
+    if (runnerClient?.ping) {
       try {
         const pong = await runnerClient.ping();
         return pong?.sessionId === session.id;
@@ -197,7 +368,10 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         return false;
       }
     }
-    return options.ptySessions?.hasLiveSession(session.id) ?? false;
+    if (options.ptySessions) {
+      return options.ptySessions.hasLiveSession(session.id);
+    }
+    return true;
   };
 
   const subscribeClient = async (
@@ -220,7 +394,25 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       await previousSubscription.unsubscribe?.();
       subscriptions.delete(key);
     }
+    if (session.transport === 'pty-event-stream' && session.status !== 'running') {
+      deferLostError(clientId, sessionId);
+      return;
+    }
     subscriptions.set(key, { mode });
+    if (session.transport === 'chat') {
+      chatClientBindings.set(sessionId, clientId);
+      const catchupText = runnerForProvider(session.provider).getCatchup(sessionId);
+      if (catchupText !== undefined) {
+        send({
+          type: 'gateway.chat-catchup',
+          gatewayId: effectiveGatewayId,
+          clientId,
+          sessionId,
+          text: catchupText
+        });
+      }
+      return;
+    }
     if (isValidTerminalSize(cols, rows) && mode === 'control') {
       const nextCols = cols;
       const nextRows = Number(rows);
@@ -235,7 +427,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         );
         if (!resized) {
           subscriptions.delete(key);
-          sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
+          deferLostError(clientId, sessionId);
           return;
         }
       } else {
@@ -243,7 +435,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         if (!ok) {
           markSessionLost(sessionId);
           subscriptions.delete(key);
-          sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
+          deferLostError(clientId, sessionId);
           return;
         }
       }
@@ -309,7 +501,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       } catch {
         markSessionLost(sessionId);
         subscriptions.delete(key);
-        sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
+        deferLostError(clientId, sessionId);
         return;
       }
     } else {
@@ -438,11 +630,20 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     send({ type: 'gateway.error', gatewayId: effectiveGatewayId, clientId, sessionId, code, message });
   };
 
+  const deferLostError = (clientId: string, sessionId: string) => {
+    setTimeout(() => {
+      sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
+    }, 0);
+  };
+
   const removeSubscription = async (clientId: string, sessionId: string) => {
     const key = subscriptionKey(clientId, sessionId);
     const subscription = subscriptions.get(key);
     await subscription?.unsubscribe?.();
     subscriptions.delete(key);
+    if (chatClientBindings.get(sessionId) === clientId) {
+      chatClientBindings.delete(sessionId);
+    }
   };
 
   const clearSubscriptions = () => {
@@ -450,6 +651,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       void subscription.unsubscribe?.();
     }
     subscriptions.clear();
+    chatClientBindings.clear();
   };
 
   connect();
@@ -528,6 +730,24 @@ function toRelaySession(session: Session): RelaySession {
     transport: session.transport,
     lastActiveAt: session.lastActiveAt
   };
+}
+
+function providerModels(provider: string): string[] {
+  switch (provider) {
+    case 'claude':
+      return ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5'];
+    case 'codex':
+      return ['gpt-5.4', 'gpt-5.4-mini'];
+    case 'copilot':
+      return ['gpt-5.4', 'claude-sonnet-4.6'];
+    default:
+      return [];
+  }
+}
+
+function isInstalled(command: string): boolean {
+  const result = spawnSync(command, ['--version'], { stdio: 'ignore' });
+  return result.status === 0 || result.error === undefined;
 }
 
 function toRelayEvent(event: SessionEvent): RelayTerminalEvent {

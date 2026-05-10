@@ -59,18 +59,22 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
   const RUNTIME_EVENT_WHITELIST = new Set([
     'terminal.output',
     'terminal.input',
+    'user.message',
     'session.error',
     'session.exited',
-    'agent.status'
+    'agent.status',
+    'agent.result',
+    'agent.tool',
+    'gateway.session-created'
   ]);
 
-  async function syncToServer(endpoint: string, body: unknown): Promise<void> {
+  async function syncToServer(endpoint: string, body: unknown, method = 'POST'): Promise<void> {
     if (!options.serverSyncUrl || !options.runtimeSyncSecret) {
       return;
     }
     try {
       const response = await fetch(`${options.serverSyncUrl}${endpoint}`, {
-        method: 'POST',
+        method,
         headers: {
           'content-type': 'application/json',
           'x-tether-runtime-sync-secret': options.runtimeSyncSecret
@@ -232,7 +236,74 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         }
         break;
       case 'gateway.event':
-        sendEventToSubscribers(frame.event);
+        if (frame.event.type === 'session.agent-id-updated') {
+          const payload = frame.event.payload as { agentSessionId?: unknown };
+          if (typeof payload.agentSessionId === 'string') {
+            void syncToServer(
+              `/api/relay/gateway-sessions/${frame.event.sessionId}/agent-session-id`,
+              { agentSessionId: payload.agentSessionId },
+              'PATCH'
+            );
+          }
+          break;
+        }
+        if (frame.event.type === 'agent.delta') {
+          const clientId = typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined;
+          if (clientId) {
+            sendToClient(clientId, {
+              type: 'agent.delta',
+              sessionId: frame.event.sessionId,
+              text: String(frame.event.payload.text ?? '')
+            });
+          }
+          break;
+        }
+        if (frame.event.type === 'agent.result') {
+          const clientId = typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined;
+          if (clientId) {
+            sendToClient(clientId, {
+              type: 'agent.result',
+              sessionId: frame.event.sessionId,
+              text: String(frame.event.payload.text ?? ''),
+              usage: (frame.event.payload.usage ?? { input_tokens: 0, output_tokens: 0 }) as {
+                input_tokens: number;
+                output_tokens: number;
+                cost_usd?: number;
+              },
+              ...(typeof frame.event.payload.stop_reason === 'string'
+                ? { stop_reason: frame.event.payload.stop_reason }
+                : {})
+            });
+          }
+        } else if (frame.event.type === 'agent.tool') {
+          const clientId = typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined;
+          if (clientId) {
+            sendToClient(clientId, {
+              type: 'agent.tool',
+              sessionId: frame.event.sessionId,
+              name: String(frame.event.payload.name ?? ''),
+              input:
+                frame.event.payload.input && typeof frame.event.payload.input === 'object'
+                  ? (frame.event.payload.input as Record<string, unknown>)
+                  : {},
+              ...(typeof frame.event.payload.result === 'string' ? { result: frame.event.payload.result } : {}),
+              ...(typeof frame.event.payload.isError === 'boolean' ? { isError: frame.event.payload.isError } : {})
+            });
+          }
+        } else if (frame.event.type === 'gateway.providers') {
+          const clientId = typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined;
+          if (clientId) {
+            sendToClient(clientId, {
+              type: 'gateway.providers',
+              providers: Array.isArray(frame.event.payload.providers)
+                ? (frame.event.payload.providers as Array<{ provider: string; models: string[] }>)
+                : []
+            });
+          }
+          break;
+        } else {
+          sendEventToSubscribers(frame.event);
+        }
         if (RUNTIME_EVENT_WHITELIST.has(frame.event.type)) {
           void syncToServer('/api/relay/runtime-sync/gateway/event', {
             gatewayId: frame.gatewayId,
@@ -241,6 +312,27 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           });
         }
         break;
+      case 'gateway.session-created': {
+        const targetClient = clients.get(frame.clientId);
+        if (targetClient) {
+          sendToSocket<RelayServerToClientFrame>(targetClient.socket, {
+            type: 'gateway.session-created',
+            sessionId: frame.sessionId
+          });
+        }
+        break;
+      }
+      case 'gateway.chat-catchup': {
+        const targetClient = clients.get(frame.clientId);
+        if (targetClient) {
+          sendToSocket<RelayServerToClientFrame>(targetClient.socket, {
+            type: 'gateway.chat-catchup',
+            sessionId: frame.sessionId,
+            text: frame.text
+          });
+        }
+        break;
+      }
       case 'gateway.error':
         sendGatewayError(frame);
         break;
@@ -370,6 +462,15 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             break;
           }
         }
+        if (session.transport === 'pty-event-stream' && session.status !== 'running') {
+          sendToClient(clientId, {
+            type: 'error',
+            sessionId: frame.sessionId,
+            code: 'session_lost',
+            message: 'PTY session is no longer running'
+          });
+          break;
+        }
         subscriptions.set(frame.sessionId, frame.mode);
         forwardToSessionGateway({
           type: 'client.subscribe',
@@ -436,20 +537,32 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         forwardToSessionGateway({ type: 'client.stop', clientId, sessionId: frame.sessionId });
         break;
       case 'client.chat':
-        if (!clientCanAccessSession(clientScope, authMethod, frame.sessionId, 'control')) {
-          sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });
-          break;
-        }
-        if (subscriptions.get(frame.sessionId) !== 'control') {
-          sendToClient(clientId, {
-            type: 'error',
-            sessionId: frame.sessionId,
-            code: subscriptions.has(frame.sessionId) ? 'observe_only' : 'not_subscribed',
-            message: subscriptions.has(frame.sessionId) ? 'observer clients cannot send input' : 'client is not subscribed to this session'
-          });
-          break;
-        }
-        forwardToSessionGateway({ type: 'client.chat', clientId, sessionId: frame.sessionId, message: frame.message });
+        forwardToGateway(ensureClientGatewayId(clientId), frame.sessionId === null
+          ? {
+              type: 'client.chat',
+              clientId,
+              sessionId: null,
+              provider: frame.provider,
+              model: frame.model,
+              cwd: frame.cwd,
+              message: frame.message,
+              accountId: clientScope.accountId,
+              workspaceId: clientScope.workspaceId,
+              userId: clientScope.userId
+            }
+          : { type: 'client.chat', clientId, sessionId: frame.sessionId, message: frame.message });
+        break;
+      case 'client.list-providers':
+        forwardToGateway(ensureClientGatewayId(clientId), { type: 'client.list-providers', clientId });
+        break;
+      case 'client.switch-model':
+        forwardToGateway(ensureClientGatewayId(clientId), {
+          type: 'client.switch-model',
+          clientId,
+          sessionId: frame.sessionId,
+          provider: frame.provider,
+          model: frame.model
+        });
         break;
       case 'client.detach':
         if (!clientCanAccessSession(clientScope, authMethod, frame.sessionId)) {
@@ -674,6 +787,8 @@ function gatewayFrameWithinScope(frame: RelayGatewayToServerFrame, gatewayScope:
       return gatewayScope.sessionId ? gatewayScope.sessionId === frame.event.sessionId : true;
     case 'gateway.error':
       return gatewayScope.sessionId ? gatewayScope.sessionId === frame.sessionId : true;
+    case 'gateway.session-created':
+    case 'gateway.chat-catchup':
     case 'gateway.auth':
       return true;
   }

@@ -6,6 +6,8 @@ import 'egg';
 import ExportAdminAuth from '../../../app/controller/admin-auth';
 import ExportAudit from '../../../app/controller/audit';
 import ExportAuth from '../../../app/controller/auth';
+import ExportChat from '../../../app/controller/chat';
+import ExportGatewayAuth from '../../../app/controller/gateway-auth';
 import ExportGateway from '../../../app/controller/gateway';
 import ExportHealth from '../../../app/controller/health';
 import ExportRuntimeSync from '../../../app/controller/runtime-sync';
@@ -22,6 +24,8 @@ declare module 'egg' {
     adminAuth: ExportAdminAuth;
     audit: ExportAudit;
     auth: ExportAuth;
+    chat: ExportChat;
+    gatewayAuth: ExportGatewayAuth;
     gateway: ExportGateway;
     health: ExportHealth;
     runtimeSync: ExportRuntimeSync;
