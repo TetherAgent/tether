@@ -6052,6 +6052,23 @@ textarea.composer-input {
   height: 14px;
 }
 
+.chat-input-card,
+.chat-new-session-composer {
+  min-width: 0;
+}
+
+.chat-input-toolbar {
+  min-width: 0;
+}
+
+.chat-input-toolbar [data-slot="select-trigger"] {
+  min-width: 0;
+}
+
+.chat-cwd-popover {
+  max-width: calc(100vw - 24px);
+}
+
 .terminal-fullscreen-toggle {
   position: absolute;
   z-index: 3;
@@ -6978,6 +6995,110 @@ textarea.composer-input {
 
   .session-detail-page .composer-form {
     margin: 0 12px 10px;
+  }
+
+  .chat-new-session-surface {
+    min-height: 100dvh;
+    justify-content: center;
+    padding: 20px 14px 26px;
+    overflow-x: hidden;
+  }
+
+  .chat-new-session-hero {
+    margin-bottom: 28px;
+    gap: 14px;
+  }
+
+  .chat-new-session-hero > div {
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
+  }
+
+  .chat-new-session-hero h1 {
+    max-width: 100%;
+    text-align: center;
+    font-size: clamp(25px, 7vw, 32px);
+    line-height: 1.15;
+  }
+
+  .chat-new-session-composer {
+    max-width: 100%;
+  }
+
+  .chat-input-card {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 18px;
+  }
+
+  .chat-input-card textarea {
+    min-height: 112px;
+    padding: 18px 16px 14px;
+    font-size: 16px;
+  }
+
+  .chat-input-toolbar-controls {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px;
+    grid-template-areas:
+      "cwd cwd cwd"
+      "provider model send";
+    gap: 8px;
+    align-items: center;
+    padding: 10px;
+  }
+
+  .chat-input-toolbar-controls > .flex-1 {
+    display: none;
+  }
+
+  .chat-input-toolbar-controls .chat-provider-trigger {
+    grid-area: provider;
+  }
+
+  .chat-input-toolbar-controls .chat-model-trigger {
+    grid-area: model;
+  }
+
+  .chat-input-toolbar-controls .chat-cwd-trigger {
+    grid-area: cwd;
+  }
+
+  .chat-input-toolbar-controls .chat-send-button {
+    grid-area: send;
+    justify-self: end;
+    width: 40px;
+    height: 40px;
+  }
+
+  .chat-provider-trigger,
+  .chat-model-trigger,
+  .chat-cwd-trigger {
+    width: 100% !important;
+    max-width: none;
+    min-width: 0;
+    height: 38px;
+    justify-content: center;
+  }
+
+  .chat-cwd-trigger {
+    justify-content: flex-start;
+    padding-inline: 14px;
+  }
+
+  .chat-cwd-popover {
+    width: calc(100vw - 28px) !important;
+  }
+
+  .chat-input-toolbar-session {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .chat-input-toolbar-session .chat-session-path-chip {
+    flex: 1 1 140px;
+    max-width: none;
   }
 
   .landing-container {

@@ -701,7 +701,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
     <button
       onClick={sendMessage}
       disabled={!canSend}
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all ${
+      className={`chat-send-button flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all ${
         canSend
           ? 'bg-brand text-black hover:opacity-90'
           : 'bg-muted text-muted-foreground cursor-not-allowed'
@@ -717,7 +717,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   const displayProviderModels = providerOptions.find((provider) => provider.provider === displayProvider)?.models ?? [];
   const displayModel = currentSessionId ? (activeSessionModel ?? displayProviderModels[0]) : selectedModel;
   const inputCard = (withControls: boolean) => (
-    <div className="overflow-hidden rounded-2xl border border-border bg-card" style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
+    <div className="chat-input-card overflow-hidden rounded-2xl border border-border bg-card" style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
       <Textarea
         value={inputText}
         onChange={(event) => setInputText(event.target.value)}
@@ -726,7 +726,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
         className="max-h-44 min-h-[88px] resize-none rounded-none border-0 bg-transparent px-4 pt-4 text-[15px] leading-relaxed shadow-none focus-visible:ring-0"
         onKeyDown={onKeyDown}
       />
-      <div className="relative flex items-center gap-2 border-t border-border/50 px-3 py-2.5">
+      <div className={`chat-input-toolbar ${withControls ? 'chat-input-toolbar-controls' : 'chat-input-toolbar-session'} relative flex items-center gap-2 border-t border-border/50 px-3 py-2.5`}>
         {withControls && (
           <>
             <Select
@@ -736,7 +736,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
                 setSelectedModel(providerOptions.find((p) => p.provider === value)?.models[0] ?? '');
               }}
             >
-              <SelectTrigger className="h-7 w-auto gap-1 rounded-full border-0 bg-muted px-3 text-[12px] font-medium shadow-none ring-0 focus:ring-0">
+              <SelectTrigger className="chat-provider-trigger h-7 w-auto gap-1 rounded-full border-0 bg-muted px-3 text-[12px] font-medium shadow-none ring-0 focus:ring-0">
                 <SelectValue placeholder={t.chatsSelectProvider} />
               </SelectTrigger>
               <SelectContent>
@@ -746,7 +746,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
               </SelectContent>
             </Select>
             <Select value={selectedModel} onValueChange={setSelectedModel}>
-              <SelectTrigger className="h-7 w-auto gap-1 rounded-full border-0 bg-muted px-3 text-[12px] font-medium shadow-none ring-0 focus:ring-0">
+              <SelectTrigger className="chat-model-trigger h-7 w-auto gap-1 rounded-full border-0 bg-muted px-3 text-[12px] font-medium shadow-none ring-0 focus:ring-0">
                 <SelectValue placeholder={t.chatsSelectModel} />
               </SelectTrigger>
               <SelectContent>
@@ -768,12 +768,12 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
                 <button
                   type="button"
                   title={cwd}
-                  className="flex h-7 max-w-[260px] min-w-[132px] items-center rounded-full bg-muted px-3 font-mono text-[12px] text-muted-foreground transition-colors hover:text-foreground"
+                  className="chat-cwd-trigger flex h-7 max-w-[260px] min-w-[132px] items-center rounded-full bg-muted px-3 font-mono text-[12px] text-muted-foreground transition-colors hover:text-foreground"
                 >
                   <span className="truncate">{cwd ? compactPathLabel(cwd) : '请选择工作目录'}</span>
                 </button>
               </PopoverTrigger>
-              <PopoverContent side="top" align="start" sideOffset={10} className="w-[520px] gap-2 p-2">
+              <PopoverContent side="top" align="start" sideOffset={10} className="chat-cwd-popover w-[520px] gap-2 p-2">
                 <Input
                   value={cwd}
                   onChange={(event) => setCwd(event.target.value)}
@@ -838,7 +838,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
           <>
             {displayProviderModels.length > 0 && displayModel && (
               <Select value={displayModel} onValueChange={setActiveSessionModel}>
-                <SelectTrigger className="h-7 w-auto gap-1 rounded-full border-0 bg-muted px-3 text-[12px] font-medium shadow-none ring-0 focus:ring-0">
+                <SelectTrigger className="chat-model-trigger h-7 w-auto gap-1 rounded-full border-0 bg-muted px-3 text-[12px] font-medium shadow-none ring-0 focus:ring-0">
                   <SelectValue placeholder={t.chatsSelectModel} />
                 </SelectTrigger>
                 <SelectContent>
@@ -851,7 +851,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
             {activeSessionProjectPath && (
               <span
                 title={activeSessionProjectPath}
-                className="flex h-7 max-w-[260px] min-w-0 items-center rounded-full bg-muted px-3 font-mono text-[12px] font-medium text-muted-foreground"
+                className="chat-session-path-chip flex h-7 max-w-[260px] min-w-0 items-center rounded-full bg-muted px-3 font-mono text-[12px] font-medium text-muted-foreground"
               >
                 <span className="truncate">{compactProjectPath(activeSessionProjectPath)}</span>
               </span>
@@ -869,7 +869,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
 
   if (isNewSession) {
     return (
-      <div className="chat-surface relative flex h-full flex-col items-center justify-center bg-background px-6">
+      <div className="chat-surface chat-new-session-surface relative flex h-full flex-col items-center justify-center bg-background px-6">
         {onOpenDrawer && (
           <button
             onClick={onOpenDrawer}
@@ -886,7 +886,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
             <PanelLeftOpen className="h-[15px] w-[15px]" />
           </button>
         )}
-        <div className="mb-10 flex flex-col items-center gap-4">
+        <div className="chat-new-session-hero mb-10 flex flex-col items-center gap-4">
           <div
             className="flex h-14 w-14 items-center justify-center rounded-2xl text-xl font-bold text-black shadow-md"
             style={{ background: 'var(--gradient-brand)' }}
@@ -898,7 +898,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
           </h1>
         </div>
 
-        <div className="w-full max-w-[680px]">
+        <div className="chat-new-session-composer w-full max-w-[680px]">
           {connectionBanner}
           {inputCard(true)}
           <div className="mt-3 flex items-center justify-center gap-1">
