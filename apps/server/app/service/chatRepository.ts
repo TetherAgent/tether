@@ -2,6 +2,7 @@ import { Service } from 'egg';
 
 export type ChatSessionRecord = {
   id: string;
+  gatewayId: string;
   provider: string;
   projectPath: string;
   title?: string;
@@ -42,7 +43,7 @@ export default class ChatRepositoryService extends Service {
       return [];
     }
     const rows = await this.ctx.service.db.query(
-      `SELECT id, provider, project_path, title, agent_session_id, status, transport, last_active_at, created_at
+      `SELECT id, gateway_id, provider, project_path, title, agent_session_id, status, transport, last_active_at, created_at
        FROM gateway_sessions
        WHERE account_id = ? AND workspace_id = ? AND user_id = ? AND transport = 'chat'
        ORDER BY last_active_at DESC, created_at DESC
@@ -126,6 +127,7 @@ export default class ChatRepositoryService extends Service {
   private sessionFromRow(row: Record<string, unknown>): ChatSessionRecord {
     return {
       id: String(row.id ?? ''),
+      gatewayId: String(row.gateway_id ?? ''),
       provider: String(row.provider ?? ''),
       projectPath: String(row.project_path ?? ''),
       title: this.nullableString(row.title),

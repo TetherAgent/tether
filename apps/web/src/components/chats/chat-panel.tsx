@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUp, Check, Copy, Folder, Loader2, Menu, PanelLeftOpen } from 'lucide-react';
+import { ArrowUp, Check, Copy, Folder, Loader2, Menu, PanelLeftOpen, Settings } from 'lucide-react';
 import { NotificationBell } from './notification-bell.js';
 import {
   Button,
@@ -35,7 +35,7 @@ type MessageItem =
   | { kind: 'permission'; id: string; requestId: string; toolName: string; decided?: 'allow' | 'deny' };
 type HistoryMessage = { role: string; content: string; usageJson?: Usage; createdAt: string };
 type ProviderOption = { provider: string; models: string[] };
-type ChatSessionRecord = { id: string; provider?: string; projectPath?: string; agentSessionId?: string };
+type ChatSessionRecord = { id: string; gatewayId?: string; provider?: string; projectPath?: string; agentSessionId?: string };
 
 const RELAY_URL_KEY = 'tether:relayUrl';
 const DEFAULT_RELAY_URL = import.meta.env.VITE_TETHER_RELAY_URL ?? 'wss://tether.earntools.me';
@@ -86,12 +86,6 @@ function compactProjectPath(value: string): string {
     return normalized;
   }
   return `.../${parts.slice(-3).join('/')}`;
-}
-
-function buildResumeCommand(provider: string, agentSessionId: string): string {
-  if (provider === 'codex') return `codex exec resume ${agentSessionId}`;
-  if (provider === 'copilot') return `gh copilot --resume=${agentSessionId}`;
-  return `claude --resume ${agentSessionId}`;
 }
 
 function findLatestOpenAgentId(items: MessageItem[]): string | undefined {
@@ -149,6 +143,9 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   const [activeSessionProvider, setActiveSessionProvider] = React.useState<string | undefined>(undefined);
   const [activeSessionModel, setActiveSessionModel] = React.useState<string | undefined>(undefined);
   const [activeSessionProjectPath, setActiveSessionProjectPath] = React.useState<string | undefined>(undefined);
+  const [activeSessionGatewayId, setActiveSessionGatewayId] = React.useState<string | undefined>(undefined);
+  const [activeSessionMetadataReady, setActiveSessionMetadataReady] = React.useState(!activeSessionId);
+  const [relayGatewayId, setRelayGatewayId] = React.useState<string | undefined>(undefined);
   const [cwd, setCwd] = React.useState('~');
   const [cwdSuggestions, setCwdSuggestions] = React.useState<string[]>([]);
   const [cwdPickerOpen, setCwdPickerOpen] = React.useState(false);
@@ -156,8 +153,10 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(undefined);
   const [connectionError, setConnectionError] = React.useState<string | undefined>(undefined);
   const hasEverConnectedRef = React.useRef(false);
+  const gatewayReadyRef = React.useRef(false);
   const [usageStats, setUsageStats] = React.useState<{ contextPct?: number; rateLimitResetsAt?: number; rateLimitType?: string } | undefined>(undefined);
   const [copiedAgentId, setCopiedAgentId] = React.useState(false);
+  const [sessionSettingsOpen, setSessionSettingsOpen] = React.useState(false);
   const messageScrollRef = React.useRef<HTMLDivElement | null>(null);
   const messageEndRef = React.useRef<HTMLDivElement | null>(null);
   const currentAgentIdRef = React.useRef<string | null>(null);
@@ -234,9 +233,13 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
     setCurrentSessionId(activeSessionId);
     setAgentSessionId(undefined);
     setActiveSessionProjectPath(undefined);
+    setActiveSessionGatewayId(undefined);
+    setActiveSessionMetadataReady(!activeSessionId);
     if (activeSessionId && activeSessionId === createdSessionIdRef.current) {
       setActiveSessionProvider(pendingSessionProviderRef.current);
       setActiveSessionModel(pendingSessionModelRef.current);
+      setActiveSessionGatewayId(relayGatewayId);
+      setActiveSessionMetadataReady(true);
       createdSessionIdRef.current = null;
     } else {
       setActiveSessionProvider(undefined);
@@ -250,6 +253,8 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
       setIsInflight(false);
       setAgentSessionId(undefined);
       setActiveSessionProjectPath(undefined);
+      setActiveSessionGatewayId(undefined);
+      setActiveSessionMetadataReady(true);
       return;
     }
     if (
@@ -321,9 +326,11 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
         setAgentSessionId(session?.agentSessionId);
         setActiveSessionProvider(session?.provider);
         setActiveSessionProjectPath(session?.projectPath);
+        setActiveSessionGatewayId(session?.gatewayId);
         setActiveSessionModel(undefined);
+        setActiveSessionMetadataReady(true);
       })
-      .catch(() => undefined);
+      .catch(() => setActiveSessionMetadataReady(true));
   }, [activeSessionId, normalAuth?.accessToken]);
 
   const relayUrl = React.useMemo(
@@ -344,11 +351,16 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
         relay.sendFrame({ type: 'client.list-providers' });
         return;
       }
+      if (frame.type === 'hello') {
+        setRelayGatewayId(typeof frame.gatewayId === 'string' ? frame.gatewayId : undefined);
+        return;
+      }
       if (frame.type === 'gateway.providers') {
         const nextProviders = Array.isArray(frame.providers)
           ? frame.providers.filter((provider: unknown): provider is ProviderOption => isProviderOption(provider))
           : [];
         if (nextProviders.length > 0) {
+          gatewayReadyRef.current = true;
           setProviderOptions(nextProviders);
           setSelectedProvider((currentProvider) =>
             nextProviders.some((provider: ProviderOption) => provider.provider === currentProvider)
@@ -378,6 +390,8 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
       }
       if (frame.type === 'gateway.session-created' && typeof frame.sessionId === 'string') {
         setConnectionError(undefined);
+        setActiveSessionGatewayId(relayGatewayId);
+        setActiveSessionMetadataReady(true);
         skipNextHistoryLoadSessionIdRef.current = frame.sessionId;
         pendingCreatedSessionIdRef.current = frame.sessionId;
         createdSessionIdRef.current = frame.sessionId;
@@ -403,6 +417,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
         return;
       }
       if (frame.type === 'gateway.chat-catchup' && typeof frame.text === 'string') {
+        setConnectionError(undefined);
         const frameText = frame.text;
         const fallbackAgentId = currentAgentIdRef.current ?? findLatestOpenAgentId(messagesRef.current);
         if (fallbackAgentId) {
@@ -573,7 +588,11 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
           frame.code === 'forbidden' ||
           frame.code === 'wrong_ticket_scope'
         ) {
-          setConnectionError(frameMessage);
+          setConnectionError(frame.code === 'gateway_unavailable'
+            ? t.gatewayNotConnected
+            : frame.code === 'forbidden' && frameMessage === 'session is outside client scope'
+              ? t.chatsSessionOutsideGateway
+              : frameMessage);
           setIsInflight(false);
           currentAgentIdRef.current = null;
           return;
@@ -606,7 +625,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
           setIsInflight(false);
         }
       }
-  }, [navigate, t.chatsProviderFail, t.chatsSessionStarted]);
+  }, [navigate, relayGatewayId, t.chatsProviderFail, t.chatsSessionOutsideGateway, t.chatsSessionStarted, t.gatewayNotConnected]);
 
   const { wsReady, sendFrame } = useChatRelaySocket({
     accessToken: normalAuth?.accessToken,
@@ -635,10 +654,15 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   }, [providerOptions, selectedModel, selectedProvider]);
 
   React.useEffect(() => {
-    if (wsReady && currentSessionId) {
-      sendFrame({ type: 'client.subscribe', sessionId: currentSessionId, mode: 'control' });
+    if (!wsReady || !currentSessionId || !activeSessionMetadataReady) {
+      return;
     }
-  }, [currentSessionId, sendFrame, wsReady]);
+    if (activeSessionGatewayId && relayGatewayId && activeSessionGatewayId !== relayGatewayId) {
+      setConnectionError(t.chatsSessionOutsideGateway);
+      return;
+    }
+    sendFrame({ type: 'client.subscribe', sessionId: currentSessionId, mode: 'control' });
+  }, [activeSessionGatewayId, activeSessionMetadataReady, currentSessionId, relayGatewayId, sendFrame, t.chatsSessionOutsideGateway, wsReady]);
 
   const sendMessage = React.useCallback(() => {
     const text = inputText.trim();
@@ -691,12 +715,34 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
 
   const canSend = wsReady && !isInflight && !connectionError && inputText.trim().length > 0;
   const isInputDisabled = isInflight || !wsReady || Boolean(connectionError);
-  const connectionStatusChip = connectionError && hasEverConnectedRef.current ? (
-    <div className="chat-connection-chip" role="status" aria-live="polite">
-      <span />
-      <strong>{connectionError}</strong>
-    </div>
-  ) : null;
+  const connectionStatusChip = (() => {
+    if (connectionError) {
+      // Gateway was previously ready and is now unavailable — show real error
+      return (
+        <div className="chat-connection-chip" role="status" aria-live="polite">
+          <span />
+          <strong>{connectionError}</strong>
+        </div>
+      );
+    }
+    if (wsReady && hasEverConnectedRef.current && !gatewayReadyRef.current) {
+      // Authenticated but gateway not confirmed yet — show neutral "connecting" state
+      return (
+        <div className="chat-connection-chip chat-connection-chip--connecting" role="status" aria-live="polite">
+          <strong>{t.chatsGatewayConnecting}</strong>
+        </div>
+      );
+    }
+    if (wsReady && gatewayReadyRef.current) {
+      return (
+        <div className="chat-connection-chip chat-connection-chip--connected" role="status" aria-live="polite">
+          <span />
+          <strong>{t.chatsGatewayConnected}</strong>
+        </div>
+      );
+    }
+    return null;
+  })();
 
   const sendButton = (
     <button
@@ -719,7 +765,6 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   const displayModel = currentSessionId ? (activeSessionModel ?? displayProviderModels[0]) : selectedModel;
   const inputCard = (withControls: boolean) => (
     <div className="chat-input-card relative overflow-hidden rounded-2xl border border-border bg-card" style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
-      {connectionStatusChip}
       <Textarea
         value={inputText}
         onChange={(event) => setInputText(event.target.value)}
@@ -767,15 +812,15 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
               }}
             >
               <PopoverTrigger asChild>
-	                <button
-	                  type="button"
-	                  title={cwd}
-	                  className="chat-cwd-trigger flex h-7 max-w-[260px] min-w-[132px] items-center rounded-full bg-muted px-3 font-mono text-[12px] text-muted-foreground transition-colors hover:text-foreground"
-	                >
-	                  <Folder className="chat-cwd-icon" />
-	                  <span className="chat-cwd-label">目录</span>
-	                  <span className="chat-cwd-value truncate">{cwd ? compactPathLabel(cwd) : '请选择工作目录'}</span>
-	                </button>
+                <button
+                  type="button"
+                  title={cwd}
+                  className="chat-cwd-trigger flex h-7 max-w-[260px] min-w-[132px] items-center rounded-full bg-muted px-3 font-mono text-[12px] text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <Folder className="chat-cwd-icon" />
+                  <span className="chat-cwd-label">{t.chatsCwdShort}</span>
+                  <span className="chat-cwd-value truncate">{cwd ? compactPathLabel(cwd) : t.chatsCwdSelect}</span>
+                </button>
               </PopoverTrigger>
               <PopoverContent side="top" align="start" sideOffset={10} className="chat-cwd-popover w-[520px] gap-2 p-2">
                 <Input
@@ -890,7 +935,12 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
             <PanelLeftOpen className="h-[15px] w-[15px]" />
           </button>
         )}
-        <div className="absolute right-3 top-3">
+        <div className="absolute right-3 top-3 flex items-center gap-2">
+          {connectionStatusChip ? (
+            <div className="chat-header-connection-status">
+              {connectionStatusChip}
+            </div>
+          ) : null}
           <NotificationBell />
         </div>
         <div className="chat-new-session-hero mb-10 flex flex-col items-center gap-4">
@@ -936,28 +986,26 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
           </button>
         )}
         <div className="flex-1" />
-        <span className="shrink-0 rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-          {displayProvider}
-        </span>
+        {connectionStatusChip ? (
+          <div className="chat-header-connection-status">
+            {connectionStatusChip}
+          </div>
+        ) : null}
         {agentSessionId && (
-          <>
-            <span className="max-w-[200px] truncate font-mono text-[11px] text-muted-foreground/50">
-              {agentSessionId}
-            </span>
-            <button
-              onClick={() => {
-                void navigator.clipboard.writeText(buildResumeCommand(displayProvider, agentSessionId));
-                setCopiedAgentId(true);
-                setTimeout(() => setCopiedAgentId(false), 1500);
-              }}
-              title={t.copyAgentSessionId}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/40 transition-colors hover:text-muted-foreground"
-            >
-              {copiedAgentId
-                ? <Check className="h-3 w-3 text-brand" />
-                : <Copy className="h-3 w-3" />}
-            </button>
-          </>
+          <button
+            onClick={() => {
+              void navigator.clipboard.writeText(agentSessionId);
+              setCopiedAgentId(true);
+              setTimeout(() => setCopiedAgentId(false), 1500);
+            }}
+            title={t.chatsCopyProviderSessionId.replace('{provider}', displayProvider)}
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-muted px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {copiedAgentId
+              ? <Check className="h-3 w-3 text-brand" />
+              : <Copy className="h-3 w-3" />}
+            <span>{copiedAgentId ? t.chatCodeCopied : t.chatsCopyProviderSessionId.replace('{provider}', displayProvider)}</span>
+          </button>
         )}
         <NotificationBell />
       </div>
@@ -1015,8 +1063,80 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
 
       {/* Input */}
       <div className="px-4 pb-4 pt-2">
-        <div className="mx-auto max-w-3xl">
-          {inputCard(false)}
+        <div className="mx-auto max-w-3xl flex flex-col gap-1.5">
+          {/* Info row — click to open session settings */}
+          <Popover open={sessionSettingsOpen} onOpenChange={setSessionSettingsOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                title={t.chatsSessionSettings}
+                className="flex items-center gap-1.5 self-start rounded px-1 py-0.5 text-[11px] text-muted-foreground/55 transition-colors hover:text-muted-foreground"
+              >
+                {displayModel && <span className="font-medium">{displayModel}</span>}
+                {activeSessionProjectPath && (
+                  <>
+                    <span className="opacity-40">·</span>
+                    <span className="max-w-[200px] truncate font-mono">{compactPathLabel(activeSessionProjectPath)}</span>
+                  </>
+                )}
+                {usageStats?.contextPct !== undefined && (
+                  <>
+                    <span className="opacity-40">·</span>
+                    <span className="tabular-nums">ctx {usageStats.contextPct}%</span>
+                  </>
+                )}
+                <Settings className="ml-1 h-3 w-3 opacity-50" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="top" align="start" sideOffset={8} className="w-64 p-3">
+              <div className="flex flex-col gap-2.5">
+                {displayProviderModels.length > 0 && displayModel && (
+                  <div className="flex items-center gap-2">
+                    <span className="w-10 shrink-0 text-[12px] text-muted-foreground">{t.chatsLabelModel}</span>
+                    <Select value={displayModel} onValueChange={setActiveSessionModel}>
+                      <SelectTrigger className="h-7 flex-1 text-[12px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {displayProviderModels.map((model) => (
+                          <SelectItem key={model} value={model}>{model}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {activeSessionProjectPath && (
+                  <div className="flex items-center gap-2">
+                    <span className="w-10 shrink-0 text-[12px] text-muted-foreground">{t.chatsCwdShort}</span>
+                    <span
+                      title={activeSessionProjectPath}
+                      className="flex h-7 min-w-0 flex-1 items-center rounded-lg bg-muted px-3 font-mono text-[12px] font-medium text-muted-foreground"
+                    >
+                      <span className="truncate">{compactProjectPath(activeSessionProjectPath)}</span>
+                    </span>
+                  </div>
+                )}
+                {usageStats?.rateLimitResetsAt && (
+                  <UsageStatsChip rateLimitResetsAt={usageStats.rateLimitResetsAt} rateLimitType={usageStats.rateLimitType} />
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          {/* Compact input card */}
+          <div className="chat-input-card relative overflow-hidden rounded-2xl border border-border bg-card" style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
+            <div className="flex items-end gap-2 px-3 py-2.5">
+              <Textarea
+                value={inputText}
+                onChange={(event) => setInputText(event.target.value)}
+                placeholder={t.chatsInputPlaceholder.replace('{model}', displayModel || displayProvider)}
+                disabled={isInputDisabled}
+                className="flex-1 max-h-44 min-h-[36px] resize-none border-0 bg-transparent py-1 text-[15px] leading-relaxed shadow-none focus-visible:ring-0"
+                onKeyDown={onKeyDown}
+              />
+              {sendButton}
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -10,6 +10,7 @@ import { deleteChatSession, getStoredNormalAccessToken, renameChatSession } from
 
 type ChatSessionRecord = {
   id: string;
+  gatewayId?: string;
   provider: string;
   projectPath: string;
   title?: string;
