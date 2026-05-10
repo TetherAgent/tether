@@ -147,14 +147,31 @@ Relay 同步 → Server DB（全量事件实时推送）
 - **D-04:** 创建 session 时 `client.create-session` 携带 `provider: string`（如 `"claude"` / `"codex"`）。Gateway 校验 provider 在白名单内，否则拒绝。
 - **D-05:** UI 中不同 model 对应不同头像/颜色：Claude = 紫色，Codex = 蓝色，opencode = 橙色（可扩展）。
 
-### UI 结构（类微信）
+### UI 结构（飞书三栏布局）
 - **D-06:** 在现有 `apps/web` 中新增路由和页面，不新建独立 app。新旧路由并存，不删旧页面。
-- **D-06b:** 新界面命名为 **Chats**。路由：`/chats`（会话列表）、`/chats/:sessionId`（单个聊天）。组件：`ChatsPage`、`ChatPage`。
+- **D-06b:** 新界面命名为 **Chats**。路由：`/chats`（默认打开第一个或空态）、`/chats/:sessionId`（指定会话）。组件：`ChatsLayout`、`ChatSessionList`、`ChatPanel`。
 - **D-06c:** 登录后默认跳转改为 `/chats`（现在是 `/sessions`）。旧 `/sessions` 路由保留，不删除。
-- **D-07:** 布局：左侧固定窄导航栏（图标 tab）+ 右侧两列区（会话列表 + 聊天区）。移动端折叠为单列（会话列表 ↔ 聊天区）。
-- **D-08:** 左侧导航 tab：① 会话列表 ② 新建会话（`+`按钮触发 model 选择弹窗）③ 设置/账号。
-- **D-09:** 会话列表每行显示：AI model 头像（颜色圆形）+ model 名称、最后一条消息预览（截断 50 字）、时间戳、session 运行状态指示（闪烁绿点）。
-- **D-10:** 渲染风格参考用户提供的 HTML mockup（`docs/archive/completed-working/2026-05-04-simple-chat-mockup-stream-json.html`）：tool call 折叠卡片、agent 气泡、user 气泡、结果卡片（耗时/token/花费）。
+
+**三栏布局（参考飞书截图）：**
+- **D-07a 最左栏（窄导航，固定宽约 56px）：**
+  - 顶部：用户头像
+  - 中部：图标 + 文字 tab（① 会话列表 / Chats）
+  - 顶部右上角：`+` 新建会话按钮
+  - 底部：设置/账号入口
+- **D-07b 中栏（会话列表，约 280px）：**
+  - 顶部搜索框（⌘+K）
+  - 会话列表每行：AI model 彩色头像圆形 + 名称、最后一条消息预览（截断 40 字）、时间戳、运行中绿点动画
+  - 空态：大号"新建会话"引导按钮
+- **D-07c 右栏（聊天区，剩余宽度）：**
+  - 顶部 header：会话名称（model + 创建时间）、当前模型标签、换模型入口
+  - 消息流区域：参考 HTML mockup（agent 气泡、user 气泡、tool 折叠卡片、花费卡片）
+  - 底部输入框：固定底部，支持多行，发送按钮
+
+**移动端适配：**
+- **D-08:** 手机模式（< 768px）：隐藏左侧窄导航和中栏，默认只显示右侧聊天区。
+  - 左上角汉堡菜单 → 侧边抽屉滑出会话列表
+  - 在会话列表里点击 → 关闭抽屉，显示聊天区
+- **D-09:** 渲染风格参考 `docs/archive/completed-working/2026-05-04-simple-chat-mockup-stream-json.html`：tool call 折叠卡片、agent 气泡、user 气泡、结果花费卡片（耗时/token/cost）。
 
 ### Session ID 追踪
 - **D-11:** Session 创建时，Relay 同步写 Server DB（通过 `syncToServer`），Server 将 session 关联到当前登录用户（accountId/workspaceId/userId）。
