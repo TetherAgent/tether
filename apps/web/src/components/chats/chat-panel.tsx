@@ -152,8 +152,10 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   const [cwdActiveIndex, setCwdActiveIndex] = React.useState(0);
   const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(undefined);
   const [connectionError, setConnectionError] = React.useState<string | undefined>(undefined);
+  const [sessionAccessError, setSessionAccessError] = React.useState<string | undefined>(undefined);
   const hasEverConnectedRef = React.useRef(false);
-  const gatewayReadyRef = React.useRef(false);
+  const [gatewayReady, setGatewayReady] = React.useState(false);
+  const [hasGatewayStatusFrame, setHasGatewayStatusFrame] = React.useState(false);
   const [usageStats, setUsageStats] = React.useState<{ contextPct?: number; rateLimitResetsAt?: number; rateLimitType?: string } | undefined>(undefined);
   const [copiedAgentId, setCopiedAgentId] = React.useState(false);
   const [sessionSettingsOpen, setSessionSettingsOpen] = React.useState(false);
@@ -212,10 +214,10 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   }, [messages, scrollMessagesToBottom]);
 
   React.useEffect(() => {
-    if (connectionError) {
+    if (connectionError || sessionAccessError) {
       scrollMessagesToBottom('smooth');
     }
-  }, [connectionError, scrollMessagesToBottom]);
+  }, [connectionError, scrollMessagesToBottom, sessionAccessError]);
 
   React.useEffect(() => {
     return () => {
@@ -230,6 +232,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
       window.clearInterval(revealTimerRef.current);
       revealTimerRef.current = undefined;
     }
+    setSessionAccessError(undefined);
     setCurrentSessionId(activeSessionId);
     setAgentSessionId(undefined);
     setActiveSessionProjectPath(undefined);
@@ -339,12 +342,24 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   );
 
   const handleRelayClose = React.useCallback(() => {
-    gatewayReadyRef.current = false;
+    setGatewayReady(false);
+    setHasGatewayStatusFrame(false);
     setRelayGatewayId(undefined);
     setConnectionError(t.gatewayNotConnected);
     setIsInflight(false);
     currentAgentIdRef.current = null;
   }, [t.gatewayNotConnected]);
+
+  const markGatewayReadyFallback = React.useCallback((gatewayId?: string) => {
+    if (hasGatewayStatusFrame) {
+      return;
+    }
+    if (gatewayId) {
+      setRelayGatewayId(gatewayId);
+    }
+    setGatewayReady(true);
+    setConnectionError((current) => current === t.gatewayNotConnected ? undefined : current);
+  }, [hasGatewayStatusFrame, t.gatewayNotConnected]);
 
   const handleRelayFrame = React.useCallback((frame: RelayFrame, relay: { sendFrame: (frame: Record<string, unknown>) => boolean }) => {
       if (frame.type === 'client.auth.ok') {
@@ -354,26 +369,32 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
         return;
       }
       if (frame.type === 'hello') {
-        setRelayGatewayId(typeof frame.gatewayId === 'string' ? frame.gatewayId : undefined);
+        const gatewayId = typeof frame.gatewayId === 'string' ? frame.gatewayId : undefined;
+        setRelayGatewayId(gatewayId);
+        if (gatewayId) {
+          markGatewayReadyFallback(gatewayId);
+        }
         return;
       }
       if (frame.type === 'gateway.status' && typeof frame.gatewayId === 'string') {
+        setHasGatewayStatusFrame(true);
         if (frame.status === 'connected') {
-          gatewayReadyRef.current = true;
+          setGatewayReady(true);
           setRelayGatewayId(frame.gatewayId);
           setConnectionError((current) => current === t.gatewayNotConnected ? undefined : current);
           relay.sendFrame({ type: 'client.list-providers' });
           return;
         }
         if (frame.status === 'disconnected') {
-          gatewayReadyRef.current = false;
+          setGatewayReady(false);
           setRelayGatewayId((current) => current === frame.gatewayId ? undefined : current);
           setConnectionError(t.gatewayNotConnected);
           return;
         }
       }
-      if (frame.type === 'sessions' && Array.isArray(frame.sessions) && frame.sessions.length === 0 && gatewayReadyRef.current) {
-        gatewayReadyRef.current = false;
+      if (frame.type === 'sessions' && Array.isArray(frame.sessions) && frame.sessions.length === 0 && gatewayReady) {
+        setGatewayReady(false);
+        setHasGatewayStatusFrame(false);
         setRelayGatewayId(undefined);
         setConnectionError(t.gatewayNotConnected);
         return;
@@ -383,6 +404,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
           ? frame.providers.filter((provider: unknown): provider is ProviderOption => isProviderOption(provider))
           : [];
         if (nextProviders.length > 0) {
+          markGatewayReadyFallback();
           setProviderOptions(nextProviders);
           setSelectedProvider((currentProvider) =>
             nextProviders.some((provider: ProviderOption) => provider.provider === currentProvider)
@@ -412,6 +434,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
       }
       if (frame.type === 'gateway.session-created' && typeof frame.sessionId === 'string') {
         setConnectionError(undefined);
+        setSessionAccessError(undefined);
         setActiveSessionGatewayId(relayGatewayId);
         setActiveSessionMetadataReady(true);
         skipNextHistoryLoadSessionIdRef.current = frame.sessionId;
@@ -440,6 +463,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
       }
       if (frame.type === 'gateway.chat-catchup' && typeof frame.text === 'string') {
         setConnectionError(undefined);
+        setSessionAccessError(undefined);
         const frameText = frame.text;
         const fallbackAgentId = currentAgentIdRef.current ?? findLatestOpenAgentId(messagesRef.current);
         if (fallbackAgentId) {
@@ -456,6 +480,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
       }
       if (frame.type === 'agent.delta' && typeof frame.text === 'string') {
         setConnectionError(undefined);
+        setSessionAccessError(undefined);
         if (revealTimerRef.current !== undefined) {
           window.clearInterval(revealTimerRef.current);
           revealTimerRef.current = undefined;
@@ -493,6 +518,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
       }
       if (frame.type === 'agent.result' && typeof frame.text === 'string') {
         setConnectionError(undefined);
+        setSessionAccessError(undefined);
         if (typeof frame.sessionId === 'string' && frame.sessionId === pendingCreatedSessionIdRef.current) {
           pendingCreatedSessionIdRef.current = null;
         }
@@ -611,14 +637,15 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
           frame.code === 'wrong_ticket_scope'
         ) {
           if (frame.code === 'gateway_unavailable') {
-            gatewayReadyRef.current = false;
+            setGatewayReady(false);
+            setHasGatewayStatusFrame(false);
             setRelayGatewayId(undefined);
           }
-          setConnectionError(frame.code === 'gateway_unavailable'
-            ? t.gatewayNotConnected
-            : frame.code === 'forbidden' && frameMessage === 'session is outside client scope'
-              ? t.chatsSessionOutsideGateway
-              : frameMessage);
+          if (frame.code === 'forbidden' && frameMessage === 'session is outside client scope') {
+            setSessionAccessError(t.chatsSessionOutsideGateway);
+          } else {
+            setConnectionError(frame.code === 'gateway_unavailable' ? t.gatewayNotConnected : frameMessage);
+          }
           setIsInflight(false);
           currentAgentIdRef.current = null;
           return;
@@ -651,7 +678,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
           setIsInflight(false);
         }
       }
-  }, [navigate, relayGatewayId, t.chatsProviderFail, t.chatsSessionOutsideGateway, t.chatsSessionStarted, t.gatewayNotConnected]);
+  }, [gatewayReady, markGatewayReadyFallback, navigate, relayGatewayId, t.chatsProviderFail, t.chatsSessionOutsideGateway, t.chatsSessionStarted, t.gatewayNotConnected]);
 
   const { wsReady, sendFrame } = useChatRelaySocket({
     accessToken: normalAuth?.accessToken,
@@ -684,15 +711,16 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
       return;
     }
     if (activeSessionGatewayId && relayGatewayId && activeSessionGatewayId !== relayGatewayId) {
-      setConnectionError(t.chatsSessionOutsideGateway);
+      setSessionAccessError(t.chatsSessionOutsideGateway);
       return;
     }
+    setSessionAccessError(undefined);
     sendFrame({ type: 'client.subscribe', sessionId: currentSessionId, mode: 'control' });
   }, [activeSessionGatewayId, activeSessionMetadataReady, currentSessionId, relayGatewayId, sendFrame, t.chatsSessionOutsideGateway, wsReady]);
 
   const sendMessage = React.useCallback(() => {
     const text = inputText.trim();
-    if (!text || isInflight || !wsReady || connectionError) return;
+    if (!text || isInflight || !wsReady || connectionError || sessionAccessError) return;
     const existingProviderModels = providerOptions.find((provider) => provider.provider === activeSessionProvider)?.models ?? [];
     const messageProvider = currentSessionId ? (activeSessionProvider ?? 'agent') : selectedProvider;
     const messageModel = currentSessionId ? (activeSessionModel ?? existingProviderModels[0]) : selectedModel;
@@ -720,7 +748,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
       cwd,
       message: text
     });
-  }, [activeSessionModel, activeSessionProvider, connectionError, cwd, currentSessionId, inputText, isInflight, providerOptions, selectedModel, selectedProvider, sendFrame, wsReady]);
+  }, [activeSessionModel, activeSessionProvider, connectionError, cwd, currentSessionId, inputText, isInflight, providerOptions, selectedModel, selectedProvider, sendFrame, sessionAccessError, wsReady]);
 
   const sendPermissionResponse = React.useCallback((requestId: string, decision: 'allow' | 'deny') => {
     if (!wsReady || !currentSessionIdRef.current) return;
@@ -739,8 +767,8 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
     }
   };
 
-  const canSend = wsReady && !isInflight && !connectionError && inputText.trim().length > 0;
-  const isInputDisabled = isInflight || !wsReady || Boolean(connectionError);
+  const canSend = wsReady && !isInflight && !connectionError && !sessionAccessError && inputText.trim().length > 0;
+  const isInputDisabled = isInflight || !wsReady || Boolean(connectionError) || Boolean(sessionAccessError);
   const connectionStatusChip = (() => {
     if (connectionError) {
       // Gateway was previously ready and is now unavailable — show real error
@@ -751,7 +779,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
         </div>
       );
     }
-    if (wsReady && hasEverConnectedRef.current && !gatewayReadyRef.current) {
+    if (wsReady && hasEverConnectedRef.current && !gatewayReady) {
       // Authenticated but gateway not confirmed yet — show neutral "connecting" state
       return (
         <div className="chat-connection-chip chat-connection-chip--connecting" role="status" aria-live="polite">
@@ -759,7 +787,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
         </div>
       );
     }
-    if (wsReady && gatewayReadyRef.current) {
+    if (wsReady && gatewayReady) {
       return (
         <div className="chat-connection-chip chat-connection-chip--connected" role="status" aria-live="polite">
           <span />
@@ -1015,6 +1043,14 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
         {connectionStatusChip ? (
           <div className="chat-header-connection-status">
             {connectionStatusChip}
+          </div>
+        ) : null}
+        {sessionAccessError ? (
+          <div className="chat-header-session-status">
+            <div className="chat-connection-chip" role="status" aria-live="polite">
+              <span />
+              <strong>{sessionAccessError}</strong>
+            </div>
           </div>
         ) : null}
         {agentSessionId && (

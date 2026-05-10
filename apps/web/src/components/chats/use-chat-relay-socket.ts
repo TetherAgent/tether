@@ -13,6 +13,21 @@ type UseChatRelaySocketOptions = {
   onClose: () => void;
 };
 
+type RelaySubscriber = {
+  onFrameRef: React.MutableRefObject<UseChatRelaySocketOptions['onFrame']>;
+  onCloseRef: React.MutableRefObject<UseChatRelaySocketOptions['onClose']>;
+  setWsReady: React.Dispatch<React.SetStateAction<boolean>>;
+};
+
+type SharedRelaySocket = {
+  key: string;
+  ws: WebSocket | null;
+  ready: boolean;
+  activeSubscriber?: RelaySubscriber;
+};
+
+let sharedRelaySocket: SharedRelaySocket | undefined;
+
 function buildRelayUrl(value: string): string {
   const url = new URL(value);
   if (url.protocol === 'http:') url.protocol = 'ws:';
@@ -33,6 +48,62 @@ function frameFromRaw(raw: MessageEvent['data']): RelayFrame | undefined {
   }
 }
 
+function sendSharedFrame(frame: Record<string, unknown>): boolean {
+  const ws = sharedRelaySocket?.ws;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    return false;
+  }
+  ws.send(JSON.stringify(frame));
+  return true;
+}
+
+function closeSharedSocket(socket: SharedRelaySocket | undefined = sharedRelaySocket) {
+  if (!socket) return;
+  const ws = socket.ws;
+  socket.ws = null;
+  socket.ready = false;
+  socket.activeSubscriber?.setWsReady(false);
+  if (sharedRelaySocket === socket) {
+    sharedRelaySocket = undefined;
+  }
+  if (ws && ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
+    ws.close();
+  }
+}
+
+function openSharedSocket(key: string, relayUrl: string, accessToken: string): SharedRelaySocket {
+  const socket: SharedRelaySocket = {
+    key,
+    ws: null,
+    ready: false
+  };
+  const ws = new WebSocket(buildRelayUrl(relayUrl));
+  socket.ws = ws;
+  sharedRelaySocket = socket;
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: 'client.auth', token: accessToken }));
+  };
+  ws.onmessage = (event) => {
+    const frame = frameFromRaw(event.data);
+    if (!frame || sharedRelaySocket !== socket) return;
+    if (frame.type === 'client.auth.ok') {
+      socket.ready = true;
+      socket.activeSubscriber?.setWsReady(true);
+    }
+    socket.activeSubscriber?.onFrameRef.current(frame, { sendFrame: sendSharedFrame });
+  };
+  ws.onclose = () => {
+    if (sharedRelaySocket !== socket) return;
+    socket.ws = null;
+    socket.ready = false;
+    socket.activeSubscriber?.setWsReady(false);
+    socket.activeSubscriber?.onCloseRef.current();
+  };
+
+  return socket;
+}
+
 export function useChatRelaySocket({
   accessToken,
   relayUrl,
@@ -40,7 +111,6 @@ export function useChatRelaySocket({
   onClose
 }: UseChatRelaySocketOptions) {
   const [wsReady, setWsReady] = React.useState(false);
-  const wsRef = React.useRef<WebSocket | null>(null);
   const onFrameRef = React.useRef(onFrame);
   const onCloseRef = React.useRef(onClose);
 
@@ -52,50 +122,40 @@ export function useChatRelaySocket({
     onCloseRef.current = onClose;
   }, [onClose]);
 
-  const sendFrame = React.useCallback((frame: Record<string, unknown>): boolean => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      return false;
-    }
-    wsRef.current.send(JSON.stringify(frame));
-    return true;
-  }, []);
+  const sendFrame = React.useCallback(sendSharedFrame, []);
 
   React.useEffect(() => {
     if (!accessToken) {
       setWsReady(false);
       return;
     }
-    let closedByCleanup = false;
-    const ws = new WebSocket(buildRelayUrl(relayUrl));
-    wsRef.current = ws;
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'client.auth', token: accessToken }));
+    const key = `${relayUrl}\n${accessToken}`;
+    const subscriber: RelaySubscriber = {
+      onFrameRef,
+      onCloseRef,
+      setWsReady
     };
-    ws.onmessage = (event) => {
-      const frame = frameFromRaw(event.data);
-      if (!frame) return;
-      if (frame.type === 'client.auth.ok') {
-        setWsReady(true);
-      }
-      onFrameRef.current(frame, { sendFrame });
-    };
-    ws.onclose = () => {
-      if (wsRef.current === ws) {
-        wsRef.current = null;
-      }
-      setWsReady(false);
-      if (!closedByCleanup) {
-        onCloseRef.current();
-      }
-    };
+
+    if (sharedRelaySocket && sharedRelaySocket.key !== key) {
+      closeSharedSocket(sharedRelaySocket);
+    }
+
+    let socket = sharedRelaySocket;
+    if (!socket || !socket.ws || socket.ws.readyState === WebSocket.CLOSED || socket.ws.readyState === WebSocket.CLOSING) {
+      socket = openSharedSocket(key, relayUrl, accessToken);
+    }
+
+    socket.activeSubscriber = subscriber;
+    setWsReady(socket.ready);
+
     return () => {
-      closedByCleanup = true;
-      if (wsRef.current === ws) {
-        wsRef.current = null;
+      if (sharedRelaySocket !== socket || socket.activeSubscriber !== subscriber) {
+        return;
       }
-      ws.close();
+      socket.activeSubscriber = undefined;
+      setWsReady(false);
     };
-  }, [accessToken, relayUrl, sendFrame]);
+  }, [accessToken, relayUrl]);
 
   return { wsReady, sendFrame };
 }

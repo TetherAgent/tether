@@ -10,6 +10,7 @@ export const LAUNCHD_LABEL = 'sh.tether.gateway';
 export type GatewayPlistOptions = {
   nodePath?: string;
   launcherPath?: string;
+  workingDirectory?: string;
   stdoutPath?: string;
   stderrPath?: string;
   env?: NodeJS.ProcessEnv;
@@ -50,6 +51,7 @@ export function buildGatewayPlist(options: GatewayPlistOptions = {}): string {
   const stdoutPath = options.stdoutPath ?? path.join(os.homedir(), '.tether', 'logs', 'gateway.out.log');
   const stderrPath = options.stderrPath ?? path.join(os.homedir(), '.tether', 'logs', 'gateway.err.log');
   const environment = launchdEnvironment(options.env);
+  const workingDirectory = resolveWorkingDirectory(options.workingDirectory, options.launcherPath);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -60,6 +62,8 @@ export function buildGatewayPlist(options: GatewayPlistOptions = {}): string {
   <array>
 ${args.map((arg) => `    <string>${escapePlist(arg)}</string>`).join('\n')}
   </array>
+  <key>WorkingDirectory</key>
+  <string>${escapePlist(workingDirectory)}</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -164,6 +168,11 @@ function gatewayProgramArguments(options: GatewayPlistOptions): string[] {
   const nodePath = path.resolve(options.nodePath ?? process.execPath);
   const launcherPath = resolveLauncherPath(options.launcherPath);
   return [nodePath, launcherPath, 'gateway'];
+}
+
+function resolveWorkingDirectory(override?: string, launcherPathOverride?: string): string {
+  if (override) return path.resolve(override);
+  return path.dirname(path.dirname(resolveLauncherPath(launcherPathOverride)));
 }
 
 export function resolveLauncherPath(override?: string): string {

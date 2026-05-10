@@ -496,7 +496,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           authenticated = true;
           clearTimeout(authTimer);
           clientScope = auth.scope;
-          const gatewayId = clientScope.gatewayId ?? firstGatewayForAccount(clientScope.accountId)?.gatewayId;
+          const gatewayId = clientScope.gatewayId ?? firstGatewayForScope(clientScope)?.gatewayId;
           clients.set(clientId, { clientId, scope: auth.scope, gatewayId, authMethod: auth.authMethod, socket, subscriptions });
           sendToSocket<RelayServerToClientFrame>(socket, { type: 'client.auth.ok', clientId });
           sendToSocket<RelayServerToClientFrame>(socket, {
@@ -740,6 +740,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     }
     const accountId = client.scope?.accountId;
     const gatewayId = client.scope?.gatewayId ??
+      firstGatewayForScope(client.scope)?.gatewayId ??
       (accountId ? firstGatewayForAccount(accountId)?.gatewayId : firstConnectedGateway()?.gatewayId);
     client.gatewayId = gatewayId;
     return gatewayId;
@@ -849,7 +850,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
   function gatewayForSession(session: RelaySession): GatewayState | undefined {
     if (session.gatewayId) return gateways.get(session.gatewayId);
     // No gatewayId on session — scope-limited fallback to avoid cross-account visibility
-    return session.accountId ? firstGatewayForAccount(session.accountId) : undefined;
+    return firstGatewayForSession(session) ?? (session.accountId ? firstGatewayForAccount(session.accountId) : undefined);
   }
 
   function firstConnectedGateway(): GatewayState | undefined {
@@ -861,9 +862,38 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     return undefined;
   }
 
+  function firstGatewayForScope(scope: RelayAuthScope | undefined): GatewayState | undefined {
+    if (!scope) return undefined;
+    return firstGatewayMatching((gatewayScope) =>
+      gatewayScope?.accountId === scope.accountId &&
+      gatewayScope?.workspaceId === scope.workspaceId &&
+      Boolean(scope.userId) &&
+      gatewayScope?.userId === scope.userId
+    ) ?? firstGatewayMatching((gatewayScope) =>
+      gatewayScope?.accountId === scope.accountId &&
+      gatewayScope?.workspaceId === scope.workspaceId
+    ) ?? firstGatewayForAccount(scope.accountId);
+  }
+
+  function firstGatewayForSession(session: RelaySession): GatewayState | undefined {
+    return firstGatewayMatching((gatewayScope) =>
+      gatewayScope?.accountId === session.accountId &&
+      gatewayScope?.workspaceId === session.workspaceId &&
+      Boolean(session.userId) &&
+      gatewayScope?.userId === session.userId
+    ) ?? firstGatewayMatching((gatewayScope) =>
+      gatewayScope?.accountId === session.accountId &&
+      gatewayScope?.workspaceId === session.workspaceId
+    );
+  }
+
   function firstGatewayForAccount(accountId: string): GatewayState | undefined {
+    return firstGatewayMatching((gatewayScope) => gatewayScope?.accountId === accountId);
+  }
+
+  function firstGatewayMatching(matches: (scope: RelayAuthScope | undefined) => boolean): GatewayState | undefined {
     for (const gateway of gateways.values()) {
-      if (gateway.socket.readyState === WebSocket.OPEN && gateway.scope?.accountId === accountId) {
+      if (gateway.socket.readyState === WebSocket.OPEN && matches(gateway.scope)) {
         return gateway;
       }
     }

@@ -1197,6 +1197,90 @@ test('relay routes client frames to matching account gateway only', async () => 
   }
 });
 
+test('relay prefers matching user gateway within the same account', async () => {
+  const GW_TOKEN_USER_3 = 'gw-token-user3';
+  const GW_TOKEN_USER_5 = 'gw-token-user5';
+  const CLIENT_TOKEN_USER_3 = 'client-token-user3';
+
+  const relay = await startRelayServer({
+    host: '127.0.0.1',
+    port: 0,
+    secret: SECRET,
+    validateToken: async (token) => {
+      if (token === GW_TOKEN_USER_3) {
+        return {
+          accountId: 'acct_1',
+          workspaceId: 'ws_1',
+          gatewayId: 'gateway-user3',
+          userId: 'user_3',
+          tokenClass: 'gateway_access',
+          expiresAt: Date.now() + 60_000,
+          jti: 'jti_gw_user3'
+        };
+      }
+      if (token === GW_TOKEN_USER_5) {
+        return {
+          accountId: 'acct_1',
+          workspaceId: 'ws_1',
+          gatewayId: 'gateway-user5',
+          userId: 'user_5',
+          tokenClass: 'gateway_access',
+          expiresAt: Date.now() + 60_000,
+          jti: 'jti_gw_user5'
+        };
+      }
+      if (token === CLIENT_TOKEN_USER_3) {
+        return {
+          accountId: 'acct_1',
+          workspaceId: 'ws_1',
+          userId: 'user_3',
+          tokenClass: 'normal_client_access',
+          expiresAt: Date.now() + 60_000,
+          jti: 'jti_client_user3'
+        };
+      }
+      return undefined;
+    }
+  });
+
+  const wsUrl = relay.url.replace('http', 'ws');
+  const gatewayUser5 = new WebSocket(`${wsUrl}/ws/gateway`);
+  const gatewayUser3 = new WebSocket(`${wsUrl}/ws/gateway`);
+  const client = new WebSocket(`${wsUrl}/ws/client`);
+
+  try {
+    await waitForOpen(gatewayUser5);
+    gatewayUser5.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-user5', token: GW_TOKEN_USER_5 }));
+    await waitForJson(gatewayUser5, (m) => m.type === 'gateway.auth.ok');
+
+    await waitForOpen(gatewayUser3);
+    gatewayUser3.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-user3', token: GW_TOKEN_USER_3 }));
+    await waitForJson(gatewayUser3, (m) => m.type === 'gateway.auth.ok');
+
+    await waitForOpen(client);
+    const helloPromise = waitForJson(client, (m) => m.type === 'hello');
+    client.send(JSON.stringify({ type: 'client.auth', token: CLIENT_TOKEN_USER_3 }));
+    await waitForJson(client, (m) => m.type === 'client.auth.ok');
+    const hello = await helloPromise;
+    assert.equal(hello.gatewayId, 'gateway-user3');
+
+    client.send(JSON.stringify({ type: 'client.cwd-suggest', cwd: '~' }));
+    const frame = await waitForJson(gatewayUser3, (m) => m.type === 'client.cwd-suggest');
+    assert.equal(frame.type, 'client.cwd-suggest');
+
+    const leakCheck = await Promise.race([
+      waitForJson(gatewayUser5, (m) => m.type === 'client.cwd-suggest').then(() => 'leaked'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('isolated'), 300))
+    ]);
+    assert.equal(leakCheck, 'isolated');
+  } finally {
+    gatewayUser3.close();
+    gatewayUser5.close();
+    client.close();
+    await relay.close();
+  }
+});
+
 async function authenticateGateway(ws: WebSocket, gatewayId = 'gateway-test'): Promise<void> {
   await waitForOpen(ws);
   ws.send(JSON.stringify({ type: 'gateway.auth', gatewayId, token: GATEWAY_TOKEN }));

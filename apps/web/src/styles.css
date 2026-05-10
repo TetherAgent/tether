@@ -6174,7 +6174,13 @@ textarea.composer-input {
   flex: 0 1 auto;
 }
 
-.chat-header-connection-status .chat-connection-chip {
+.chat-header-session-status {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.chat-header-connection-status .chat-connection-chip,
+.chat-header-session-status .chat-connection-chip {
   position: static;
   max-width: min(42vw, 190px);
 }
