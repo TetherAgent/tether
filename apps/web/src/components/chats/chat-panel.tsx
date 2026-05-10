@@ -23,6 +23,7 @@ import { ChatBubbleUser } from './chat-bubble-user.js';
 import { SystemMessage } from './system-message.js';
 import { ToolCard } from './tool-card.js';
 import { PermissionPrompt } from './permission-prompt.js';
+import { type RelayFrame, useChatRelaySocket } from './use-chat-relay-socket.js';
 
 type Usage = { input_tokens: number; output_tokens: number; cost_usd?: number };
 type MessageItem =
@@ -40,26 +41,6 @@ const DEFAULT_RELAY_URL = import.meta.env.VITE_TETHER_RELAY_URL ?? 'wss://tether
 const DEFAULT_PROVIDER_OPTIONS: ProviderOption[] = [
   { provider: 'claude', models: ['sonnet', 'opus', 'haiku'] }
 ];
-
-function buildRelayUrl(value: string): string {
-  const url = new URL(value);
-  if (url.protocol === 'http:') url.protocol = 'ws:';
-  if (url.protocol === 'https:') url.protocol = 'wss:';
-  url.pathname = `${url.pathname.replace(/\/$/, '')}/ws/client`;
-  url.search = '';
-  url.hash = '';
-  return url.toString();
-}
-
-function frameFromRaw(raw: MessageEvent['data']): Record<string, unknown> | undefined {
-  if (typeof raw !== 'string') return undefined;
-  try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    return typeof parsed.type === 'string' ? parsed : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 function isProviderOption(value: unknown): value is ProviderOption {
   return Boolean(
@@ -172,12 +153,10 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   const [cwdPickerOpen, setCwdPickerOpen] = React.useState(false);
   const [cwdActiveIndex, setCwdActiveIndex] = React.useState(0);
   const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(undefined);
-  const [wsReady, setWsReady] = React.useState(false);
   const [connectionError, setConnectionError] = React.useState<string | undefined>(undefined);
   const hasEverConnectedRef = React.useRef(false);
   const [usageStats, setUsageStats] = React.useState<{ contextPct?: number; rateLimitResetsAt?: number; rateLimitType?: string } | undefined>(undefined);
   const [copiedAgentId, setCopiedAgentId] = React.useState(false);
-  const wsRef = React.useRef<WebSocket | null>(null);
   const messageScrollRef = React.useRef<HTMLDivElement | null>(null);
   const messageEndRef = React.useRef<HTMLDivElement | null>(null);
   const currentAgentIdRef = React.useRef<string | null>(null);
@@ -346,24 +325,22 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
       .catch(() => undefined);
   }, [activeSessionId, normalAuth?.accessToken]);
 
-  React.useEffect(() => {
-    if (!normalAuth?.accessToken) {
-      return;
-    }
-    const relayUrl = window.localStorage.getItem(RELAY_URL_KEY) ?? DEFAULT_RELAY_URL;
-    const ws = new WebSocket(buildRelayUrl(relayUrl));
-    wsRef.current = ws;
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'client.auth', token: normalAuth.accessToken }));
-    };
-    ws.onmessage = (event) => {
-      const frame = frameFromRaw(event.data);
-      if (!frame) return;
+  const relayUrl = React.useMemo(
+    () => window.localStorage.getItem(RELAY_URL_KEY) ?? DEFAULT_RELAY_URL,
+    []
+  );
+
+  const handleRelayClose = React.useCallback(() => {
+    setConnectionError(t.gatewayNotConnected);
+    setIsInflight(false);
+    currentAgentIdRef.current = null;
+  }, [t.gatewayNotConnected]);
+
+  const handleRelayFrame = React.useCallback((frame: RelayFrame, relay: { sendFrame: (frame: Record<string, unknown>) => boolean }) => {
       if (frame.type === 'client.auth.ok') {
         hasEverConnectedRef.current = true;
-        setWsReady(true);
         setConnectionError(undefined);
-        ws.send(JSON.stringify({ type: 'client.list-providers' }));
+        relay.sendFrame({ type: 'client.list-providers' });
         return;
       }
       if (frame.type === 'gateway.providers') {
@@ -628,30 +605,26 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
           setIsInflight(false);
         }
       }
-    };
-    ws.onclose = () => {
-      setWsReady(false);
-      setConnectionError(t.gatewayNotConnected);
-      setIsInflight(false);
-      currentAgentIdRef.current = null;
-    };
-    return () => {
-      ws.close();
-      wsRef.current = null;
-    };
-  }, [navigate, normalAuth?.accessToken, t.chatsProviderFail, t.chatsSessionStarted, t.gatewayNotConnected]);
+  }, [navigate, t.chatsProviderFail, t.chatsSessionStarted]);
+
+  const { wsReady, sendFrame } = useChatRelaySocket({
+    accessToken: normalAuth?.accessToken,
+    relayUrl,
+    onFrame: handleRelayFrame,
+    onClose: handleRelayClose
+  });
 
   React.useEffect(() => {
-    if (!cwdPickerOpen || currentSessionId || !wsReady || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+    if (!cwdPickerOpen || currentSessionId || !wsReady) {
       setCwdSuggestions([]);
       setCwdActiveIndex(0);
       return;
     }
     const timer = window.setTimeout(() => {
-      wsRef.current?.send(JSON.stringify({ type: 'client.cwd-suggest', cwd }));
+      sendFrame({ type: 'client.cwd-suggest', cwd });
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [currentSessionId, cwd, cwdPickerOpen, wsReady]);
+  }, [currentSessionId, cwd, cwdPickerOpen, sendFrame, wsReady]);
 
   React.useEffect(() => {
     const models = providerOptions.find((provider) => provider.provider === selectedProvider)?.models ?? [];
@@ -661,14 +634,14 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   }, [providerOptions, selectedModel, selectedProvider]);
 
   React.useEffect(() => {
-    if (wsReady && currentSessionId && wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'client.subscribe', sessionId: currentSessionId, mode: 'control' }));
+    if (wsReady && currentSessionId) {
+      sendFrame({ type: 'client.subscribe', sessionId: currentSessionId, mode: 'control' });
     }
-  }, [currentSessionId, wsReady]);
+  }, [currentSessionId, sendFrame, wsReady]);
 
   const sendMessage = React.useCallback(() => {
     const text = inputText.trim();
-    if (!text || isInflight || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    if (!text || isInflight || !wsReady) return;
     const existingProviderModels = providerOptions.find((provider) => provider.provider === activeSessionProvider)?.models ?? [];
     const messageProvider = currentSessionId ? (activeSessionProvider ?? 'agent') : selectedProvider;
     const messageModel = currentSessionId ? (activeSessionModel ?? existingProviderModels[0]) : selectedModel;
@@ -683,30 +656,28 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
     setInputText('');
     setIsInflight(true);
     if (currentSessionId) {
-      wsRef.current.send(JSON.stringify({ type: 'client.chat', sessionId: currentSessionId, message: text, model: messageModel }));
+      sendFrame({ type: 'client.chat', sessionId: currentSessionId, message: text, model: messageModel });
       return;
     }
     pendingSessionProviderRef.current = selectedProvider;
     pendingSessionModelRef.current = selectedModel;
-    wsRef.current.send(
-      JSON.stringify({
-        type: 'client.chat',
-        sessionId: null,
-        provider: selectedProvider,
-        model: selectedModel,
-        cwd,
-        message: text
-      })
-    );
-  }, [activeSessionModel, activeSessionProvider, cwd, currentSessionId, inputText, isInflight, providerOptions, selectedModel, selectedProvider]);
+    sendFrame({
+      type: 'client.chat',
+      sessionId: null,
+      provider: selectedProvider,
+      model: selectedModel,
+      cwd,
+      message: text
+    });
+  }, [activeSessionModel, activeSessionProvider, cwd, currentSessionId, inputText, isInflight, providerOptions, selectedModel, selectedProvider, sendFrame, wsReady]);
 
   const sendPermissionResponse = React.useCallback((requestId: string, decision: 'allow' | 'deny') => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !currentSessionIdRef.current) return;
+    if (!wsReady || !currentSessionIdRef.current) return;
     setMessages((items) => items.map((item) =>
       item.kind === 'permission' && item.requestId === requestId ? { ...item, decided: decision } : item
     ));
-    wsRef.current.send(JSON.stringify({ type: 'client.permission_response', sessionId: currentSessionIdRef.current, requestId, decision }));
-  }, []);
+    sendFrame({ type: 'client.permission_response', sessionId: currentSessionIdRef.current, requestId, decision });
+  }, [sendFrame, wsReady]);
 
   const isNewSession = !currentSessionId && messages.length === 0;
 
@@ -788,8 +759,8 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
               open={cwdPickerOpen}
               onOpenChange={(open) => {
                 setCwdPickerOpen(open);
-                if (open && wsRef.current?.readyState === WebSocket.OPEN) {
-                  wsRef.current.send(JSON.stringify({ type: 'client.cwd-suggest', cwd }));
+                if (open && wsReady) {
+                  sendFrame({ type: 'client.cwd-suggest', cwd });
                 }
               }}
             >
