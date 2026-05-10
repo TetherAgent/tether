@@ -74,6 +74,7 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
   const wsRef = React.useRef<WebSocket | null>(null);
   const currentAgentIdRef = React.useRef<string | null>(null);
   const inflightStartedAtRef = React.useRef<number>(0);
+  const skipNextHistoryLoadSessionIdRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     setCurrentSessionId(activeSessionId);
@@ -83,6 +84,10 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
     if (!activeSessionId) {
       setMessages([]);
       setIsInflight(false);
+      return;
+    }
+    if (skipNextHistoryLoadSessionIdRef.current === activeSessionId) {
+      skipNextHistoryLoadSessionIdRef.current = null;
       return;
     }
     const http = createHttpClient();
@@ -172,6 +177,7 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
         return;
       }
       if (frame.type === 'gateway.session-created' && typeof frame.sessionId === 'string') {
+        skipNextHistoryLoadSessionIdRef.current = frame.sessionId;
         setCurrentSessionId(frame.sessionId);
         navigate(`/chats/${frame.sessionId}`, { replace: true });
         setMessages((items) => [...items, { kind: 'system', id: `started-${frame.sessionId}`, text: t.chatsSessionStarted }]);
