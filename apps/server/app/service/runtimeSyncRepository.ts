@@ -262,7 +262,12 @@ export default class RuntimeSyncRepositoryService extends Service {
       return { role: 'user', content: payload.message, usage: null };
     }
     if (eventType === 'agent.result' && typeof payload.text === 'string') {
-      return { role: 'assistant', content: payload.text, usage: payload.usage ?? null };
+      const usage = typeof payload.usage === 'object' && payload.usage && !Array.isArray(payload.usage)
+        ? { ...payload.usage as object } as Record<string, unknown>
+        : {};
+      if (typeof payload.contextWindow === 'number') usage.contextWindow = payload.contextWindow;
+      if (payload.rateLimitInfo !== undefined) usage.rateLimitInfo = payload.rateLimitInfo;
+      return { role: 'assistant', content: payload.text, usage };
     }
     return undefined;
   }

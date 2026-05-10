@@ -27,13 +27,24 @@ import { PermissionPrompt } from './permission-prompt.js';
 import { type RelayFrame, useChatRelaySocket } from './use-chat-relay-socket.js';
 
 type Usage = { input_tokens: number; output_tokens: number; cost_usd?: number };
+type HistoryUsage = Usage & {
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  contextWindow?: number;
+  rateLimitInfo?: {
+    resetsAt?: number;
+    rateLimitType?: string;
+    primary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
+    secondary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
+  };
+};
 type MessageItem =
   | { kind: 'user'; id: string; content: string; ts: number }
   | { kind: 'agent'; id: string; text: string; isStreaming: boolean; isWaiting: boolean; isLost: boolean; provider: string; usage?: Usage; durationMs?: number }
   | { kind: 'tool'; id: string; toolName: string; input: Record<string, unknown>; result?: string; isError: boolean; isInFlight: boolean }
   | { kind: 'system'; id: string; text: string }
   | { kind: 'permission'; id: string; requestId: string; toolName: string; decided?: 'allow' | 'deny' };
-type HistoryMessage = { role: string; content: string; usageJson?: Usage; createdAt: string };
+type HistoryMessage = { role: string; content: string; usageJson?: HistoryUsage; createdAt: string };
 type ProviderOption = { provider: string; models: string[] };
 type ChatSessionRecord = { id: string; gatewayId?: string; provider?: string; projectPath?: string; agentSessionId?: string };
 
@@ -129,6 +140,86 @@ function UsageStatsChip({ contextPct, rateLimitResetsAt, rateLimitType }: { cont
   );
 }
 
+function UsageStatsRows({ contextPct, rateLimitResetsAt, rateLimitType, primary, secondary }: {
+  contextPct?: number;
+  rateLimitResetsAt?: number;
+  rateLimitType?: string;
+  primary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
+  secondary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
+}) {
+  const [, forceUpdate] = React.useReducer((n: number) => n + 1, 0);
+  React.useEffect(() => {
+    const hasTimer = rateLimitResetsAt || primary?.resetsAt || secondary?.resetsAt;
+    if (!hasTimer) return;
+    const id = window.setInterval(() => forceUpdate(), 60000);
+    return () => window.clearInterval(id);
+  }, [rateLimitResetsAt, primary?.resetsAt, secondary?.resetsAt]);
+
+  // Resolve usage row
+  let usagePct: number | undefined;
+  let usageResetsAt: number | undefined;
+  let weeklyPct: number | undefined;
+  let weeklyResetsAt: number | undefined;
+
+  if (primary) {
+    usagePct = primary.usedPercent;
+    usageResetsAt = primary.resetsAt;
+    if (secondary) {
+      weeklyPct = secondary.usedPercent;
+      weeklyResetsAt = secondary.resetsAt;
+    }
+  } else if (rateLimitResetsAt) {
+    const windowMs = rateLimitType === 'five_hour' ? 5 * 60 * 60 * 1000 : undefined;
+    if (windowMs) {
+      const remainingMs = Math.max(0, rateLimitResetsAt * 1000 - Date.now());
+      usagePct = Math.min(100, Math.round(((windowMs - remainingMs) / windowMs) * 100));
+    }
+    usageResetsAt = rateLimitResetsAt;
+  }
+
+  if (contextPct === undefined && usageResetsAt === undefined) return null;
+
+  return (
+    <div className="flex flex-col gap-2 pt-0.5">
+      {contextPct !== undefined && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-muted-foreground">Context</span>
+            <span className="font-mono text-[11px] tabular-nums">{contextPct}%</span>
+          </div>
+          <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-amber-500/70" style={{ width: `${Math.min(100, contextPct)}%` }} />
+          </div>
+        </div>
+      )}
+      {usageResetsAt !== undefined && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-muted-foreground">Usage</span>
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground/70">resets {formatResetCountdown(usageResetsAt)}</span>
+          </div>
+          {usagePct !== undefined && (
+            <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-blue-500/70" style={{ width: `${usagePct}%` }} />
+            </div>
+          )}
+        </div>
+      )}
+      {weeklyResetsAt !== undefined && weeklyPct !== undefined && (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-muted-foreground">Weekly</span>
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground/70">resets {formatResetCountdown(weeklyResetsAt)}</span>
+          </div>
+          <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-violet-500/70" style={{ width: `${weeklyPct}%` }} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { activeSessionId?: string; onExpandSidebar?: () => void; onOpenDrawer?: () => void }) {
   const navigate = useNavigate();
   const { normalAuth } = useAuth();
@@ -156,7 +247,13 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   const hasEverConnectedRef = React.useRef(false);
   const [gatewayReady, setGatewayReady] = React.useState(false);
   const [hasGatewayStatusFrame, setHasGatewayStatusFrame] = React.useState(false);
-  const [usageStats, setUsageStats] = React.useState<{ contextPct?: number; rateLimitResetsAt?: number; rateLimitType?: string } | undefined>(undefined);
+  const [usageStats, setUsageStats] = React.useState<{
+    contextPct?: number;
+    rateLimitResetsAt?: number;
+    rateLimitType?: string;
+    primary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
+    secondary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
+  } | undefined>(undefined);
   const [copiedAgentId, setCopiedAgentId] = React.useState(false);
   const [sessionSettingsOpen, setSessionSettingsOpen] = React.useState(false);
   const messageScrollRef = React.useRef<HTMLDivElement | null>(null);
@@ -305,6 +402,25 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
         } else {
           currentAgentIdRef.current = null;
           setIsInflight(false);
+        }
+        // Restore usage stats from last assistant message
+        const lastAssistant = (data.messages ?? []).filter(m => m.role === 'assistant').at(-1);
+        if (lastAssistant?.usageJson?.contextWindow != null) {
+          const u = lastAssistant.usageJson;
+          const contextWindow = u.contextWindow!;
+          const totalTokens = (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+          const contextPct = Math.round((totalTokens / contextWindow) * 100);
+          const rl = u.rateLimitInfo;
+          const rateLimitStillValid = rl?.resetsAt !== undefined && rl.resetsAt * 1000 > Date.now();
+          setUsageStats({
+            contextPct,
+            rateLimitResetsAt: rateLimitStillValid ? rl?.resetsAt : undefined,
+            rateLimitType: rateLimitStillValid ? rl?.rateLimitType : undefined,
+            primary: rateLimitStillValid ? rl?.primary : undefined,
+            secondary: rateLimitStillValid ? rl?.secondary : undefined
+          });
+        } else {
+          setUsageStats(undefined);
         }
         setMessages(items);
       })
@@ -528,12 +644,20 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
         if (resultContextWindow && resultUsage) {
           const totalTokens = (resultUsage.input_tokens ?? 0) + (resultUsage.output_tokens ?? 0) + (resultUsage.cache_read_input_tokens ?? 0) + (resultUsage.cache_creation_input_tokens ?? 0);
           const contextPct = Math.round((totalTokens / resultContextWindow) * 100);
-          const rateLimitInfo = frame.rateLimitInfo as { resetsAt?: number; rateLimitType?: string } | undefined;
-          setUsageStats({
+          const rateLimitInfo = frame.rateLimitInfo as {
+            resetsAt?: number;
+            rateLimitType?: string;
+            primary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
+            secondary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
+          } | undefined;
+          const stats = {
             contextPct,
             rateLimitResetsAt: rateLimitInfo?.resetsAt,
-            rateLimitType: rateLimitInfo?.rateLimitType
-          });
+            rateLimitType: rateLimitInfo?.rateLimitType,
+            primary: rateLimitInfo?.primary,
+            secondary: rateLimitInfo?.secondary
+          };
+          setUsageStats(stats);
         }
         const frameText = frame.text;
         const usage = typeof frame.usage === 'object' && frame.usage && !Array.isArray(frame.usage)
@@ -1174,8 +1298,14 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
                     </span>
                   </div>
                 )}
-                {usageStats?.rateLimitResetsAt && (
-                  <UsageStatsChip rateLimitResetsAt={usageStats.rateLimitResetsAt} rateLimitType={usageStats.rateLimitType} />
+                {(usageStats?.contextPct !== undefined || usageStats?.rateLimitResetsAt || usageStats?.primary) && (
+                  <UsageStatsRows
+                    contextPct={usageStats?.contextPct}
+                    rateLimitResetsAt={usageStats?.rateLimitResetsAt}
+                    rateLimitType={usageStats?.rateLimitType}
+                    primary={usageStats?.primary}
+                    secondary={usageStats?.secondary}
+                  />
                 )}
               </div>
             </PopoverContent>

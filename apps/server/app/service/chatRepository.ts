@@ -18,7 +18,20 @@ export type ChatMessageRecord = {
   sessionId: string;
   role: 'user' | 'assistant';
   content: string;
-  usageJson?: { input_tokens: number; output_tokens: number; cost_usd?: number };
+  usageJson?: {
+    input_tokens: number;
+    output_tokens: number;
+    cost_usd?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+    contextWindow?: number;
+    rateLimitInfo?: {
+      resetsAt?: number;
+      rateLimitType?: string;
+      primary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
+      secondary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
+    };
+  };
   createdAt: string;
 };
 
