@@ -28,6 +28,8 @@ export type RelayClientOptions = {
   store: Store;
   ptySessions?: PtySessionManager;
   runnerClientForSession?: (session: Session) => SessionRunnerClient | undefined;
+  heartbeatIntervalMs?: number;
+  heartbeatTimeoutMs?: number;
 };
 
 export type RunningRelayClient = {
@@ -49,6 +51,8 @@ type RelaySubscription = {
 
 const MIN_RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_DELAY_MS = 5000;
+const RELAY_HEARTBEAT_INTERVAL_MS = 15_000;
+const RELAY_HEARTBEAT_TIMEOUT_MS = 10_000;
 const RELAY_FORBIDDEN_KEYS = new Set(['command', 'args', 'argv', 'env', 'providerCommand']);
 
 export function startRelayClient(options: RelayClientOptions): RunningRelayClient {
@@ -56,6 +60,10 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   let socket: WebSocket | undefined;
   let reconnectDelayMs = MIN_RECONNECT_DELAY_MS;
   let reconnectTimer: NodeJS.Timeout | undefined;
+  let heartbeatInterval: NodeJS.Timeout | undefined;
+  let heartbeatTimeout: NodeJS.Timeout | undefined;
+  const heartbeatIntervalMs = options.heartbeatIntervalMs ?? RELAY_HEARTBEAT_INTERVAL_MS;
+  const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? RELAY_HEARTBEAT_TIMEOUT_MS;
   const subscriptions = new Map<string, RelaySubscription>();
   const chatClientBindings = new Map<string, string>();
   let connectionState: RelayConnectionStatus['state'] = 'connecting';
@@ -147,6 +155,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     socket = new WebSocket(relayGatewayUrl(options.url));
 
     socket.on('open', () => {
+      startHeartbeat(socket);
       void (async () => {
         const auth = await resolveRelayAuth(options);
         if (!auth) {
@@ -170,6 +179,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     });
 
     socket.on('close', () => {
+      clearHeartbeat();
       socket = undefined;
       clearSubscriptions();
       if (connectionState !== 'auth_failed') {
@@ -194,6 +204,51 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       connect();
     }, delay);
     reconnectTimer.unref();
+  };
+
+  const clearHeartbeat = () => {
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
+      heartbeatInterval = undefined;
+    }
+    if (heartbeatTimeout) {
+      clearTimeout(heartbeatTimeout);
+      heartbeatTimeout = undefined;
+    }
+  };
+
+  const startHeartbeat = (activeSocket: WebSocket | undefined) => {
+    clearHeartbeat();
+    if (!activeSocket) {
+      return;
+    }
+    activeSocket.on('pong', () => {
+      if (heartbeatTimeout) {
+        clearTimeout(heartbeatTimeout);
+        heartbeatTimeout = undefined;
+      }
+    });
+    const ping = () => {
+      if (activeSocket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      if (heartbeatTimeout) {
+        return;
+      }
+      try {
+        activeSocket.ping();
+        heartbeatTimeout = setTimeout(() => {
+          heartbeatTimeout = undefined;
+          activeSocket.terminate();
+        }, heartbeatTimeoutMs);
+        heartbeatTimeout.unref();
+      } catch {
+        activeSocket.terminate();
+      }
+    };
+    heartbeatInterval = setInterval(ping, heartbeatIntervalMs);
+    heartbeatInterval.unref();
+    ping();
   };
 
   const send = (frame: RelayGatewayToServerFrame) => {
@@ -671,6 +726,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         clearTimeout(reconnectTimer);
         reconnectTimer = undefined;
       }
+      clearHeartbeat();
       clearSubscriptions();
       const closingSocket = socket;
       socket = undefined;

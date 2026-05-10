@@ -470,52 +470,218 @@ export class ChatSessionRunner implements IChatRunner {
 }
 
 export class CodexChatRunner implements IChatRunner {
-  private readonly runner: NonInteractiveCliChatRunner;
+  private readonly activeSubprocesses = new Map<string, ActiveSubprocess>();
 
-  constructor(options: ChatRunnerOptions) {
-    this.runner = new NonInteractiveCliChatRunner(options, {
-      provider: 'codex',
-      command: 'codex',
-      args: ({ message, model, cwd, agentSessionId, outputFile }) => {
-        const modelArgs = model ? ['--model', model] : [];
-        const resumeArgs = [
-          '--skip-git-repo-check',
-          '--output-last-message',
-          outputFile,
-          ...modelArgs
-        ];
-        const execArgs = [
-          '--skip-git-repo-check',
-          '--color',
-          'never',
-          '-C',
-          cwd,
-          '--output-last-message',
-          outputFile,
-          ...modelArgs
-        ];
-        if (agentSessionId) {
-          return ['exec', 'resume', ...resumeArgs, agentSessionId, message];
+  constructor(private readonly options: ChatRunnerOptions) {}
+
+  async run(
+    params:
+      | {
+          clientId: string;
+          sessionId: null;
+          provider: string;
+          model: string;
+          cwd: string;
+          message: string;
+          accountId?: string;
+          workspaceId?: string;
+          userId?: string;
         }
-        return ['exec', ...execArgs, message];
+      | { clientId: string; sessionId: string; message: string; model?: string }
+  ): Promise<void> {
+    if ('provider' in params && params.provider !== 'codex') {
+      this.options.onError({ clientId: params.clientId, sessionId: '', code: 'provider_not_supported', message: 'not handled by codex runner' });
+      return;
+    }
+
+    const session =
+      params.sessionId === null
+        ? this.createChatSession(params)
+        : this.options.store.getSession(params.sessionId);
+    if (!session) {
+      this.options.onError({ clientId: params.clientId, sessionId: params.sessionId ?? '', code: 'session_not_found', message: 'session not found' });
+      return;
+    }
+
+    const sessionId = session.id;
+    const cwd = normalizeCwd(params.sessionId === null ? params.cwd : session.projectPath);
+    const modelArgs = 'model' in params && params.model ? ['--model', params.model] : [];
+    const codexArgs = session.agentSessionId
+      ? ['exec', 'resume', '--json', '--skip-git-repo-check', ...modelArgs, session.agentSessionId, params.message]
+      : ['exec', '--json', '--skip-git-repo-check', '--color', 'never', '-C', cwd, ...modelArgs, params.message];
+
+    const child = spawn('codex', codexArgs, {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: providerEffectiveEnv('codex', cwd)
+    });
+
+    const userEvent = this.options.store.appendChatEvent(sessionId, 'user.message', { message: params.message });
+    this.options.store.touchSession(sessionId);
+    this.options.onUserMessage({ clientId: params.clientId, sessionId, event: userEvent });
+
+    const active: ActiveSubprocess = {
+      process: child,
+      accumulatedText: '',
+      startedAt: Date.now(),
+      clientId: params.clientId,
+      cwd,
+      lastUsage: ZERO_USAGE,
+      agentSessionId: session.agentSessionId,
+      lineBuffer: '',
+      completed: false,
+      pendingPermissions: new Map()
+    };
+    this.activeSubprocesses.set(sessionId, active);
+
+    child.stdout?.on('data', (chunk: Buffer | string) => {
+      const current = this.activeSubprocesses.get(sessionId);
+      if (!current) return;
+      current.lineBuffer += chunk.toString();
+      const lines = current.lineBuffer.split('\n');
+      current.lineBuffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          this.handleCodexEvent(JSON.parse(line) as Record<string, unknown>, sessionId, current);
+        } catch {
+          continue;
+        }
       }
+    });
+
+    child.on('error', (error) => {
+      this.emitError(params.clientId, sessionId, 'chat_runner_spawn_failed', error.message);
+      this.activeSubprocesses.delete(sessionId);
+    });
+
+    child.on('close', (code) => {
+      const current = this.activeSubprocesses.get(sessionId);
+      if (current?.process !== child) return;
+      if (!current.completed) {
+        if (code === 0 && current.accumulatedText) {
+          this.emitResult(sessionId, current, current.accumulatedText, current.lastUsage);
+          return;
+        }
+        this.emitError(params.clientId, sessionId, 'chat_runner_exit', `codex exited before producing a result${typeof code === 'number' ? ` (${code})` : ''}`);
+      }
+      this.activeSubprocesses.delete(sessionId);
     });
   }
 
-  async run(params: Parameters<IChatRunner['run']>[0]): Promise<void> {
-    await this.runner.run(params);
+  private handleCodexEvent(event: Record<string, unknown>, sessionId: string, active: ActiveSubprocess): void {
+    const type = typeof event.type === 'string' ? event.type : '';
+
+    if (type === 'thread.started') {
+      const threadId = typeof event.thread_id === 'string' ? event.thread_id : undefined;
+      if (threadId) {
+        active.agentSessionId = threadId;
+        this.options.store.updateAgentSessionId(sessionId, threadId);
+        this.options.onAgentIdUpdate(sessionId, threadId);
+      }
+      return;
+    }
+
+    if (type === 'item.completed') {
+      const item = recordValue(event.item);
+      if (item?.type === 'agent_message' && typeof item.text === 'string' && item.text) {
+        const delta = item.text.startsWith(active.accumulatedText)
+          ? item.text.slice(active.accumulatedText.length)
+          : item.text;
+        active.accumulatedText = item.text;
+        if (delta) {
+          this.options.onDelta({ clientId: active.clientId, sessionId, text: delta });
+        }
+      }
+      return;
+    }
+
+    if (type === 'turn.completed') {
+      const raw = recordValue(event.usage);
+      const usage: ChatUsage = raw
+        ? {
+            input_tokens: numberValue(raw.input_tokens) ?? 0,
+            output_tokens: numberValue(raw.output_tokens) ?? 0,
+            ...(numberValue(raw.cached_input_tokens) !== undefined
+              ? { cache_read_input_tokens: numberValue(raw.cached_input_tokens) }
+              : {})
+          }
+        : active.lastUsage;
+      this.emitResult(sessionId, active, active.accumulatedText, usage);
+      return;
+    }
+
+    if (type === 'error') {
+      this.emitError(active.clientId, sessionId, 'chat_runner_error', String(event.message ?? 'codex error'));
+    }
   }
 
-  getCatchup(_sessionId: string): string | undefined {
-    return this.runner.getCatchup(_sessionId);
+  getCatchup(sessionId: string): string | undefined {
+    return this.activeSubprocesses.get(sessionId)?.accumulatedText;
   }
 
   kill(sessionId: string): void {
-    this.runner.kill(sessionId);
+    const active = this.activeSubprocesses.get(sessionId);
+    if (!active) return;
+    active.process.kill('SIGTERM');
+    this.activeSubprocesses.delete(sessionId);
   }
 
   respondToPermission(_sessionId: string, _requestId: string, _decision: 'allow' | 'deny'): void {
     // codex does not support interactive permission flow
+  }
+
+  private createChatSession(params: {
+    clientId: string;
+    sessionId: null;
+    provider: string;
+    model: string;
+    cwd: string;
+    message: string;
+    accountId?: string;
+    workspaceId?: string;
+    userId?: string;
+  }) {
+    const now = Date.now();
+    const sessionId = createSessionId();
+    this.options.store.insertSession({
+      id: sessionId,
+      provider: params.provider,
+      title: params.message.slice(0, 60),
+      projectPath: normalizeCwd(params.cwd),
+      accountId: params.accountId,
+      workspaceId: params.workspaceId,
+      userId: params.userId,
+      gatewayId: this.options.gatewayId(),
+      status: 'running',
+      attachState: 'detached',
+      tmuxSessionName: '',
+      command: 'codex',
+      transport: 'chat',
+      createdAt: now,
+      updatedAt: now,
+      lastActiveAt: now
+    });
+    this.options.onSessionCreated(params.clientId, sessionId);
+    return this.options.store.getSession(sessionId);
+  }
+
+  private emitResult(sessionId: string, active: ActiveSubprocess, text: string, usage: ChatUsage): void {
+    active.completed = true;
+    active.accumulatedText = text;
+    const agentSessionId = active.agentSessionId ?? randomUUID();
+    const resultEvent = this.options.store.appendChatEvent(sessionId, 'agent.result', { text, usage });
+    this.options.store.updateAgentSessionId(sessionId, agentSessionId);
+    this.options.store.touchSession(sessionId);
+    this.options.onAgentIdUpdate(sessionId, agentSessionId);
+    this.options.onResult({ clientId: active.clientId, sessionId, event: resultEvent, text, usage });
+    this.activeSubprocesses.delete(sessionId);
+  }
+
+  private emitError(clientId: string, sessionId: string, code: string, message: string): void {
+    const event = this.options.store.appendChatEvent(sessionId, 'session.error', { code, message });
+    this.options.store.touchSession(sessionId);
+    this.options.onError({ clientId, sessionId, code, message, event });
   }
 }
 

@@ -54,6 +54,34 @@ test('gateway relay URL preserves wss and avoids duplicate gateway path', () => 
   assert.equal(relayGatewayUrl('http://127.0.0.1:4889'), 'ws://127.0.0.1:4889/ws/gateway');
 });
 
+test('gateway relay client sends websocket heartbeat pings', async () => {
+  const { store, cleanup } = tempStore();
+  const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  const port = await waitForWebSocketServerPort(fakeRelay);
+  const gatewaySocketPromise = waitForGatewaySocket(fakeRelay);
+  const relayClient = startRelayClient({
+    url: `ws://127.0.0.1:${port}`,
+    secret: SECRET,
+    gatewayId: 'gw_test_heartbeat',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_heartbeat' },
+    store,
+    heartbeatIntervalMs: 20,
+    heartbeatTimeoutMs: 100
+  });
+
+  try {
+    const gatewaySocket = await gatewaySocketPromise;
+    await waitForGatewayFrame(gatewaySocket, (frame) => frame.type === 'gateway.auth');
+    gatewaySocket.send(JSON.stringify({ type: 'gateway.auth.ok', gatewayId: 'gw_test_heartbeat' }));
+    await waitForGatewayPing(gatewaySocket);
+  } finally {
+    await relayClient.close();
+    await closeWebSocketServer(fakeRelay);
+    cleanup();
+  }
+});
+
 function tempStore(): { store: Store; cleanup: () => void } {
   const dir = mkdtempSync(path.join(tmpdir(), 'tether-relay-client-'));
   return {
@@ -866,6 +894,30 @@ async function waitForGatewayFrame(
       ws.off('error', onError);
     };
     ws.on('message', onMessage);
+    ws.on('error', onError);
+  });
+}
+
+async function waitForGatewayPing(ws: WebSocket, timeoutMs = 1500): Promise<void> {
+  return await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('timed out waiting for gateway ping'));
+    }, timeoutMs);
+    const onPing = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      ws.off('ping', onPing);
+      ws.off('error', onError);
+    };
+    ws.on('ping', onPing);
     ws.on('error', onError);
   });
 }

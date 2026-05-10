@@ -19,6 +19,8 @@ export type RelayServerOptions = {
   validateToken?: (token: string) => Promise<RelayAuthScope | undefined>;
   serverSyncUrl?: string;
   runtimeSyncSecret?: string;
+  heartbeatIntervalMs?: number;
+  heartbeatTimeoutMs?: number;
 };
 
 export type RunningRelayServer = {
@@ -32,6 +34,8 @@ const FORBIDDEN_KEYS = new Set(['command', 'args', 'argv', 'env', 'providerComma
 const MAX_TERMINAL_COLS = 500;
 const MAX_TERMINAL_ROWS = 200;
 const AUTH_TIMEOUT_MS = 5000;
+const HEARTBEAT_INTERVAL_MS = 15_000;
+const HEARTBEAT_TIMEOUT_MS = 10_000;
 
 type GatewayState = {
   gatewayId: string;
@@ -55,6 +59,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
   if (!options.secret && !options.validateToken) {
     throw new Error('Relay auth is required');
   }
+  const heartbeatIntervalMs = options.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS;
+  const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? HEARTBEAT_TIMEOUT_MS;
 
   const RUNTIME_EVENT_WHITELIST = new Set([
     'terminal.output',
@@ -107,6 +113,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
   const wss = new WebSocketServer({ server });
 
   wss.on('connection', (socket, request) => {
+    installHeartbeat(socket);
     const path = new URL(request.url ?? '/', `http://${options.host}:${options.port}`).pathname;
     if (path === '/ws/gateway') {
       void handleGateway(socket);
@@ -134,6 +141,39 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     url,
     close: () => closeRelay(wss, server)
   };
+
+  function installHeartbeat(socket: WebSocket): void {
+    let timeout: NodeJS.Timeout | undefined;
+    const clearPongTimeout = () => {
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = undefined;
+      }
+    };
+    const ping = () => {
+      if (socket.readyState !== WebSocket.OPEN || timeout) {
+        return;
+      }
+      try {
+        socket.ping();
+        timeout = setTimeout(() => {
+          timeout = undefined;
+          socket.terminate();
+        }, heartbeatTimeoutMs);
+        timeout.unref();
+      } catch {
+        socket.terminate();
+      }
+    };
+    const interval = setInterval(ping, heartbeatIntervalMs);
+    interval.unref();
+    socket.on('pong', clearPongTimeout);
+    socket.on('close', () => {
+      clearInterval(interval);
+      clearPongTimeout();
+    });
+    ping();
+  }
 
   async function handleGateway(socket: WebSocket): Promise<void> {
     let authenticated = false;

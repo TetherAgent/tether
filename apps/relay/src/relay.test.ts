@@ -9,12 +9,14 @@ const GATEWAY_TOKEN = 'gateway-token';
 const CLIENT_TOKEN = 'client-token';
 const CLIENT_TICKET = 'client-ticket';
 
-function createRelay(options?: { allowLegacySecret?: boolean; omitGatewayIdInScope?: boolean }) {
+function createRelay(options?: { allowLegacySecret?: boolean; omitGatewayIdInScope?: boolean; heartbeatIntervalMs?: number; heartbeatTimeoutMs?: number }) {
   return startRelayServer({
     host: '127.0.0.1',
     port: 0,
     secret: SECRET,
     allowLegacySecret: options?.allowLegacySecret,
+    heartbeatIntervalMs: options?.heartbeatIntervalMs,
+    heartbeatTimeoutMs: options?.heartbeatTimeoutMs,
     validateToken: async (token) => {
       if (token === GATEWAY_TOKEN) {
         return {
@@ -52,6 +54,19 @@ function createRelay(options?: { allowLegacySecret?: boolean; omitGatewayIdInSco
     }
   });
 }
+
+test('relay sends websocket heartbeat pings to connected sockets', async () => {
+  const relay = await createRelay({ heartbeatIntervalMs: 20, heartbeatTimeoutMs: 100 });
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+
+  try {
+    await waitForOpen(client);
+    await waitForPing(client);
+  } finally {
+    client.close();
+    await relay.close();
+  }
+});
 
 test('relay rejects unauthenticated sockets', async () => {
   const relay = await createRelay();
@@ -1180,6 +1195,30 @@ async function waitForJson(ws: WebSocket, predicate: (message: Record<string, un
       }
     });
     ws.on('error', reject);
+  });
+}
+
+async function waitForPing(ws: WebSocket, timeoutMs = 1000): Promise<void> {
+  return await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('timed out waiting for websocket ping'));
+    }, timeoutMs);
+    const onPing = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      ws.off('ping', onPing);
+      ws.off('error', onError);
+    };
+    ws.on('ping', onPing);
+    ws.on('error', onError);
   });
 }
 
