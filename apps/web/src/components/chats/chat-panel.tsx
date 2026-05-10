@@ -24,7 +24,7 @@ type ProviderOption = { provider: string; models: string[] };
 const RELAY_URL_KEY = 'tether:relayUrl';
 const DEFAULT_RELAY_URL = import.meta.env.VITE_TETHER_RELAY_URL ?? 'wss://tether.earntools.me';
 const DEFAULT_PROVIDER_OPTIONS: ProviderOption[] = [
-  { provider: 'claude', models: ['claude-sonnet-4-5', 'claude-opus-4-5', 'claude-haiku-4-5'] }
+  { provider: 'claude', models: ['sonnet', 'opus'] }
 ];
 
 function buildRelayUrl(value: string): string {

@@ -275,6 +275,18 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
                 : {})
             });
           }
+        } else if (frame.event.type === 'session.error') {
+          const clientId = typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined;
+          if (clientId) {
+            sendToClient(clientId, {
+              type: 'error',
+              sessionId: frame.event.sessionId,
+              code: String(frame.event.payload.code ?? 'session_error'),
+              message: String(frame.event.payload.message ?? 'session error')
+            });
+          } else {
+            sendEventToSubscribers(frame.event);
+          }
         } else if (frame.event.type === 'agent.tool') {
           const clientId = typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined;
           if (clientId) {

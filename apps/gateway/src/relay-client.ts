@@ -733,7 +733,7 @@ function toRelaySession(session: Session): RelaySession {
 function providerModels(provider: string): string[] {
   switch (provider) {
     case 'claude':
-      return ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5'];
+      return claudeModelAliases();
     case 'codex':
       return ['gpt-5.4', 'gpt-5.4-mini'];
     case 'copilot':
@@ -741,6 +741,19 @@ function providerModels(provider: string): string[] {
     default:
       return [];
   }
+}
+
+function claudeModelAliases(): string[] {
+  const result = spawnSync('claude', ['--help'], { encoding: 'utf8', timeout: 2000 });
+  const help = typeof result.stdout === 'string' ? result.stdout : '';
+  const modelLine = help.split('\n').find((line) => line.includes('--model'));
+  if (!modelLine) {
+    return ['sonnet', 'opus'];
+  }
+  const aliases = Array.from(modelLine.matchAll(/'([^']+)'/g))
+    .map((match) => match[1])
+    .filter((model): model is string => Boolean(model && !model.startsWith('claude-')));
+  return aliases.length > 0 ? [...new Set(aliases)] : ['sonnet', 'opus'];
 }
 
 function isInstalled(command: string): boolean {
