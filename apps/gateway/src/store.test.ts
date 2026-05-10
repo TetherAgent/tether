@@ -186,3 +186,62 @@ test('supports multiple store instances appending session events', () => {
   }
 });
 
+test('stores chat events in the dedicated chat event table', () => {
+  const { store, cleanup } = tempStore();
+  try {
+    const now = Date.now();
+    store.insertSession({
+      id: 'tth_chat',
+      provider: 'claude',
+      title: 'chat',
+      projectPath: '/tmp/chat',
+      status: 'running',
+      attachState: 'detached',
+      tmuxSessionName: '',
+      command: 'claude',
+      transport: 'chat',
+      createdAt: now,
+      updatedAt: now,
+      lastActiveAt: now
+    });
+
+    store.appendChatEvent('tth_chat', 'user.message', { content: 'hello' }, now);
+    store.appendChatEvent('tth_chat', 'agent.result', { content: 'hi', usage: { input_tokens: 1, output_tokens: 2 } }, now + 1);
+
+    assert.deepEqual(store.listChatEvents('tth_chat').map((event) => event.type), ['user.message', 'agent.result']);
+    assert.equal(store.getSession('tth_chat')?.transport, 'chat');
+  } finally {
+    cleanup();
+  }
+});
+
+test('listChatEvents skips rows with corrupt payload JSON', () => {
+  const { store, cleanup } = tempStore();
+  try {
+    const now = Date.now();
+    store.insertSession({
+      id: 'tth_chat_corrupt',
+      provider: 'claude',
+      title: 'chat corrupt',
+      projectPath: '/tmp/chat',
+      status: 'running',
+      attachState: 'detached',
+      tmuxSessionName: '',
+      command: 'claude',
+      transport: 'chat',
+      createdAt: now,
+      updatedAt: now,
+      lastActiveAt: now
+    });
+
+    store.appendChatEvent('tth_chat_corrupt', 'user.message', { content: 'hello' }, now);
+    (store as unknown as { db: DatabaseSync }).db
+      .prepare('INSERT INTO session_chats_events (session_id, type, ts, payload_json) VALUES (?, ?, ?, ?)')
+      .run('tth_chat_corrupt', 'agent.result', now + 1, '{bad-json');
+    store.appendChatEvent('tth_chat_corrupt', 'agent.result', { content: 'hi' }, now + 2);
+
+    assert.deepEqual(store.listChatEvents('tth_chat_corrupt').map((event) => event.ts), [now, now + 2]);
+  } finally {
+    cleanup();
+  }
+});

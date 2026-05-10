@@ -7,6 +7,95 @@ body {
   color: var(--foreground);
 }
 
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes thinking-bounce {
+  0%, 100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.chat-surface {
+  --user-bubble: #95ec69;
+  --user-bubble-text: #1a1a1a;
+  --agent-bubble: #ffffff;
+  --tool-bg: #f8fafc;
+  --tool-border: #e2e8f0;
+  --tool-accent: #6366f1;
+  --tool-result-bg: #ecfdf5;
+  --tool-result-border: #a7f3d0;
+  --tool-result-accent: #059669;
+  --error-bg: #fef2f2;
+  --error-border: #fecaca;
+  --error-accent: #dc2626;
+  --code-bg: #f1f5f9;
+  --code-text: #0f172a;
+  --cost-bg: #fafafa;
+}
+
+.dark .chat-surface {
+  --user-bubble: #22c55e;
+  --user-bubble-text: #052e16;
+  --agent-bubble: #1f1f23;
+  --tool-bg: #1e1b3a;
+  --tool-border: #312e81;
+  --tool-accent: #818cf8;
+  --tool-result-bg: #052e1a;
+  --tool-result-border: #14532d;
+  --tool-result-accent: #34d399;
+  --error-bg: #2a0e0e;
+  --error-border: #7f1d1d;
+  --error-accent: #f87171;
+  --code-bg: #0f172a;
+  --code-text: #e2e8f0;
+  --cost-bg: #18181b;
+}
+
+.streaming-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 14px;
+  vertical-align: text-bottom;
+  background: currentColor;
+  animation: blink 1000ms steps(2) infinite;
+}
+
+.thinking-dot {
+  animation: thinking-bounce 1400ms ease-in-out infinite;
+}
+
+.thinking-dot:nth-child(2) {
+  animation-delay: 160ms;
+}
+
+.thinking-dot:nth-child(3) {
+  animation-delay: 320ms;
+}
+
+.chat-markdown pre {
+  overflow-x: auto;
+  border-radius: 12px;
+  background: var(--code-bg);
+  color: var(--code-text);
+  padding: 12px;
+}
+
+.chat-markdown code {
+  border-radius: 6px;
+  background: var(--code-bg);
+  color: var(--code-text);
+  padding: 0.1rem 0.35rem;
+}
+
 /* =================================================================
    TETHER LANDING V4 — rebuilt page
 ================================================================= */

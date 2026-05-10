@@ -77,6 +77,27 @@ export default class RuntimeSyncController extends Controller {
       event.payload,
       scope
     );
+    if (eventType === 'user.message') {
+      const payload = event.payload as { message?: unknown };
+      if (typeof payload?.message === 'string') {
+        await ctx.service.runtimeSyncRepository.upsertChatMessage(sessionId, 'user', payload.message, null, scope);
+      }
+    }
+    if (eventType === 'agent.result') {
+      const payload = event.payload as {
+        text?: unknown;
+        usage?: { input_tokens?: number; output_tokens?: number; cost_usd?: number } | unknown;
+      };
+      if (typeof payload?.text === 'string') {
+        await ctx.service.runtimeSyncRepository.upsertChatMessage(
+          sessionId,
+          'assistant',
+          payload.text,
+          payload.usage ?? null,
+          scope
+        );
+      }
+    }
     await ctx.service.runtimeSyncRepository.upsertSyncCursor(sessionId, eventId, null, scope);
     ctx.success({ ok: true });
   }

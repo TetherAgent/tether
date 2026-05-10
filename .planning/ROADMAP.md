@@ -35,7 +35,7 @@ occupies an active roadmap phase number.
 - [ ] **Phase 9: Flutter Client App** - Phone-first Flutter client for remote Relay/LAN session viewing and control, with HarmonyOS support and generated Dart protocol
 - [ ] **Phase 10: Multi-workspace Expansion** - Product support for creating/switching workspaces, binding Gateways per workspace, and isolating members, sessions, audit, and admin pages by workspace
 - [x] **Phase 12: Server DB Runtime Sync** - Web/App 从 Server DB 直接读取 session 列表、聊天历史和受限 Terminal 历史，不再依赖 Gateway 反向 RPC；Relay 实时同步 Gateway frame 到 Server DB (completed 2026-05-09)
-- [ ] **Phase 13: Mobile Web Chat** - 在 apps/web 中新增类微信三栏聊天界面，通过 Relay WS stream-json 链路创建 AI 会话（Claude/Codex/Copilot）、实时渲染 agent delta、Markdown 渲染、会话历史 HTTP 加载、断线续传
+- [x] **Phase 13: Mobile Web Chat** - 在 apps/web 中新增类微信三栏聊天界面，通过 Relay WS stream-json 链路创建 AI 会话（Claude/Codex/Copilot）、实时渲染 agent delta、Markdown 渲染、会话历史 HTTP 加载、断线续传 (completed 2026-05-10)
 
 ## Phase Details
 

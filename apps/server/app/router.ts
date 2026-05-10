@@ -38,6 +38,9 @@ export default (app: Application): void => {
   // Session 数据读取（前端只读，stop/input/resize 走 WebSocket）
   router.get('/api/server/sessions', requireNormalAccess, controller.session.list);                          // Session 列表
   router.get('/api/server/sessions/:id/events', requireNormalAccess, controller.session.events);             // 终端事件流
+  router.get('/api/server/chat-sessions', requireNormalAccess, controller.chat.sessions);
+  router.get('/api/server/chat-sessions/:sessionId/messages', requireNormalAccess, controller.chat.messages);
+  router.patch('/api/relay/gateway-sessions/:sessionId/agent-session-id', requireRuntimeSyncSecret, controller.chat.updateAgentSessionId);
 
   // 管理后台接口
   adminRouter(app);

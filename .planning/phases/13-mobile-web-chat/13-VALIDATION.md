@@ -1,7 +1,7 @@
 ---
 phase: 13
 slug: mobile-web-chat
-status: draft
+status: complete
 nyquist_compliant: true
 wave_0_complete: false
 created: 2026-05-10
@@ -38,13 +38,14 @@ created: 2026-05-10
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 13-01-01 | 01 | 1 | D-06b | — | N/A | typecheck | `pnpm --filter @tether/web typecheck` | ✅ inline | ⬜ pending |
-| 13-01-02 | 01 | 1 | D-40 | — | N/A | typecheck | `pnpm --filter @tether/gateway typecheck` | ✅ inline | ⬜ pending |
-| 13-01-03 | 01 | 1 | D-41 | — | N/A | file-check | `grep -c gateway_chat_messages apps/server/sql/004_chat_messages.sql` | ✅ inline | ⬜ pending |
-| 13-02-01 | 02 | 2 | D-01/D-32 | — | N/A | typecheck | `pnpm --filter @tether/gateway typecheck` | ✅ inline | ⬜ pending |
-| 13-03-01 | 03 | 2 | D-42 | — | N/A | typecheck | `pnpm --filter @tether/server typecheck` | ✅ inline | ⬜ pending |
-| 13-04-01 | 04 | 3 | D-36/D-37/D-38 | — | N/A | typecheck | `pnpm --filter @tether/web typecheck` | ✅ inline | ⬜ pending |
-| 13-05-01 | 05 | 3 | D-44/D-45 | — | N/A | typecheck | `pnpm --filter @tether/web typecheck` | ✅ inline | ⬜ pending |
+| 13-01-01 | 01 | 1 | D-06b | — | N/A | typecheck | `pnpm --filter @tether/web typecheck` | ✅ inline | ✅ green |
+| 13-01-02 | 01 | 1 | D-40 | — | N/A | typecheck | `pnpm --filter @tether/gateway typecheck` | ✅ inline | ✅ green |
+| 13-01-03 | 01 | 1 | D-41 | — | N/A | file-check | `grep -c gateway_chat_messages apps/server/sql/004_chat_messages.sql` | ✅ inline | ✅ green |
+| 13-02-01 | 02 | 2 | D-01/D-32 | — | N/A | typecheck | `pnpm --filter @tether/gateway typecheck` | ✅ inline | ✅ green |
+| 13-03-01 | 03 | 2 | D-42 | — | N/A | typecheck | `pnpm --filter @tether/server typecheck` | ✅ inline | ✅ green |
+| 13-04-01 | 04 | 3 | D-36/D-37/D-38 | — | N/A | typecheck | `pnpm --filter @tether/web typecheck` | ✅ inline | ✅ green |
+| 13-05-01 | 05 | 3 | D-44/D-45 | — | N/A | typecheck | `pnpm --filter @tether/web typecheck` | ✅ inline | ✅ green |
+| 13-06-01 | 06 | 4 | D-32/D-45 | — | N/A | build+test | `pnpm --filter @tether/web build` | ✅ inline | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -81,4 +82,4 @@ No Wave 0 plan is required. All automated verification commands (`pnpm typecheck
 - [x] Feedback latency < 60s
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** code verification complete; manual viewport/reconnect checks pending

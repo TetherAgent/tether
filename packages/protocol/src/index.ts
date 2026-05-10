@@ -36,7 +36,7 @@ export type RelaySession = {
   userId?: string;
   agentSessionId?: string;
   status: RelaySessionStatus;
-  transport: 'pty-event-stream' | 'tmux';
+  transport: 'pty-event-stream' | 'tmux' | 'chat';
   lastActiveAt: number;
 };
 
@@ -53,6 +53,8 @@ export type RelayGatewayToServerFrame =
   | { type: 'gateway.sessions'; gatewayId: string; sessions: RelaySession[] }
   | { type: 'gateway.replay'; gatewayId: string; clientId: string; sessionId: string; events: RelayTerminalEvent[]; done?: boolean; latestEventId?: number }
   | { type: 'gateway.event'; gatewayId: string; event: RelayTerminalEvent }
+  | { type: 'gateway.session-created'; gatewayId: string; clientId: string; sessionId: string }
+  | { type: 'gateway.chat-catchup'; gatewayId: string; clientId: string; sessionId: string; text: string }
   | { type: 'gateway.error'; gatewayId: string; clientId?: string; sessionId?: string; code: string; message: string };
 
 export type RelayServerToGatewayFrame =
@@ -64,8 +66,21 @@ export type RelayServerToGatewayFrame =
   | { type: 'client.resize'; clientId: string; sessionId: string; cols: number; rows: number }
   | { type: 'client.stop'; clientId: string; sessionId: string }
   | { type: 'client.detach'; clientId: string; sessionId: string }
+  | {
+      type: 'client.chat';
+      clientId: string;
+      sessionId: null;
+      provider: string;
+      model: string;
+      cwd: string;
+      message: string;
+      accountId?: string;
+      workspaceId?: string;
+      userId?: string;
+    }
   | { type: 'client.chat'; clientId: string; sessionId: string; message: string }
-;
+  | { type: 'client.list-providers'; clientId: string }
+  | { type: 'client.switch-model'; clientId: string; sessionId: string; provider: string; model: string };
 
 export type RelayClientToServerFrame =
   // `secret` is retained only for the personal-relay bootstrap fallback path.
@@ -76,7 +91,10 @@ export type RelayClientToServerFrame =
   | { type: 'client.resize'; sessionId: string; cols: number; rows: number }
   | { type: 'client.stop'; sessionId: string }
   | { type: 'client.detach'; sessionId: string }
-  | { type: 'client.chat'; sessionId: string; message: string };
+  | { type: 'client.chat'; sessionId: null; provider: string; model: string; cwd: string; message: string }
+  | { type: 'client.chat'; sessionId: string; message: string }
+  | { type: 'client.list-providers' }
+  | { type: 'client.switch-model'; sessionId: string; provider: string; model: string };
 
 export type RelayServerToClientFrame =
   | { type: 'client.auth.ok'; clientId: string }
@@ -86,4 +104,10 @@ export type RelayServerToClientFrame =
   | { type: 'event'; event: RelayTerminalEvent }
   | { type: 'replay.output'; sessionId: string; data: string; latestEventId: number }
   | { type: 'replay.done'; sessionId: string; latestEventId: number }
+  | { type: 'gateway.session-created'; sessionId: string }
+  | { type: 'agent.delta'; sessionId: string; text: string }
+  | { type: 'agent.result'; sessionId: string; text: string; usage: { input_tokens: number; output_tokens: number; cost_usd?: number }; stop_reason?: string }
+  | { type: 'agent.tool'; sessionId: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean }
+  | { type: 'gateway.chat-catchup'; sessionId: string; text: string }
+  | { type: 'gateway.providers'; providers: Array<{ provider: string; models: string[] }> }
   | { type: 'error'; sessionId?: string; code: string; message: string };

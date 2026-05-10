@@ -7,6 +7,7 @@ import { GatewayAuthPage } from './pages/gateway-auth-page.js';
 import { LandingPage } from './pages/landing-page.js';
 import { LoginPage } from './pages/login-page.js';
 import { RegisterPage } from './pages/register-page.js';
+import { ChatsPage } from './pages/chats-page.js';
 
 type WebRoutesProps = {
   sessionListSurface: React.ReactNode;
@@ -58,7 +59,23 @@ export function WebRoutes({ sessionListSurface, renderSessionView }: WebRoutesPr
           </RequireUserAuth>
         )}
       />
-      <Route path="*" element={<Navigate replace to="/sessions" />} />
+      <Route
+        path="/chats"
+        element={(
+          <RequireUserAuth>
+            <ChatsPage />
+          </RequireUserAuth>
+        )}
+      />
+      <Route
+        path="/chats/:sessionId"
+        element={(
+          <RequireUserAuth>
+            <ChatsPage />
+          </RequireUserAuth>
+        )}
+      />
+      <Route path="*" element={<Navigate replace to="/chats" />} />
     </Routes>
   );
 }
@@ -102,7 +119,7 @@ function RedirectAuthenticated({ children }: { children: React.ReactNode }) {
   }
 
   if (storedNormalAuth) {
-    return <Navigate replace to="/sessions" />;
+    return <Navigate replace to="/chats" />;
   }
 
   return <>{children}</>;

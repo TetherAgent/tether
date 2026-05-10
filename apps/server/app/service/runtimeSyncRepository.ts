@@ -3,9 +3,12 @@ import { Service } from 'egg';
 const RUNTIME_EVENT_WHITELIST = new Set([
   'terminal.output',
   'terminal.input',
+  'user.message',
   'session.error',
   'session.exited',
-  'agent.status'
+  'agent.status',
+  'agent.result',
+  'agent.tool'
 ]);
 
 const MASK = '[REDACTED]';
@@ -124,6 +127,32 @@ export default class RuntimeSyncRepositoryService extends Service {
          payload_json = VALUES(payload_json),
          updated_at = CURRENT_TIMESTAMP`,
       [sessionId, eventId, eventType, payloadJson]
+    );
+  }
+
+  public async upsertChatMessage(
+    sessionId: string,
+    role: 'user' | 'assistant',
+    content: string,
+    usage: unknown,
+    scope: RuntimeSyncScope
+  ): Promise<void> {
+    if (!this.mysqlModeEnabled()) {
+      return;
+    }
+    if (!await this.sessionWithinScope(sessionId, scope)) {
+      console.warn(`[server] upsertChatMessage scope mismatch: ${sessionId}`);
+      return;
+    }
+    await this.ctx.service.db.query(
+      `INSERT INTO gateway_chat_messages (session_id, role, content, usage_json)
+       VALUES (?, ?, ?, ?)`,
+      [
+        sessionId,
+        role,
+        content,
+        usage == null ? null : truncatePayload(maskPayload(usage))
+      ]
     );
   }
 
