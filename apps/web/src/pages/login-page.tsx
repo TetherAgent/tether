@@ -37,7 +37,7 @@ export function LoginPage() {
     setError(null);
     try {
       await loginNormal(values);
-      const from = (location.state as { from?: string } | undefined)?.from ?? '/sessions';
+      const from = (location.state as { from?: string } | undefined)?.from ?? '/chats';
       navigate(from, { replace: true });
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : t.loginFailed);

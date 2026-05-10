@@ -75,9 +75,11 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
       return;
     }
     const http = createHttpClient();
-      void http
+    void http
       .get<{ messages: HistoryMessage[] }>(
-        `/api/server/chat-sessions/${activeSessionId}/messages`
+        `/api/server/chat-sessions/${activeSessionId}/messages`,
+        undefined,
+        { token: normalAuth?.accessToken }
       )
       .then((data: { messages: HistoryMessage[] }) => {
         const items: MessageItem[] = (data.messages ?? []).map((message: HistoryMessage, index: number) =>
@@ -115,7 +117,7 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
       .catch(() => {
         setMessages([{ kind: 'system', id: 'history-error', text: t.chatsHistoryFail }]);
       });
-  }, [activeSessionId, selectedProvider, t.chatsHistoryFail]);
+  }, [activeSessionId, normalAuth?.accessToken, selectedProvider, t.chatsHistoryFail]);
 
   React.useEffect(() => {
     if (!normalAuth?.accessToken) {

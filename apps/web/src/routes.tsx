@@ -33,7 +33,8 @@ export function WebRoutes({ sessionListSurface, renderSessionView }: WebRoutesPr
           </RedirectAuthenticated>
         )}
       />
-      <Route path="/" element={<LandingPage />} />
+      <Route path="/" element={<Navigate replace to="/chats" />} />
+      <Route path="/landing" element={<LandingPage />} />
       <Route path="/gateway-auth" element={<GatewayAuthPage />} />
       <Route
         path="/sessions"
@@ -89,7 +90,7 @@ function SessionViewRoute({
 }) {
   const { sessionId } = useParams();
   if (!sessionId) {
-    return <Navigate replace to="/sessions" />;
+    return <Navigate replace to="/chats" />;
   }
   return <>{renderSessionView(sessionId, mode)}</>;
 }

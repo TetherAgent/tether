@@ -47,7 +47,7 @@ export function LandingPage() {
   const { normalAuth } = useAuth();
   const { t, locale, setLocale } = useI18n();
   const { isDark, toggleTheme } = useUiPreferences();
-  const consolePath = normalAuth?.accessToken ? '/sessions' : '/login';
+  const consolePath = normalAuth?.accessToken ? '/chats' : '/login';
   const [scrolled, setScrolled] = React.useState(false);
 
   React.useEffect(() => {

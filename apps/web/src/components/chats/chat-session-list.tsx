@@ -4,6 +4,7 @@ import { Plus } from 'lucide-react';
 import { Button } from '@tether/design';
 import { createHttpClient } from '@tether/http';
 import { useI18n } from '../../hooks/use-i18n.js';
+import { getStoredNormalAccessToken } from '../../lib/api.js';
 import { ModelAvatar } from './model-avatar.js';
 
 type ChatSessionRecord = {
@@ -31,11 +32,12 @@ export function ChatSessionList({
   const [sessions, setSessions] = React.useState<ChatSessionRecord[]>([]);
 
   React.useEffect(() => {
-      const http = createHttpClient();
-      void http
-        .get<{ sessions: ChatSessionRecord[] }>('/api/server/chat-sessions')
-        .then((data: { sessions: ChatSessionRecord[] }) => setSessions(data.sessions ?? []))
-        .catch(() => setSessions([]));
+    const token = getStoredNormalAccessToken();
+    const http = createHttpClient();
+    void http
+      .get<{ sessions: ChatSessionRecord[] }>('/api/server/chat-sessions', undefined, { token })
+      .then((data: { sessions: ChatSessionRecord[] }) => setSessions(data.sessions ?? []))
+      .catch(() => setSessions([]));
   }, [activeSessionId]);
 
   return (
