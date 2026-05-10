@@ -560,6 +560,10 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           sendGatewayUnavailable(clientId);
           break;
         }
+        if (!bindClientToSessionGateway(client, session)) {
+          sendGatewayUnavailable(clientId);
+          break;
+        }
         if (!clientCanSeeRelaySession(client, session)) {
           sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });
           break;
@@ -751,6 +755,31 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
       return false;
     }
     return clientCanSeeSession(client.scope, client.authMethod, session, gatewayForSession(session)?.scope);
+  }
+
+  function bindClientToSessionGateway(client: ClientState, session: RelaySession): boolean {
+    if (!session.gatewayId || client.gatewayId === session.gatewayId) {
+      return true;
+    }
+    const gateway = gateways.get(session.gatewayId);
+    if (!gateway || gateway.socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    if (!clientCanSeeSession(client.scope, client.authMethod, session, gateway.scope)) {
+      return false;
+    }
+    client.gatewayId = session.gatewayId;
+    sendToSocket<RelayServerToClientFrame>(client.socket, {
+      type: 'hello',
+      clientId: client.clientId,
+      gatewayId: session.gatewayId
+    });
+    sendToSocket<RelayServerToClientFrame>(client.socket, {
+      type: 'gateway.status',
+      gatewayId: session.gatewayId,
+      status: 'connected'
+    });
+    return true;
   }
 
   function broadcastGatewayUnavailableForAccount(accountId: string): void {

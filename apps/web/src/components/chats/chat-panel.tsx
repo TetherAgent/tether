@@ -710,13 +710,9 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
     if (!wsReady || !currentSessionId || !activeSessionMetadataReady) {
       return;
     }
-    if (activeSessionGatewayId && relayGatewayId && activeSessionGatewayId !== relayGatewayId) {
-      setSessionAccessError(t.chatsSessionOutsideGateway);
-      return;
-    }
     setSessionAccessError(undefined);
     sendFrame({ type: 'client.subscribe', sessionId: currentSessionId, mode: 'control' });
-  }, [activeSessionGatewayId, activeSessionMetadataReady, currentSessionId, relayGatewayId, sendFrame, t.chatsSessionOutsideGateway, wsReady]);
+  }, [activeSessionMetadataReady, currentSessionId, sendFrame, wsReady]);
 
   const sendMessage = React.useCallback(() => {
     const text = inputText.trim();
