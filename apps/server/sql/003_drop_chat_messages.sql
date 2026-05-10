@@ -1,1 +1,1 @@
-DROP TABLE IF EXISTS gateway_chat_messages;
+SELECT 1;

@@ -164,7 +164,7 @@ export class ChatSessionRunner implements IChatRunner {
       providerArgs,
       {
         cwd,
-        stdio: ['pipe', 'pipe', 'pipe'],
+        stdio: ['ignore', 'pipe', 'pipe'],
         env: providerEffectiveEnv('claude', cwd)
       }
     );
@@ -186,10 +186,6 @@ export class ChatSessionRunner implements IChatRunner {
       pendingPermissions: new Map()
     };
     this.activeSubprocesses.set(sessionId, active);
-
-    // Write a newline immediately so the claude CLI's "no stdin data" 3-second wait is skipped.
-    // stdin stays open so we can later write control_response frames for permission prompts.
-    child.stdin?.write('\n');
 
     child.stdout?.on('data', (chunk: Buffer | string) => {
       const current = this.activeSubprocesses.get(sessionId);
@@ -447,10 +443,11 @@ export class ChatSessionRunner implements IChatRunner {
 
   respondToPermission(sessionId: string, requestId: string, decision: 'allow' | 'deny'): void {
     const active = this.activeSubprocesses.get(sessionId);
-    const callback = active?.pendingPermissions.get(requestId);
+    if (!active) return;
+    const callback = active.pendingPermissions.get(requestId);
     if (callback) {
       callback(decision);
-      active!.pendingPermissions.delete(requestId);
+      active.pendingPermissions.delete(requestId);
     }
   }
 

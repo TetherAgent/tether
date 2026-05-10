@@ -174,6 +174,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(undefined);
   const [wsReady, setWsReady] = React.useState(false);
   const [connectionError, setConnectionError] = React.useState<string | undefined>(undefined);
+  const hasEverConnectedRef = React.useRef(false);
   const [usageStats, setUsageStats] = React.useState<{ contextPct?: number; rateLimitResetsAt?: number; rateLimitType?: string } | undefined>(undefined);
   const [copiedAgentId, setCopiedAgentId] = React.useState(false);
   const wsRef = React.useRef<WebSocket | null>(null);
@@ -359,6 +360,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
       const frame = frameFromRaw(event.data);
       if (!frame) return;
       if (frame.type === 'client.auth.ok') {
+        hasEverConnectedRef.current = true;
         setWsReady(true);
         setConnectionError(undefined);
         ws.send(JSON.stringify({ type: 'client.list-providers' }));
@@ -717,7 +719,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
 
   const canSend = wsReady && !isInflight && !connectionError && inputText.trim().length > 0;
   const isInputDisabled = isInflight || !wsReady || Boolean(connectionError);
-  const connectionBanner = connectionError ? (
+  const connectionBanner = connectionError && hasEverConnectedRef.current ? (
     <div className="mb-2 flex items-center justify-center gap-1.5 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-center text-[11px] text-destructive/80">
       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-destructive/60" />
       {connectionError}
