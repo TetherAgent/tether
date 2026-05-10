@@ -758,25 +758,26 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
   }
 
   function bindClientToSessionGateway(client: ClientState, session: RelaySession): boolean {
-    if (!session.gatewayId || client.gatewayId === session.gatewayId) {
+    const gatewayId = session.gatewayId;
+    if (!gatewayId || client.gatewayId === gatewayId) {
       return true;
     }
-    const gateway = gateways.get(session.gatewayId);
+    const gateway = gateways.get(gatewayId);
     if (!gateway || gateway.socket.readyState !== WebSocket.OPEN) {
       return false;
     }
     if (!clientCanSeeSession(client.scope, client.authMethod, session, gateway.scope)) {
       return false;
     }
-    client.gatewayId = session.gatewayId;
+    client.gatewayId = gatewayId;
     sendToSocket<RelayServerToClientFrame>(client.socket, {
       type: 'hello',
       clientId: client.clientId,
-      gatewayId: session.gatewayId
+      gatewayId
     });
     sendToSocket<RelayServerToClientFrame>(client.socket, {
       type: 'gateway.status',
-      gatewayId: session.gatewayId,
+      gatewayId,
       status: 'connected'
     });
     return true;

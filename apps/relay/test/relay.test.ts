@@ -1281,6 +1281,79 @@ test('relay prefers matching user gateway within the same account', async () => 
   }
 });
 
+test('relay rebinds client to subscribed session gateway', async () => {
+  const GW_TOKEN_1 = 'gw-token-session1';
+  const GW_TOKEN_2 = 'gw-token-session2';
+  const CLIENT_TOKEN_USER_3 = 'client-token-session-user3';
+
+  const relay = await startRelayServer({
+    host: '127.0.0.1',
+    port: 0,
+    secret: SECRET,
+    validateToken: async (token) => {
+      if (token === GW_TOKEN_1) {
+        return { accountId: 'acct_1', workspaceId: 'ws_1', gatewayId: 'gateway-1', userId: 'user_3', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw_session1' };
+      }
+      if (token === GW_TOKEN_2) {
+        return { accountId: 'acct_1', workspaceId: 'ws_1', gatewayId: 'gateway-2', userId: 'user_3', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw_session2' };
+      }
+      if (token === CLIENT_TOKEN_USER_3) {
+        return { accountId: 'acct_1', workspaceId: 'ws_1', userId: 'user_3', tokenClass: 'normal_client_access', expiresAt: Date.now() + 60_000, jti: 'jti_client_session_user3' };
+      }
+      return undefined;
+    }
+  });
+
+  const wsUrl = relay.url.replace('http', 'ws');
+  const gateway2 = new WebSocket(`${wsUrl}/ws/gateway`);
+  const gateway1 = new WebSocket(`${wsUrl}/ws/gateway`);
+  const client = new WebSocket(`${wsUrl}/ws/client`);
+  const session: RelaySession = {
+    id: 'tth_rebind_session_gateway',
+    provider: 'claude',
+    title: 'Rebind',
+    projectPath: process.cwd(),
+    accountId: 'acct_1',
+    workspaceId: 'ws_1',
+    gatewayId: 'gateway-1',
+    userId: 'user_3',
+    status: 'running',
+    transport: 'chat',
+    lastActiveAt: Date.now()
+  };
+
+  try {
+    await waitForOpen(gateway2);
+    gateway2.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-2', token: GW_TOKEN_2 }));
+    await waitForJson(gateway2, (m) => m.type === 'gateway.auth.ok');
+
+    await waitForOpen(gateway1);
+    gateway1.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-1', token: GW_TOKEN_1 }));
+    await waitForJson(gateway1, (m) => m.type === 'gateway.auth.ok');
+    gateway1.send(JSON.stringify({ type: 'gateway.sessions', gatewayId: 'gateway-1', sessions: [session] }));
+
+    await waitForOpen(client);
+    const initialHelloPromise = waitForJson(client, (m) => m.type === 'hello');
+    client.send(JSON.stringify({ type: 'client.auth', token: CLIENT_TOKEN_USER_3 }));
+    await waitForJson(client, (m) => m.type === 'client.auth.ok');
+    const initialHello = await initialHelloPromise;
+    assert.equal(initialHello.gatewayId, 'gateway-2');
+
+    const reboundHelloPromise = waitForJson(client, (m) => m.type === 'hello' && m.gatewayId === 'gateway-1');
+    const reboundStatusPromise = waitForJson(client, (m) => m.type === 'gateway.status' && m.gatewayId === 'gateway-1');
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId: session.id, mode: 'control' }));
+    const subscribe = await waitForJson(gateway1, (m) => m.type === 'client.subscribe' && m.sessionId === session.id);
+    assert.equal(subscribe.type, 'client.subscribe');
+    await reboundHelloPromise;
+    await reboundStatusPromise;
+  } finally {
+    gateway1.close();
+    gateway2.close();
+    client.close();
+    await relay.close();
+  }
+});
+
 async function authenticateGateway(ws: WebSocket, gatewayId = 'gateway-test'): Promise<void> {
   await waitForOpen(ws);
   ws.send(JSON.stringify({ type: 'gateway.auth', gatewayId, token: GATEWAY_TOKEN }));
