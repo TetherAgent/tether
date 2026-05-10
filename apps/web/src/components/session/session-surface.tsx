@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import type { ITheme } from '@xterm/xterm';
-import { Maximize2, MessageSquare, Minimize2, Power } from 'lucide-react';
+import { Maximize2, Minimize2, Power } from 'lucide-react';
 import {
   Button,
   Label,
@@ -885,12 +885,6 @@ function PtySessionView({
                 </SelectContent>
               </Select>
             </div>
-            <Button asChild variant="outline" size="sm" type="button">
-              <Link to={`/remote/session/${encodeURIComponent(sessionId)}/chat`}>
-                <MessageSquare aria-hidden="true" />
-                {t.simpleView}
-              </Link>
-            </Button>
             <Button asChild variant="outline" size="sm" type="button">
               <Link to={`/remote/session/${encodeURIComponent(sessionId)}/replay`}>{t.replay}</Link>
             </Button>

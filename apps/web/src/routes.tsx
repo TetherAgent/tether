@@ -10,7 +10,7 @@ import { RegisterPage } from './pages/register-page.js';
 
 type WebRoutesProps = {
   sessionListSurface: React.ReactNode;
-  renderSessionView: (sessionId: string, mode: 'control' | 'replay' | 'chat') => React.ReactNode;
+  renderSessionView: (sessionId: string, mode: 'control' | 'replay') => React.ReactNode;
 };
 
 export function WebRoutes({ sessionListSurface, renderSessionView }: WebRoutesProps) {
@@ -51,14 +51,6 @@ export function WebRoutes({ sessionListSurface, renderSessionView }: WebRoutesPr
         )}
       />
       <Route
-        path="/remote/session/:sessionId/chat"
-        element={(
-          <RequireUserAuth>
-            <SessionViewRoute mode="chat" renderSessionView={renderSessionView} />
-          </RequireUserAuth>
-        )}
-      />
-      <Route
         path="/remote/session/:sessionId"
         element={(
           <RequireUserAuth>
@@ -75,8 +67,8 @@ function SessionViewRoute({
   mode,
   renderSessionView
 }: {
-  mode: 'control' | 'replay' | 'chat';
-  renderSessionView: (sessionId: string, mode: 'control' | 'replay' | 'chat') => React.ReactNode;
+  mode: 'control' | 'replay';
+  renderSessionView: (sessionId: string, mode: 'control' | 'replay') => React.ReactNode;
 }) {
   const { sessionId } = useParams();
   if (!sessionId) {

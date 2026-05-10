@@ -50,7 +50,6 @@ import { gatewayAuthHeaders, readGatewayData } from './lib/api.js';
 import { WebChromeControls } from './components/console/web-chrome-controls.js';
 import { SessionControlPage } from './pages/session-control-page.js';
 import { SessionReplayPage } from './pages/session-replay-page.js';
-import { SessionChatPage } from './pages/session-chat-page.js';
 import { WebRoutes } from './routes.js';
 import './styles.css';
 
@@ -280,15 +279,7 @@ function App() {
                   />
                 );
               }
-              if (mode === 'chat') {
-                return (
-                  <SessionChatPage
-                    sessionId={sessionId}
-                    connectionSettings={connectionSettings}
-                    onConnectionSettingsChange={updateConnectionSettings}
-                  />
-                );
-              }
+
               return (
                 <SessionControlPage
                   sessionId={sessionId}
@@ -757,7 +748,6 @@ function SessionCard({
   const statusLabel = sessionStatusLabel(session.status, t);
   const transport = session.transport ?? t.fallbackTmuxTransport;
   const sessionPath = `/remote/session/${encodeURIComponent(session.id)}${target === 'replay' ? '/replay' : ''}`;
-  const simpleSessionPath = `/remote/session/${encodeURIComponent(session.id)}/chat`;
   const openLabel = target === 'replay' ? t.replay : t.enterSession;
   const sessionName = session.title || session.provider || session.id;
   const confirmStop = React.useCallback(() => {
@@ -807,16 +797,6 @@ function SessionCard({
       </span>
       <span className={`session-status-pill session-status-${statusTone(session.status)}`}>{statusLabel}</span>
       <div className="session-card-actions">
-        {target === 'control' ? (
-          <Link
-            className="session-card-open session-card-simple"
-            to={simpleSessionPath}
-            state={{ agentSessionId: session.agentSessionId, provider: session.provider }}
-            aria-label={`${t.simpleView}: ${session.title || session.id}`}
-          >
-            {t.simpleView}
-          </Link>
-        ) : null}
         <Link
           className="session-card-open"
           to={sessionPath}
