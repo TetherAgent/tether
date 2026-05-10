@@ -19,14 +19,13 @@ type MessageItem =
   | { kind: 'system'; id: string; text: string }
   | { kind: 'permission'; id: string; toolName: string };
 type HistoryMessage = { role: string; content: string; usageJson?: Usage; createdAt: string };
+type ProviderOption = { provider: string; models: string[] };
 
 const RELAY_URL_KEY = 'tether:relayUrl';
 const DEFAULT_RELAY_URL = import.meta.env.VITE_TETHER_RELAY_URL ?? 'wss://tether.earntools.me';
-const MODEL_OPTIONS: Record<string, string[]> = {
-  claude: ['claude-sonnet-4-5', 'claude-opus-4-5', 'claude-haiku-4-5'],
-  codex: ['gpt-5.4', 'gpt-5.4-mini'],
-  copilot: ['gpt-5.4', 'claude-sonnet-4.6']
-};
+const DEFAULT_PROVIDER_OPTIONS: ProviderOption[] = [
+  { provider: 'claude', models: ['claude-sonnet-4-5', 'claude-opus-4-5', 'claude-haiku-4-5'] }
+];
 
 function buildRelayUrl(value: string): string {
   const url = new URL(value);
@@ -48,6 +47,17 @@ function frameFromRaw(raw: MessageEvent['data']): Record<string, unknown> | unde
   }
 }
 
+function isProviderOption(value: unknown): value is ProviderOption {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    typeof (value as { provider?: unknown }).provider === 'string' &&
+    Array.isArray((value as { models?: unknown }).models) &&
+    (value as { models: unknown[] }).models.every((model) => typeof model === 'string') &&
+    (value as { models: unknown[] }).models.length > 0
+  );
+}
+
 export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
   const navigate = useNavigate();
   const { normalAuth } = useAuth();
@@ -56,8 +66,9 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
   const [inputText, setInputText] = React.useState('');
   const [isInflight, setIsInflight] = React.useState(false);
   const [currentSessionId, setCurrentSessionId] = React.useState<string | undefined>(activeSessionId);
-  const [selectedProvider, setSelectedProvider] = React.useState('claude');
-  const [selectedModel, setSelectedModel] = React.useState(MODEL_OPTIONS.claude[0]!);
+  const [providerOptions, setProviderOptions] = React.useState<ProviderOption[]>(DEFAULT_PROVIDER_OPTIONS);
+  const [selectedProvider, setSelectedProvider] = React.useState(DEFAULT_PROVIDER_OPTIONS[0]!.provider);
+  const [selectedModel, setSelectedModel] = React.useState(DEFAULT_PROVIDER_OPTIONS[0]!.models[0]!);
   const [cwd, setCwd] = React.useState('');
   const [wsReady, setWsReady] = React.useState(false);
   const wsRef = React.useRef<WebSocket | null>(null);
@@ -134,8 +145,29 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
       if (!frame) return;
       if (frame.type === 'client.auth.ok') {
         setWsReady(true);
+        ws.send(JSON.stringify({ type: 'client.list-providers' }));
         if (currentSessionId) {
           ws.send(JSON.stringify({ type: 'client.subscribe', sessionId: currentSessionId, mode: 'control' }));
+        }
+        return;
+      }
+      if (frame.type === 'gateway.providers') {
+        const nextProviders = Array.isArray(frame.providers)
+          ? frame.providers.filter((provider: unknown): provider is ProviderOption => isProviderOption(provider))
+          : [];
+        if (nextProviders.length > 0) {
+          setProviderOptions(nextProviders);
+          setSelectedProvider((currentProvider) =>
+            nextProviders.some((provider: ProviderOption) => provider.provider === currentProvider)
+              ? currentProvider
+              : nextProviders[0]!.provider
+          );
+          setSelectedModel((currentModel) => {
+            const provider = nextProviders.find((item: ProviderOption) => item.provider === selectedProvider) ?? nextProviders[0]!;
+            return provider.models.includes(currentModel) ? currentModel : provider.models[0]!;
+          });
+        } else {
+          setMessages((items) => [...items, { kind: 'system', id: `providers-${Date.now()}`, text: t.chatsProviderFail }]);
         }
         return;
       }
@@ -246,7 +278,14 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
       ws.close();
       wsRef.current = null;
     };
-  }, [currentSessionId, navigate, normalAuth?.accessToken, selectedProvider, t.chatsSessionStarted]);
+  }, [currentSessionId, navigate, normalAuth?.accessToken, selectedProvider, t.chatsProviderFail, t.chatsSessionStarted]);
+
+  React.useEffect(() => {
+    const models = providerOptions.find((provider) => provider.provider === selectedProvider)?.models ?? [];
+    if (models.length > 0 && !models.includes(selectedModel)) {
+      setSelectedModel(models[0]!);
+    }
+  }, [providerOptions, selectedModel, selectedProvider]);
 
   React.useEffect(() => {
     if (wsReady && currentSessionId && wsRef.current?.readyState === WebSocket.OPEN) {
@@ -295,12 +334,12 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
         <div className="w-40">
           <Select value={selectedProvider} onValueChange={(value) => {
             setSelectedProvider(value);
-            setSelectedModel(MODEL_OPTIONS[value]?.[0] ?? '');
+            setSelectedModel(providerOptions.find((provider) => provider.provider === value)?.models[0] ?? '');
           }}>
             <SelectTrigger><SelectValue placeholder={t.chatsSelectProvider} /></SelectTrigger>
             <SelectContent>
-              {Object.keys(MODEL_OPTIONS).map((provider) => (
-                <SelectItem key={provider} value={provider}>{provider}</SelectItem>
+              {providerOptions.map((provider) => (
+                <SelectItem key={provider.provider} value={provider.provider}>{provider.provider}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -309,7 +348,7 @@ export function ChatPanel({ activeSessionId }: { activeSessionId?: string }) {
           <Select value={selectedModel} onValueChange={setSelectedModel}>
             <SelectTrigger><SelectValue placeholder={t.chatsSelectModel} /></SelectTrigger>
             <SelectContent>
-              {(MODEL_OPTIONS[selectedProvider] ?? []).map((model) => (
+              {(providerOptions.find((provider) => provider.provider === selectedProvider)?.models ?? []).map((model) => (
                 <SelectItem key={model} value={model}>{model}</SelectItem>
               ))}
             </SelectContent>

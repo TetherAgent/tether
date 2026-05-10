@@ -242,9 +242,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
 
   const sendProviders = async (clientId: string) => {
     const providers = [
-      isInstalled('claude') ? { provider: 'claude', models: providerModels('claude') } : undefined,
-      isInstalled('codex') ? { provider: 'codex', models: providerModels('codex') } : undefined,
-      isInstalled('github-copilot') ? { provider: 'copilot', models: providerModels('copilot') } : undefined
+      isInstalled('claude') ? { provider: 'claude', models: providerModels('claude') } : undefined
     ].filter((provider): provider is { provider: string; models: string[] } => provider !== undefined);
     sendChatEvent(0, '', 'gateway.providers', { clientId, providers });
   };
