@@ -145,6 +145,8 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   const [connectionError, setConnectionError] = React.useState<string | undefined>(undefined);
   const [copiedAgentId, setCopiedAgentId] = React.useState(false);
   const wsRef = React.useRef<WebSocket | null>(null);
+  const messageScrollRef = React.useRef<HTMLDivElement | null>(null);
+  const messageEndRef = React.useRef<HTMLDivElement | null>(null);
   const currentAgentIdRef = React.useRef<string | null>(null);
   const inflightStartedAtRef = React.useRef<number>(0);
   const revealTimerRef = React.useRef<number | undefined>(undefined);
@@ -178,6 +180,30 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   React.useEffect(() => {
     currentSessionIdRef.current = currentSessionId;
   }, [currentSessionId]);
+
+  const scrollMessagesToBottom = React.useCallback((behavior: ScrollBehavior = 'smooth') => {
+    window.requestAnimationFrame(() => {
+      messageEndRef.current?.scrollIntoView({ block: 'end', behavior });
+    });
+  }, []);
+
+  React.useEffect(() => {
+    if (currentSessionId) {
+      scrollMessagesToBottom('auto');
+    }
+  }, [currentSessionId, scrollMessagesToBottom]);
+
+  React.useEffect(() => {
+    if (messages.length > 0) {
+      scrollMessagesToBottom(messages.some((message) => message.kind === 'agent' && message.isStreaming) ? 'auto' : 'smooth');
+    }
+  }, [messages, scrollMessagesToBottom]);
+
+  React.useEffect(() => {
+    if (connectionError) {
+      scrollMessagesToBottom('smooth');
+    }
+  }, [connectionError, scrollMessagesToBottom]);
 
   React.useEffect(() => {
     return () => {
@@ -628,12 +654,12 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
     }
   };
 
-  const hasConnectionError = !wsReady || Boolean(connectionError);
-  const canSend = !hasConnectionError && !isInflight && inputText.trim().length > 0;
-  const isInputDisabled = isInflight || hasConnectionError;
-  const connectionBanner = hasConnectionError ? (
-    <div className="mb-2 rounded-xl border border-destructive/40 bg-destructive/15 px-3 py-2 text-center text-[12px] font-medium text-destructive">
-      {connectionError ?? t.gatewayNotConnected}
+  const canSend = wsReady && !isInflight && !connectionError && inputText.trim().length > 0;
+  const isInputDisabled = isInflight || !wsReady || Boolean(connectionError);
+  const connectionBanner = connectionError ? (
+    <div className="mb-2 flex items-center justify-center gap-1.5 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-center text-[11px] text-destructive/80">
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-destructive/60" />
+      {connectionError}
     </div>
   ) : null;
 
@@ -893,7 +919,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-5">
+      <div ref={messageScrollRef} className="flex-1 overflow-y-auto px-4 py-5">
         <div className="mx-auto max-w-3xl space-y-4">
           {messages.map((message) => {
             if (message.kind === 'user') {
@@ -930,6 +956,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
             }
             return <SystemMessage key={message.id} text={message.text} />;
           })}
+          <div ref={messageEndRef} aria-hidden="true" />
         </div>
       </div>
 

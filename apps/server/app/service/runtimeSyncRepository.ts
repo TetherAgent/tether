@@ -38,13 +38,17 @@ type RuntimeSyncScope = {
   gatewayId: string;
 };
 
+type Queryable = {
+  query: (sql: string, values?: any[]) => Promise<unknown>;
+};
+
 export default class RuntimeSyncRepositoryService extends Service {
   private mysqlModeEnabled() {
     return this.ctx.service.db.mysqlModeEnabled();
   }
 
-  private async sessionWithinScope(sessionId: string, scope: RuntimeSyncScope): Promise<boolean> {
-    const rows = await this.ctx.service.db.query(
+  private async sessionWithinScope(sessionId: string, scope: RuntimeSyncScope, db: Queryable = this.ctx.service.db): Promise<boolean> {
+    const rows = await db.query(
       `SELECT id FROM gateway_sessions
        WHERE id = ? AND gateway_id = ? AND account_id = ? AND workspace_id = ? LIMIT 1`,
       [sessionId, scope.gatewayId, scope.accountId, scope.workspaceId]
@@ -52,8 +56,8 @@ export default class RuntimeSyncRepositoryService extends Service {
     return Array.isArray(rows) && rows.length > 0;
   }
 
-  private async sessionScopeConflict(sessionId: string, scope: RuntimeSyncScope): Promise<boolean> {
-    const rows = await this.ctx.service.db.query(
+  private async sessionScopeConflict(sessionId: string, scope: RuntimeSyncScope, db: Queryable = this.ctx.service.db): Promise<boolean> {
+    const rows = await db.query(
       `SELECT id FROM gateway_sessions
        WHERE id = ? AND (gateway_id <> ? OR account_id <> ? OR workspace_id <> ?) LIMIT 1`,
       [sessionId, scope.gatewayId, scope.accountId, scope.workspaceId]
@@ -64,17 +68,18 @@ export default class RuntimeSyncRepositoryService extends Service {
   private async sessionDeleted(
     sessionId: string,
     scope: RuntimeSyncScope,
-    userId?: string
+    userId?: string,
+    db: Queryable = this.ctx.service.db
   ): Promise<boolean> {
-    const rows = await this.ctx.service.db.query(
+    const rows = await db.query(
       `SELECT session_id FROM gateway_deleted_sessions
        WHERE session_id = ?
          AND account_id = ?
          AND workspace_id = ?
-         AND user_id = ?
+         AND (? IS NULL OR user_id = ?)
          AND (gateway_id IS NULL OR gateway_id = ?)
        LIMIT 1`,
-      [sessionId, scope.accountId, scope.workspaceId, userId ?? '', scope.gatewayId]
+      [sessionId, scope.accountId, scope.workspaceId, userId ?? null, userId ?? null, scope.gatewayId]
     );
     return Array.isArray(rows) && rows.length > 0;
   }
@@ -96,50 +101,52 @@ export default class RuntimeSyncRepositoryService extends Service {
     if (!this.mysqlModeEnabled()) {
       return;
     }
-    if (await this.sessionDeleted(session.id, scope, session.userId)) {
-      await this.ctx.service.db.query('DELETE FROM gateway_chat_messages WHERE session_id = ?', [session.id]);
-      await this.ctx.service.db.query('DELETE FROM gateway_runtime_events WHERE session_id = ?', [session.id]);
-      await this.ctx.service.db.query('DELETE FROM gateway_sync_cursors WHERE session_id = ?', [session.id]);
-      await this.ctx.service.db.query(
-        `DELETE FROM gateway_sessions
-         WHERE id = ? AND account_id = ? AND workspace_id = ? AND gateway_id = ?`,
-        [session.id, scope.accountId, scope.workspaceId, scope.gatewayId]
+    await this.ctx.service.db.transaction(async connection => {
+      if (await this.sessionDeleted(session.id, scope, session.userId, connection)) {
+        await connection.query('DELETE FROM gateway_chat_messages WHERE session_id = ?', [session.id]);
+        await connection.query('DELETE FROM gateway_runtime_events WHERE session_id = ?', [session.id]);
+        await connection.query('DELETE FROM gateway_sync_cursors WHERE session_id = ?', [session.id]);
+        await connection.query(
+          `DELETE FROM gateway_sessions
+           WHERE id = ? AND account_id = ? AND workspace_id = ? AND gateway_id = ?`,
+          [session.id, scope.accountId, scope.workspaceId, scope.gatewayId]
+        );
+        return;
+      }
+      await connection.query(
+        `INSERT INTO gateway_sessions (
+           id, account_id, workspace_id, gateway_id, user_id, provider, title, project_path,
+           agent_session_id, status, transport, last_active_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           account_id = VALUES(account_id),
+           workspace_id = VALUES(workspace_id),
+           gateway_id = VALUES(gateway_id),
+           user_id = VALUES(user_id),
+           provider = VALUES(provider),
+           title = VALUES(title),
+           project_path = VALUES(project_path),
+           agent_session_id = VALUES(agent_session_id),
+           status = VALUES(status),
+           transport = VALUES(transport),
+           last_active_at = VALUES(last_active_at),
+           updated_at = CURRENT_TIMESTAMP`,
+        [
+          session.id,
+          scope.accountId,
+          scope.workspaceId,
+          scope.gatewayId,
+          session.userId ?? null,
+          session.provider,
+          session.title ?? null,
+          session.projectPath ?? null,
+          session.agentSessionId ?? null,
+          session.status,
+          session.transport ?? 'pty-event-stream',
+          session.lastActiveAt ? new Date(session.lastActiveAt) : null
+        ]
       );
-      return;
-    }
-    await this.ctx.service.db.query(
-      `INSERT INTO gateway_sessions (
-         id, account_id, workspace_id, gateway_id, user_id, provider, title, project_path,
-         agent_session_id, status, transport, last_active_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         account_id = VALUES(account_id),
-         workspace_id = VALUES(workspace_id),
-         gateway_id = VALUES(gateway_id),
-         user_id = VALUES(user_id),
-         provider = VALUES(provider),
-         title = VALUES(title),
-         project_path = VALUES(project_path),
-         agent_session_id = VALUES(agent_session_id),
-         status = VALUES(status),
-         transport = VALUES(transport),
-         last_active_at = VALUES(last_active_at),
-         updated_at = CURRENT_TIMESTAMP`,
-      [
-        session.id,
-        scope.accountId,
-        scope.workspaceId,
-        scope.gatewayId,
-        session.userId ?? null,
-        session.provider,
-        session.title ?? null,
-        session.projectPath ?? null,
-        session.agentSessionId ?? null,
-        session.status,
-        session.transport ?? 'pty-event-stream',
-        session.lastActiveAt ? new Date(session.lastActiveAt) : null
-      ]
-    );
+    });
   }
 
   public async upsertRuntimeEvent(
@@ -147,91 +154,41 @@ export default class RuntimeSyncRepositoryService extends Service {
     eventId: number,
     eventType: string,
     payload: unknown,
-    scope: RuntimeSyncScope
+    scope: RuntimeSyncScope,
+    createdAt?: unknown
   ): Promise<void> {
     if (!this.mysqlModeEnabled() || !RUNTIME_EVENT_WHITELIST.has(eventType)) {
       return;
     }
-    const sessionRows = await this.ctx.service.db.query(
-      `SELECT user_id FROM gateway_sessions
-       WHERE id = ? AND gateway_id = ? AND account_id = ? AND workspace_id = ? LIMIT 1`,
-      [sessionId, scope.gatewayId, scope.accountId, scope.workspaceId]
-    );
-    const userId = Array.isArray(sessionRows) && sessionRows.length > 0
-      ? String((sessionRows[0] as { user_id?: unknown }).user_id ?? '')
-      : '';
-    if (await this.sessionDeleted(sessionId, scope, userId)) {
-      return;
-    }
-    if (!await this.sessionWithinScope(sessionId, scope)) {
-      console.warn(`[server] upsertRuntimeEvent scope mismatch: ${sessionId}`);
-      return;
-    }
-    const payloadJson = truncatePayload(maskPayload(payload));
-    await this.ctx.service.db.query(
-      `INSERT INTO gateway_runtime_events (session_id, event_id, event_type, payload_json)
-       VALUES (?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         event_type = VALUES(event_type),
-         payload_json = VALUES(payload_json),
-         updated_at = CURRENT_TIMESTAMP`,
-      [sessionId, eventId, eventType, payloadJson]
-    );
-  }
-
-  public async upsertChatMessage(
-    sessionId: string,
-    role: 'user' | 'assistant',
-    content: string,
-    usage: unknown,
-    scope: RuntimeSyncScope,
-    createdAt?: unknown
-  ): Promise<void> {
-    if (!this.mysqlModeEnabled()) {
-      return;
-    }
-    const sessionRows = await this.ctx.service.db.query(
-      `SELECT user_id FROM gateway_sessions
-       WHERE id = ? AND gateway_id = ? AND account_id = ? AND workspace_id = ? LIMIT 1`,
-      [sessionId, scope.gatewayId, scope.accountId, scope.workspaceId]
-    );
-    const userId = Array.isArray(sessionRows) && sessionRows.length > 0
-      ? String((sessionRows[0] as { user_id?: unknown }).user_id ?? '')
-      : '';
-    if (await this.sessionDeleted(sessionId, scope, userId)) {
-      return;
-    }
-    if (await this.sessionScopeConflict(sessionId, scope)) {
-      console.warn(`[server] upsertChatMessage scope mismatch: ${sessionId}`);
-      return;
-    }
-    const usageJson = usage == null ? null : truncatePayload(maskPayload(usage));
-    const createdAtDate = typeof createdAt === 'number' && Number.isFinite(createdAt) ? new Date(createdAt) : new Date();
-    await this.ctx.service.db.query(
-      `INSERT INTO gateway_chat_messages (session_id, role, content, usage_json, created_at)
-       SELECT ?, ?, ?, ?, ?
-       FROM DUAL
-       WHERE NOT EXISTS (
-         SELECT 1 FROM gateway_chat_messages
-         WHERE session_id = ?
-           AND role = ?
-           AND content = ?
-           AND ((usage_json IS NULL AND ? IS NULL) OR usage_json = ?)
-         LIMIT 1
-       )`,
-      [
-        sessionId,
-        role,
-        content,
-        usageJson,
-        createdAtDate,
-        sessionId,
-        role,
-        content,
-        usageJson,
-        usageJson
-      ]
-    );
+    await this.ctx.service.db.transaction(async connection => {
+      const sessionRows = await connection.query(
+        `SELECT user_id FROM gateway_sessions
+         WHERE id = ? AND gateway_id = ? AND account_id = ? AND workspace_id = ? LIMIT 1`,
+        [sessionId, scope.gatewayId, scope.accountId, scope.workspaceId]
+      );
+      const userId = Array.isArray(sessionRows) && sessionRows.length > 0
+        ? String((sessionRows[0] as { user_id?: unknown }).user_id ?? '')
+        : undefined;
+      if (await this.sessionDeleted(sessionId, scope, userId, connection)) {
+        return;
+      }
+      if (await this.sessionScopeConflict(sessionId, scope, connection)) {
+        console.warn(`[server] upsertRuntimeEvent scope mismatch: ${sessionId}`);
+        return;
+      }
+      const payloadJson = truncatePayload(maskPayload(payload));
+      await connection.query(
+        `INSERT INTO gateway_runtime_events (session_id, event_id, event_type, payload_json)
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           event_type = VALUES(event_type),
+           payload_json = VALUES(payload_json),
+           updated_at = CURRENT_TIMESTAMP`,
+        [sessionId, eventId, eventType, payloadJson]
+      );
+      await this.insertDerivedChatMessage(connection, sessionId, eventId, eventType, payload, createdAt);
+      await this.upsertSyncCursorWithConnection(connection, sessionId, eventId, null, scope);
+    });
   }
 
   public async upsertSyncCursor(
@@ -243,7 +200,17 @@ export default class RuntimeSyncRepositoryService extends Service {
     if (!this.mysqlModeEnabled()) {
       return;
     }
-    await this.ctx.service.db.query(
+    await this.upsertSyncCursorWithConnection(this.ctx.service.db, sessionId, lastEventId, lastTurnIndex, scope);
+  }
+
+  private async upsertSyncCursorWithConnection(
+    db: Queryable,
+    sessionId: string,
+    lastEventId: number | null,
+    lastTurnIndex: number | null,
+    scope: RuntimeSyncScope
+  ): Promise<void> {
+    await db.query(
       `INSERT INTO gateway_sync_cursors (gateway_id, session_id, last_event_id, last_turn_index, last_synced_at)
        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
        ON DUPLICATE KEY UPDATE
@@ -253,5 +220,94 @@ export default class RuntimeSyncRepositoryService extends Service {
          updated_at = CURRENT_TIMESTAMP`,
       [scope.gatewayId, sessionId, lastEventId, lastTurnIndex]
     );
+  }
+
+  private async insertDerivedChatMessage(
+    db: Queryable,
+    sessionId: string,
+    sourceEventId: number,
+    eventType: string,
+    payloadInput: unknown,
+    createdAt?: unknown
+  ): Promise<void> {
+    if (!Number.isFinite(sourceEventId) || sourceEventId <= 0) {
+      return;
+    }
+    const payload = this.normalizePayload(payloadInput);
+    const message = this.chatMessageFromEvent(eventType, payload);
+    if (!message) {
+      return;
+    }
+    const usageJson = message.usage == null ? null : truncatePayload(maskPayload(message.usage));
+    await db.query(
+      `INSERT INTO gateway_chat_messages (session_id, source_event_id, role, content, usage_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         role = VALUES(role),
+         content = VALUES(content),
+         usage_json = VALUES(usage_json),
+         created_at = VALUES(created_at)`,
+      [
+        sessionId,
+        sourceEventId,
+        message.role,
+        message.content,
+        usageJson,
+        this.toDate(createdAt)
+      ]
+    );
+  }
+
+  private chatMessageFromEvent(
+    eventType: string,
+    payload: Record<string, unknown>
+  ): { role: 'user' | 'assistant'; content: string; usage: unknown } | undefined {
+    if (eventType === 'user.message' && typeof payload.message === 'string') {
+      return { role: 'user', content: payload.message, usage: null };
+    }
+    if (eventType === 'agent.result' && typeof payload.text === 'string') {
+      return { role: 'assistant', content: payload.text, usage: payload.usage ?? null };
+    }
+    return undefined;
+  }
+
+  private normalizePayload(payload: unknown): Record<string, unknown> {
+    if (typeof payload === 'string') {
+      return this.parseJsonObject(payload);
+    }
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      return payload as Record<string, unknown>;
+    }
+    return {};
+  }
+
+  private parseJsonObject(value: unknown): Record<string, unknown> {
+    if (typeof value !== 'string' || !value) {
+      return {};
+    }
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private toDate(value: unknown): Date {
+    if (value instanceof Date) {
+      return value;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return new Date(value);
+    }
+    if (typeof value === 'string' && value) {
+      const date = new Date(value);
+      if (!Number.isNaN(date.getTime())) {
+        return date;
+      }
+    }
+    return new Date();
   }
 }
