@@ -42,7 +42,7 @@ export default class DbService extends Service {
               await this.mysql().query(statement);
             } catch (error) {
               if (!isIgnorableIdempotentDdlError(error, statement)) {
-                throw error;
+                throw enrichMigrationError(error, file, statement);
               }
             }
           }
@@ -92,4 +92,13 @@ function stripSqlLineComments(statement: string): string {
     .filter(line => !line.trimStart().startsWith('--'))
     .join('\n')
     .trim();
+}
+
+function enrichMigrationError(error: unknown, file: string, statement: string): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  const wrapped = new Error(`schema_migration_failed in ${file}: ${message}\nSQL: ${statement}`);
+  if (error instanceof Error && error.stack) {
+    wrapped.stack = `${wrapped.message}\nCaused by: ${error.stack}`;
+  }
+  return wrapped;
 }
