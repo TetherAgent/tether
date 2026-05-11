@@ -617,6 +617,11 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
               sessions: [...latestSessions.values()].filter((session) => clientCanSeeRelaySession(client, session))
             });
           }
+          for (const [gwId, gw] of gateways) {
+            if (gw.socket.readyState === WebSocket.OPEN && clientCanUseGateway(auth.scope, gw.scope)) {
+              sendToSocket<RelayServerToClientFrame>(socket, { type: 'gateway.status', gatewayId: gwId, status: 'connected' });
+            }
+          }
           return;
         }
 

@@ -61,6 +61,15 @@ test('gateway login defaults to prod and keeps local as an explicit environment'
   assert.match(source, /performGatewayLogin\(\{\}\)/);
 });
 
+test('gateway login callback server does not keep the cli process alive after auth', () => {
+  const source = mainSource();
+  assert.match(source, /const finish = \(result: GatewayAuthCallbackResult \| undefined, error: Error \| undefined\): void =>/);
+  assert.match(source, /timer\.unref\(\)/);
+  assert.match(source, /server\.unref\(\)/);
+  assert.match(source, /connection: 'close'/);
+  assert.match(source, /req\.socket\.destroy\(\)/);
+});
+
 test('foreground gateway checks port before prompting for auth', () => {
   const source = mainSource();
   assert.match(source, /assertGatewayPortAvailable\(resolved\.gateway\.host, resolved\.gateway\.port\);[\s\S]*ensureGatewayAuthForProfile/);

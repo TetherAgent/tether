@@ -1466,15 +1466,30 @@ type GatewayAuthCallbackResult = {
 
 async function waitForGatewayAuthCallback(port: number, timeoutMs: number): Promise<GatewayAuthCallbackResult> {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (result: GatewayAuthCallbackResult | undefined, error: Error | undefined): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      server.close(() => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(result as GatewayAuthCallbackResult);
+      });
+    };
     const timer = setTimeout(() => {
-      server.close();
-      reject(new Error('Gateway 授权超时（2 分钟），请重试'));
+      finish(undefined, new Error('Gateway 授权超时（2 分钟），请重试'));
     }, timeoutMs);
+    timer.unref();
 
     const server = http.createServer((req, res) => {
       const url = new URL(req.url ?? '/', `http://localhost:${port}`);
       if (url.pathname !== '/callback') {
-        res.writeHead(404).end();
+        res.writeHead(404, { connection: 'close' }).end();
         return;
       }
       const get = (k: string) => url.searchParams.get(k);
@@ -1484,23 +1499,25 @@ async function waitForGatewayAuthCallback(port: number, timeoutMs: number): Prom
       const gatewayRefreshToken = get('gatewayRefreshToken');
 
       if (!gatewayId || !accountId || !gatewayAccessToken || !gatewayRefreshToken) {
-        res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' })
-          .end('<html><body>授权失败：参数缺失。</body></html>');
-        clearTimeout(timer);
-        server.close();
-        reject(new Error('Gateway 授权失败：回调缺少必要参数'));
+        res.writeHead(400, { 'content-type': 'text/html; charset=utf-8', connection: 'close' })
+          .end('<html><body>授权失败：参数缺失。</body></html>', () => {
+            req.socket.destroy();
+            finish(undefined, new Error('Gateway 授权失败：回调缺少必要参数'));
+          });
         return;
       }
 
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(
-        '<html><body style="font-family:sans-serif;padding:2em"><h2>授权成功</h2><p>可以关闭此窗口，返回终端。</p></body></html>'
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', connection: 'close' }).end(
+        '<html><body style="font-family:sans-serif;padding:2em"><h2>授权成功</h2><p>可以关闭此窗口，返回终端。</p></body></html>',
+        () => {
+          req.socket.destroy();
+          finish({ gatewayId, accountId, gatewayAccessToken, gatewayRefreshToken }, undefined);
+        }
       );
-      clearTimeout(timer);
-      server.close();
-      resolve({ gatewayId, accountId, gatewayAccessToken, gatewayRefreshToken });
     });
 
     server.listen(port, '127.0.0.1');
+    server.unref();
   });
 }
 

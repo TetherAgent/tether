@@ -831,7 +831,7 @@ function toRelaySession(session: Session): RelaySession {
     title: session.title,
     projectPath: session.projectPath,
     accountId: session.accountId,
-    gatewayId: session.gatewayId,
+    gatewayId: undefined,
     userId: session.userId,
     agentSessionId: session.agentSessionId,
     status: session.status,
