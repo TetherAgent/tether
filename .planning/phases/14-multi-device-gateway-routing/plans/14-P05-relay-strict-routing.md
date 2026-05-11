@@ -11,11 +11,12 @@ autonomous: true
 requirements: [GATEWAY-MULTI-05]
 must_haves:
   truths:
-    - "client.chat/list-providers/cwd-suggest 帧必须携带 frame.gatewayId，否则返回 gateway_required 错误"
+    - "client.chat（新建分支）/list-providers/cwd-suggest 帧必须携带 frame.gatewayId，否则返回 gateway_required 错误"
     - "Relay 校验 frame.gatewayId 对应 gateway.scope.accountId == client.scope.accountId，否则返回 gateway_unauthorized"
-    - "line 501 fallback 移除：client.auth 后 gatewayId 不再从 firstGatewayForScope 获取"
-    - "lines 746-748 fallback 移除：ensureClientGatewayId 不再调用 firstGatewayForScope"
-    - "line 246 的 firstGatewayForScope 使用保留（全局检查，无账号路由语义）"
+    - "line 599 fallback 移除：client.auth 后 gatewayId 不再从 firstGatewayForScope 获取"
+    - "lines 879-891 fallback 移除：ensureClientGatewayId 不再调用 firstGatewayForScope"
+    - "client.chat 续聊分支（Phase 15 P03 实现，lines 764-807）不得修改"
+    - "line 288 的 firstGatewayForScope 使用保留（全局检查，无账号路由语义）"
     - "新增路由路径有多账号隔离测试（CLAUDE.md R4）"
   artifacts:
     - path: "apps/relay/src/relay.ts"
@@ -49,13 +50,13 @@ Output: 收紧后的 relay.ts + 隔离测试
 @/Users/dream/code/tether/.planning/ROADMAP.md
 
 <interfaces>
-<!-- relay.ts line 501 — 待移除的 fallback -->
+<!-- relay.ts line 599 — 待移除的 fallback（Phase 15 完成后行号已偏移，原文档 line 501）-->
 const gatewayId = clientScope.gatewayId ?? firstGatewayForScope(clientScope)?.gatewayId;
 clients.set(clientId, { clientId, scope: auth.scope, gatewayId, authMethod: auth.authMethod, socket, subscriptions });
 -- 改为:
 const gatewayId = clientScope.gatewayId;  // 不再 fallback
 
-<!-- relay.ts lines 738-749 — ensureClientGatewayId 含 fallback -->
+<!-- relay.ts lines 879-891 — ensureClientGatewayId 含 fallback（原文档 lines 746-748）-->
 function ensureClientGatewayId(clientId: string): string | undefined {
   const client = clients.get(clientId);
   if (!client) return undefined;
@@ -66,28 +67,29 @@ function ensureClientGatewayId(clientId: string): string | undefined {
   return gatewayId;
 }
 
-<!-- relay.ts lines 653-672 — 三个 case 当前调用 ensureClientGatewayId -->
+<!-- relay.ts lines 751-808 — case 'client.chat' 当前完整结构（Phase 15 P03 已实现续聊分支）-->
 case 'client.chat':
-  forwardToGateway(ensureClientGatewayId(clientId), ...);
-case 'client.list-providers':
-  forwardToGateway(ensureClientGatewayId(clientId), ...);
-case 'client.cwd-suggest':
-  forwardToGateway(ensureClientGatewayId(clientId), ...);
--- 需改为从 frame.gatewayId 读取，加前置检查
-
-<!-- relay.ts line 246 — 保留的合法使用 -->
-if (disconnectedScope && !firstGatewayForScope(disconnectedScope))  // 全局检查，不涉及账号路由，保留
-
-<!-- relay.ts line 721-735 — forwardToGateway 当前行为 -->
-function forwardToGateway(gatewayId: string | undefined, frame: ...): void {
-  const gateway = gatewayId ? gateways.get(gatewayId) : undefined;
-  if (!gateway || gateway.socket.readyState !== WebSocket.OPEN) {
-    const clientId = 'clientId' in frame ? frame.clientId : undefined;
-    if (clientId) sendGatewayUnavailable(clientId);  // 现有逻辑：gateway offline 返回 gateway_unavailable
-    return;
+  if (frame.sessionId === null) {
+    // lines 752-763：新建分支 — 仍用 ensureClientGatewayId，Phase 14 要改这里
+    forwardToGateway(ensureClientGatewayId(clientId), { type: 'client.chat', clientId, sessionId: null, ... });
+  } else {
+    // lines 764-807：续聊分支 — Phase 15 P03 实现，用 fetchSessionMetadata + metadata.gatewayId 路由
+    // ⚠️ 不得修改此分支：已含 session_not_found/forbidden/wrong_transport 校验
+    const metadata = await fetchSessionMetadata(frame.sessionId);
+    ...
   }
-  ...
-}
+  break;
+
+<!-- relay.ts lines 809-813 — list-providers/cwd-suggest 仍用 ensureClientGatewayId -->
+case 'client.list-providers':
+  forwardToGateway(ensureClientGatewayId(clientId), { type: 'client.list-providers', clientId });
+  break;
+case 'client.cwd-suggest':
+  forwardToGateway(ensureClientGatewayId(clientId), { type: 'client.cwd-suggest', clientId, cwd: frame.cwd });
+  break;
+
+<!-- relay.ts line 288 — 保留的合法使用（原文档 line 246）-->
+if (disconnectedScope && !firstGatewayForScope(disconnectedScope))  // 全局检查，不涉及账号路由，保留
 
 <!-- gateway_unauthorized 需要的账号隔离校验 (D-12) -->
 gateway.scope.accountId === clientScope.accountId
@@ -100,9 +102,11 @@ gateway.scope.accountId === clientScope.accountId
   <name>Task 1: relay.ts — 移除两处 fallback + 新增 gateway_required/gateway_unauthorized 路由</name>
   <files>apps/relay/src/relay.ts</files>
   <action>
-    **修改 1 — line 501：移除 firstGatewayForScope fallback（client.auth 后设置 gatewayId）**
+    先读取 relay.ts 完整内容确认当前行号，然后执行以下四处修改。
 
-    原（line 501）：
+    **修改 1 — line 599：移除 firstGatewayForScope fallback（client.auth 后设置 gatewayId）**
+
+    找到：
     ```typescript
     const gatewayId = clientScope.gatewayId ?? firstGatewayForScope(clientScope)?.gatewayId;
     ```
@@ -110,23 +114,10 @@ gateway.scope.accountId === clientScope.accountId
     ```typescript
     const gatewayId = clientScope.gatewayId;
     ```
-    （不需要其他改动，后续 lines 502-515 不变）
 
-    **修改 2 — lines 746-748：移除 ensureClientGatewayId 中的 firstGatewayForScope fallback**
+    **修改 2 — lines 879-891：移除 ensureClientGatewayId 中的 firstGatewayForScope fallback**
 
-    原：
-    ```typescript
-    function ensureClientGatewayId(clientId: string): string | undefined {
-      const client = clients.get(clientId);
-      if (!client) return undefined;
-      if (client.gatewayId) return client.gatewayId;
-      const gatewayId = client.scope?.gatewayId ??
-        firstGatewayForScope(client.scope)?.gatewayId;
-      client.gatewayId = gatewayId;
-      return gatewayId;
-    }
-    ```
-    改为（保留函数以防其他调用方依赖，但移除 fallback）：
+    找到并替换 ensureClientGatewayId 整个函数体：
     ```typescript
     function ensureClientGatewayId(clientId: string): string | undefined {
       const client = clients.get(clientId);
@@ -134,11 +125,10 @@ gateway.scope.accountId === clientScope.accountId
       return client.gatewayId ?? client.scope?.gatewayId;
     }
     ```
-    注意：ensureClientGatewayId 的现有调用方（client.switch-model 等）仍可通过此函数，但 client.chat/list-providers/cwd-suggest 将不再调用它。
+    注意：函数保留供 client.switch-model 等其他调用方使用，只是移除 fallback。
 
-    **修改 3 — client.chat/list-providers/cwd-suggest case（约 lines 653-672）：**
+    **修改 3 — 新增 forwardFrameToGateway helper（紧靠 ensureClientGatewayId 之后）：**
 
-    新增 helper 函数（在 ensureClientGatewayId 附近定义）：
     ```typescript
     function forwardFrameToGateway(
       clientId: string,
@@ -146,66 +136,70 @@ gateway.scope.accountId === clientScope.accountId
       frameGatewayId: string | undefined,
       gatewayFrame: RelayServerToGatewayFrame
     ): void {
-      // D-11: 没有 gatewayId 直接返回 gateway_required
       if (!frameGatewayId) {
         sendToClient(clientId, { type: 'error', code: 'gateway_required', message: 'gatewayId is required in frame' });
         return;
       }
       const gateway = gateways.get(frameGatewayId);
-      // D-12: 跨账号校验
       if (gateway && gateway.scope.accountId !== clientScope.accountId) {
         sendToClient(clientId, { type: 'error', code: 'gateway_unauthorized', message: 'gateway does not belong to client account' });
         return;
       }
-      // 使用现有 forwardToGateway（gateway 不在线返回 gateway_unavailable）
       forwardToGateway(frameGatewayId, gatewayFrame);
     }
     ```
 
-    将 client.chat/list-providers/cwd-suggest 三个 case 改为调用 forwardFrameToGateway：
+    **修改 4 — case 'client.chat'：只改新建分支（lines 752-763），续聊分支完全不动**
+
+    ⚠️ relay.ts 中 case 'client.chat' 的结构是：
+    ```
+    if (frame.sessionId === null) { ... }  ← 只改这里
+    else { ... fetchSessionMetadata ... }  ← Phase 15 P03 实现，一行都不改
+    ```
+
+    将 `if (frame.sessionId === null)` 分支的内容从：
+    ```typescript
+    forwardToGateway(ensureClientGatewayId(clientId), {
+      type: 'client.chat',
+      clientId,
+      sessionId: null,
+      provider: frame.provider,
+      model: frame.model,
+      cwd: frame.cwd,
+      message: frame.message,
+      accountId: clientScope.accountId,
+      userId: clientScope.userId
+    });
+    ```
+    改为：
+    ```typescript
+    forwardFrameToGateway(clientId, clientScope, frame.gatewayId, {
+      type: 'client.chat',
+      clientId,
+      sessionId: null,
+      provider: frame.provider,
+      model: frame.model,
+      cwd: frame.cwd,
+      message: frame.message,
+      accountId: clientScope.accountId,
+      userId: clientScope.userId
+    });
+    ```
+
+    **修改 5 — case 'client.list-providers' 和 'client.cwd-suggest'（lines 809-813）：**
 
     ```typescript
-    case 'client.chat':
-      forwardFrameToGateway(
-        clientId,
-        clientScope,
-        (frame as { gatewayId?: string }).gatewayId,
-        frame.sessionId === null
-          ? {
-              type: 'client.chat',
-              clientId,
-              sessionId: null,
-              provider: frame.provider,
-              model: frame.model,
-              cwd: frame.cwd,
-              message: frame.message,
-              accountId: clientScope.accountId,
-              userId: clientScope.userId
-            }
-          : { type: 'client.chat', clientId, sessionId: frame.sessionId, message: frame.message, model: frame.model }
-      );
-      break;
     case 'client.list-providers':
-      forwardFrameToGateway(
-        clientId,
-        clientScope,
-        (frame as { gatewayId?: string }).gatewayId,
-        { type: 'client.list-providers', clientId }
-      );
+      forwardFrameToGateway(clientId, clientScope, frame.gatewayId, { type: 'client.list-providers', clientId });
       break;
     case 'client.cwd-suggest':
-      forwardFrameToGateway(
-        clientId,
-        clientScope,
-        (frame as { gatewayId?: string }).gatewayId,
-        { type: 'client.cwd-suggest', clientId, cwd: frame.cwd }
-      );
+      forwardFrameToGateway(clientId, clientScope, frame.gatewayId, { type: 'client.cwd-suggest', clientId, cwd: frame.cwd });
       break;
     ```
 
-    **line 246 保留不变**：`if (disconnectedScope && !firstGatewayForScope(disconnectedScope))` 是检查是否还有任意 Gateway 在线（非路由），合法使用。
+    **line 288 保留不变**：`if (disconnectedScope && !firstGatewayForScope(disconnectedScope))` 是全局检查（不涉及账号路由），合法使用。
 
-    **TypeScript 类型问题**：Protocol 帧类型（经 Plan 04 更新后）已包含 `gatewayId: string`，可直接 `frame.gatewayId` 访问。如果 TypeScript 联合类型推断失败（某些 case 下 frame 类型未收窄），用 `(frame as { gatewayId?: string }).gatewayId` 临时 cast。
+    **TypeScript**：Protocol 帧类型经 Plan 04 更新后已含 `gatewayId: string`，可直接 `frame.gatewayId` 访问。如 TS 联合类型推断失败，用 `(frame as { gatewayId?: string }).gatewayId`。
   </action>
   <verify>
     ```bash
@@ -213,12 +207,13 @@ gateway.scope.accountId === clientScope.accountId
     ```
   </verify>
   <done>
-    - line 501 不再使用 firstGatewayForScope
-    - ensureClientGatewayId 不再使用 firstGatewayForScope
-    - client.chat/list-providers/cwd-suggest 从 frame.gatewayId 路由
+    - line 599 不再使用 firstGatewayForScope（原 line 501）
+    - ensureClientGatewayId（lines 879-891）不再使用 firstGatewayForScope
+    - client.chat 新建分支 / list-providers / cwd-suggest 从 frame.gatewayId 路由
+    - client.chat 续聊分支（Phase 15 P03）完全未动
     - 缺少 gatewayId 返回 gateway_required
     - 跨账号返回 gateway_unauthorized
-    - line 246 的 firstGatewayForScope 使用保留
+    - line 288 的 firstGatewayForScope 使用保留
     - typecheck 通过
   </done>
 </task>
@@ -311,8 +306,9 @@ pnpm --filter @tether/relay test
 <success_criteria>
 - 缺少 gatewayId 的 client.chat/list-providers/cwd-suggest 返回 gateway_required（不 fallback）
 - 跨账号 gatewayId 返回 gateway_unauthorized
-- line 501 和 lines 746-748 的 firstGatewayForScope 调用已移除
-- line 246 的 firstGatewayForScope 使用保留
+- line 599 和 lines 879-891 的 firstGatewayForScope 调用已移除
+- line 288 的 firstGatewayForScope 使用保留
+- client.chat 续聊分支（Phase 15 实现）完全未改动
 - 3 个隔离测试全部通过
 - typecheck 和 test 全通过
 </success_criteria>
