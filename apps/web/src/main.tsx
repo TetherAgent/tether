@@ -47,6 +47,7 @@ import { useAuth } from './hooks/use-auth.js';
 import { useI18n } from './hooks/use-i18n.js';
 import { useUiPreferences } from './hooks/use-ui-preferences.js';
 import { gatewayAuthHeaders, readGatewayData } from './lib/api.js';
+import { providerResumeCommand } from './lib/provider-resume-command.js';
 import { WebChromeControls } from './components/console/web-chrome-controls.js';
 import { SessionControlPage } from './pages/session-control-page.js';
 import { SessionReplayPage } from './pages/session-replay-page.js';
@@ -711,17 +712,10 @@ function SessionCardSkeleton() {
   );
 }
 
-function resumeCommand(provider: string, agentSessionId: string): string {
-  if (provider === 'claude' || provider === 'claude-proxy') return `claude --resume ${agentSessionId}`;
-  if (provider === 'codex' || provider === 'codex-proxy') return `codex exec resume ${agentSessionId}`;
-  if (provider === 'copilot') return `gh copilot resume ${agentSessionId}`;
-  return agentSessionId;
-}
-
 function AgentSessionBadge({ provider, agentSessionId, t }: { provider: string; agentSessionId: string; t: WebMessages }) {
   const [copied, setCopied] = React.useState(false);
   const copy = React.useCallback(() => {
-    void navigator.clipboard.writeText(resumeCommand(provider, agentSessionId)).then(() => {
+    void navigator.clipboard.writeText(providerResumeCommand(provider, agentSessionId)).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }).catch(() => {});

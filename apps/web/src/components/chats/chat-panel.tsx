@@ -18,6 +18,7 @@ import {
 import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { getStoredNormalAccessToken } from '../../lib/api.js';
+import { providerResumeCommand } from '../../lib/provider-resume-command.js';
 import { fetchChatMessages, fetchChatSessions, type ChatHistoryMessage, type ChatHistoryUsage, type ChatSessionRecord, type ChatUsage, type ProviderOption } from './chat-data.js';
 import { ChatBubbleAgent, type ChatNextSuggestion } from './chat-bubble-agent.js';
 import { ChatBubbleUser } from './chat-bubble-user.js';
@@ -1320,11 +1321,7 @@ export function ChatPanel({
         {agentSessionId && (
           <button
             onClick={() => {
-              const cmd = displayProvider === 'codex'
-                ? `codex exec resume --skip-git-repo-check ${agentSessionId}`
-                : displayProvider === 'copilot'
-                  ? `gh copilot --resume=${agentSessionId}`
-                  : `claude --resume ${agentSessionId}`;
+              const cmd = providerResumeCommand(displayProvider, agentSessionId);
               void navigator.clipboard.writeText(cmd);
               setCopiedAgentId(true);
               setTimeout(() => setCopiedAgentId(false), 1500);

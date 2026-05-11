@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ChatSessionRunner } from '../src/chat-session-runner.js';
+import { ChatSessionRunner, CodexChatRunner } from '../src/chat-session-runner.js';
 import { Store } from '../src/store.js';
 
 function tempStore(): { store: Store; cleanup: () => void } {
@@ -20,6 +20,21 @@ function installFakeClaude(outputLines: Array<Record<string, unknown>>): { pathP
   writeFileSync(
     bin,
     `#!/usr/bin/env node\nif (process.env.TETHER_FAKE_CLAUDE_ARGS_FILE) require('node:fs').writeFileSync(process.env.TETHER_FAKE_CLAUDE_ARGS_FILE, JSON.stringify(process.argv.slice(2)));\nfor (const line of ${JSON.stringify(outputLines)}) console.log(JSON.stringify(line));\n`,
+    'utf8'
+  );
+  chmodSync(bin, 0o755);
+  return {
+    pathPrefix: dir,
+    cleanup: () => rmSync(dir, { recursive: true, force: true })
+  };
+}
+
+function installFakeCodex(outputLines: Array<Record<string, unknown>>, stderrLines: string[] = []): { pathPrefix: string; cleanup: () => void } {
+  const dir = mkdtempSync(path.join(tmpdir(), 'tether-fake-codex-'));
+  const bin = path.join(dir, 'codex');
+  writeFileSync(
+    bin,
+    `#!/usr/bin/env node\nif (process.env.TETHER_FAKE_CODEX_ARGS_FILE) require('node:fs').writeFileSync(process.env.TETHER_FAKE_CODEX_ARGS_FILE, JSON.stringify(process.argv.slice(2)));\nfor (const line of ${JSON.stringify(stderrLines)}) console.error(line);\nfor (const line of ${JSON.stringify(outputLines)}) console.log(JSON.stringify(line));\n`,
     'utf8'
   );
   chmodSync(bin, 0o755);
@@ -132,6 +147,91 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
       process.env.TETHER_FAKE_CLAUDE_ARGS_FILE = previousArgsFile;
     }
     fakeClaude.cleanup();
+    cleanupStore();
+  }
+});
+
+test('chat runner ignores non-fatal Codex stderr diagnostics', async () => {
+  const { store, cleanup: cleanupStore } = tempStore();
+  const fakeCodex = installFakeCodex(
+    [
+      { type: 'thread.started', thread_id: '019e158b-0c21-7ee2-8024-0c07f94aaad7' },
+      { type: 'item.completed', item: { type: 'agent_message', text: '收到，测试正常。' } },
+      { type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 4 } }
+    ],
+    [
+      'Reading additional input from stdin...',
+      '2026-05-11T06:18:08.260874Z ERROR codex_core::session: failed to record rollout items: thread 019e158b-0c21-7ee2-8024-0c07f94aaad7 not found'
+    ]
+  );
+  const argsFile = path.join(fakeCodex.pathPrefix, 'args.json');
+  const previousPath = process.env.PATH;
+  const previousArgsFile = process.env.TETHER_FAKE_CODEX_ARGS_FILE;
+  process.env.PATH = `${fakeCodex.pathPrefix}${path.delimiter}${previousPath ?? ''}`;
+  process.env.TETHER_FAKE_CODEX_ARGS_FILE = argsFile;
+  try {
+    const errors: string[] = [];
+    const results: string[] = [];
+    const agentIds: string[] = [];
+    let resolveDone: (() => void) | undefined;
+    const donePromise = new Promise<void>((resolve) => {
+      resolveDone = resolve;
+    });
+    const runner = new CodexChatRunner({
+      store,
+      gatewayId: () => 'gateway-test',
+      onSessionCreated: () => undefined,
+      onChatSessionCreated: () => undefined,
+      onUserMessage: () => undefined,
+      onDelta: () => undefined,
+      onResult: ({ text }) => {
+        results.push(text);
+        resolveDone?.();
+      },
+      onTool: () => undefined,
+      onPermissionRequest: () => undefined,
+      onError: ({ message }) => {
+        errors.push(message);
+        resolveDone?.();
+      },
+      onAgentIdUpdate: (_sessionId, agentSessionId) => {
+        agentIds.push(agentSessionId);
+      }
+    });
+
+    await runner.run({
+      clientId: 'client-test',
+      sessionId: null,
+      provider: 'codex',
+      model: 'gpt-5.4',
+      cwd: '',
+      message: 'test'
+    });
+    await donePromise;
+
+    assert.deepEqual(errors, []);
+    assert.deepEqual(results, ['收到，测试正常。']);
+    assert.equal(agentIds.includes('019e158b-0c21-7ee2-8024-0c07f94aaad7'), true);
+    assert.deepEqual(JSON.parse(readFileSync(argsFile, 'utf8')) as string[], [
+      'exec',
+      '--json',
+      '--skip-git-repo-check',
+      '--color',
+      'never',
+      '-C',
+      process.cwd(),
+      '--model',
+      'gpt-5.4',
+      'test'
+    ]);
+  } finally {
+    process.env.PATH = previousPath;
+    if (previousArgsFile === undefined) {
+      delete process.env.TETHER_FAKE_CODEX_ARGS_FILE;
+    } else {
+      process.env.TETHER_FAKE_CODEX_ARGS_FILE = previousArgsFile;
+    }
+    fakeCodex.cleanup();
     cleanupStore();
   }
 });

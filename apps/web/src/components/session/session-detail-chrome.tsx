@@ -4,13 +4,7 @@ import { ArrowLeft, Check, Copy, Wifi, WifiOff } from 'lucide-react';
 import { Button, Skeleton } from '@tether/design';
 
 import { useI18n } from '../../hooks/use-i18n.js';
-
-function resumeCommand(provider: string, agentSessionId: string): string {
-  if (provider === 'claude' || provider === 'claude-proxy') return `claude --resume ${agentSessionId}`;
-  if (provider === 'codex' || provider === 'codex-proxy') return `codex exec resume ${agentSessionId}`;
-  if (provider === 'copilot') return `gh copilot resume ${agentSessionId}`;
-  return agentSessionId;
-}
+import { providerResumeCommand } from '../../lib/provider-resume-command.js';
 
 export function SessionDetailHeader({
   sessionId,
@@ -34,7 +28,7 @@ export function SessionDetailHeader({
   const [copied, setCopied] = React.useState(false);
   const copy = React.useCallback(() => {
     if (!provider || !agentSessionId) return;
-    void navigator.clipboard.writeText(resumeCommand(provider, agentSessionId)).then(() => {
+    void navigator.clipboard.writeText(providerResumeCommand(provider, agentSessionId)).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }).catch(() => {});

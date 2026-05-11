@@ -191,6 +191,13 @@ export interface CliProviderAdapter {
 
 const ZERO_USAGE: ChatUsage = { input_tokens: 0, output_tokens: 0 };
 
+function isIgnorableCodexStderr(message: string): boolean {
+  return (
+    message.includes('Reading additional input from stdin') ||
+    message.includes('failed to record rollout items: thread')
+  );
+}
+
 type ActiveSubprocess = {
   process: ChildProcess;
   accumulatedText: string;
@@ -298,6 +305,7 @@ class CliChatRunner implements IChatRunner {
 
     child.stderr?.on('data', (chunk: Buffer | string) => {
       const message = chunk.toString().trim();
+      if (this.adapter.provider === 'codex' && isIgnorableCodexStderr(message)) return;
       if (message) emit.error('chat_runner_stderr', message);
     });
 
