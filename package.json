@@ -28,7 +28,7 @@
     "test": "pnpm -r --if-present run test",
     "tether": "node --experimental-sqlite --no-warnings=ExperimentalWarning --import tsx apps/cli/src/main.ts",
     "build:release": "tsup --config tsup.release.config.ts && node scripts/fix-node-prefix.mjs",
-    "publish:release": "npm --prefix release version patch --no-git-tag-version && pnpm build:release && cd release && npm publish --access public"
+    "publish:release": "npm --prefix release version patch --no-git-tag-version && pnpm build:release && cd release && npm publish --access public && cd .. && node scripts/sync-cli-version.mjs"
   },
   "dependencies": {
     "@tether-labs/cli": "workspace:*",

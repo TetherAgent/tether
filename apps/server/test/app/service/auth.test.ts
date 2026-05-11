@@ -4,10 +4,17 @@ import { app } from 'egg-mock/bootstrap'
 
 describe('test/app/service/auth.test.ts', () => {
   let ctx: Context
+  let originalFetch: typeof globalThis.fetch
 
   beforeEach(async () => {
     ctx = app.mockContext()
     ctx.service.runtime.resetRuntimeStore()
+    ctx.service.cliRelease.resetCacheForTest()
+    originalFetch = globalThis.fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
   })
 
   it('register and login issue separate normal and management token classes', async () => {
@@ -59,6 +66,37 @@ describe('test/app/service/auth.test.ts', () => {
     const successes = events.filter((event) => event.action === 'auth.login.succeeded')
     assert.strictEqual(failures.length, 1)
     assert.strictEqual(successes.length, 1)
+  })
+
+  it('auth me returns cached latest cli version from npm registry', async () => {
+    const registered = await ctx.service.auth.registerNormalUser({
+      email: 'owner@example.com',
+      password: 'pw-123456',
+    })
+    let calls = 0
+    globalThis.fetch = async (url) => {
+      calls += 1
+      assert.strictEqual(url, 'https://registry.npmjs.org/@tether-labs/cli/latest')
+      return {
+        ok: true,
+        json: async () => ({ version: '0.2.3' }),
+      } as Response
+    }
+
+    const first = await app.httpRequest()
+      .get('/api/server/auth/me')
+      .set('authorization', `Bearer ${registered.accessToken}`)
+      .expect(200)
+    const second = await app.httpRequest()
+      .get('/api/server/auth/me')
+      .set('authorization', `Bearer ${registered.accessToken}`)
+      .expect(200)
+
+    assert.strictEqual(first.body.code, 200)
+    assert.strictEqual(first.body.data.email, 'owner@example.com')
+    assert.strictEqual(first.body.data.cliLatestVersion, '0.2.3')
+    assert.strictEqual(second.body.data.cliLatestVersion, '0.2.3')
+    assert.strictEqual(calls, 1)
   })
 
   it('management login uses separate realm and refresh path', async () => {

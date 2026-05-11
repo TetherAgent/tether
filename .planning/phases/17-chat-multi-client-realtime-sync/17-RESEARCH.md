@@ -363,17 +363,17 @@ relay-client.ts 中所有 `chatClientBindings` 引用（13 处）全部删除：
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **`client.chat` for sessionId=null 时，runner 完成后是否需要加锁**
    - What we know: sessionId=null 是新建 session 的路径，runner 完成时会触发 `onChatSessionCreated`，此时才有 sessionId。
    - What's unclear: 是否需要在新建路径也加 in-flight 锁，防止同一 provider 重复新建。
-   - Recommendation: 从 CONTEXT.md 看，in-flight 锁 D-08 明确是 `client.chat` case 最顶部，且 `frame.sessionId !== null` 的分支。新建路径（null）不加锁，保持当前行为。这与 D-09 的描述一致。
+   - RESOLVED: 从 CONTEXT.md 看，in-flight 锁 D-08 明确是 `client.chat` case 最顶部，且 `frame.sessionId !== null` 的分支。新建路径（null）不加锁，保持当前行为。这与 D-09 的描述一致。
 
 2. **`syncToServer` transport 判断从 `chatSessionOwners.has` 改为 `chatSessionSubscribers.has` 后语义不变**
    - What we know: relay.ts L524-532 用 `chatSessionOwners.has(frame.event.sessionId)` 判断是否是 chat 事件，决定是否加 `transport: 'chat'`。
    - What's unclear: 换为 Set 后逻辑相同（has 返回 true 即有订阅者）。
-   - Recommendation: 直接替换 `.has` 调用，语义等价。
+   - RESOLVED: 直接替换 `.has` 调用，语义等价。
 
 ---
 

@@ -46,7 +46,13 @@ export default class AuthController extends Controller {
 
   public async me(): Promise<void> {
     const { ctx } = this;
-    const data = await ctx.service.auth.currentUserFromToken(ctx.get('authorization'));
-    ctx.success(data);
+    const [ user, cliLatestVersion ] = await Promise.all([
+      ctx.service.auth.currentUserFromToken(ctx.get('authorization')),
+      ctx.service.cliRelease.latestVersion()
+    ]);
+    ctx.success({
+      ...user,
+      cliLatestVersion
+    });
   }
 }

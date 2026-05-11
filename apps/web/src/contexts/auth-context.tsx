@@ -48,6 +48,15 @@ function writeStorage<T>(key: string, value: AuthStorageRecord<T> | null) {
     window.localStorage.removeItem(key);
     return;
   }
+  if (key === NORMAL_STORAGE_KEY && value.identity) {
+    const identity = value.identity as unknown as NormalIdentity;
+    const { cliLatestVersion: _cliLatestVersion, ...storedIdentity } = identity;
+    window.localStorage.setItem(key, JSON.stringify({
+      ...value,
+      identity: storedIdentity
+    }));
+    return;
+  }
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 

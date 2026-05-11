@@ -29,6 +29,7 @@ export type NormalIdentity = {
   userId: string;
   email: string;
   deviceId?: string;
+  cliLatestVersion?: string | null;
 };
 
 export type AuthStorageRecord<TIdentity> = {
