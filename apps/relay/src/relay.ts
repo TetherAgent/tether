@@ -170,6 +170,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
   const clients = new Map<string, ClientState>();
   const latestSessions = new Map<string, RelaySession>();
   const gateways = new Map<string, GatewayState>();
+  // Relay-side routing for chat sessions: updated on every client.subscribe/unsubscribe.
+  // Overrides the stale clientId embedded by Gateway in event payloads.
+  const chatSessionOwners = new Map<string, string>(); // sessionId → clientId
   const server = createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/healthz') {
       response.writeHead(200, { 'content-type': 'text/plain; charset=UTF-8' });
@@ -374,7 +377,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           break;
         }
         if (frame.event.type === 'agent.delta') {
-          const clientId = typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined;
+          const clientId = chatSessionOwners.get(frame.event.sessionId)
+            ?? (typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined);
           if (clientId) {
             sendToClient(clientId, {
               type: 'agent.delta',
@@ -385,7 +389,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           break;
         }
         if (frame.event.type === 'agent.result') {
-          const clientId = typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined;
+          const clientId = chatSessionOwners.get(frame.event.sessionId)
+            ?? (typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined);
           if (clientId) {
             sendToClient(clientId, {
               type: 'agent.result',
@@ -413,7 +418,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             });
           }
         } else if (frame.event.type === 'agent.permission_request') {
-          const clientId = typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined;
+          const clientId = chatSessionOwners.get(frame.event.sessionId)
+            ?? (typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined);
           if (clientId) {
             sendToClient(clientId, {
               type: 'agent.permission_request',
@@ -426,7 +432,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             });
           }
         } else if (frame.event.type === 'session.error') {
-          const clientId = typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined;
+          const clientId = chatSessionOwners.get(frame.event.sessionId)
+            ?? (typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined);
           if (clientId) {
             sendToClient(clientId, {
               type: 'error',
@@ -438,7 +445,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             sendEventToSubscribers(frame.event);
           }
         } else if (frame.event.type === 'agent.tool') {
-          const clientId = typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined;
+          const clientId = chatSessionOwners.get(frame.event.sessionId)
+            ?? (typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined);
           if (clientId) {
             sendToClient(clientId, {
               type: 'agent.tool',
@@ -673,6 +681,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     socket.on('close', () => {
       clearTimeout(authTimer);
       clients.delete(clientId);
+      for (const [sessionId, ownerId] of chatSessionOwners) {
+        if (ownerId === clientId) chatSessionOwners.delete(sessionId);
+      }
     });
   }
 
@@ -742,20 +753,20 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           broadcastSessionList();
         }
         subscriptions.set(frame.sessionId, frame.mode);
-        // For chat sessions hydrated from DB (not in relay cache): Gateway doesn't have them live,
-        // forwarding would return session_not_found and trigger a retry loop.
-        if (session.transport !== 'chat' || !hydratedSession) {
-          forwardToSessionGateway({
-            type: 'client.subscribe',
-            clientId,
-            sessionId: frame.sessionId,
-            after: frame.after,
-            tail: frame.tail,
-            mode: frame.mode,
-            cols: frame.cols,
-            rows: frame.rows
-          });
+        if (session.transport === 'chat') {
+          chatSessionOwners.set(frame.sessionId, clientId);
+          break;
         }
+        forwardToSessionGateway({
+          type: 'client.subscribe',
+          clientId,
+          sessionId: frame.sessionId,
+          after: frame.after,
+          tail: frame.tail,
+          mode: frame.mode,
+          cols: frame.cols,
+          rows: frame.rows
+        });
         break;
       }
       case 'client.input':
@@ -902,6 +913,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         break;
       case 'client.unsubscribe': {
         subscriptions.delete(frame.sessionId);
+        if (chatSessionOwners.get(frame.sessionId) === clientId) {
+          chatSessionOwners.delete(frame.sessionId);
+        }
         if (clientCanAccessSession(clientScope, authMethod, frame.sessionId)) {
           const unsubSession = latestSessions.get(frame.sessionId);
           if (!unsubSession || unsubSession.transport !== 'chat') {
@@ -916,6 +930,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           break;
         }
         subscriptions.delete(frame.sessionId);
+        if (chatSessionOwners.get(frame.sessionId) === clientId) {
+          chatSessionOwners.delete(frame.sessionId);
+        }
         const detachSession = latestSessions.get(frame.sessionId);
         if (!detachSession || detachSession.transport !== 'chat') {
           forwardToSessionGateway({ type: 'client.detach', clientId, sessionId: frame.sessionId });
