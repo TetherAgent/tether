@@ -36,6 +36,17 @@ export type ChatMessageRecord = {
   createdAt: string;
 };
 
+export type ChatSessionMetadata = {
+  id: string;
+  provider: string;
+  projectPath: string;
+  agentSessionId?: string;
+  gatewayId: string;
+  accountId: string;
+  userId: string;
+  transport: string;
+};
+
 export default class ChatRepositoryService extends Service {
   private mysqlModeEnabled() {
     return this.ctx.service.db.mysqlModeEnabled();
@@ -140,14 +151,47 @@ export default class ChatRepositoryService extends Service {
     return (rows as Record<string, unknown>[]).map((row) => this.messageFromRow(row));
   }
 
-  public async updateAgentSessionId(sessionId: string, agentSessionId: string): Promise<void> {
+  public async updateAgentSessionId(
+    sessionId: string,
+    agentSessionId: string,
+    scope: { accountId: string; gatewayId: string; userId: string }
+  ): Promise<void> {
     if (!this.mysqlModeEnabled()) {
       return;
     }
     await this.ctx.service.db.query(
-      'UPDATE gateway_sessions SET agent_session_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [agentSessionId, sessionId]
+      `UPDATE gateway_sessions
+       SET agent_session_id = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND account_id = ? AND gateway_id = ? AND user_id = ?`,
+      [agentSessionId, sessionId, scope.accountId, scope.gatewayId, scope.userId]
     );
+  }
+
+  public async getSessionMetadata(sessionId: string): Promise<ChatSessionMetadata | undefined> {
+    if (!this.mysqlModeEnabled()) {
+      return undefined;
+    }
+    const rows = await this.ctx.service.db.query(
+      `SELECT id, provider, project_path, agent_session_id, gateway_id, account_id, user_id, transport
+       FROM gateway_sessions
+       WHERE id = ?
+       LIMIT 1`,
+      [sessionId]
+    ) as Record<string, unknown>[];
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return undefined;
+    }
+    const row = rows[0]!;
+    return {
+      id: String(row.id ?? ''),
+      provider: String(row.provider ?? ''),
+      projectPath: String(row.project_path ?? ''),
+      agentSessionId: row.agent_session_id != null ? String(row.agent_session_id) : undefined,
+      gatewayId: String(row.gateway_id ?? ''),
+      accountId: String(row.account_id ?? ''),
+      userId: String(row.user_id ?? ''),
+      transport: String(row.transport ?? '')
+    };
   }
 
   private sessionFromRow(row: Record<string, unknown>): ChatSessionRecord {

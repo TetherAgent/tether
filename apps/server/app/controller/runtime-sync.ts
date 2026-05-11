@@ -78,4 +78,19 @@ export default class RuntimeSyncController extends Controller {
     );
     ctx.success({ ok: true });
   }
+
+  public async getSessionMetadata(): Promise<void> {
+    const { ctx } = this;
+    const sessionId = String(ctx.params['sessionId'] ?? '');
+    if (!sessionId) {
+      ctx.throw(400, 'Missing sessionId');
+      return;
+    }
+    const metadata = await ctx.service.chatRepository.getSessionMetadata(sessionId);
+    if (!metadata) {
+      ctx.throw(404, 'Session not found');
+      return;
+    }
+    ctx.success({ data: metadata });
+  }
 }

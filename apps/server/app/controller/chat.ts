@@ -61,12 +61,23 @@ export default class ChatController extends Controller {
   public async updateAgentSessionId(): Promise<void> {
     const { ctx } = this;
     const { sessionId } = ctx.params as { sessionId: string };
-    const { agentSessionId } = ctx.request.body as { agentSessionId?: string };
+    const body = ctx.request.body as Record<string, unknown>;
+    const agentSessionId = typeof body.agentSessionId === 'string' ? body.agentSessionId : '';
+    const scopeRaw = body.scope as Record<string, unknown> | undefined;
     if (!sessionId || !agentSessionId) {
       ctx.throw(400, 'sessionId and agentSessionId are required');
       return;
     }
-    await ctx.service.chatRepository.updateAgentSessionId(sessionId, agentSessionId);
+    if (!scopeRaw?.accountId || !scopeRaw?.gatewayId || !scopeRaw?.userId) {
+      ctx.throw(400, 'Missing scope: accountId, gatewayId, userId required');
+      return;
+    }
+    const scope = {
+      accountId: String(scopeRaw.accountId),
+      gatewayId: String(scopeRaw.gatewayId),
+      userId: String(scopeRaw.userId)
+    };
+    await ctx.service.chatRepository.updateAgentSessionId(sessionId, agentSessionId, scope);
     ctx.success({ ok: true });
   }
 }

@@ -42,6 +42,7 @@ export default (app: Application): void => {
   router.get('/api/server/chat-sessions/:sessionId/messages', requireNormalAccess, controller.chat.messages);
   router.put('/api/server/chat-sessions/:sessionId', requireNormalAccess, controller.chat.renameSession);
   router.delete('/api/server/chat-sessions/:sessionId', requireNormalAccess, controller.chat.deleteSession);
+  router.get('/api/relay/gateway-sessions/:sessionId/metadata', requireRuntimeSyncSecret, controller.runtimeSync.getSessionMetadata);
   router.patch('/api/relay/gateway-sessions/:sessionId/agent-session-id', requireRuntimeSyncSecret, controller.chat.updateAgentSessionId);
 
   // 管理后台接口
