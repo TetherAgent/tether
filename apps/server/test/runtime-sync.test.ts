@@ -173,4 +173,89 @@ describe('test/runtime-sync.test.ts', () => {
       )
     })
   })
+
+  it('runtimeSyncRepository.upsertChatRuntimeEvent — MySQL 未启用时静默返回', async () => {
+    const scope = { accountId: 'acct_1', gatewayId: 'gw_1' }
+    const event = { id: 1, type: 'agent.delta', sessionId: 'tth_chat_01', ts: Date.now(), payload: { text: 'hello' } }
+    await assert.doesNotReject(async () => {
+      await ctx.service.runtimeSyncRepository.upsertChatRuntimeEvent(
+        'tth_chat_01',
+        1,
+        'agent.delta',
+        event,
+        scope,
+        Date.now()
+      )
+    })
+  })
+
+  it('chatEventsRepository.listDeltaEventsAfter — MySQL 未启用时返回空数组', async () => {
+    const result = await ctx.service.chatEventsRepository.listDeltaEventsAfter('tth_chat_01', 0)
+    assert.deepEqual(result, [])
+  })
+
+  it('runtime sync chat-events 接口必须进入登录白名单', async () => {
+    const whitelist = app.config.verifyLoginWhitelist
+    assert(whitelist.includes('/api/relay/chat-events/:sessionId'))
+  })
+
+  it('verifyLogin 白名单支持 chat-events :sessionId 路由模板匹配真实路径', async () => {
+    const middleware = verifyLogin()
+    const requestCtx = app.mockContext({
+      url: '/api/relay/chat-events/tth_chat_session_abc'
+    }) as Context & { service: Context['service'] }
+    let passed = false
+    requestCtx.get = (name: string) => name.toLowerCase() === 'authorization' ? '' : ''
+    requestCtx.service.auth.verifyToken = async () => {
+      throw new Error('verifyToken should not be called for whitelist route')
+    }
+
+    await middleware(requestCtx, async () => {
+      passed = true
+    })
+
+    assert.equal(passed, true)
+  })
+
+  it('upsertChatRuntimeEvent transport=chat — 写入 gateway_runtime_chats_events', async () => {
+    const queries: Array<{ sql: string; values?: any[] }> = []
+    const db = ctx.service.db as unknown as {
+      mysqlModeEnabled: () => boolean
+      transaction: <T>(run: (connection: { query: (sql: string, values?: any[]) => Promise<unknown> }) => Promise<T>) => Promise<T>
+    }
+    db.mysqlModeEnabled = () => true
+    db.transaction = async run => {
+      const connection = {
+        query: async (sql: string, values?: any[]) => {
+          queries.push({ sql, values })
+          if (/SELECT user_id FROM gateway_sessions/.test(sql)) {
+            return [{ user_id: 'user_1' }]
+          }
+          if (/SELECT session_id FROM gateway_deleted_sessions/.test(sql)) {
+            return []
+          }
+          if (/SELECT id FROM gateway_sessions[\s\S]*gateway_id <>/.test(sql)) {
+            return []
+          }
+          return { affectedRows: 1 }
+        }
+      }
+      return await run(connection)
+    }
+
+    const event = { id: 5, type: 'agent.delta', sessionId: 'tth_delta_session', ts: Date.now(), payload: { text: 'world' } }
+    await ctx.service.runtimeSyncRepository.upsertChatRuntimeEvent(
+      'tth_delta_session',
+      5,
+      'agent.delta',
+      event,
+      { accountId: 'acct_1', gatewayId: 'gw_1', transport: 'chat' },
+      Date.now()
+    )
+
+    const chatEventsInsert = queries.find(query => /INSERT INTO gateway_runtime_chats_events/.test(query.sql))
+    assert(chatEventsInsert, 'should have INSERT INTO gateway_runtime_chats_events')
+    const rawJsonUpdate = queries.find(query => /UPDATE gateway_chat_messages SET raw_json/.test(query.sql))
+    assert(!rawJsonUpdate, 'agent.delta should not update gateway_chat_messages.raw_json')
+  })
 })

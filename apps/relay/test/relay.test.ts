@@ -1923,3 +1923,179 @@ test('Phase15-A7: relay rejects client.chat for PTY sessions (transport mismatch
     await metadataServer.close();
   }
 });
+
+test('Phase16: chat catch-up is isolated by account', async () => {
+  const chatEventsBySession: Record<string, Array<{ eventId: number; rawJson: string }>> = {
+    tth_chat_acct_a: [{ eventId: 1, rawJson: JSON.stringify({ payload: { text: 'hello-a' } }) }],
+    tth_chat_acct_b: []
+  };
+  const requests: Array<{ method?: string; url?: string; body: string }> = [];
+  const syncServer = createServer((request, response) => {
+    let body = '';
+    request.on('data', (chunk) => { body += chunk.toString(); });
+    request.on('end', () => {
+      requests.push({ method: request.method, url: request.url, body });
+      const match = request.url?.match(/^\/api\/relay\/chat-events\/([^?]+)\?after=(\d+)$/);
+      if (request.method === 'GET' && match) {
+        const sessionId = decodeURIComponent(match[1]!);
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ code: 0, msg: 'success', data: { events: chatEventsBySession[sessionId] ?? [] } }));
+        return;
+      }
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ code: 0, msg: 'success', data: { ok: true } }));
+    });
+  });
+  await new Promise<void>((resolve) => syncServer.listen(0, '127.0.0.1', resolve));
+  const address = syncServer.address();
+  assert(address && typeof address !== 'string');
+  const relay = await startRelayServer({
+    host: '127.0.0.1',
+    port: 0,
+    secret: SECRET,
+    serverSyncUrl: `http://127.0.0.1:${address.port}`,
+    runtimeSyncSecret: 'runtime-secret',
+    validateToken: async (token) => {
+      if (token === 'gw-b') return { accountId: 'acct_b', gatewayId: 'gateway-b', userId: 'user_b', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'gw_b' };
+      if (token === 'gw-a') return { accountId: 'acct_a', gatewayId: 'gateway-a', userId: 'user_a', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'gw_a' };
+      if (token === 'client-b') return { accountId: 'acct_b', gatewayId: 'gateway-b', userId: 'user_b', tokenClass: 'normal_client_access', expiresAt: Date.now() + 60_000, jti: 'client_b' };
+      if (token === 'client-a') return { accountId: 'acct_a', gatewayId: 'gateway-a', userId: 'user_a', tokenClass: 'normal_client_access', expiresAt: Date.now() + 60_000, jti: 'client_a' };
+      return undefined;
+    }
+  });
+  const gatewayB = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const gatewayA = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const clientB = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+  const clientA = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+  const clientBFrames: RelayServerToClientFrame[] = [];
+  clientB.on('message', (raw) => {
+    clientBFrames.push(JSON.parse(raw.toString()) as RelayServerToClientFrame);
+  });
+
+  try {
+    await waitForOpen(gatewayB);
+    gatewayB.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-b', token: 'gw-b' }));
+    await waitForJson(gatewayB, (message) => message.type === 'gateway.auth.ok');
+    await waitForOpen(gatewayA);
+    gatewayA.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-a', token: 'gw-a' }));
+    await waitForJson(gatewayA, (message) => message.type === 'gateway.auth.ok');
+    await waitForOpen(clientB);
+    clientB.send(JSON.stringify({ type: 'client.auth', token: 'client-b' }));
+    await waitForJson(clientB, (message) => message.type === 'client.auth.ok');
+    await waitForOpen(clientA);
+    clientA.send(JSON.stringify({ type: 'client.auth', token: 'client-a' }));
+    await waitForJson(clientA, (message) => message.type === 'client.auth.ok');
+
+    gatewayB.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-b',
+      sessions: [{
+        id: 'tth_chat_acct_b',
+        provider: 'codex',
+        title: 'B Chat',
+        projectPath: process.cwd(),
+        accountId: 'acct_b',
+        gatewayId: 'gateway-b',
+        userId: 'user_b',
+        status: 'running',
+        transport: 'chat',
+        lastActiveAt: Date.now()
+      }]
+    }));
+    gatewayA.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-a',
+      sessions: [{
+        id: 'tth_chat_acct_a',
+        provider: 'codex',
+        title: 'A Chat',
+        projectPath: process.cwd(),
+        accountId: 'acct_a',
+        gatewayId: 'gateway-a',
+        userId: 'user_a',
+        status: 'running',
+        transport: 'chat',
+        lastActiveAt: Date.now()
+      }]
+    }));
+    await waitForJson(clientA, (message) => message.type === 'sessions');
+    await waitForJson(clientB, (message) => message.type === 'sessions');
+
+    clientB.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_chat_acct_b', mode: 'control', after: 0 }));
+    clientA.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_chat_acct_a', mode: 'control', after: 0 }));
+    const catchupA = await waitForJson(clientA, (message) => message.type === 'gateway.chat-catchup');
+    assert.equal(catchupA.sessionId, 'tth_chat_acct_a');
+    assert.equal(catchupA.text, 'hello-a');
+    assert.equal(catchupA.lastEventId, 1);
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal(clientBFrames.some((frame) => frame.type === 'gateway.chat-catchup'), false);
+  } finally {
+    gatewayB.close();
+    gatewayA.close();
+    clientB.close();
+    clientA.close();
+    await relay.close();
+    await new Promise<void>((resolve, reject) => syncServer.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('Phase16: agent.delta syncs to Server with chat transport', async () => {
+  const syncServer = await createMetadataServer({});
+  const relay = await createRelay({ serverSyncUrl: syncServer.url, runtimeSyncSecret: 'runtime-secret' });
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+
+  try {
+    await authenticateGateway(gateway);
+    await authenticateClient(client);
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [{
+        id: 'tth_delta_sync',
+        provider: 'codex',
+        title: 'Delta Sync',
+        projectPath: process.cwd(),
+        accountId: 'acct_1',
+        gatewayId: 'gateway-test',
+        userId: 'user_1',
+        status: 'running',
+        transport: 'chat',
+        lastActiveAt: Date.now()
+      }]
+    }));
+    await waitForJson(client, (message) => message.type === 'sessions');
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_delta_sync', mode: 'control', after: 0 }));
+
+    const deltaFrame = waitForJson(client, (message) => message.type === 'agent.delta');
+    gateway.send(JSON.stringify({
+      type: 'gateway.event',
+      gatewayId: 'gateway-test',
+      event: {
+        id: 3,
+        sessionId: 'tth_delta_sync',
+        type: 'agent.delta',
+        ts: Date.now(),
+        payload: { text: 'abc' }
+      }
+    }));
+
+    const delta = await deltaFrame;
+    assert.equal(delta.text, 'abc');
+    assert.equal(delta.eventId, 3);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const syncRequest = syncServer.requests
+      .map((request) => ({ ...request, parsed: request.body ? JSON.parse(request.body) as Record<string, unknown> : undefined }))
+      .find((request) => request.url === '/api/relay/runtime-sync/gateway/event' && (request.parsed?.event as { type?: string } | undefined)?.type === 'agent.delta');
+    assert(syncRequest?.parsed, 'agent.delta sync request should be captured');
+    const scope = syncRequest.parsed.scope as { transport?: string } | undefined;
+    assert.equal(scope?.transport, 'chat');
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+    await syncServer.close();
+  }
+});
