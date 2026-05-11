@@ -17,6 +17,7 @@ import {
 } from '@tether/design';
 import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
+import { rememberGatewayVersion } from '../../hooks/use-update-check.js';
 import { gatewayAuthHeaders, getStoredNormalAccessToken, readGatewayData } from '../../lib/api.js';
 import { providerResumeCommand } from '../../lib/provider-resume-command.js';
 import { fetchChatMessages, fetchChatSessions, type ChatHistoryMessage, type ChatHistoryUsage, type ChatSessionRecord, type ChatUsage, type ProviderOption } from './chat-data.js';
@@ -665,6 +666,9 @@ export function ChatPanel({
       if (frame.type === 'gateway.status' && typeof frame.gatewayId === 'string') {
         const gatewayId = frame.gatewayId;
         setHasGatewayStatusFrame(true);
+        if (typeof frame.version === 'string' && frame.version) {
+          rememberGatewayVersion(frame.version);
+        }
         if (frame.status === 'connected') {
           setOnlineGatewayIds((current) => {
             const next = new Set([...current, gatewayId]);

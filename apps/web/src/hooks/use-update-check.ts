@@ -1,11 +1,12 @@
 import * as React from 'react';
-import { useAuth } from './use-auth.js';
 
 const NPM_PACKAGE = '@tether-labs/cli';
 const DISMISSED_KEY = 'tether:dismissedUpdateVersion';
 const NPM_CACHE_KEY = 'tether:npmLatestVersion';
 const NPM_CACHE_TS_KEY = 'tether:npmLatestVersionTs';
+const GATEWAY_VERSION_EVENT = 'tether:gateway-version';
 const NPM_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+let currentGatewayVersion: string | null = null;
 
 type UpdateStatus = {
   currentVersion: string | null;
@@ -29,9 +30,13 @@ async function fetchLatestFromNpm(): Promise<string | null> {
   return version;
 }
 
+export function rememberGatewayVersion(version: string): void {
+  currentGatewayVersion = version;
+  window.dispatchEvent(new CustomEvent(GATEWAY_VERSION_EVENT, { detail: version }));
+}
+
 export function useUpdateCheck(): UpdateStatus & { dismiss: () => void } {
-  const { normalAuth } = useAuth();
-  const currentVersion = normalAuth?.identity?.app?.version ?? null;
+  const [currentVersion, setCurrentVersion] = React.useState<string | null>(() => currentGatewayVersion);
   const [status, setStatus] = React.useState<UpdateStatus>({
     currentVersion: null,
     latestVersion: null,
@@ -57,6 +62,17 @@ export function useUpdateCheck(): UpdateStatus & { dismiss: () => void } {
     void check();
     return () => { cancelled = true; };
   }, [currentVersion]);
+
+  React.useEffect(() => {
+    const onGatewayVersion = (event: Event) => {
+      const version = (event as CustomEvent<string>).detail;
+      setCurrentVersion(typeof version === 'string' ? version : currentGatewayVersion);
+    };
+    window.addEventListener(GATEWAY_VERSION_EVENT, onGatewayVersion);
+    return () => {
+      window.removeEventListener(GATEWAY_VERSION_EVENT, onGatewayVersion);
+    };
+  }, []);
 
   const dismiss = React.useCallback(() => {
     setStatus((prev) => {

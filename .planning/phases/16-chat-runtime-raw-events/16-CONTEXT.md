@@ -55,15 +55,16 @@
 
 ### 断线 catch-up
 
-- **D-12:** Server 新增读接口 `GET /api/relay/chat-events/:sessionId?after=N`，从 `gateway_runtime_chats_events` 读 `event_type = 'agent.delta' AND event_id > N` 的行，按 `event_id` 升序返回。该接口加入 Relay 的 `serverSyncUrl` 白名单（与现有 runtime-sync 接口同源）。
-- **D-13:** Relay 在处理 `client.subscribe` for chat session 时，若 session 状态为 `running`，调用上述接口拉取 `after = frame.after`（可为 0）的缺口 delta，逐条以 `agent.delta` 帧格式推给客户端，之后恢复正常实时流。session 为非 running 状态时跳过 catch-up。
-- **D-14:** Client（chat-panel.tsx）维护 `lastDeltaEventIdRef`，有两个写入点：
+- **D-12:** Server 新增读接口 `GET /api/relay/chat-events/:sessionId?after=N`，从 `gateway_runtime_chats_events` 读 `event_type = 'agent.delta' AND event_id > N` 的行，按 `event_id` 升序返回完整行（含 `event_id` 和 `raw_json`）。该接口加入 Relay 的 `serverSyncUrl` 白名单（与现有 runtime-sync 接口同源）。
+- **D-13:** Relay 在处理 `client.subscribe` for chat session 时，若 session 状态为 `running`，调用上述接口拉取 `after = frame.after`（可为 0）的缺口 delta 行，**把所有行的 `payload.text` 顺序拼接成一个 blob**，以 `gateway.chat-catchup` 帧格式推给客户端（同时带 `lastEventId: N`，N = 最后一行的 event_id）。若无缺口行则跳过。session 为非 running 状态时跳过 catch-up。
+- **D-14:** Client（chat-panel.tsx）维护 `lastDeltaEventIdRef`，有三个写入点：
   1. 每次收到 `agent.delta` 帧时，若帧携带 `eventId` 且大于当前值则更新（实时跟踪；帧需携带 `eventId`，见 D-17）
-  2. 加载聊天历史时（`fetchChatMessages` 返回后），用最后一条 assistant 消息的 `lastEventId` 初始化（页面刷新后仍有正确起点）
+  2. 每次收到 `gateway.chat-catchup` 帧时，若帧携带 `lastEventId` 且大于当前值则更新（catch-up blob 使用；帧需携带 `lastEventId`，见 D-17）
+  3. 加载聊天历史时（`fetchChatMessages` 返回后），用最后一条 assistant 消息的 `lastEventId` 初始化（页面刷新后仍有正确起点；见 D-16）
   发 `client.subscribe` 时将 `lastDeltaEventIdRef.current` 作为 `after` 字段传出（无历史时传 0）。
 - **D-15:** catch-up 只补 delta 事件。`agent.result` 由正常的聊天历史 REST 接口加载，不走此路径。
-- **D-16:** `GET /api/server/sessions/:id/messages` 响应在顶层补 `lastEventId` 字段（取最后一条 assistant 消息 `gateway_chat_messages.raw_json` 里的 `id`），供 Client 初始化 `lastDeltaEventIdRef`。若 `raw_json` 为空或无 assistant 消息则返回 0。
-- **D-17:** Relay 发给 Client 的 `agent.delta` 帧新增 `eventId` 字段（来自 `frame.event.id`）。Client 用此字段去重：收到 `eventId <= lastDeltaEventIdRef.current` 的帧时丢弃，防止 catch-up 补发和实时流重叠产生重复。
+- **D-16:** Gateway 在 `agent.result` 事件的 payload 里新增 `lastDeltaEventId` 字段（值为 `nextDeltaId - 1`，即本次 session 最后一条 delta 的 event_id；若未产生任何 delta 则为 0）。该值随 `agent.result` 写入 `gateway_chat_messages.raw_json`。`GET /api/server/sessions/:id/messages` 响应在顶层补 `lastEventId` 字段（取最后一条 assistant 消息 `raw_json.payload.lastDeltaEventId`），供 Client 初始化 `lastDeltaEventIdRef`。若 `raw_json` 为空、`payload.lastDeltaEventId` 不存在或无 assistant 消息则返回 0。
+- **D-17:** Relay 发给 Client 的 `agent.delta` 帧新增 `eventId` 字段（来自 `frame.event.id`）；`gateway.chat-catchup` 帧新增 `lastEventId` 字段（catch-up 覆盖到的最后一条 delta 的 event_id；由 Relay 在 D-13 中填入）。Client 用 `eventId` / `lastEventId` 维护 `lastDeltaEventIdRef`，收到 `agent.delta` 帧且 `eventId <= lastDeltaEventIdRef.current` 时丢弃，防止实时流与 catch-up blob 重叠产生重复。
 
 </decisions>
 
@@ -84,13 +85,13 @@
 - `apps/relay/src/relay.ts` — agent.delta 特殊处理块（syncToServer 插入点）；catch-up 逻辑（chat subscribe with after>0 时查 Server）
 
 ### 现有 Gateway 代码（改动目标）
-- `apps/gateway/src/chat-session-runner.ts` — ChatSessionRunner，delta id 计数器在此添加
+- `apps/gateway/src/chat-session-runner.ts` — ChatSessionRunner，delta id 计数器在此添加；`agent.result` emit 时在 payload 注入 `lastDeltaEventId: nextDeltaId - 1`（D-16）
 
 ### catch-up 新增代码
 - `apps/server/app/controller/chat-events.ts`（新建）— `GET /api/relay/chat-events/:sessionId` 控制器，鉴权用 relay runtime-sync secret
 - `apps/server/app/service/chatEventsRepository.ts`（新建）— 从 `gateway_runtime_chats_events` 按 session_id + event_type = 'agent.delta' + event_id > after 读取
-- `apps/web/src/components/chats/chat-panel.tsx` — 新增 `lastDeltaEventIdRef`，subscribe 时带 `after`，收 delta 时去重
-- `packages/protocol/src/` — `RelayServerToClientFrame` 的 `agent.delta` 帧新增 `eventId?: number` 字段（D-17）
+- `apps/web/src/components/chats/chat-panel.tsx` — 新增 `lastDeltaEventIdRef`，subscribe 时带 `after`，收 delta / catch-up 时更新游标并去重
+- `packages/protocol/src/` — `RelayServerToClientFrame` 的 `agent.delta` 帧新增 `eventId?: number`，`gateway.chat-catchup` 帧新增 `lastEventId?: number`（D-17）
 
 ### 测试参考
 - `apps/server/test/runtime-sync.test.ts` — 现有 runtime sync 测试，Phase 16 测试在此扩展

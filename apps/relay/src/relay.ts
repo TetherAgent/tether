@@ -43,6 +43,7 @@ type GatewayState = {
   scope?: RelayAuthScope;
   authMethod: RelayAuthMethod;
   socket: WebSocket;
+  version?: string;
 };
 
 type ClientState = {
@@ -284,7 +285,13 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           }
           gatewayId = parsed.gatewayId;
           gatewayScope = auth.scope;
-          gateways.set(gatewayId, { gatewayId, scope: auth.scope, authMethod: auth.authMethod, socket });
+          gateways.set(gatewayId, {
+            gatewayId,
+            scope: auth.scope,
+            authMethod: auth.authMethod,
+            socket,
+            version: typeof parsed.version === 'string' ? parsed.version : undefined
+          });
           authenticated = true;
           clearTimeout(authTimer);
           sendToSocket<RelayServerToGatewayFrame>(socket, { type: 'gateway.auth.ok', gatewayId });
@@ -646,7 +653,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             sendToSocket<RelayServerToClientFrame>(socket, {
               type: 'gateway.status',
               gatewayId,
-              status: 'connected'
+              status: 'connected',
+              version: scopedGateway.version
             });
           }
           const client = clients.get(clientId);
@@ -658,7 +666,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           }
           for (const [gwId, gw] of gateways) {
             if (gw.socket.readyState === WebSocket.OPEN && clientCanUseGateway(auth.scope, gw.scope)) {
-              sendToSocket<RelayServerToClientFrame>(socket, { type: 'gateway.status', gatewayId: gwId, status: 'connected' });
+              sendToSocket<RelayServerToClientFrame>(socket, { type: 'gateway.status', gatewayId: gwId, status: 'connected', version: gw.version });
             }
           }
           return;
@@ -1031,7 +1039,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     sendToSocket<RelayServerToClientFrame>(client.socket, {
       type: 'gateway.status',
       gatewayId,
-      status: 'connected'
+      status: 'connected',
+      version: gateway.version
     });
     return true;
   }
@@ -1046,10 +1055,11 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
   }
 
   function broadcastGatewayStatus(gatewayId: string, status: 'connected' | 'disconnected', gatewayScope: RelayAuthScope): void {
+    const gateway = gateways.get(gatewayId);
     for (const client of clients.values()) {
       if (!clientCanUseGateway(client.scope, gatewayScope)) continue;
       if (client.gatewayId && client.gatewayId !== gatewayId) continue;
-      sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'gateway.status', gatewayId, status });
+      sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'gateway.status', gatewayId, status, version: gateway?.version });
     }
   }
 

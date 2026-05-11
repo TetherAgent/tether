@@ -1,8 +1,9 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import type {
   RelayAuthScope,
@@ -18,6 +19,8 @@ import { replaySessionEvents } from './replay.js';
 import type { SessionRunnerClient } from './session-runner-client.js';
 import type { Session, SessionEvent, Store } from './store.js';
 import { providerEffectiveEnv } from './provider-env.js';
+
+const TETHER_VERSION = resolvePackageVersion(import.meta.url, ['@tether-labs/cli', '@tether/gateway']) ?? '0.0.0-dev';
 
 export type RelayClientOptions = {
   url: string;
@@ -179,7 +182,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         }
         effectiveGatewayId = auth.gatewayId;
         reconnectDelayMs = MIN_RECONNECT_DELAY_MS;
-        send({ type: 'gateway.auth', gatewayId: auth.gatewayId, token: auth.token, scope: auth.scope, secret: options.secret });
+        send({ type: 'gateway.auth', gatewayId: auth.gatewayId, token: auth.token, scope: auth.scope, secret: options.secret, version: TETHER_VERSION });
       })();
     });
 
@@ -1017,6 +1020,31 @@ function uniqueStrings(values: Array<string | undefined>): string[] {
 function isInstalled(command: string): boolean {
   const result = spawnSync(command, ['--version'], { stdio: 'ignore' });
   return result.status === 0 || result.error === undefined;
+}
+
+function resolvePackageVersion(startUrl: string, packageNames: string[]): string | undefined {
+  let current = path.dirname(fileURLToPath(startUrl));
+  for (let depth = 0; depth < 8; depth += 1) {
+    const packageJsonPath = path.join(current, 'package.json');
+    if (existsSync(packageJsonPath)) {
+      try {
+        const parsed = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { name?: unknown; version?: unknown };
+        if (
+          typeof parsed.name === 'string' &&
+          packageNames.includes(parsed.name) &&
+          typeof parsed.version === 'string'
+        ) {
+          return parsed.version;
+        }
+      } catch {
+        return undefined;
+      }
+    }
+    const next = path.dirname(current);
+    if (next === current) break;
+    current = next;
+  }
+  return undefined;
 }
 
 function isCopilotInstalled(): boolean {

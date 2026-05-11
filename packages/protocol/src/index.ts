@@ -66,7 +66,7 @@ export type RelayNextSuggestion = {
 };
 
 export type RelayGatewayToServerFrame =
-  | { type: 'gateway.auth'; gatewayId: string; token?: string; secret?: string; scope?: RelayAuthScope }
+  | { type: 'gateway.auth'; gatewayId: string; token?: string; secret?: string; scope?: RelayAuthScope; version?: string }
   | { type: 'gateway.sessions'; gatewayId: string; sessions: RelaySession[] }
   | { type: 'gateway.replay'; gatewayId: string; clientId: string; sessionId: string; events: RelayTerminalEvent[]; done?: boolean; latestEventId?: number }
   | { type: 'gateway.event'; gatewayId: string; event: RelayTerminalEvent }
@@ -124,7 +124,7 @@ export type RelayServerToClientFrame =
   | { type: 'client.auth.failed'; code: string; message: string }
   | { type: 'sessions'; sessions: RelaySession[] }
   | { type: 'hello'; clientId: string; gatewayId?: string }
-  | { type: 'gateway.status'; gatewayId: string; status: 'connected' | 'disconnected' }
+  | { type: 'gateway.status'; gatewayId: string; status: 'connected' | 'disconnected'; version?: string }
   | { type: 'event'; event: RelayTerminalEvent }
   | { type: 'replay.output'; sessionId: string; data: string; latestEventId: number }
   | { type: 'replay.done'; sessionId: string; latestEventId: number }
