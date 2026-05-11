@@ -409,6 +409,16 @@ Plans:
     - [ ] `16-05-PLAN.md` — Web chat-panel lastDeltaEventIdRef + subscribe after + delta dedup *(depends on Plans 03, 04)*
     - [ ] `16-06-PLAN.md` — 单测覆盖（upsertChatRuntimeEvent + whitelist + relay sync 路径）*(depends on Plans 03, 04)*
 
+### Phase 17: Chat Multi-client Realtime Sync
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 16
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 17 to break down)
+
 ---
 *Roadmap created: 2026-05-01*
 *Milestone reordered: 2026-05-01 — personal Relay MVP moved to Phase 1*

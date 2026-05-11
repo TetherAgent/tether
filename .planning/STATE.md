@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.3
 milestone_name: milestone
 status: Phase 15 automated execution complete; human UAT pending
-stopped_at: Phase 16 context gathered
-last_updated: "2026-05-11T14:36:12.054Z"
-last_activity: 2026-05-11 -- Phase 16 planning complete
+stopped_at: Completed Wave 1 for Phase 16
+last_updated: "2026-05-11T14:43:43.776Z"
+last_activity: 2026-05-11
 progress:
-  total_phases: 16
+  total_phases: 17
   completed_phases: 8
   total_plans: 62
-  completed_plans: 57
-  percent: 92
+  completed_plans: 59
+  percent: 95
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-01)
 
 **Core value:** 在 agent session 场景里，本地体验对齐 tmux，并在历史回放、多端接管、审计、手机/Web/App 接入上超越 tmux。
-**Current focus:** Phase 14 — multi-device-gateway-routing
+**Current focus:** Phase 16 — chat-runtime-raw-events
 
 ## Current Position
 
-Phase: 14 (multi-device-gateway-routing) — EXECUTING
-Plan: 6 of 6
+Phase: 16 (chat-runtime-raw-events) — EXECUTING
+Plan: 3 of 6
 Next: human UAT / verify-work for Phase 15
-Last activity: 2026-05-11 -- Phase 16 planning complete
+Last activity: 2026-05-11
 
-Progress: [██████████] 100%
+Progress: [██████████] 95%
 
 ## Quick Tasks Completed
 
@@ -128,6 +128,7 @@ Recent decisions affecting current work:
 - Phase 13 complete: Mobile Web Chat (2026-05-10, code verified)
 - Phase 14 added: Multi-device Gateway Routing — deviceId 绑定、稳定 gatewayId、Gateway 列表 API、Web 选择器、Relay 强制路由；参考 docs/working/2026-05-11-multi-device-gateway-routing.md
 - Phase 14 context gathered: 2026-05-11 — 4 个区域讨论完成，CONTEXT.md 已就绪
+- Phase 17 added: Chat Multi-client Realtime Sync — 多端同时订阅同一 chat session，按 session 广播 delta/result，Gateway in-flight 锁防并发发送；参考 docs/working/2026-05-11-chat-multi-client-realtime.md
 
 ### Blockers/Concerns
 
@@ -153,6 +154,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-11T12:48:51.995Z
-Stopped at: Phase 16 context gathered
-Resume file: .planning/phases/16-chat-runtime-raw-events/16-CONTEXT.md
+Last session: 2026-05-11T14:43:43.770Z
+Stopped at: Completed Wave 1 for Phase 16
+Resume file: .planning/phases/16-chat-runtime-raw-events/16-03-PLAN.md
