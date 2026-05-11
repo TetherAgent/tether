@@ -407,6 +407,7 @@ export function ChatPanel({
   const activeSessionGatewayIdRef = React.useRef(activeSessionGatewayId);
   const onlineGatewayIdsRef = React.useRef(onlineGatewayIds);
   const subscribedSessionIdRef = React.useRef<string | null>(null);
+  const lastDeltaEventIdRef = React.useRef<number>(0);
   const cwdRef = React.useRef(cwd);
   const skipNextHistoryLoadSessionIdRef = React.useRef<string | null>(null);
   const pendingCreatedSessionIdRef = React.useRef<string | null>(null);
@@ -508,7 +509,9 @@ export function ChatPanel({
 
   const loadActiveSessionHistory = React.useCallback(async (sessionId: string, opts?: { protectNewerLocal?: boolean }) => {
     const token = normalAuth?.accessToken ?? getStoredNormalAccessToken();
-    const historyMessages = await fetchChatMessages(sessionId, token);
+    lastDeltaEventIdRef.current = 0;
+    const { messages: historyMessages, lastEventId: historyLastEventId } = await fetchChatMessages(sessionId, token);
+    lastDeltaEventIdRef.current = historyLastEventId;
     const items = historyMessagesToItems(historyMessages, activeSessionProviderRef.current ?? 'agent');
     let nextAgentId: string | null = null;
     let nextIsInflight = false;
@@ -813,11 +816,20 @@ export function ChatPanel({
               : item
           )
         );
+        if (typeof frame.lastEventId === 'number' && frame.lastEventId > lastDeltaEventIdRef.current) {
+          lastDeltaEventIdRef.current = frame.lastEventId;
+        }
         return;
       }
       if (frame.type === 'agent.delta' && typeof frame.text === 'string') {
         if (frame.sessionId !== currentSessionIdRef.current) {
           return;
+        }
+        if (typeof frame.eventId === 'number' && frame.eventId > 0) {
+          if (frame.eventId <= lastDeltaEventIdRef.current) {
+            return;
+          }
+          lastDeltaEventIdRef.current = frame.eventId;
         }
         setConnectionError(undefined);
         setSessionAccessError(undefined);
@@ -1153,7 +1165,7 @@ export function ChatPanel({
       return;
     }
     setSessionAccessError(undefined);
-    sendFrame({ type: 'client.subscribe', sessionId: currentSessionId, mode: 'control' });
+    sendFrame({ type: 'client.subscribe', sessionId: currentSessionId, mode: 'control', after: lastDeltaEventIdRef.current });
     subscribedSessionIdRef.current = currentSessionId;
   }, [activeSessionMetadataReady, currentSessionId, sendFrame, wsReady, subscribeRetryKey]);
 

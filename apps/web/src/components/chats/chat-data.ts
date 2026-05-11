@@ -26,6 +26,11 @@ export type ChatHistoryMessage = {
   createdAt: string;
 };
 
+export type ChatMessagesResponse = {
+  messages: ChatHistoryMessage[];
+  lastEventId: number;
+};
+
 export type ProviderOption = {
   provider: string;
   models: string[];
@@ -43,14 +48,17 @@ export type ChatSessionRecord = {
   lastActiveAt?: number;
 };
 
-export async function fetchChatMessages(sessionId: string, token?: string): Promise<ChatHistoryMessage[]> {
+export async function fetchChatMessages(sessionId: string, token?: string): Promise<ChatMessagesResponse> {
   const http = createHttpClient();
-  const data = await http.get<{ messages: ChatHistoryMessage[] }>(
+  const data = await http.get<{ messages: ChatHistoryMessage[]; lastEventId?: number }>(
     `/api/server/chat-sessions/${sessionId}/messages`,
     undefined,
     { token }
   );
-  return data.messages ?? [];
+  return {
+    messages: data.messages ?? [],
+    lastEventId: typeof data.lastEventId === 'number' ? data.lastEventId : 0
+  };
 }
 
 export async function fetchChatSessions(token?: string, suppressGlobalError = true): Promise<ChatSessionRecord[]> {
