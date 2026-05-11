@@ -396,7 +396,18 @@ Plans:
   7. `gateway_chat_messages` 读取路径（聊天历史 API）不变；Web 聊天历史展示正常
   8. 单测覆盖 delta/result 写库逻辑和 relay 同步路径
 
-**Plans**: TBD
+**Plans**: 6 plans across 3 waves
+
+Plans:
+  - **Wave 1** (no deps, parallel):
+    - [ ] `16-01-PLAN.md` — SQL migration（gateway_runtime_chats_events 新表 + gateway_chat_messages raw_json 列）
+    - [ ] `16-02-PLAN.md` — Protocol 类型更新 + Gateway delta 计数器 + agent.result lastDeltaEventId
+  - **Wave 2** *(blocked on Wave 1)*:
+    - [ ] `16-03-PLAN.md` — Server upsertChatRuntimeEvent + chat-events 接口 + messages API lastEventId *(depends on Plan 01)*
+    - [ ] `16-04-PLAN.md` — Relay agent.delta syncToServer + client.subscribe catch-up *(depends on Plan 02)*
+  - **Wave 3** *(blocked on Wave 2)*:
+    - [ ] `16-05-PLAN.md` — Web chat-panel lastDeltaEventIdRef + subscribe after + delta dedup *(depends on Plans 03, 04)*
+    - [ ] `16-06-PLAN.md` — 单测覆盖（upsertChatRuntimeEvent + whitelist + relay sync 路径）*(depends on Plans 03, 04)*
 
 ---
 *Roadmap created: 2026-05-01*
