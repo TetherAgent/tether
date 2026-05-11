@@ -162,15 +162,15 @@ test('relay forwards session list from gateway to client', async () => {
 
   try {
     await authenticateGateway(gateway);
-    const clientId = await authenticateClient(client);
-
-    client.send(JSON.stringify({ type: 'client.list' }));
-    const listRequest = await waitForJson(gateway, (message) => message.type === 'client.list');
-    assert.equal(listRequest.clientId, clientId);
+    await authenticateClient(client);
 
     gateway.send(JSON.stringify({ type: 'gateway.sessions', gatewayId: 'gateway-test', sessions }));
     const sessionMessage = await waitForJson(client, (message) => message.type === 'sessions');
     assert.deepEqual(sessionMessage.sessions, sessions);
+
+    client.send(JSON.stringify({ type: 'client.list' }));
+    const cachedList = await waitForJson(client, (message) => message.type === 'sessions');
+    assert.deepEqual(cachedList.sessions, sessions);
   } finally {
     gateway.close();
     client.close();
@@ -481,14 +481,11 @@ test('relay keeps cached running sessions when gateway sends a transient empty l
     const cachedSessions = await cachedSessionsPromise;
     assert.deepEqual(cachedSessions.sessions, sessions);
 
-    client.send(JSON.stringify({ type: 'client.list' }));
-    const listRequest = await waitForJson(gateway, (message) => message.type === 'client.list');
-    assert.equal(typeof listRequest.clientId, 'string');
     const listSessionsPromise = waitForJson(
       client,
       (message) => message.type === 'sessions' && Array.isArray(message.sessions)
     );
-    gateway.send(JSON.stringify({ type: 'gateway.sessions', gatewayId: 'gateway-test', sessions: [] }));
+    client.send(JSON.stringify({ type: 'client.list' }));
     const listSessions = await listSessionsPromise;
     assert.deepEqual(listSessions.sessions, sessions);
   } finally {
@@ -547,12 +544,7 @@ test('relay does not clear one gateway sessions when another gateway disconnects
     );
     gatewayTwo.send(JSON.stringify({ type: 'gateway.sessions', gatewayId: 'gateway-two', sessions: [sessionTwo] }));
     const scopedSessions = await scopedSessionsPromise;
-    assert.deepEqual(scopedSessions.sessions, [sessionOne]);
-
-    const listRequestPromise = waitForJson(gatewayOne, (message) => message.type === 'client.list');
-    client.send(JSON.stringify({ type: 'client.list' }));
-    const listRequest = await listRequestPromise;
-    assert.equal(typeof listRequest.clientId, 'string');
+    assert.deepEqual(scopedSessions.sessions, [sessionOne, sessionTwo]);
 
     const remainingSessionsPromise = waitForJson(
       client,
@@ -989,6 +981,18 @@ test('relay rejects cross-account session list and wrong-session ticket subscrib
       type: 'gateway.sessions',
       gatewayId: 'gateway-test',
       sessions: [
+        {
+          id: 'tth_other_account',
+          provider: 'codex',
+          title: 'Other Account',
+          projectPath: process.cwd(),
+          accountId: 'acct_2',
+          gatewayId: 'gateway-test',
+          userId: 'user_1',
+          status: 'running',
+          transport: 'pty-event-stream',
+          lastActiveAt: Date.now()
+        }
       ]
     }));
 
@@ -1066,8 +1070,8 @@ test('relay rejects unscoped sessions for legacy secret clients', async () => {
     assert.deepEqual(sessions.sessions, []);
 
     client.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_legacy_unscoped', after: 0, mode: 'control' }));
-    const error = await waitForJson(client, (message) => message.type === 'error' && message.code === 'gateway_unavailable');
-    assert.equal(error.message, 'gateway is not connected');
+    const error = await waitForJson(client, (message) => message.type === 'error' && message.code === 'forbidden');
+    assert.equal(error.message, 'session is outside client scope');
   } finally {
     gateway.close();
     client.close();
@@ -1088,6 +1092,18 @@ test('relay rejects observe tickets that send control frames', async () => {
       type: 'gateway.sessions',
       gatewayId: 'gateway-test',
       sessions: [
+        {
+          id: 'tth_ticket_test',
+          provider: 'codex',
+          title: 'Ticket Test',
+          projectPath: process.cwd(),
+          accountId: 'acct_1',
+          gatewayId: 'gateway-test',
+          userId: 'user_1',
+          status: 'running',
+          transport: 'pty-event-stream',
+          lastActiveAt: Date.now()
+        }
       ]
     }));
     await waitForJson(ticketClient, (message) => message.type === 'sessions');
@@ -1193,6 +1209,15 @@ test('relay routes client frames to matching account gateway only', async () => 
     port: 0,
     secret: SECRET,
     validateToken: async (token) => {
+      if (token === GW_TOKEN_1) {
+        return { accountId: 'acct_1', gatewayId: 'gateway-acct1', userId: 'user_1', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw_1' };
+      }
+      if (token === GW_TOKEN_2) {
+        return { accountId: 'acct_2', gatewayId: 'gateway-acct2', userId: 'user_2', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw_2' };
+      }
+      if (token === CLIENT_TOKEN_1) {
+        return { accountId: 'acct_1', userId: 'user_1', tokenClass: 'normal_client_access', expiresAt: Date.now() + 60_000, jti: 'jti_client_1' };
+      }
       return undefined;
     }
   });
@@ -1217,7 +1242,7 @@ test('relay routes client frames to matching account gateway only', async () => 
     await waitForJson(client, (m) => m.type === 'client.auth.ok');
 
     // cwd-suggest must arrive at acct_1 gateway
-    client.send(JSON.stringify({ type: 'client.cwd-suggest', cwd: '~' }));
+    client.send(JSON.stringify({ type: 'client.cwd-suggest', cwd: '~', gatewayId: 'gateway-acct1' }));
     const frame = await waitForJson(gateway1, (m) => m.type === 'client.cwd-suggest');
     assert.equal(frame.type, 'client.cwd-suggest');
 
@@ -1297,9 +1322,9 @@ test('relay prefers matching user gateway within the same account', async () => 
     client.send(JSON.stringify({ type: 'client.auth', token: CLIENT_TOKEN_USER_3 }));
     await waitForJson(client, (m) => m.type === 'client.auth.ok');
     const hello = await helloPromise;
-    assert.equal(hello.gatewayId, 'gateway-user3');
+    assert.equal(hello.gatewayId, undefined);
 
-    client.send(JSON.stringify({ type: 'client.cwd-suggest', cwd: '~' }));
+    client.send(JSON.stringify({ type: 'client.cwd-suggest', cwd: '~', gatewayId: 'gateway-user3' }));
     const frame = await waitForJson(gatewayUser3, (m) => m.type === 'client.cwd-suggest');
     assert.equal(frame.type, 'client.cwd-suggest');
 
@@ -1371,8 +1396,8 @@ test('relay does not bind a normal client to another user gateway in the same wo
     assert.equal(statusCheck, 'isolated');
 
     client.send(JSON.stringify({ type: 'client.list-providers' }));
-    const unavailable = await waitForJson(client, (m) => m.type === 'error' && m.code === 'gateway_unavailable');
-    assert.equal(unavailable.message, 'gateway is not connected');
+    const required = await waitForJson(client, (m) => m.type === 'error' && m.code === 'gateway_required');
+    assert.equal(required.message, 'gatewayId is required in frame');
 
     const leakCheck = await Promise.race([
       waitForJson(gatewayUser5, (m) => m.type === 'client.list-providers').then(() => 'leaked'),
@@ -1397,10 +1422,13 @@ test('relay rebinds client to subscribed session gateway', async () => {
     secret: SECRET,
     validateToken: async (token) => {
       if (token === GW_TOKEN_1) {
+        return { accountId: 'acct_1', gatewayId: 'gateway-1', userId: 'user_3', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw_1' };
       }
       if (token === GW_TOKEN_2) {
+        return { accountId: 'acct_1', gatewayId: 'gateway-2', userId: 'user_4', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw_2' };
       }
       if (token === CLIENT_TOKEN_USER_3) {
+        return { accountId: 'acct_1', userId: 'user_3', tokenClass: 'normal_client_access', expiresAt: Date.now() + 60_000, jti: 'jti_client_user3' };
       }
       return undefined;
     }
@@ -1438,7 +1466,7 @@ test('relay rebinds client to subscribed session gateway', async () => {
     client.send(JSON.stringify({ type: 'client.auth', token: CLIENT_TOKEN_USER_3 }));
     await waitForJson(client, (m) => m.type === 'client.auth.ok');
     const initialHello = await initialHelloPromise;
-    assert.equal(initialHello.gatewayId, 'gateway-2');
+    assert.equal(initialHello.gatewayId, undefined);
 
     const reboundHelloPromise = waitForJson(client, (m) => m.type === 'hello' && m.gatewayId === 'gateway-1');
     const reboundStatusPromise = waitForJson(client, (m) => m.type === 'gateway.status' && m.gatewayId === 'gateway-1');
@@ -1451,6 +1479,197 @@ test('relay rebinds client to subscribed session gateway', async () => {
     gateway1.close();
     gateway2.close();
     client.close();
+    await relay.close();
+  }
+});
+
+test('phase14: client.chat without gatewayId returns gateway_required and does not route to first gateway', async () => {
+  const relay = await startRelayServer({
+    host: '127.0.0.1',
+    port: 0,
+    secret: SECRET,
+    validateToken: async (token) => {
+      if (token === 'gw-token-b') {
+        return { accountId: 'acct_b', gatewayId: 'gateway-b', userId: 'user_b', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw_b' };
+      }
+      if (token === 'client-token-a') {
+        return { accountId: 'acct_a', userId: 'user_a', tokenClass: 'normal_client_access', expiresAt: Date.now() + 60_000, jti: 'jti_client_a' };
+      }
+      return undefined;
+    }
+  });
+  const wsUrl = relay.url.replace('http', 'ws');
+  const gatewayB = new WebSocket(`${wsUrl}/ws/gateway`);
+  const clientA = new WebSocket(`${wsUrl}/ws/client`);
+
+  try {
+    await waitForOpen(gatewayB);
+    gatewayB.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-b', token: 'gw-token-b' }));
+    await waitForJson(gatewayB, (m) => m.type === 'gateway.auth.ok');
+
+    await waitForOpen(clientA);
+    clientA.send(JSON.stringify({ type: 'client.auth', token: 'client-token-a' }));
+    await waitForJson(clientA, (m) => m.type === 'client.auth.ok');
+    clientA.send(JSON.stringify({ type: 'client.chat', sessionId: null, provider: 'codex', model: 'auto', cwd: '~', message: 'hi' }));
+    const required = await waitForJson(clientA, (m) => m.type === 'error' && m.code === 'gateway_required');
+    assert.equal(required.message, 'gatewayId is required in frame');
+
+    const leakCheck = await Promise.race([
+      waitForJson(gatewayB, (m) => m.type === 'client.chat').then(() => 'leaked'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('isolated'), 300))
+    ]);
+    assert.equal(leakCheck, 'isolated');
+  } finally {
+    gatewayB.close();
+    clientA.close();
+    await relay.close();
+  }
+});
+
+test('phase14: client.chat with another account gatewayId returns gateway_unauthorized', async () => {
+  const relay = await startRelayServer({
+    host: '127.0.0.1',
+    port: 0,
+    secret: SECRET,
+    validateToken: async (token) => {
+      if (token === 'gw-token-b') {
+        return { accountId: 'acct_b', gatewayId: 'gateway-b', userId: 'user_b', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw_b' };
+      }
+      if (token === 'client-token-a') {
+        return { accountId: 'acct_a', userId: 'user_a', tokenClass: 'normal_client_access', expiresAt: Date.now() + 60_000, jti: 'jti_client_a' };
+      }
+      return undefined;
+    }
+  });
+  const wsUrl = relay.url.replace('http', 'ws');
+  const gatewayB = new WebSocket(`${wsUrl}/ws/gateway`);
+  const clientA = new WebSocket(`${wsUrl}/ws/client`);
+
+  try {
+    await waitForOpen(gatewayB);
+    gatewayB.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-b', token: 'gw-token-b' }));
+    await waitForJson(gatewayB, (m) => m.type === 'gateway.auth.ok');
+
+    await waitForOpen(clientA);
+    clientA.send(JSON.stringify({ type: 'client.auth', token: 'client-token-a' }));
+    await waitForJson(clientA, (m) => m.type === 'client.auth.ok');
+    clientA.send(JSON.stringify({ type: 'client.chat', sessionId: null, provider: 'codex', model: 'auto', cwd: '~', message: 'hi', gatewayId: 'gateway-b' }));
+    const unauthorized = await waitForJson(clientA, (m) => m.type === 'error' && m.code === 'gateway_unauthorized');
+    assert.equal(unauthorized.message, 'gateway does not belong to client account/user');
+
+    const leakCheck = await Promise.race([
+      waitForJson(gatewayB, (m) => m.type === 'client.chat').then(() => 'leaked'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('isolated'), 300))
+    ]);
+    assert.equal(leakCheck, 'isolated');
+  } finally {
+    gatewayB.close();
+    clientA.close();
+    await relay.close();
+  }
+});
+
+test('phase14: client.list-providers with matching gatewayId routes only to that gateway', async () => {
+  const relay = await startRelayServer({
+    host: '127.0.0.1',
+    port: 0,
+    secret: SECRET,
+    validateToken: async (token) => {
+      if (token === 'gw-token-b') {
+        return { accountId: 'acct_b', gatewayId: 'gateway-b', userId: 'user_b', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw_b' };
+      }
+      if (token === 'gw-token-a') {
+        return { accountId: 'acct_a', gatewayId: 'gateway-a', userId: 'user_a', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw_a' };
+      }
+      if (token === 'client-token-a') {
+        return { accountId: 'acct_a', userId: 'user_a', tokenClass: 'normal_client_access', expiresAt: Date.now() + 60_000, jti: 'jti_client_a' };
+      }
+      return undefined;
+    }
+  });
+  const wsUrl = relay.url.replace('http', 'ws');
+  const gatewayB = new WebSocket(`${wsUrl}/ws/gateway`);
+  const gatewayA = new WebSocket(`${wsUrl}/ws/gateway`);
+  const clientA = new WebSocket(`${wsUrl}/ws/client`);
+
+  try {
+    await waitForOpen(gatewayB);
+    gatewayB.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-b', token: 'gw-token-b' }));
+    await waitForJson(gatewayB, (m) => m.type === 'gateway.auth.ok');
+
+    await waitForOpen(gatewayA);
+    gatewayA.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-a', token: 'gw-token-a' }));
+    await waitForJson(gatewayA, (m) => m.type === 'gateway.auth.ok');
+
+    await waitForOpen(clientA);
+    clientA.send(JSON.stringify({ type: 'client.auth', token: 'client-token-a' }));
+    await waitForJson(clientA, (m) => m.type === 'client.auth.ok');
+    clientA.send(JSON.stringify({ type: 'client.list-providers', gatewayId: 'gateway-a' }));
+    const routed = await waitForJson(gatewayA, (m) => m.type === 'client.list-providers');
+    assert.equal(routed.type, 'client.list-providers');
+
+    const leakCheck = await Promise.race([
+      waitForJson(gatewayB, (m) => m.type === 'client.list-providers').then(() => 'leaked'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('isolated'), 300))
+    ]);
+    assert.equal(leakCheck, 'isolated');
+  } finally {
+    gatewayA.close();
+    gatewayB.close();
+    clientA.close();
+    await relay.close();
+  }
+});
+
+test('phase14: client auth does not implicitly bind to connected gateway status', async () => {
+  const relay = await startRelayServer({
+    host: '127.0.0.1',
+    port: 0,
+    secret: SECRET,
+    validateToken: async (token) => {
+      if (token === 'gw-token-b') {
+        return { accountId: 'acct_b', gatewayId: 'gateway-b', userId: 'user_b', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw_b' };
+      }
+      if (token === 'client-token-a') {
+        return { accountId: 'acct_a', userId: 'user_a', tokenClass: 'normal_client_access', expiresAt: Date.now() + 60_000, jti: 'jti_client_a' };
+      }
+      return undefined;
+    }
+  });
+  const wsUrl = relay.url.replace('http', 'ws');
+  const gatewayB = new WebSocket(`${wsUrl}/ws/gateway`);
+  const clientA = new WebSocket(`${wsUrl}/ws/client`);
+
+  try {
+    await waitForOpen(gatewayB);
+    gatewayB.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-b', token: 'gw-token-b' }));
+    await waitForJson(gatewayB, (m) => m.type === 'gateway.auth.ok');
+
+    await waitForOpen(clientA);
+    const helloPromise = waitForJson(clientA, (m) => m.type === 'hello');
+    clientA.send(JSON.stringify({ type: 'client.auth', token: 'client-token-a' }));
+    await waitForJson(clientA, (m) => m.type === 'client.auth.ok');
+    const hello = await helloPromise;
+    assert.equal(hello.gatewayId, undefined);
+
+    const statusCheck = await Promise.race([
+      waitForJson(clientA, (m) => m.type === 'gateway.status' && m.gatewayId === 'gateway-b').then(() => 'leaked'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('isolated'), 300))
+    ]);
+    assert.equal(statusCheck, 'isolated');
+
+    clientA.send(JSON.stringify({ type: 'client.list-providers' }));
+    const required = await waitForJson(clientA, (m) => m.type === 'error' && m.code === 'gateway_required');
+    assert.equal(required.message, 'gatewayId is required in frame');
+
+    const leakCheck = await Promise.race([
+      waitForJson(gatewayB, (m) => m.type === 'client.list-providers').then(() => 'leaked'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('isolated'), 300))
+    ]);
+    assert.equal(leakCheck, 'isolated');
+  } finally {
+    gatewayB.close();
+    clientA.close();
     await relay.close();
   }
 });

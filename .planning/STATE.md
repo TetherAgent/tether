@@ -4,14 +4,14 @@ milestone: v0.3
 milestone_name: milestone
 status: Phase 15 automated execution complete; human UAT pending
 stopped_at: Completed Phase 15 automated execution; human UAT pending
-last_updated: "2026-05-11T04:51:30.520Z"
-last_activity: 2026-05-11 -- Phase 15 automated execution complete; human UAT pending
+last_updated: "2026-05-11T06:17:01.803Z"
+last_activity: 2026-05-11
 progress:
   total_phases: 15
   completed_phases: 7
-  total_plans: 56
-  completed_plans: 51
-  percent: 91
+  total_plans: 57
+  completed_plans: 57
+  percent: 100
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-01)
 
 **Core value:** 在 agent session 场景里，本地体验对齐 tmux，并在历史回放、多端接管、审计、手机/Web/App 接入上超越 tmux。
-**Current focus:** Phase 15 — chat-remote-session-metadata
+**Current focus:** Phase 14 — multi-device-gateway-routing
 
 ## Current Position
 
-Phase: 15 (chat-remote-session-metadata) — AUTOMATED EXECUTION COMPLETE; HUMAN UAT PENDING
+Phase: 14 (multi-device-gateway-routing) — EXECUTING
 Plan: 6 of 6
 Next: human UAT / verify-work for Phase 15
-Last activity: 2026-05-11 -- Phase 15 automated execution complete; human UAT pending
+Last activity: 2026-05-11
 
-Progress: [█████████░] 91%
+Progress: [██████████] 100%
 
 ## Quick Tasks Completed
 
@@ -65,6 +65,12 @@ Progress: [█████████░] 91%
 | Phase 11 P02 | 7min | 2 tasks | 5 files |
 | Phase 11 P03 | 4min | 2 tasks | 3 files |
 | Phase 11 P04 | 8min | 3 tasks | 12 files |
+| Phase 14 P01 | 16min | 1 tasks | 1 files |
+| Phase 14 P02 | 18min | 2 tasks | 6 files |
+| Phase 14 P03 | 24min | 3 tasks | 4 files |
+| Phase 14 P04 | 15min | 2 tasks | 2 files |
+| Phase 14 P05 | 45min | 2 tasks | 2 files |
+| Phase 14 P06 | 30min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
