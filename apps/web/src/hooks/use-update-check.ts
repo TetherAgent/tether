@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useAuth } from './use-auth.js';
 
 const NPM_PACKAGE = '@tether-labs/cli';
 const DISMISSED_KEY = 'tether:dismissedUpdateVersion';
@@ -29,6 +30,8 @@ async function fetchLatestFromNpm(): Promise<string | null> {
 }
 
 export function useUpdateCheck(): UpdateStatus & { dismiss: () => void } {
+  const { normalAuth } = useAuth();
+  const currentVersion = normalAuth?.identity?.app?.version ?? null;
   const [status, setStatus] = React.useState<UpdateStatus>({
     currentVersion: null,
     latestVersion: null,
@@ -40,16 +43,12 @@ export function useUpdateCheck(): UpdateStatus & { dismiss: () => void } {
 
     async function check() {
       try {
-        const [statusRes, latest] = await Promise.all([
-          fetch('/api/status').then((r) => r.json() as Promise<{ version?: string }>).catch(() => ({} as { version?: string })),
-          fetchLatestFromNpm()
-        ]);
+        const latest = await fetchLatestFromNpm();
         if (cancelled) return;
 
-        const current = statusRes.version ?? null;
         const dismissed = localStorage.getItem(DISMISSED_KEY);
-        const hasUpdate = Boolean(current && latest && current !== latest && dismissed !== latest);
-        setStatus({ currentVersion: current, latestVersion: latest, hasUpdate });
+        const hasUpdate = Boolean(currentVersion && latest && currentVersion !== latest && dismissed !== latest);
+        setStatus({ currentVersion, latestVersion: latest, hasUpdate });
       } catch {
         // ignore — version check is best-effort
       }
@@ -57,7 +56,7 @@ export function useUpdateCheck(): UpdateStatus & { dismiss: () => void } {
 
     void check();
     return () => { cancelled = true; };
-  }, []);
+  }, [currentVersion]);
 
   const dismiss = React.useCallback(() => {
     setStatus((prev) => {

@@ -1,5 +1,7 @@
 import { Controller } from 'egg';
 
+const APP_VERSION = process.env.TETHER_APP_VERSION ?? process.env.npm_package_version ?? '0.0.0-dev';
+
 export default class AuthController extends Controller {
   public async register(): Promise<void> {
     const { ctx } = this;
@@ -47,6 +49,11 @@ export default class AuthController extends Controller {
   public async me(): Promise<void> {
     const { ctx } = this;
     const data = await ctx.service.auth.currentUserFromToken(ctx.get('authorization'));
-    ctx.success(data);
+    ctx.success({
+      ...data,
+      app: {
+        version: APP_VERSION
+      }
+    });
   }
 }

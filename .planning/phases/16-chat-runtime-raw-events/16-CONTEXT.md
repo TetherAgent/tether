@@ -14,12 +14,13 @@
 3. Gateway 侧 agent.delta 从 event.id=0 改为真实的 per-session 递增 id
 4. Relay 侧 agent.delta 进入 runtime sync（调用 syncToServer）
 5. Server 侧新增独立写入路径，chat events 只写新表，不再写旧的 `gateway_runtime_events`
+6. **断线 catch-up**：客户端重连时携带 `lastDeltaEventId`，Relay 从 Server 拉取缺口 delta 补给客户端
 
 **明确不在本阶段内：**
 - PTY terminal events 写入路径不变（仍走 `gateway_runtime_events`）
 - 历史存量数据不做迁移（旧行留在 gateway_runtime_events）
 - delta buffer / batch insert（直写 MySQL，后续如有压力再加）
-- Web 读取路径不变（聊天历史仍读 gateway_chat_messages）
+- 聊天历史展示逻辑不变（仍读 gateway_chat_messages，但 messages API 响应新增 `lastEventId` 元数据字段供 catch-up 使用）
 - gateway_runtime_events 表不删除
 
 </domain>
@@ -52,6 +53,18 @@
   2. `gateway_chat_messages` 的 `raw_json` 字段更新（仅 user.message / agent.result）
 - **D-11:** `upsertRuntimeEvent` 的 transport 判断：runtime-sync controller 在 `body.scope.transport === 'chat'` 时调用 `upsertChatRuntimeEvent`，否则调用原有 `upsertRuntimeEvent`。
 
+### 断线 catch-up
+
+- **D-12:** Server 新增读接口 `GET /api/relay/chat-events/:sessionId?after=N`，从 `gateway_runtime_chats_events` 读 `event_type = 'agent.delta' AND event_id > N` 的行，按 `event_id` 升序返回。该接口加入 Relay 的 `serverSyncUrl` 白名单（与现有 runtime-sync 接口同源）。
+- **D-13:** Relay 在处理 `client.subscribe` for chat session 时，若 session 状态为 `running`，调用上述接口拉取 `after = frame.after`（可为 0）的缺口 delta，逐条以 `agent.delta` 帧格式推给客户端，之后恢复正常实时流。session 为非 running 状态时跳过 catch-up。
+- **D-14:** Client（chat-panel.tsx）维护 `lastDeltaEventIdRef`，有两个写入点：
+  1. 每次收到 `agent.delta` 帧时，若帧携带 `eventId` 且大于当前值则更新（实时跟踪；帧需携带 `eventId`，见 D-17）
+  2. 加载聊天历史时（`fetchChatMessages` 返回后），用最后一条 assistant 消息的 `lastEventId` 初始化（页面刷新后仍有正确起点）
+  发 `client.subscribe` 时将 `lastDeltaEventIdRef.current` 作为 `after` 字段传出（无历史时传 0）。
+- **D-15:** catch-up 只补 delta 事件。`agent.result` 由正常的聊天历史 REST 接口加载，不走此路径。
+- **D-16:** `GET /api/server/sessions/:id/messages` 响应在顶层补 `lastEventId` 字段（取最后一条 assistant 消息 `gateway_chat_messages.raw_json` 里的 `id`），供 Client 初始化 `lastDeltaEventIdRef`。若 `raw_json` 为空或无 assistant 消息则返回 0。
+- **D-17:** Relay 发给 Client 的 `agent.delta` 帧新增 `eventId` 字段（来自 `frame.event.id`）。Client 用此字段去重：收到 `eventId <= lastDeltaEventIdRef.current` 的帧时丢弃，防止 catch-up 补发和实时流重叠产生重复。
+
 </decisions>
 
 <canonical_refs>
@@ -68,10 +81,16 @@
 - `apps/server/app/service/chatRepository.ts` — `gateway_chat_messages` 读取路径，确认 Phase 16 不影响它
 
 ### 现有 Relay 代码（改动目标）
-- `apps/relay/src/relay.ts` L375-384 — agent.delta 特殊处理块，syncToServer 插入点
+- `apps/relay/src/relay.ts` — agent.delta 特殊处理块（syncToServer 插入点）；catch-up 逻辑（chat subscribe with after>0 时查 Server）
 
 ### 现有 Gateway 代码（改动目标）
 - `apps/gateway/src/chat-session-runner.ts` — ChatSessionRunner，delta id 计数器在此添加
+
+### catch-up 新增代码
+- `apps/server/app/controller/chat-events.ts`（新建）— `GET /api/relay/chat-events/:sessionId` 控制器，鉴权用 relay runtime-sync secret
+- `apps/server/app/service/chatEventsRepository.ts`（新建）— 从 `gateway_runtime_chats_events` 按 session_id + event_type = 'agent.delta' + event_id > after 读取
+- `apps/web/src/components/chats/chat-panel.tsx` — 新增 `lastDeltaEventIdRef`，subscribe 时带 `after`，收 delta 时去重
+- `packages/protocol/src/` — `RelayServerToClientFrame` 的 `agent.delta` 帧新增 `eventId?: number` 字段（D-17）
 
 ### 测试参考
 - `apps/server/test/runtime-sync.test.ts` — 现有 runtime sync 测试，Phase 16 测试在此扩展
@@ -95,6 +114,7 @@
 - Relay RUNTIME_EVENT_WHITELIST（relay.ts L67）— Phase 16 **不修改**这个白名单，delta 通过 delta handler 内部直接调用 syncToServer
 - `gateway_chat_messages` 的读取 API（`/api/server/sessions/:id/messages`）— Phase 16 不改读取路径，只加 `raw_json` 列，读取时不暴露它
 - `apps/server/sql/` — Phase 16 需要在这里加 migration SQL（新表 + ALTER TABLE raw_json）和更新空库建表 SQL
+- **catch-up API 白名单**：`/api/relay/chat-events/:sessionId` 需加入 Server 路由（按 `/api/relay/` 前缀规范），Relay 用 `runtimeSyncSecret` 调用，与现有 `/api/relay/runtime-sync/` 接口同源同鉴权方式
 
 </code_context>
 
@@ -104,6 +124,7 @@
 - `gateway_runtime_chats_events.raw_json` 存的是完整 event JSON（id/type/sessionId/ts/payload），不只是 payload。敏感信息脱敏用现有 maskPayload 函数。
 - Relay 在调用 syncToServer 传 delta 时，`body.scope` 里带 `transport: 'chat'`；这个字段是 Phase 16 新增的，Server 用它区分写路径。
 - delta 的 per-session 计数器从 1 开始，与 PTY event id 独立；`(session_id, delta_event_id)` 唯一，gateway_runtime_chats_events 的唯一键约束能保证幂等重试。
+- `agent.delta` 帧的协议变更（D-17）需同步更新 `@tether/protocol` 里的 `RelayServerToClientFrame` 类型定义，新增可选字段 `eventId?: number`。
 
 </specifics>
 
