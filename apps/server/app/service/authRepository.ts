@@ -464,7 +464,7 @@ export default class AuthRepositoryService extends Service {
       return this.runtimeStore().devices.size;
     }
     const rows = await this.query(
-      "SELECT COUNT(*) AS count FROM devices WHERE revoked_at IS NULL AND token_class = 'normal_client_access'"
+      "SELECT COUNT(*) AS count FROM devices WHERE revoked_at IS NULL AND token_class = 'device_identity'"
     );
     return Number((rows as Record<string, unknown>[])[0]?.count ?? 0);
   }
@@ -490,7 +490,7 @@ export default class AuthRepositoryService extends Service {
       `SELECT d.*, u.email AS user_email
        FROM devices d
        LEFT JOIN users u ON d.user_id = u.id
-       WHERE d.token_class = 'normal_client_access'
+       WHERE d.token_class = 'device_identity'
        ORDER BY d.created_at DESC
        LIMIT ? OFFSET ?`,
       [limit, offset]
@@ -507,7 +507,7 @@ export default class AuthRepositoryService extends Service {
       return this.runtimeStore().devices.size;
     }
     const rows = await this.query(
-      "SELECT COUNT(*) AS count FROM devices WHERE token_class = 'normal_client_access'"
+      "SELECT COUNT(*) AS count FROM devices WHERE token_class = 'device_identity'"
     );
     return Number((rows as Record<string, unknown>[])[0]?.count ?? 0);
   }

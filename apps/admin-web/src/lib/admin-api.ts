@@ -30,7 +30,15 @@ export type AdminDevice = {
 
 export type AdminGateway = {
   id: string;
+  accountId: string;
+  userId: string;
+  name: string;
+  deviceKey: string | null;
+  hostname: string | null;
+  localPort: number | null;
   lastSeenAt: number | null;
+  createdAt: number | null;
+  updatedAt: number | null;
   status: 'online' | 'offline' | 'unlinked';
 };
 

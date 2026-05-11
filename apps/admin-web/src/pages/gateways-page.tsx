@@ -33,6 +33,10 @@ function formatDate(ms: number | null): string {
   return new Date(ms).toLocaleString('zh-CN', { hour12: false });
 }
 
+function EmptyValue() {
+  return <span className="text-muted-foreground">—</span>;
+}
+
 function GatewayStatusBadge({ status }: { status: 'online' | 'offline' | 'unlinked' }) {
   if (status === 'online') {
     return <Badge variant="bull">在线</Badge>;
@@ -141,8 +145,10 @@ export function GatewaysPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="text-xs font-semibold">Gateway ID</TableHead>
-                    <TableHead className="text-xs font-semibold">最后认证时间</TableHead>
+                    <TableHead className="min-w-[220px] text-xs font-semibold">Gateway</TableHead>
+                    <TableHead className="min-w-[220px] text-xs font-semibold">设备信息</TableHead>
+                    <TableHead className="min-w-[220px] text-xs font-semibold">归属</TableHead>
+                    <TableHead className="min-w-[190px] text-xs font-semibold">时间</TableHead>
                     <TableHead className="text-xs font-semibold">在线状态</TableHead>
                     <TableHead className="text-xs font-semibold">操作</TableHead>
                   </TableRow>
@@ -151,7 +157,7 @@ export function GatewaysPage() {
                   {loading
                     ? Array.from({ length: PAGE_SIZE }).map((_, i) => (
                         <TableRow key={i}>
-                          {Array.from({ length: 4 }).map((_, j) => (
+                          {Array.from({ length: 6 }).map((_, j) => (
                             <TableCell key={j}>
                               <Skeleton className="h-4 w-full" />
                             </TableCell>
@@ -161,7 +167,7 @@ export function GatewaysPage() {
                     : gateways.length === 0
                     ? (
                         <TableRow>
-                          <TableCell colSpan={4} className="p-0">
+                          <TableCell colSpan={6} className="p-0">
                             <AdminEmptyState
                               title="还没有 Gateway"
                               description="没有节点被注册进后台时，移动端或远端客户端就没有稳定的会话承载点。"
@@ -173,11 +179,34 @@ export function GatewaysPage() {
                         <TableRow key={gateway.id}>
                           <TableCell className="align-top">
                             <div className="space-y-1">
-                              <div className="font-mono text-xs text-foreground">{gateway.id}</div>
-                              <div className="text-xs text-muted-foreground">会话发布节点</div>
+                              <div className="font-medium text-foreground">{gateway.name || '会话发布节点'}</div>
+                              <div className="font-mono text-xs text-muted-foreground">ID {gateway.id}</div>
+                              {gateway.deviceKey ? (
+                                <div className="font-mono text-xs text-muted-foreground">Key {gateway.deviceKey}</div>
+                              ) : null}
                             </div>
                           </TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{formatDate(gateway.lastSeenAt)}</TableCell>
+                          <TableCell className="align-top">
+                            <div className="space-y-1 text-sm">
+                              <div className="text-foreground">{gateway.hostname || <EmptyValue />}</div>
+                              <div className="text-xs text-muted-foreground">
+                                本地端口 {gateway.localPort ?? '—'}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="align-top">
+                            <div className="space-y-1">
+                              <div className="font-mono text-xs text-muted-foreground">Account {gateway.accountId}</div>
+                              <div className="font-mono text-xs text-muted-foreground">User {gateway.userId}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="align-top">
+                            <div className="space-y-1 text-xs text-muted-foreground">
+                              <div>最后认证 {formatDate(gateway.lastSeenAt)}</div>
+                              <div>创建 {formatDate(gateway.createdAt)}</div>
+                              <div>更新 {formatDate(gateway.updatedAt)}</div>
+                            </div>
+                          </TableCell>
                           <TableCell><GatewayStatusBadge status={gateway.status} /></TableCell>
                           <TableCell>
                             {gateway.status !== 'unlinked' ? (

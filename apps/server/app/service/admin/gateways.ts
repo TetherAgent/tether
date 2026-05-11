@@ -10,8 +10,16 @@ export default class AdminGatewaysService extends Service {
     return {
       gateways: gateways.map(g => ({
         id: g.id,
+        accountId: g.accountId,
+        userId: g.userId,
+        name: g.name,
+        deviceKey: g.deviceKey ?? null,
+        hostname: g.hostname ?? null,
+        localPort: g.localPort ?? null,
         lastSeenAt: g.lastSeenAt,
-        status: g.status
+        createdAt: g.createdAt,
+        updatedAt: g.updatedAt,
+        status: g.status === 'revoked' ? 'unlinked' : g.status
       })),
       total
     };
