@@ -188,6 +188,16 @@ export default class RuntimeSyncRepositoryService extends Service {
     });
   }
 
+  public async updateSessionLastActiveAt(sessionId: string): Promise<void> {
+    if (!this.mysqlModeEnabled()) {
+      return;
+    }
+    await this.ctx.service.db.query(
+      'UPDATE gateway_sessions SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [sessionId]
+    );
+  }
+
   public async upsertSyncCursor(
     sessionId: string,
     lastEventId: number | null,
@@ -252,6 +262,10 @@ export default class RuntimeSyncRepositoryService extends Service {
         usageJson,
         this.toDate(createdAt)
       ]
+    );
+    await db.query(
+      'UPDATE gateway_sessions SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [sessionId]
     );
   }
 
