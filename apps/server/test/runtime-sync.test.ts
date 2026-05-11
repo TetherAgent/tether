@@ -84,6 +84,44 @@ describe('test/runtime-sync.test.ts', () => {
     })
   })
 
+  it('runtimeSyncRepository.upsertGatewaySession — 用户自定义标题不被 Gateway 同步覆盖', async () => {
+    const queries: Array<{ sql: string; values?: any[] }> = []
+    const db = ctx.service.db as unknown as {
+      mysqlModeEnabled: () => boolean
+      transaction: <T>(run: (connection: { query: (sql: string, values?: any[]) => Promise<unknown> }) => Promise<T>) => Promise<T>
+    }
+    db.mysqlModeEnabled = () => true
+    db.transaction = async run => {
+      const connection = {
+        query: async (sql: string, values?: any[]) => {
+          queries.push({ sql, values })
+          if (/SELECT session_id FROM gateway_deleted_sessions/.test(sql)) {
+            return []
+          }
+          return { affectedRows: 1 }
+        }
+      }
+      return await run(connection)
+    }
+
+    await ctx.service.runtimeSyncRepository.upsertGatewaySession(
+      {
+        id: 'tth_title_sync',
+        provider: 'claude',
+        title: 'Gateway 旧标题',
+        status: 'running',
+        transport: 'chat',
+        userId: 'user_1'
+      },
+      { accountId: 'acct_1', gatewayId: 'gw_1' }
+    )
+
+    const upsert = queries.find(query => /INSERT INTO gateway_sessions/.test(query.sql))
+    assert(upsert)
+    assert.match(upsert.sql, /title = IF\(title_source = 'user', title, VALUES\(title\)\)/)
+    assert.match(upsert.sql, /title_source = COALESCE\(title_source, 'gateway'\)/)
+  })
+
   it('runtimeSyncRepository.upsertRuntimeEvent — 非白名单事件不写入', async () => {
     const scope = { accountId: 'acct_1', gatewayId: 'gw_1' }
     await assert.doesNotReject(async () => {

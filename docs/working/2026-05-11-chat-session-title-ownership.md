@@ -51,7 +51,10 @@ Web 改名时，Server 写：
 ```sql
 UPDATE gateway_sessions
 SET title = ?, title_source = 'user', updated_at = CURRENT_TIMESTAMP
-WHERE id = ? AND account_id = ? AND user_id = ?
+WHERE id = ?
+  AND account_id = ?
+  AND user_id = ?
+  AND transport = 'chat'
 ```
 
 必须检查 affected rows：
@@ -171,20 +174,20 @@ WHERE id = ?
 
 ## TODO
 
-- [ ] 新增 DB migration：`gateway_sessions.title_source VARCHAR(32) NOT NULL DEFAULT 'gateway'`
-- [ ] migration 做幂等处理：重复执行不会因 `ADD COLUMN` 报错
+- [x] 新增 DB migration：`gateway_sessions.title_source VARCHAR(32) NOT NULL DEFAULT 'gateway'`
+- [x] migration 做幂等处理：重复执行不会因 `ADD COLUMN` 报错
 - [ ] 确认本地 MySQL schema 初始化不破坏现有表结构
-- [ ] 修改 `chatRepository.renameSession()`：写入 `title_source = 'user'`
-- [ ] 修改 `chatRepository.renameSession()`：检查 affected rows，未命中返回错误
-- [ ] 修改 `chatRepository.renameSession()`：`WHERE` 增加 `transport = 'chat'`
-- [ ] 修改 `runtimeSyncRepository.upsertGatewaySession()`：`title_source = 'user'` 时保留 Server title
-- [ ] 明确不修改 `agent_session_id` 的所有权：仍由 Gateway/runtime 更新
-- [ ] 补 server 单测：用户 rename 后再次 runtime sync 旧 title，不应覆盖
-- [ ] 补 server 单测：未 rename 的 gateway title 仍可正常同步
-- [ ] 补 server 单测：rename 不存在或无权限 session 不能返回 ok
-- [ ] 补 server 单测：非 chat session 不能通过 chat rename 改名
+- [x] 修改 `chatRepository.renameSession()`：写入 `title_source = 'user'`
+- [x] 修改 `chatRepository.renameSession()`：检查 affected rows，未命中返回错误
+- [x] 修改 `chatRepository.renameSession()`：`WHERE` 增加 `transport = 'chat'`
+- [x] 修改 `runtimeSyncRepository.upsertGatewaySession()`：`title_source = 'user'` 时保留 Server title
+- [x] 明确不修改 `agent_session_id` 的所有权：仍由 Gateway/runtime 更新
+- [x] 补 server 单测：用户 rename 后再次 runtime sync 旧 title，不应覆盖
+- [x] 补 server 单测：未 rename 的 gateway title 仍可正常同步
+- [x] 补 server 单测：rename 不存在或无权限 session 不能返回 ok
+- [x] 补 server 单测：非 chat session 不能通过 chat rename 改名
 - [ ] 补 schema 测试或启动验证：重复执行 migration 不因 `title_source` 已存在失败
-- [ ] 前端 rename 失败时保留现有回滚策略：重新 `loadSessions()`
+- [x] 前端 rename 失败时保留现有回滚策略：重新 `loadSessions()`
 - [ ] 人工验证 Web 列表：改名后刷新、重连、Gateway 重启后仍显示用户标题
 
 ## 验证项目

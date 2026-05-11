@@ -52,6 +52,16 @@ export default class ChatRepositoryService extends Service {
     return typeof value === 'string' && value ? value : undefined;
   }
 
+  private hasAffectedRows(value: unknown): boolean {
+    return Boolean(
+      value &&
+      typeof value === 'object' &&
+      'affectedRows' in value &&
+      typeof (value as { affectedRows?: unknown }).affectedRows === 'number' &&
+      (value as { affectedRows: number }).affectedRows > 0
+    );
+  }
+
   public async listChatSessions(accountId: string, userId: string): Promise<ChatSessionRecord[]> {
     if (!this.mysqlModeEnabled()) {
       return [];
@@ -69,11 +79,14 @@ export default class ChatRepositoryService extends Service {
 
   public async renameSession(sessionId: string, accountId: string, userId: string, title: string): Promise<void> {
     if (!this.mysqlModeEnabled()) return;
-    await this.ctx.service.db.query(
-      `UPDATE gateway_sessions SET title = ?, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND account_id = ? AND user_id = ?`,
+    const result = await this.ctx.service.db.query(
+      `UPDATE gateway_sessions SET title = ?, title_source = 'user', updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND account_id = ? AND user_id = ? AND transport = 'chat'`,
       [title, sessionId, accountId, userId]
     );
+    if (!this.hasAffectedRows(result)) {
+      this.ctx.throw(404, 'Session not found or access denied');
+    }
   }
 
   public async deleteSession(sessionId: string, accountId: string, userId: string): Promise<void> {

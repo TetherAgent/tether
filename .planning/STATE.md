@@ -32,6 +32,12 @@ Last activity: 2026-05-10 -- Phase 13 execution complete
 
 Progress: [█████████░] 90%
 
+## Quick Tasks Completed
+
+| Date | Quick ID | Task | Summary |
+|------|----------|------|---------|
+| 2026-05-11 | 260511-gd9 | Chat session title ownership | Added `title_source` protection so Web-renamed chat titles are not overwritten by Gateway runtime sync; see `.planning/quick/260511-gd9-docs-working-2026-05-11-chat-session-tit/260511-gd9-SUMMARY.md`. |
+
 ## Performance Metrics
 
 **Velocity:**
