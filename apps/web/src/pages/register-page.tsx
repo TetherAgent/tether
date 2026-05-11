@@ -11,9 +11,9 @@ import { useAuth } from '../hooks/use-auth.js';
 import { useI18n } from '../hooks/use-i18n.js';
 
 type FormValues = {
-  displayName: string;
   email: string;
   password: string;
+  confirmPassword: string;
 };
 
 export function RegisterPage() {
@@ -22,23 +22,29 @@ export function RegisterPage() {
   const { t } = useI18n();
   const [error, setError] = React.useState<string | null>(null);
   const schema = React.useMemo(() => z.object({
-    displayName: z.string().trim().min(2, t.displayNameMinLength),
     email: z.string().min(1, t.emailRequired),
-    password: z.string().min(8, t.passwordMinLength)
-  }), [t.displayNameMinLength, t.emailRequired, t.passwordMinLength]);
+    password: z.string().min(8, t.passwordMinLength),
+    confirmPassword: z.string().min(8, t.passwordMinLength)
+  }).refine((values) => values.password === values.confirmPassword, {
+    path: ['confirmPassword'],
+    message: t.passwordConfirmMismatch
+  }), [t.emailRequired, t.passwordConfirmMismatch, t.passwordMinLength]);
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      displayName: '',
       email: '',
-      password: ''
+      password: '',
+      confirmPassword: ''
     }
   });
 
   const submit = form.handleSubmit(async (values) => {
     setError(null);
     try {
-      await registerNormal(values);
+      await registerNormal({
+        email: values.email,
+        password: values.password
+      });
       logoutNormal();
       navigate('/login', { replace: true });
     } catch (submitError) {
@@ -66,19 +72,6 @@ export function RegisterPage() {
         <form className="auth-form-stack" onSubmit={submit}>
           <FormField
             control={form.control}
-            name="displayName"
-            render={({ field }) => (
-              <FormItem className="auth-form-field">
-                <FormLabel>{t.displayNameLabel}</FormLabel>
-                <FormControl>
-                  <Input placeholder={t.displayNamePlaceholder} {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
             name="email"
             render={({ field }) => (
               <FormItem className="auth-form-field">
@@ -98,6 +91,19 @@ export function RegisterPage() {
                 <FormLabel>{t.passwordLabel}</FormLabel>
                 <FormControl>
                   <Input placeholder={t.passwordPlaceholder} type="password" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="confirmPassword"
+            render={({ field }) => (
+              <FormItem className="auth-form-field">
+                <FormLabel>{t.passwordConfirmLabel}</FormLabel>
+                <FormControl>
+                  <Input placeholder={t.passwordConfirmPlaceholder} type="password" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>

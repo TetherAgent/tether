@@ -4,7 +4,6 @@ import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-do
 import { useAuth } from './hooks/use-auth.js';
 import { readStoredNormalAuth } from './lib/api.js';
 import { GatewayAuthPage } from './pages/gateway-auth-page.js';
-import { LandingPage } from './pages/landing-page.js';
 import { LoginPage } from './pages/login-page.js';
 import { RegisterPage } from './pages/register-page.js';
 import { ChatsPage } from './pages/chats-page.js';
@@ -34,7 +33,6 @@ export function WebRoutes({ sessionListSurface, renderSessionView }: WebRoutesPr
         )}
       />
       <Route path="/" element={<Navigate replace to="/chats" />} />
-      <Route path="/landing" element={<LandingPage />} />
       <Route path="/gateway-auth" element={<GatewayAuthPage />} />
       <Route
         path="/sessions"

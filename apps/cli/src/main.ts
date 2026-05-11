@@ -48,6 +48,7 @@ import {
 } from '@tether/gateway';
 import { defaultDbPath } from '@tether/gateway/store';
 import { isProviderName, PROVIDERS, type ProviderDefinition } from '@tether/core';
+import * as terminal from './terminal.js';
 import { buildCreateSessionPayload } from './forwarding.js';
 import {
   gatewayRuntimeJsonPath,
@@ -226,7 +227,7 @@ gatewayCommand
   .description('通过 launchd 停止 Gateway')
   .action(async () => {
     await stopLaunchAgent();
-    console.log('Gateway 已停止。');
+    terminal.success('Gateway 已停止。');
   });
 
 gatewayCommand
@@ -235,7 +236,7 @@ gatewayCommand
   .action(async () => {
     await stopLaunchAgent();
     await startGatewayBackground();
-    console.log('Gateway 已重启。');
+    terminal.success('Gateway 已重启。');
   });
 
 gatewayCommand
@@ -587,7 +588,7 @@ async function startGatewayBackground(): Promise<void> {
     const existing = readTetherConfig();
     const next: TetherConfig = { ...defaultTetherConfig(chosen), providers: existing.providers };
     await writeTetherConfig(next);
-    console.log(`配置已写入：${configPath()}`);
+    terminal.success(`配置已写入：${configPath()}`);
     profile ??= chosen;
   }
   profile ??= 'relay';
@@ -596,14 +597,15 @@ async function startGatewayBackground(): Promise<void> {
   const status = await startLaunchAgent({ env: { ...process.env, TETHER_GATEWAY_PROFILE: profile } });
   const gatewayStatus = await waitForStartedGateway(profile);
   if (!before.installed) {
-    console.log(`LaunchAgent 已安装：${status.path}`);
+    terminal.success(`LaunchAgent 已安装：${status.path}`);
   }
-  console.log(`启动模式: ${profile}`);
-  console.log(`Gateway 状态: 运行中 (${stringValue(gatewayStatus.url) ?? 'URL 未知'})`);
+  terminal.section('Gateway 启动');
+  terminal.line('启动模式', profile);
+  terminal.line('Gateway 状态', `运行中 (${stringValue(gatewayStatus.url) ?? 'URL 未知'})`);
   if (profile === 'relay') {
-    console.log(`Relay 连接: ${stringValue(gatewayStatus.relay?.state) ?? '未知'}`);
+    terminal.line('Relay 连接', formatRelayConnectionState(stringValue(gatewayStatus.relay?.state)));
   }
-  console.log(`Gateway 已在后台启动：${status.path}`);
+  terminal.success(`Gateway 已在后台启动：${status.path}`);
 }
 
 async function startGatewayForeground(profile?: GatewayProfileName): Promise<void> {
@@ -625,17 +627,18 @@ async function startGatewayForeground(profile?: GatewayProfileName): Promise<voi
     relay: relayConfig(file, resolved.profile),
     config: file
   });
-  console.log(`Gateway 模式: ${resolved.profile}`);
-  console.log(`Tether Gateway: ${daemon.url}`);
+  terminal.section('Gateway 前台运行');
+  terminal.line('Gateway 模式', resolved.profile);
+  terminal.line('Tether Gateway', daemon.url);
   if (resolved.profile === 'direct') {
-    console.log(`Web 直连地址: http://${localLanAddress() ?? '你的Mac局域网IP'}:${resolved.gateway.port}`);
+    terminal.line('Web 直连地址', `http://${localLanAddress() ?? '你的Mac局域网IP'}:${resolved.gateway.port}`);
   }
   if (resolved.relay) {
-    console.log(`Relay: ${resolved.relay.url}`);
+    terminal.line('Relay', resolved.relay.url);
   } else {
-    console.log('Relay: 未启用');
+    terminal.line('Relay', '未启用');
   }
-  console.log('Gateway 正在运行。按 Ctrl-C 停止。');
+  terminal.success('Gateway 正在运行。按 Ctrl-C 停止。');
   await waitForShutdown();
   await daemon.close();
 }
@@ -648,7 +651,7 @@ async function ensureGatewayAuthForProfile(profile: GatewayProfileName): Promise
   if (existing && existing.expiresAt > Date.now()) {
     return;
   }
-  console.log(profile === 'relay'
+  terminal.warn(profile === 'relay'
     ? 'Relay 模式需要先绑定 Gateway 账号。'
     : 'Direct 模式需要先绑定 Gateway 账号。');
   await performGatewayLogin({});
@@ -716,26 +719,30 @@ async function printGatewayStatus(): Promise<void> {
   const relayConfigured = booleanValue(api?.relay?.configured) ?? Boolean(relay);
   const relayState = stringValue(api?.relay?.state);
   const authSummary = await gatewayAuthSummary();
+  const deviceState = await loadOrCreateDeviceState();
+  const hostname = os.hostname();
 
-  console.log('Gateway 状态');
-  console.log(`默认模式: ${resolved.profile}`);
-  console.log(`本机 Gateway 进程: ${api ? 'running' : 'stopped/unreachable'}`);
-  console.log(`PID: ${pid ?? '-'}`);
-  console.log(`URL: ${url}`);
-  console.log(`配置文件: ${configPath()}`);
-  console.log(`Server: ${resolved.serverUrl}`);
-  console.log(`Server 登录: ${authSummary.state}`);
-  console.log(`Gateway ID: ${authSummary.gatewayId ?? '-'}`);
-  console.log(`Account ID: ${authSummary.accountId ?? '-'}`);
-  console.log(`Token 过期时间: ${authSummary.expiresAt ? new Date(authSummary.expiresAt).toLocaleString('zh-CN', { hour12: false }) : '-'}`);
-  console.log(`Host: ${host}`);
-  console.log(`Port: ${port}`);
-  console.log(`Relay 配置: ${relayConfigured ? '已配置' : '未配置'}`);
-  console.log(`Relay 连接: ${relayState ?? '未确认'}`);
-  console.log(`最近 Server 心跳: ${formatGatewayServerHeartbeat(api)}`);
-  console.log(`后台 PATH: ${formatGatewayPathStatus(api)}`);
-  console.log(`Provider 命令: ${formatProviderCommands(file)}`);
-  console.log(`LaunchAgent: ${formatLaunchAgentStatus(launchd)}`);
+  terminal.section('Gateway 状态');
+  terminal.line('默认模式', resolved.profile);
+  terminal.line('本机 Gateway 进程', api ? '运行中' : '已停止或无法连接');
+  terminal.line('PID', pid);
+  terminal.line('URL', url);
+  terminal.line('配置文件', configPath());
+  terminal.line('Server', resolved.serverUrl);
+  terminal.line('Server 登录', authSummary.state);
+  terminal.line('Gateway ID', authSummary.gatewayId);
+  terminal.line('Account ID', authSummary.accountId);
+  terminal.line('Device Key', deviceState.deviceKey);
+  terminal.line('Hostname', hostname);
+  terminal.line('Token 过期时间', authSummary.expiresAt ? new Date(authSummary.expiresAt).toLocaleString('zh-CN', { hour12: false }) : '-');
+  terminal.line('Host', host);
+  terminal.line('Port', port);
+  terminal.line('Relay 配置', relayConfigured ? '已配置' : '未配置');
+  terminal.line('Relay 连接', formatRelayConnectionState(relayState));
+  terminal.line('最近 Server 心跳', formatGatewayServerHeartbeat(api));
+  terminal.line('后台 PATH', formatGatewayPathStatus(api));
+  terminal.line('Provider 命令', formatProviderCommands(file));
+  terminal.line('LaunchAgent', formatLaunchAgentStatus(launchd));
 }
 
 async function deleteGatewayDatabase(options: { yes?: boolean }): Promise<void> {
@@ -772,13 +779,13 @@ async function deleteGatewayDatabase(options: { yes?: boolean }): Promise<void> 
   }
 
   if (deleted.length === 0) {
-    console.log(`未找到 Gateway 数据库：${dbPath}`);
+    terminal.warn(`未找到 Gateway 数据库：${dbPath}`);
     return;
   }
 
-  console.log('已删除 Gateway 数据库文件：');
+  terminal.success('已删除 Gateway 数据库文件：');
   for (const filePath of deleted) {
-    console.log(`- ${filePath}`);
+    console.log(`${terminal.color.dim('-')} ${filePath}`);
   }
 }
 
@@ -801,13 +808,31 @@ async function waitForStartedGateway(profile: GatewayProfileName): Promise<Gatew
 
   const relayState = stringValue(lastStatus?.relay?.state);
   const reason = lastStatus
-    ? `Gateway HTTP 已启动，但 Relay 连接状态是 ${relayState ?? '未知'}`
+    ? `Gateway HTTP 已启动，但 Relay 连接状态是 ${formatRelayConnectionState(relayState)}`
     : `无法连接 Gateway HTTP：${url}`;
   throw new Error(
     `${reason}。\n` +
     '请查看日志：pnpm tether gateway logs --stderr\n' +
     '当前未确认启动成功，未打印“Gateway 已在后台启动”。'
   );
+}
+
+function formatRelayConnectionState(state: string | undefined): string {
+  switch (state) {
+    case 'connected':
+      return '已连接';
+    case 'connecting':
+      return '连接中';
+    case 'disconnected':
+      return '已断开';
+    case 'auth_failed':
+      return '认证失败';
+    case undefined:
+    case '':
+      return '未确认';
+    default:
+      return state;
+  }
 }
 
 function formatGatewayPathStatus(api: GatewayStatus | undefined): string {
@@ -853,7 +878,7 @@ async function showGatewayLogs(options: { follow?: boolean; stderr?: boolean; st
     return;
   }
   for (const filePath of paths) {
-    console.log(`==> ${filePath} <==`);
+    terminal.section(`==> ${filePath} <==`);
     const text = await readFile(filePath, 'utf8').catch((error: unknown) => {
       if (isNodeError(error) && error.code === 'ENOENT') {
         return '';
@@ -861,7 +886,7 @@ async function showGatewayLogs(options: { follow?: boolean; stderr?: boolean; st
       throw error;
     });
     const lines = text.trimEnd().split('\n').filter(Boolean).slice(-80);
-    console.log(lines.length > 0 ? lines.join('\n') : '(暂无日志)');
+    console.log(lines.length > 0 ? lines.join('\n') : terminal.color.dim('(暂无日志)'));
   }
 }
 
@@ -908,7 +933,7 @@ async function runGatewayDoctor(): Promise<void> {
   pushCheck('Gateway API 可连接', Boolean(api), gatewayUrl);
   pushCheck('API session creation', gateway.allowApiSessionCreate, gateway.allowApiSessionCreate ? '已开启' : '未开启');
   pushCheck('Relay 配置', Boolean(relay), relay ? relay.url : '未配置');
-  pushCheck('Relay 连接', stringValue(api?.relay?.state) === 'connected', stringValue(api?.relay?.state) ?? '未确认');
+  pushCheck('Relay 连接', stringValue(api?.relay?.state) === 'connected', formatRelayConnectionState(stringValue(api?.relay?.state)));
   for (const provider of Object.values(PROVIDERS)) {
     const configuredCommand = (file.providers as Record<string, { command?: string } | undefined> | undefined)?.[provider.name]?.command;
     const command = configuredCommand ?? provider.command;
@@ -924,8 +949,8 @@ async function runGatewayDoctor(): Promise<void> {
   let failed = 0;
   for (const check of checks) {
     if (check.status === 'fail') failed += 1;
-    const label = check.status === 'ok' ? 'OK  ' : check.status === 'warn' ? 'WARN' : 'FAIL';
-    console.log(`${label} ${check.name}: ${check.detail}`);
+    const label = check.status === 'ok' ? terminal.color.green('通过') : check.status === 'warn' ? terminal.color.yellow('警告') : terminal.color.red('失败');
+    console.log(`${label} ${terminal.color.dim(check.name)}: ${terminal.status(check.detail)}`);
   }
   if (failed > 0) {
     process.exitCode = 1;
@@ -1452,8 +1477,8 @@ async function performGatewayLogin(options: {
   const hostname = os.hostname();
   const device = await loadOrCreateDeviceState();
   const browserUrl = `${serverUrl}/gateway-auth?port=${port}&hostname=${encodeURIComponent(hostname)}&deviceKey=${encodeURIComponent(device.deviceKey)}`;
-  console.log('正在打开浏览器进行授权...');
-  console.log(`如果浏览器未自动打开，请访问：${browserUrl}`);
+  terminal.section('正在打开浏览器进行授权...');
+  terminal.warn(`如果浏览器未自动打开，请访问：${browserUrl}`);
   openBrowser(browserUrl);
   const result = await waitForGatewayAuthCallback(port, 120_000);
   const payload = decodeTokenPayload(result.gatewayAccessToken);
@@ -1466,17 +1491,17 @@ async function performGatewayLogin(options: {
     refreshToken: result.gatewayRefreshToken,
     expiresAt: payload.expiresAt
   });
-  console.log(`Gateway 登录成功，凭据已写入：${gatewayAuthPath()}`);
-  console.log(`已绑定 Gateway ID: ${result.gatewayId}`);
-  console.log(`Account ID: ${result.accountId}`);
-  console.log('下一步：tether gateway restart');
-  console.log('查看状态：tether gateway status');
+  terminal.success(`Gateway 登录成功，凭据已写入：${gatewayAuthPath()}`);
+  terminal.line('已绑定 Gateway ID', result.gatewayId);
+  terminal.line('Account ID', result.accountId);
+  terminal.line('下一步', 'tether gateway restart');
+  terminal.line('查看状态', 'tether gateway status');
 }
 
 async function logoutGateway(): Promise<void> {
   await rm(gatewayAuthPath(), { force: true });
-  console.log(`已删除本机 Gateway 登录凭据：${gatewayAuthPath()}`);
-  console.log('服务端 Gateway 绑定未变；如需解绑，请在管理后台取消链接。');
+  terminal.success(`已删除本机 Gateway 登录凭据：${gatewayAuthPath()}`);
+  terminal.warn('服务端 Gateway 绑定未变；如需解绑，请在管理后台取消链接。');
 }
 
 function openBrowser(url: string): void {

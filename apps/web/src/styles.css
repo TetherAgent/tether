@@ -6335,6 +6335,201 @@ textarea.composer-input {
   line-height: 1.7;
 }
 
+.web-auth-terminal-ok {
+  color: #57b577;
+}
+
+.web-auth-gw-status {
+  width: min(100%, 520px);
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  background: var(--v4-card);
+  box-shadow: 0 12px 40px var(--v4-panel-shadow);
+  font-size: 12.5px;
+}
+
+.web-auth-gw-status-title {
+  padding: 8px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.web-auth-gw-status-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.web-auth-gw-status-row:last-child {
+  border-bottom: 0;
+}
+
+.web-auth-gw-status-row span:first-child {
+  color: var(--muted-foreground);
+}
+
+.web-auth-gw-status-value {
+  color: #57b577;
+  font-weight: 600;
+}
+
+/* redesigned auth panel */
+.web-auth-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.web-auth-hero-title {
+  font-size: clamp(26px, 3vw, 34px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  color: var(--foreground);
+}
+
+.web-auth-hero-sub {
+  font-size: 14.5px;
+  color: var(--muted-foreground);
+  line-height: 1.65;
+}
+
+.web-auth-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
+  background: color-mix(in srgb, var(--card) 80%, transparent);
+  overflow: hidden;
+}
+
+.web-auth-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.web-auth-step:last-child {
+  border-bottom: 0;
+}
+
+.web-auth-step-num {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted-foreground);
+}
+
+.web-auth-step-label {
+  font-size: 12.5px;
+  color: var(--muted-foreground);
+  flex: 1;
+}
+
+.web-auth-step-cmd {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--muted) 60%, transparent);
+  padding: 2px 7px;
+  border-radius: 5px;
+}
+
+.web-auth-features {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.web-auth-feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
+  background: color-mix(in srgb, var(--card) 80%, transparent);
+  backdrop-filter: blur(8px);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.web-auth-feature-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 185 116 / 0.12);
+  border: 1px solid rgb(0 185 116 / 0.28);
+  color: var(--brand-text);
+  margin-top: 1px;
+}
+
+.dark .web-auth-feature-icon {
+  background: rgb(0 255 157 / 0.10);
+  border-color: rgb(0 255 157 / 0.28);
+}
+
+.web-auth-feature-title {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--foreground);
+  margin-bottom: 3px;
+}
+
+.web-auth-feature-desc {
+  font-size: 12.5px;
+  color: var(--muted-foreground);
+  line-height: 1.55;
+}
+
+.web-auth-status-strip {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.web-auth-status-pill {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px 5px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--card) 80%, transparent);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.web-auth-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #57b577;
+  box-shadow: 0 0 0 2.5px rgb(87 181 119 / 0.22);
+  flex-shrink: 0;
+}
+
 .web-auth-card {
   width: 100%;
   border-radius: 16px;
