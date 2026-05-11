@@ -70,10 +70,29 @@ export function ChatSessionList({
     const token = getStoredNormalAccessToken();
     void fetchChatSessions(token, false)
       .then((nextSessions) => setSessions(nextSessions))
-      .catch(() => setSessions([]));
+      .catch(() => undefined);
   }, []);
 
   React.useEffect(() => { loadSessions(); }, [activeSessionId, loadSessions, refreshKey]);
+
+  React.useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'visible') {
+        loadSessions();
+      }
+    };
+    const intervalId = window.setInterval(refreshIfVisible, 30_000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadSessions();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [loadSessions]);
 
   const startRename = (session: ChatSessionRecord) => {
     const currentTitle = session.title || (session.projectPath ? (session.projectPath.split('/').pop() ?? session.provider) : session.provider) || 'agent';
