@@ -884,6 +884,52 @@ test('relay unsubscribe removes only current client subscription', async () => {
   }
 });
 
+test('relay does not forward cross-account unsubscribe to another session gateway', async () => {
+  const relay = await createRelay({ allowLegacySecret: true });
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+  const sessionId = 'tth_cross_account_unsubscribe';
+  const gatewayFrames: Record<string, unknown>[] = [];
+
+  try {
+    await authenticateGateway(gateway);
+    await authenticateLegacyClient(client, {
+      accountId: 'acct_2',
+      userId: 'user_2',
+      tokenClass: 'normal_client_access',
+      expiresAt: Date.now() + 60_000,
+      jti: 'jti_cross_unsub'
+    });
+    gateway.on('message', (raw) => gatewayFrames.push(JSON.parse(raw.toString()) as Record<string, unknown>));
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [{
+        id: sessionId,
+        provider: 'codex',
+        title: 'Cross Account Unsubscribe Test',
+        projectPath: process.cwd(),
+        accountId: 'acct_1',
+        gatewayId: 'gateway-test',
+        userId: 'user_1',
+        status: 'running',
+        transport: 'pty-event-stream',
+        lastActiveAt: Date.now()
+      }]
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    client.send(JSON.stringify({ type: 'client.unsubscribe', sessionId }));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    assert.equal(gatewayFrames.some((frame) => frame.type === 'client.unsubscribe'), false);
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+  }
+});
+
 test('relay rejects invalid resize frames', async () => {
   const relay = await createRelay();
   const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);

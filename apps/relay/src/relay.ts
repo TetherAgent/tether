@@ -1013,7 +1013,10 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         subscriptions.delete(frame.sessionId);
         removeChatSubscriber(frame.sessionId, clientId);
         const unsubSession = latestSessions.get(frame.sessionId);
-        if (!unsubSession || unsubSession.transport !== 'chat') {
+        if (
+          (!unsubSession || unsubSession.transport !== 'chat') &&
+          clientCanAccessSession(clientScope, authMethod, frame.sessionId)
+        ) {
           forwardToSessionGateway({ type: 'client.unsubscribe', clientId, sessionId: frame.sessionId });
         }
         break;

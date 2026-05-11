@@ -61,7 +61,7 @@ completed: 2026-05-12
   - lock released after `session.error`
   - lock released after `runner.run` rejection
   - missing trusted session metadata does not leak a lock
-- Preserved non-chat unsubscribe forwarding after chat subscriber cleanup changed. This keeps existing PTY subscription cleanup behavior intact.
+- Preserved non-chat unsubscribe forwarding after chat subscriber cleanup changed, while keeping the existing access check before forwarding to Gateway.
 
 ## Task Commits
 
@@ -71,7 +71,7 @@ Pending at summary creation time; commit will include this summary and tests.
 
 - `apps/relay/test/relay.test.ts` - Adds Phase17 relay harness and T1~T7 coverage.
 - `apps/gateway/test/relay-client.test.ts` - Adds Phase17 gateway relay-client lock tests.
-- `apps/relay/src/relay.ts` - Adjusts `client.unsubscribe` so non-chat subscriptions still forward cleanup to Gateway after removing chat subscriber state.
+- `apps/relay/src/relay.ts` - Adjusts `client.unsubscribe` so chat subscriber state is removed locally first, and non-chat cleanup forwards only after the existing session access check passes.
 - `.planning/phases/17-chat-multi-client-realtime-sync/17-03-SUMMARY.md` - Execution summary.
 
 ## Decisions Made
@@ -86,8 +86,8 @@ Pending at summary creation time; commit will include this summary and tests.
 
 1. **Existing PTY unsubscribe regression**
    - **Issue:** Replacing chat owner cleanup with chat subscriber cleanup initially risked suppressing non-chat `client.unsubscribe` forwarding.
-   - **Fix:** `client.unsubscribe` now always removes local chat subscriber state, then forwards to Gateway when the cached session is absent or not `chat`.
-   - **Impact:** Chat unsubscribe remains local-only; PTY unsubscribe still reaches Gateway.
+   - **Fix:** `client.unsubscribe` now always removes local chat subscriber state, then forwards to Gateway for non-chat sessions only when `clientCanAccessSession(...)` passes.
+   - **Impact:** Chat unsubscribe remains local-only; PTY unsubscribe still reaches Gateway for authorized clients; cross-account unsubscribe is not forwarded.
 
 2. **Extra gateway lock-leak test**
    - **Issue:** Original plan listed GW-T1~GW-T4. The review also identified missing-session early-return lock leakage risk.
@@ -108,6 +108,7 @@ Pending at summary creation time; commit will include this summary and tests.
 
 - `cd apps/relay && pnpm exec tsx --test --test-name-pattern "Phase17-T4" test/*.test.ts` -> pass
 - `cd apps/relay && pnpm exec tsx --test --test-name-pattern "relay unsubscribe removes only current client subscription" test/*.test.ts` -> pass
+- `cd apps/relay && pnpm exec tsx --test --test-name-pattern "relay unsubscribe removes only current client subscription|relay does not forward cross-account unsubscribe" test/*.test.ts` -> pass
 - `pnpm --filter @tether/relay test` -> pass, 47/47
 - `pnpm --filter @tether/relay typecheck` -> pass
 - `pnpm --filter @tether/gateway test` -> pass, 76/76
