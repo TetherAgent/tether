@@ -330,7 +330,7 @@ Plans:
 **Goal:** 允许同一账号在多台设备上各自绑定稳定 Gateway 记录，Web 显示选择器，Relay 按 gatewayId 严格路由，禁止任何 fallback。
 **Requirements**: GATEWAY-MULTI-01, GATEWAY-MULTI-02, GATEWAY-MULTI-03, GATEWAY-MULTI-04, GATEWAY-MULTI-05, GATEWAY-MULTI-06
 **Depends on:** Phase 13
-**Plans:** 1/6 plans executed
+**Plans:** 2/6 plans executed
 
 Plans:
   - **Wave 1** (no deps):
