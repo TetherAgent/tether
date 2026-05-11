@@ -24,7 +24,6 @@ export default (app: Application): void => {
   router.post('/api/server/gateway-auth/bind', requireNormalAccess, controller.gatewayAuth.bind);    // Gateway 浏览器授权绑定
 
   // Token 管理
-  router.post('/api/server/token/revoke', requireAnyAccess, controller.token.revoke);  // 撤销 Token
   router.post('/api/server/token/validate', controller.token.validate);                // 验证 Token
 
   // 审计日志

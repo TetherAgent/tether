@@ -171,6 +171,9 @@ export default class GatewayRepositoryService extends Service {
       ctx.service.runtime.runtimeStore().gateways.delete(id);
       return;
     }
-    await ctx.service.db.query('DELETE FROM gateways WHERE id = ?', [id]);
+    await ctx.service.db.transaction(async connection => {
+      await connection.query('DELETE FROM gateway_refresh_tokens WHERE gateway_id = ?', [id]);
+      await connection.query('DELETE FROM gateways WHERE id = ?', [id]);
+    });
   }
 }

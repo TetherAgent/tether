@@ -208,14 +208,6 @@ export default class AuthService extends Service {
     return payload;
   }
 
-  private async verifyTokenState(rawToken: string): Promise<VerifiedToken> {
-    const payload = this.decodeToken(rawToken);
-    const { ctx } = this;
-    if (await ctx.service.authRepository.isTokenRevoked(payload.jti)) {
-      throw new Error('token_revoked');
-    }
-    return payload;
-  }
 
   private async recordAuthAudit(input: Omit<AuditEventRecord, 'id' | 'createdAt'>) {
     const { ctx } = this;
@@ -540,7 +532,7 @@ export default class AuthService extends Service {
   public async refreshFromToken(refreshToken: string) {
     const { ctx } = this;
     try {
-      const payload = await this.verifyTokenState(refreshToken);
+      const payload = this.decodeToken(refreshToken);
       if (!payload.tokenClass.endsWith('_refresh')) {
         return ctx.throw(401, 'wrong_token_class');
       }
@@ -593,51 +585,11 @@ export default class AuthService extends Service {
     }
   }
 
-  public async revokeToken(rawToken: string, reason = 'manual_revoke') {
+  public async logoutToken(rawToken: string) {
     const { ctx } = this;
     try {
-      const payload = await this.verifyTokenState(rawToken);
-      await ctx.service.authRepository.markTokenRevoked({
-          jti: payload.jti,
-          tokenClass: payload.tokenClass,
-          accountId: payload.accountId,
-          userId: payload.userId,
-          adminUserId: payload.adminUserId,
-          deviceId: payload.deviceId,
-          gatewayId: payload.gatewayId,
-          expiresAt: payload.expiresAt
-      });
+      const payload = this.decodeToken(rawToken);
       await ctx.service.authRepository.revokeRefreshTokenByJti(payload.jti, this.now());
-
-      await this.recordAuthAudit({
-        accountId: payload.accountId,
-        userId: payload.userId,
-        adminUserId: payload.adminUserId,
-        deviceId: payload.deviceId,
-        gatewayId: payload.gatewayId,
-        action: 'auth.token.revoked',
-        tokenClass: payload.tokenClass,
-        failureReason: reason,
-        payload: { jti: payload.jti }
-      });
-      this.emitAuthNotification({
-        accountId: payload.accountId,
-        userId: payload.userId,
-        adminUserId: payload.adminUserId,
-        deviceId: payload.deviceId,
-        gatewayId: payload.gatewayId,
-        eventType: 'token.revoked',
-        ts: this.now()
-      });
-    } catch (error) {
-      return this.rethrow(error, 'token_revoke_failed');
-    }
-  }
-
-  public async logoutToken(rawToken: string) {
-    try {
-      const payload = await this.verifyTokenState(rawToken);
-      await this.revokeToken(rawToken, 'logout');
       await this.recordAuthAudit({
         accountId: payload.accountId,
         userId: payload.userId,
@@ -665,7 +617,7 @@ export default class AuthService extends Service {
   public async currentUserFromToken(rawToken: string) {
     const { ctx } = this;
     try {
-      const payload = await this.verifyTokenState(rawToken);
+      const payload = this.decodeToken(rawToken);
       if (payload.realm !== 'normal' || !payload.userId) {
         return ctx.throw(401, 'wrong_token_class');
       }
@@ -686,7 +638,7 @@ export default class AuthService extends Service {
 
   public async validateToken(rawToken: string) {
     try {
-      return await this.verifyTokenState(rawToken);
+      return this.decodeToken(rawToken);
     } catch (error) {
       return this.rethrow(error, 'token_validate_failed');
     }
@@ -694,7 +646,7 @@ export default class AuthService extends Service {
 
   public async verifyToken(rawToken: string) {
     try {
-      return await this.verifyTokenState(rawToken);
+      return this.decodeToken(rawToken);
     } catch (error) {
       return this.rethrow(error, 'token_validate_failed');
     }

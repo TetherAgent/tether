@@ -125,7 +125,6 @@ export type RuntimeStore = {
   devices: Map<string, DeviceRecord>;
   gateways: Map<string, GatewayRecord>;
   refreshTokens: Map<string, RefreshTokenRecord>;
-  revokedJtis: Set<string>;
   auditEvents: AuditEventRecord[];
   notificationSinks: Map<string, NotificationSink>;
   nextAuditId: number;
@@ -145,7 +144,6 @@ export default class RuntimeService extends Service {
       devices: new Map(),
       gateways: new Map(),
       refreshTokens: new Map(),
-      revokedJtis: new Set(),
       auditEvents: [],
       notificationSinks: new Map(),
       nextAuditId: 1

@@ -9,16 +9,6 @@ import type {
   UserRecord
 } from './runtime';
 
-type RevokedTokenRecord = {
-  jti: string;
-  tokenClass?: string;
-  accountId?: string;
-  userId?: string;
-  adminUserId?: string;
-  deviceId?: string;
-  gatewayId?: string;
-  expiresAt?: number;
-};
 
 export default class AuthRepositoryService extends Service {
   private mysqlModeEnabled() {
@@ -393,36 +383,6 @@ export default class AuthRepositoryService extends Service {
     );
   }
 
-  public async markTokenRevoked(record: RevokedTokenRecord): Promise<void> {
-    if (!this.mysqlModeEnabled()) {
-      this.runtimeStore().revokedJtis.add(record.jti);
-      return;
-    }
-    await this.query(
-      `INSERT INTO revoked_tokens (
-        jti, token_class, account_id, user_id, admin_user_id, device_id, gateway_id, expires_at, revoked_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      ON DUPLICATE KEY UPDATE revoked_at = CURRENT_TIMESTAMP`,
-      [
-        record.jti,
-        record.tokenClass ?? null,
-        record.accountId ?? null,
-        record.userId ?? null,
-        record.adminUserId ?? null,
-        record.deviceId ?? null,
-        record.gatewayId ?? null,
-        record.expiresAt ? new Date(record.expiresAt) : null
-      ]
-    );
-  }
-
-  public async isTokenRevoked(jti: string): Promise<boolean> {
-    if (!this.mysqlModeEnabled()) {
-      return this.runtimeStore().revokedJtis.has(jti);
-    }
-    const rows = await this.query('SELECT 1 AS found FROM revoked_tokens WHERE jti = ? LIMIT 1', [jti]);
-    return Boolean((rows as Record<string, unknown>[])[0]?.found);
-  }
 
   public async loadAllUsers(limit = 20, offset = 0): Promise<UserRecord[]> {
     if (!this.mysqlModeEnabled()) {

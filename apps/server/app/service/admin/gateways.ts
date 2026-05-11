@@ -26,7 +26,10 @@ export default class AdminGatewaysService extends Service {
     if (!adminUserId) ctx.throw(400, 'missing_admin_user_id');
 
     const gateway = await ctx.service.gatewayRepository.loadGatewayById(gatewayId);
-    if (!gateway) ctx.throw(404, 'not_found');
+    if (!gateway || gateway.accountId !== accountId) {
+      ctx.throw(404, 'not_found');
+      return;
+    }
 
     await ctx.service.gatewayRepository.deleteGatewayById(gatewayId);
     await ctx.service.audit.recordAuditEvent({

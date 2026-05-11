@@ -175,9 +175,5 @@ export default class GatewayService extends Service {
     return await ctx.service.auth.refreshFromToken(refreshToken);
   }
 
-  public async revokeGatewayToken(token: string) {
-    const { ctx } = this;
-    await ctx.service.auth.revokeToken(token, 'gateway_revoke');
-  }
 
 }

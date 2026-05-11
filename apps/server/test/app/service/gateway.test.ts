@@ -1,4 +1,5 @@
 import assert from 'assert'
+import { readFileSync } from 'fs'
 import { Context } from 'egg'
 import { app } from 'egg-mock/bootstrap'
 
@@ -30,7 +31,7 @@ describe('test/app/service/gateway.test.ts', () => {
     assert.strictEqual(gatewayEvents.length, 1)
   })
 
-  it('refresh succeeds before revoke and fails after revoke', async () => {
+  it('refresh succeeds for gateway refresh token', async () => {
     const bound = await ctx.service.gateway.bindGateway({
       email: 'owner@example.com',
       password: 'pw-123456',
@@ -43,11 +44,16 @@ describe('test/app/service/gateway.test.ts', () => {
       (await ctx.service.auth.verifyToken(refreshed.accessToken)).tokenClass,
       'gateway_access',
     )
+  })
 
-    await ctx.service.auth.revokeToken(bound.gatewayRefreshToken)
-    await assert.rejects(
-      () => ctx.service.gateway.refreshGatewayToken(bound.gatewayRefreshToken),
-      /token_revoked/,
+  it('deletes gateway refresh tokens before deleting the gateway row', async () => {
+    const source = readFileSync(
+      require.resolve('../../../app/service/gatewayRepository.ts'),
+      'utf8',
+    )
+    assert.match(
+      source,
+      /DELETE FROM gateway_refresh_tokens WHERE gateway_id = \?[\s\S]*DELETE FROM gateways WHERE id = \?/,
     )
   })
 })

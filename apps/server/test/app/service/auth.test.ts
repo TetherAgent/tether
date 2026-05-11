@@ -33,26 +33,6 @@ describe('test/app/service/auth.test.ts', () => {
     )
   })
 
-  it('refresh rotates normal tokens and revoke blocks them', async () => {
-    const registered = await ctx.service.auth.registerNormalUser({
-      email: 'owner@example.com',
-      password: 'pw-123456',
-    })
-    const refreshed = await ctx.service.auth.refreshFromToken(
-      registered.refreshToken,
-    )
-    assert(refreshed)
-    assert.strictEqual(
-      (await ctx.service.auth.verifyToken(refreshed.accessToken)).tokenClass,
-      'normal_client_access',
-    )
-
-    await ctx.service.auth.revokeToken(registered.refreshToken)
-    await assert.rejects(
-      () => ctx.service.auth.refreshFromToken(registered.refreshToken),
-      /token_revoked/,
-    )
-  })
 
   it('login failure writes audit trail and login success can resolve current user', async () => {
     await ctx.service.auth.registerNormalUser({
@@ -112,7 +92,7 @@ describe('test/app/service/auth.test.ts', () => {
     })
 
     const response = await app.httpRequest()
-      .post('/api/token/validate')
+      .post('/api/server/token/validate')
       .send({ token: registered.accessToken })
       .expect(200)
 
