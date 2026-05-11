@@ -36,6 +36,11 @@ export type ChatMessageRecord = {
   createdAt: string;
 };
 
+export type ChatMessagesResult = {
+  messages: ChatMessageRecord[];
+  lastEventId: number;
+};
+
 export type ChatSessionMetadata = {
   id: string;
   provider: string;
@@ -129,9 +134,9 @@ export default class ChatRepositoryService extends Service {
     sessionId: string,
     accountId: string,
     userId: string
-  ): Promise<ChatMessageRecord[]> {
+  ): Promise<ChatMessagesResult> {
     if (!this.mysqlModeEnabled()) {
-      return [];
+      return { messages: [], lastEventId: 0 };
     }
     const sessionRows = await this.ctx.service.db.query(
       `SELECT id FROM gateway_sessions
@@ -149,7 +154,9 @@ export default class ChatRepositoryService extends Service {
        ORDER BY created_at ASC, id ASC`,
       [sessionId]
     );
-    return (rows as Record<string, unknown>[]).map((row) => this.messageFromRow(row));
+    const messages = (rows as Record<string, unknown>[]).map((row) => this.messageFromRow(row));
+    const lastEventId = await this.lastAssistantDeltaEventId(sessionId);
+    return { messages, lastEventId };
   }
 
   public async updateAgentSessionId(
@@ -228,5 +235,35 @@ export default class ChatRepositoryService extends Service {
       usageJson,
       createdAt: String(row.created_at ?? '')
     };
+  }
+
+  private async lastAssistantDeltaEventId(sessionId: string): Promise<number> {
+    const rows = await this.ctx.service.db.query(
+      `SELECT raw_json FROM gateway_chat_messages
+       WHERE session_id = ? AND role = 'assistant'
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
+      [sessionId]
+    );
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return 0;
+    }
+    const rawJson = String((rows[0] as Record<string, unknown>).raw_json ?? '');
+    if (!rawJson) {
+      return 0;
+    }
+    try {
+      const parsed = JSON.parse(rawJson) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return 0;
+      }
+      const payload = (parsed as Record<string, unknown>).payload;
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        return 0;
+      }
+      const lastDeltaEventId = (payload as Record<string, unknown>).lastDeltaEventId;
+      return typeof lastDeltaEventId === 'number' && Number.isFinite(lastDeltaEventId) ? lastDeltaEventId : 0;
+    } catch {
+      return 0;
+    }
   }
 }

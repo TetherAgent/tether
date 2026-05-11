@@ -3,6 +3,7 @@ import { Controller } from 'egg';
 type RuntimeSyncScope = {
   accountId: string;
   gatewayId: string;
+  transport?: string;
 };
 
 function parseScope(input: unknown): RuntimeSyncScope | undefined {
@@ -15,7 +16,8 @@ function parseScope(input: unknown): RuntimeSyncScope | undefined {
   }
   return {
     accountId: String(scope.accountId),
-    gatewayId: String(scope.gatewayId)
+    gatewayId: String(scope.gatewayId),
+    transport: typeof scope.transport === 'string' ? scope.transport : undefined
   };
 }
 
@@ -68,14 +70,25 @@ export default class RuntimeSyncController extends Controller {
     const eventType = String(event.type ?? '');
     const sessionId = String(event.sessionId ?? '');
     const eventId = Number(event.id ?? 0);
-    await ctx.service.runtimeSyncRepository.upsertRuntimeEvent(
-      sessionId,
-      eventId,
-      eventType,
-      event.payload,
-      scope,
-      event.ts
-    );
+    if (scope.transport === 'chat') {
+      await ctx.service.runtimeSyncRepository.upsertChatRuntimeEvent(
+        sessionId,
+        eventId,
+        eventType,
+        event,
+        scope,
+        event.ts
+      );
+    } else {
+      await ctx.service.runtimeSyncRepository.upsertRuntimeEvent(
+        sessionId,
+        eventId,
+        eventType,
+        event.payload,
+        scope,
+        event.ts
+      );
+    }
     ctx.success({ ok: true });
   }
 

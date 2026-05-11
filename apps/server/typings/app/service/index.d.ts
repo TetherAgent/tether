@@ -12,6 +12,7 @@ import ExportAudit from '../../../app/service/audit';
 import ExportAuditRepository from '../../../app/service/auditRepository';
 import ExportAuth from '../../../app/service/auth';
 import ExportAuthRepository from '../../../app/service/authRepository';
+import ExportChatEventsRepository from '../../../app/service/chatEventsRepository';
 import ExportChatRepository from '../../../app/service/chatRepository';
 import ExportDb from '../../../app/service/db';
 import ExportGateway from '../../../app/service/gateway';
@@ -34,6 +35,7 @@ declare module 'egg' {
     auditRepository: AutoInstanceType<typeof ExportAuditRepository>;
     auth: AutoInstanceType<typeof ExportAuth>;
     authRepository: AutoInstanceType<typeof ExportAuthRepository>;
+    chatEventsRepository: AutoInstanceType<typeof ExportChatEventsRepository>;
     chatRepository: AutoInstanceType<typeof ExportChatRepository>;
     db: AutoInstanceType<typeof ExportDb>;
     gateway: AutoInstanceType<typeof ExportGateway>;

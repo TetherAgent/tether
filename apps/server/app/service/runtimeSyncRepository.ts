@@ -35,6 +35,7 @@ function truncatePayload(value: string): string {
 type RuntimeSyncScope = {
   accountId: string;
   gatewayId: string;
+  transport?: string;
 };
 
 type Queryable = {
@@ -196,6 +197,52 @@ export default class RuntimeSyncRepositoryService extends Service {
       'UPDATE gateway_sessions SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?',
       [sessionId]
     );
+  }
+
+  public async upsertChatRuntimeEvent(
+    sessionId: string,
+    eventId: number,
+    eventType: string,
+    event: unknown,
+    scope: RuntimeSyncScope,
+    createdAt?: unknown
+  ): Promise<void> {
+    if (!this.mysqlModeEnabled()) {
+      return;
+    }
+    await this.ctx.service.db.transaction(async connection => {
+      const sessionRows = await connection.query(
+        `SELECT user_id FROM gateway_sessions
+         WHERE id = ? AND gateway_id = ? AND account_id = ? LIMIT 1`,
+        [sessionId, scope.gatewayId, scope.accountId]
+      );
+      const userId = Array.isArray(sessionRows) && sessionRows.length > 0
+        ? String((sessionRows[0] as { user_id?: unknown }).user_id ?? '')
+        : undefined;
+      if (await this.sessionDeleted(sessionId, scope, userId, connection)) {
+        return;
+      }
+      if (await this.sessionScopeConflict(sessionId, scope, connection)) {
+        console.warn(`[server] upsertChatRuntimeEvent scope mismatch: ${sessionId}`);
+        return;
+      }
+      const rawJson = truncatePayload(maskPayload(event));
+      await connection.query(
+        `INSERT INTO gateway_runtime_chats_events (session_id, event_id, event_type, raw_json, created_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           event_type = VALUES(event_type),
+           raw_json = VALUES(raw_json),
+           updated_at = CURRENT_TIMESTAMP`,
+        [sessionId, eventId, eventType, rawJson, this.toDate(createdAt)]
+      );
+      if (eventType === 'user.message' || eventType === 'agent.result') {
+        await connection.query(
+          'UPDATE gateway_chat_messages SET raw_json = ? WHERE session_id = ? AND source_event_id = ?',
+          [rawJson, sessionId, eventId]
+        );
+      }
+    });
   }
 
   public async upsertSyncCursor(
