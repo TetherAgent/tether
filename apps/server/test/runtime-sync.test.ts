@@ -52,6 +52,38 @@ describe('test/runtime-sync.test.ts', () => {
     })
   })
 
+  it('runtimeSyncRepository.upsertGatewaySession — lastActiveAt 为 null 时不抛错', async () => {
+    const scope = { accountId: 'acct_1', gatewayId: 'gw_1' }
+    await assert.doesNotReject(async () => {
+      await (
+        ctx.service as unknown as {
+          runtimeSyncRepository?: {
+            upsertGatewaySession?: (session: unknown, scope: unknown) => Promise<void>
+          }
+        }
+      ).runtimeSyncRepository?.upsertGatewaySession?.(
+        { id: 'tth_sync_02', provider: 'claude', status: 'running', lastActiveAt: undefined },
+        scope
+      )
+    })
+  })
+
+  it('runtimeSyncRepository.upsertGatewaySession — lastActiveAt 有值时不抛错', async () => {
+    const scope = { accountId: 'acct_1', gatewayId: 'gw_1' }
+    await assert.doesNotReject(async () => {
+      await (
+        ctx.service as unknown as {
+          runtimeSyncRepository?: {
+            upsertGatewaySession?: (session: unknown, scope: unknown) => Promise<void>
+          }
+        }
+      ).runtimeSyncRepository?.upsertGatewaySession?.(
+        { id: 'tth_sync_03', provider: 'claude', status: 'running', lastActiveAt: Date.now() },
+        scope
+      )
+    })
+  })
+
   it('runtimeSyncRepository.upsertRuntimeEvent — 非白名单事件不写入', async () => {
     const scope = { accountId: 'acct_1', gatewayId: 'gw_1' }
     await assert.doesNotReject(async () => {

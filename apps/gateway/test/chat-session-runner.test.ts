@@ -207,3 +207,70 @@ test('chat runner streams Claude content block text deltas', async () => {
     cleanupStore();
   }
 });
+
+test('chat runner maps Claude permission denials to next suggestions', async () => {
+  const { store, cleanup: cleanupStore } = tempStore();
+  const fakeClaude = installFakeClaude([
+    {
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result: '没有执行被拒绝的操作。',
+      session_id: 'claude-session-denied',
+      usage: { input_tokens: 8, output_tokens: 4 },
+      terminal_reason: 'completed',
+      permission_denials: [
+        {
+          tool_name: 'Bash',
+          input: { command: 'pnpm test' },
+          reason: 'user denied'
+        }
+      ]
+    }
+  ]);
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${fakeClaude.pathPrefix}${path.delimiter}${previousPath ?? ''}`;
+  try {
+    let suggestions: Array<{ description: string; toolName?: string; reason?: string }> | undefined;
+    let resolveResult: (() => void) | undefined;
+    const resultPromise = new Promise<void>((resolve) => {
+      resolveResult = resolve;
+    });
+    const runner = new ChatSessionRunner({
+      store,
+      gatewayId: () => 'gateway-test',
+      onSessionCreated: () => undefined,
+      onUserMessage: () => undefined,
+      onDelta: () => undefined,
+      onResult: ({ nextSuggestions }) => {
+        suggestions = nextSuggestions;
+        resolveResult?.();
+      },
+      onTool: () => undefined,
+      onPermissionRequest: () => undefined,
+      onError: ({ message }) => {
+        assert.fail(message);
+      },
+      onAgentIdUpdate: () => undefined
+    });
+
+    await runner.run({
+      clientId: 'client-test',
+      sessionId: null,
+      provider: 'claude',
+      model: 'sonnet',
+      cwd: '',
+      message: 'test'
+    });
+    await resultPromise;
+
+    assert.equal(suggestions?.length, 1);
+    assert.equal(suggestions?.[0]?.toolName, 'Bash');
+    assert.equal(suggestions?.[0]?.reason, 'user denied');
+    assert.equal(suggestions?.[0]?.description.includes('pnpm test'), true);
+  } finally {
+    process.env.PATH = previousPath;
+    fakeClaude.cleanup();
+    cleanupStore();
+  }
+});

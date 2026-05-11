@@ -15,39 +15,32 @@ import {
   SelectValue,
   Textarea
 } from '@tether/design';
-import { createHttpClient } from '@tether/http';
 import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { getStoredNormalAccessToken } from '../../lib/api.js';
-import { ChatBubbleAgent } from './chat-bubble-agent.js';
+import { fetchChatMessages, fetchChatSessions, type ChatHistoryMessage, type ChatHistoryUsage, type ChatSessionRecord, type ChatUsage, type ProviderOption } from './chat-data.js';
+import { ChatBubbleAgent, type ChatNextSuggestion } from './chat-bubble-agent.js';
 import { ChatBubbleUser } from './chat-bubble-user.js';
 import { SystemMessage } from './system-message.js';
 import { ToolCard } from './tool-card.js';
 import { PermissionPrompt } from './permission-prompt.js';
 import { type RelayFrame, useChatRelaySocket } from './use-chat-relay-socket.js';
 
-type Usage = { input_tokens: number; output_tokens: number; cost_usd?: number };
-type HistoryUsage = Usage & {
-  cache_read_input_tokens?: number;
-  cache_creation_input_tokens?: number;
-  contextWindow?: number;
-  contextInputTokens?: number;
-  rateLimitInfo?: {
-    resetsAt?: number;
-    rateLimitType?: string;
-    primary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
-    secondary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
-  };
-};
+type Usage = ChatUsage;
+type HistoryUsage = ChatHistoryUsage;
 type MessageItem =
   | { kind: 'user'; id: string; content: string; ts: number }
-  | { kind: 'agent'; id: string; text: string; isStreaming: boolean; isWaiting: boolean; isLost: boolean; provider: string; usage?: Usage; durationMs?: number }
+  | { kind: 'agent'; id: string; text: string; isStreaming: boolean; isWaiting: boolean; isLost: boolean; provider: string; usage?: Usage; durationMs?: number; nextSuggestions?: ChatNextSuggestion[] }
   | { kind: 'tool'; id: string; toolName: string; input: Record<string, unknown>; result?: string; isError: boolean; isInFlight: boolean }
   | { kind: 'system'; id: string; text: string }
   | { kind: 'permission'; id: string; requestId: string; toolName: string; decided?: 'allow' | 'deny' };
-type HistoryMessage = { role: string; content: string; usageJson?: HistoryUsage; createdAt: string };
-type ProviderOption = { provider: string; models: string[] };
-type ChatSessionRecord = { id: string; gatewayId?: string; provider?: string; projectPath?: string; agentSessionId?: string };
+type UsageStats = {
+  contextPct?: number;
+  rateLimitResetsAt?: number;
+  rateLimitType?: string;
+  primary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
+  secondary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
+};
 
 const RELAY_URL_KEY = 'tether:relayUrl';
 const DEFAULT_RELAY_URL = import.meta.env.VITE_TETHER_RELAY_URL ?? 'wss://tether.earntools.me';
@@ -110,6 +103,89 @@ function findLatestOpenAgentId(items: MessageItem[]): string | undefined {
   return undefined;
 }
 
+function findLastAgentIndex(items: MessageItem[]): number {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (items[index]?.kind === 'agent') {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function normalizeNextSuggestions(value: unknown): ChatNextSuggestion[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const suggestions = value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return undefined;
+      const suggestion = item as { description?: unknown; title?: unknown };
+      if (typeof suggestion.description !== 'string' || suggestion.description.trim().length === 0) return undefined;
+      return {
+        description: suggestion.description.trim(),
+        ...(typeof suggestion.title === 'string' && suggestion.title.trim().length > 0 ? { title: suggestion.title.trim() } : {})
+      };
+    })
+    .filter((item): item is ChatNextSuggestion => Boolean(item));
+  return suggestions.length > 0 ? suggestions.slice(0, 3) : undefined;
+}
+
+function historyMessagesToItems(messages: ChatHistoryMessage[], provider: string): MessageItem[] {
+  return messages.map((message, index) =>
+    message.role === 'user'
+      ? { kind: 'user', id: `history-user-${index}`, content: message.content, ts: Date.parse(message.createdAt) }
+      : {
+          kind: 'agent',
+          id: `history-agent-${index}`,
+          text: message.content,
+          isStreaming: false,
+          isWaiting: false,
+          isLost: false,
+          provider,
+          usage: message.usageJson
+        }
+  );
+}
+
+function chatItemsOnly(items: MessageItem[]): Array<Extract<MessageItem, { kind: 'user' | 'agent' }>> {
+  return items.filter((item): item is Extract<MessageItem, { kind: 'user' | 'agent' }> => item.kind === 'user' || item.kind === 'agent');
+}
+
+function historySnapshotLooksOlder(currentItems: MessageItem[], snapshotItems: MessageItem[]): boolean {
+  const currentChatItems = chatItemsOnly(currentItems);
+  const snapshotChatItems = chatItemsOnly(snapshotItems);
+  if (snapshotChatItems.length < currentChatItems.length) {
+    return true;
+  }
+  const currentLastAgent = [...currentChatItems].reverse().find((item) => item.kind === 'agent');
+  const snapshotLastAgent = [...snapshotChatItems].reverse().find((item) => item.kind === 'agent');
+  if (!currentLastAgent || !snapshotLastAgent) {
+    return false;
+  }
+  return currentLastAgent.text.length > snapshotLastAgent.text.length &&
+    currentLastAgent.text.startsWith(snapshotLastAgent.text);
+}
+
+function usageStatsFromHistory(messages: ChatHistoryMessage[]): UsageStats | undefined {
+  const lastAssistant = messages.filter((message) => message.role === 'assistant').at(-1);
+  if (lastAssistant?.usageJson?.contextWindow == null) {
+    return undefined;
+  }
+  const usage = lastAssistant.usageJson;
+  const contextWindow = usage.contextWindow!;
+  const totalTokens = usage.contextInputTokens !== undefined
+    ? usage.contextInputTokens
+    : (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
+  const contextPct = Math.min(100, Math.round((totalTokens / contextWindow) * 100));
+  const rateLimit = usage.rateLimitInfo;
+  const rateLimitStillValid = rateLimit?.resetsAt !== undefined && rateLimit.resetsAt * 1000 > Date.now();
+  return {
+    contextPct,
+    rateLimitResetsAt: rateLimitStillValid ? rateLimit?.resetsAt : undefined,
+    rateLimitType: rateLimitStillValid ? rateLimit?.rateLimitType : undefined,
+    primary: rateLimitStillValid ? rateLimit?.primary : undefined,
+    secondary: rateLimitStillValid ? rateLimit?.secondary : undefined
+  };
+}
+
 function formatResetCountdown(resetsAt: number): string {
   const diffMs = resetsAt * 1000 - Date.now();
   if (diffMs <= 0) return '刷新中';
@@ -134,6 +210,7 @@ function UsageStatsChip({ contextPct, rateLimitResetsAt, rateLimitType }: { cont
     parts.push(`${label} resets ${formatResetCountdown(rateLimitResetsAt)}`);
   }
   if (parts.length === 0) return null;
+
   return (
     <span className="flex h-7 items-center rounded-full bg-muted px-3 font-mono text-[11px] text-muted-foreground/70 tabular-nums">
       {parts.join(' · ')}
@@ -221,7 +298,17 @@ function UsageStatsRows({ contextPct, rateLimitResetsAt, rateLimitType, primary,
   );
 }
 
-export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { activeSessionId?: string; onExpandSidebar?: () => void; onOpenDrawer?: () => void }) {
+export function ChatPanel({
+  activeSessionId,
+  onExpandSidebar,
+  onOpenDrawer,
+  onReconnectCatchup
+}: {
+  activeSessionId?: string;
+  onExpandSidebar?: () => void;
+  onOpenDrawer?: () => void;
+  onReconnectCatchup?: () => void;
+}) {
   const navigate = useNavigate();
   const { normalAuth } = useAuth();
   const { t } = useI18n();
@@ -248,17 +335,12 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   const hasEverConnectedRef = React.useRef(false);
   const [gatewayReady, setGatewayReady] = React.useState(false);
   const [hasGatewayStatusFrame, setHasGatewayStatusFrame] = React.useState(false);
-  const [usageStats, setUsageStats] = React.useState<{
-    contextPct?: number;
-    rateLimitResetsAt?: number;
-    rateLimitType?: string;
-    primary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
-    secondary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
-  } | undefined>(undefined);
+  const [usageStats, setUsageStats] = React.useState<UsageStats | undefined>(undefined);
   const [copiedAgentId, setCopiedAgentId] = React.useState(false);
   const [sessionSettingsOpen, setSessionSettingsOpen] = React.useState(false);
   const messageScrollRef = React.useRef<HTMLDivElement | null>(null);
   const messageEndRef = React.useRef<HTMLDivElement | null>(null);
+  const inputRef = React.useRef<HTMLTextAreaElement | null>(null);
   const currentAgentIdRef = React.useRef<string | null>(null);
   const inflightStartedAtRef = React.useRef<number>(0);
   const revealTimerRef = React.useRef<number | undefined>(undefined);
@@ -272,6 +354,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
   const pendingSessionProviderRef = React.useRef<string | undefined>(undefined);
   const pendingSessionModelRef = React.useRef<string | undefined>(undefined);
   const createdSessionIdRef = React.useRef<string | null>(null);
+  const lastCatchupConnectionEpochRef = React.useRef(0);
 
   React.useEffect(() => {
     cwdRef.current = cwd;
@@ -348,6 +431,49 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
     }
   }, [activeSessionId]);
 
+  const loadActiveSessionHistory = React.useCallback(async (sessionId: string, opts?: { protectNewerLocal?: boolean }) => {
+    const token = normalAuth?.accessToken ?? getStoredNormalAccessToken();
+    const historyMessages = await fetchChatMessages(sessionId, token);
+    const items = historyMessagesToItems(historyMessages, activeSessionProviderRef.current ?? 'agent');
+    let nextAgentId: string | null = null;
+    let nextIsInflight = false;
+    if (items.at(-1)?.kind === 'user') {
+      items.push({
+        kind: 'agent',
+        id: 'history-waiting',
+        text: '',
+        isStreaming: false,
+        isWaiting: true,
+        isLost: false,
+        provider: activeSessionProviderRef.current ?? 'agent'
+      });
+      nextAgentId = 'history-waiting';
+      nextIsInflight = true;
+    }
+    if (opts?.protectNewerLocal && historySnapshotLooksOlder(messagesRef.current, items)) {
+      return;
+    }
+    currentAgentIdRef.current = nextAgentId;
+    setIsInflight(nextIsInflight);
+    setUsageStats(usageStatsFromHistory(historyMessages));
+    setMessages(items);
+  }, [normalAuth?.accessToken]);
+
+  const loadActiveSessionMetadata = React.useCallback(async (sessionId: string) => {
+    const token = normalAuth?.accessToken ?? getStoredNormalAccessToken();
+    if (!token) {
+      return;
+    }
+    const sessions = await fetchChatSessions(token);
+    const session = sessions.find((item) => item.id === sessionId);
+    setAgentSessionId(session?.agentSessionId);
+    setActiveSessionProvider(session?.provider);
+    setActiveSessionProjectPath(session?.projectPath);
+    setActiveSessionGatewayId(session?.gatewayId);
+    setActiveSessionModel(undefined);
+    setActiveSessionMetadataReady(true);
+  }, [normalAuth?.accessToken]);
+
   React.useEffect(() => {
     if (!activeSessionId) {
       setMessages([]);
@@ -365,95 +491,17 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
       skipNextHistoryLoadSessionIdRef.current = null;
       return;
     }
-    const token = normalAuth?.accessToken ?? getStoredNormalAccessToken();
-    const http = createHttpClient();
-    void http
-      .get<{ messages: HistoryMessage[] }>(
-        `/api/server/chat-sessions/${activeSessionId}/messages`,
-        undefined,
-        { token }
-      )
-      .then((data: { messages: HistoryMessage[] }) => {
-        const items: MessageItem[] = (data.messages ?? []).map((message: HistoryMessage, index: number) =>
-          message.role === 'user'
-            ? { kind: 'user', id: `history-user-${index}`, content: message.content, ts: Date.parse(message.createdAt) }
-            : {
-                kind: 'agent',
-                id: `history-agent-${index}`,
-                text: message.content,
-                isStreaming: false,
-                isWaiting: false,
-                isLost: false,
-                provider: activeSessionProviderRef.current ?? 'agent',
-                usage: message.usageJson
-              }
-        );
-        if (items.at(-1)?.kind === 'user') {
-          items.push({
-            kind: 'agent',
-            id: 'history-waiting',
-            text: '',
-            isStreaming: false,
-            isWaiting: true,
-            isLost: false,
-            provider: activeSessionProviderRef.current ?? 'agent'
-          });
-          currentAgentIdRef.current = 'history-waiting';
-          setIsInflight(true);
-        } else {
-          currentAgentIdRef.current = null;
-          setIsInflight(false);
-        }
-        // Restore usage stats from last assistant message
-        const lastAssistant = (data.messages ?? []).filter(m => m.role === 'assistant').at(-1);
-        if (lastAssistant?.usageJson?.contextWindow != null) {
-          const u = lastAssistant.usageJson;
-          const contextWindow = u.contextWindow!;
-          const totalTokens = u.contextInputTokens !== undefined
-            ? u.contextInputTokens
-            : (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
-          const contextPct = Math.min(100, Math.round((totalTokens / contextWindow) * 100));
-          const rl = u.rateLimitInfo;
-          const rateLimitStillValid = rl?.resetsAt !== undefined && rl.resetsAt * 1000 > Date.now();
-          setUsageStats({
-            contextPct,
-            rateLimitResetsAt: rateLimitStillValid ? rl?.resetsAt : undefined,
-            rateLimitType: rateLimitStillValid ? rl?.rateLimitType : undefined,
-            primary: rateLimitStillValid ? rl?.primary : undefined,
-            secondary: rateLimitStillValid ? rl?.secondary : undefined
-          });
-        } else {
-          setUsageStats(undefined);
-        }
-        setMessages(items);
-      })
-      .catch(() => {
-        setMessages([{ kind: 'system', id: 'history-error', text: t.chatsHistoryFail }]);
-      });
-  }, [activeSessionId, normalAuth?.accessToken, t.chatsHistoryFail]);
+    void loadActiveSessionHistory(activeSessionId).catch(() => {
+      setMessages([{ kind: 'system', id: 'history-error', text: t.chatsHistoryFail }]);
+    });
+  }, [activeSessionId, loadActiveSessionHistory, t.chatsHistoryFail]);
 
   React.useEffect(() => {
-    const token = normalAuth?.accessToken ?? getStoredNormalAccessToken();
-    if (!activeSessionId || !token) {
+    if (!activeSessionId) {
       return;
     }
-    const http = createHttpClient();
-    void http
-      .get<{ sessions: ChatSessionRecord[] }>('/api/server/chat-sessions', undefined, {
-        token,
-        suppressGlobalError: true
-      })
-      .then((data) => {
-        const session = (data.sessions ?? []).find((item) => item.id === activeSessionId);
-        setAgentSessionId(session?.agentSessionId);
-        setActiveSessionProvider(session?.provider);
-        setActiveSessionProjectPath(session?.projectPath);
-        setActiveSessionGatewayId(session?.gatewayId);
-        setActiveSessionModel(undefined);
-        setActiveSessionMetadataReady(true);
-      })
-      .catch(() => setActiveSessionMetadataReady(true));
-  }, [activeSessionId, normalAuth?.accessToken]);
+    void loadActiveSessionMetadata(activeSessionId).catch(() => setActiveSessionMetadataReady(true));
+  }, [activeSessionId, loadActiveSessionMetadata]);
 
   const relayUrl = React.useMemo(
     () => window.localStorage.getItem(RELAY_URL_KEY) ?? DEFAULT_RELAY_URL,
@@ -669,6 +717,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
         const usage = typeof frame.usage === 'object' && frame.usage && !Array.isArray(frame.usage)
           ? frame.usage as Usage
           : undefined;
+        const nextSuggestions = normalizeNextSuggestions(frame.nextSuggestions);
         const durationMs = Date.now() - inflightStartedAtRef.current;
         const existingOpenAgentId = currentAgentIdRef.current ?? findLatestOpenAgentId(messagesRef.current);
         const agentId = existingOpenAgentId ?? `agent-${Date.now()}`;
@@ -687,7 +736,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
           if (duplicateIndex >= 0 && !existingById) {
             return items.map((item, index) =>
               index === duplicateIndex && item.kind === 'agent'
-                ? { ...item, isStreaming: false, isWaiting: false, usage, durationMs }
+                ? { ...item, isStreaming: false, isWaiting: false, usage, durationMs, nextSuggestions }
                 : item
             );
           }
@@ -700,7 +749,8 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
             isLost: false,
             provider: activeSessionProviderRef.current ?? 'agent',
             usage: shouldReveal ? undefined : usage,
-            durationMs: shouldReveal ? undefined : durationMs
+            durationMs: shouldReveal ? undefined : durationMs,
+            nextSuggestions: shouldReveal ? undefined : nextSuggestions
           };
           return items.some((item) => item.kind === 'agent' && item.id === agentId)
             ? items.map((item) => item.kind === 'agent' && item.id === agentId ? { ...item, ...replacement } : item)
@@ -721,7 +771,8 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
                       text: frameText.slice(0, cursor),
                       isStreaming: cursor < frameText.length,
                       usage: cursor >= frameText.length ? usage : item.usage,
-                      durationMs: cursor >= frameText.length ? durationMs : item.durationMs
+                      durationMs: cursor >= frameText.length ? durationMs : item.durationMs,
+                      nextSuggestions: cursor >= frameText.length ? nextSuggestions : item.nextSuggestions
                     }
                   : item
               )
@@ -810,12 +861,28 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
       }
   }, [gatewayReady, markGatewayReadyFallback, navigate, relayGatewayId, t.chatsProviderFail, t.chatsSessionOutsideGateway, t.chatsSessionStarted, t.gatewayNotConnected]);
 
-  const { wsReady, sendFrame } = useChatRelaySocket({
+  const { wsReady, sendFrame, connectionEpoch } = useChatRelaySocket({
     accessToken: normalAuth?.accessToken,
     relayUrl,
     onFrame: handleRelayFrame,
     onClose: handleRelayClose
   });
+
+  React.useEffect(() => {
+    if (!wsReady || connectionEpoch <= 1 || connectionEpoch === lastCatchupConnectionEpochRef.current) {
+      return;
+    }
+    lastCatchupConnectionEpochRef.current = connectionEpoch;
+    onReconnectCatchup?.();
+    const sessionId = currentSessionIdRef.current;
+    if (!sessionId) {
+      return;
+    }
+    void Promise.all([
+      loadActiveSessionMetadata(sessionId).catch(() => setActiveSessionMetadataReady(true)),
+      loadActiveSessionHistory(sessionId, { protectNewerLocal: true }).catch(() => undefined)
+    ]);
+  }, [connectionEpoch, loadActiveSessionHistory, loadActiveSessionMetadata, onReconnectCatchup, wsReady]);
 
   React.useEffect(() => {
     if (!cwdPickerOpen || currentSessionId || !wsReady) {
@@ -883,6 +950,15 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
     ));
     sendFrame({ type: 'client.permission_response', sessionId: currentSessionIdRef.current, requestId, decision });
   }, [sendFrame, wsReady]);
+
+  const applyNextSuggestion = React.useCallback((description: string) => {
+    setInputText(description);
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      const length = description.length;
+      inputRef.current?.setSelectionRange(length, length);
+    });
+  }, []);
 
   const isNewSession = !currentSessionId && messages.length === 0;
 
@@ -1145,6 +1221,8 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
     );
   }
 
+  const lastAgentIndex = findLastAgentIndex(messages);
+
   return (
     <div className="chat-surface flex h-full flex-col bg-background">
       {/* Session header */}
@@ -1182,7 +1260,12 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
         {agentSessionId && (
           <button
             onClick={() => {
-              void navigator.clipboard.writeText(agentSessionId);
+              const cmd = displayProvider === 'codex'
+                ? `codex exec resume --skip-git-repo-check ${agentSessionId}`
+                : displayProvider === 'copilot'
+                  ? `gh copilot --resume=${agentSessionId}`
+                  : `claude --resume ${agentSessionId}`;
+              void navigator.clipboard.writeText(cmd);
               setCopiedAgentId(true);
               setTimeout(() => setCopiedAgentId(false), 1500);
             }}
@@ -1201,7 +1284,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
       {/* Messages */}
       <div ref={messageScrollRef} className="flex-1 overflow-y-auto px-4 py-5">
         <div className="mx-auto max-w-3xl space-y-4">
-          {messages.map((message) => {
+          {messages.map((message, index) => {
             if (message.kind === 'user') {
               return <ChatBubbleUser key={message.id} content={message.content} />;
             }
@@ -1216,6 +1299,8 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
                   provider={message.provider}
                   usage={message.usage}
                   durationMs={message.durationMs}
+                  nextSuggestions={index === lastAgentIndex ? message.nextSuggestions : undefined}
+                  onSuggestionClick={applyNextSuggestion}
                 />
               );
             }
@@ -1321,6 +1406,7 @@ export function ChatPanel({ activeSessionId, onExpandSidebar, onOpenDrawer }: { 
           <div className="chat-input-card relative overflow-hidden rounded-2xl border border-border bg-card" style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
             <div className="flex items-end gap-2 px-3 py-2.5">
               <Textarea
+                ref={inputRef}
                 value={inputText}
                 onChange={(event) => setInputText(event.target.value)}
                 placeholder={t.chatsInputPlaceholder.replace('{model}', displayModel || displayProvider)}

@@ -126,7 +126,7 @@ export default class RuntimeSyncRepositoryService extends Service {
            agent_session_id = VALUES(agent_session_id),
            status = VALUES(status),
            transport = VALUES(transport),
-           last_active_at = VALUES(last_active_at),
+           last_active_at = IF(VALUES(last_active_at) IS NULL, last_active_at, GREATEST(COALESCE(last_active_at, VALUES(last_active_at)), VALUES(last_active_at))),
            updated_at = CURRENT_TIMESTAMP`,
         [
           session.id,

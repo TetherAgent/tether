@@ -46,6 +46,13 @@ export type RelayTerminalEvent = {
   payload: Record<string, unknown>;
 };
 
+export type RelayNextSuggestion = {
+  description: string;
+  title?: string;
+  toolName?: string;
+  reason?: string;
+};
+
 export type RelayGatewayToServerFrame =
   | { type: 'gateway.auth'; gatewayId: string; token?: string; secret?: string; scope?: RelayAuthScope }
   | { type: 'gateway.sessions'; gatewayId: string; sessions: RelaySession[] }
@@ -108,7 +115,7 @@ export type RelayServerToClientFrame =
   | { type: 'replay.done'; sessionId: string; latestEventId: number }
   | { type: 'gateway.session-created'; sessionId: string }
   | { type: 'agent.delta'; sessionId: string; text: string }
-  | { type: 'agent.result'; sessionId: string; text: string; usage: { input_tokens: number; output_tokens: number; cost_usd?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }; stop_reason?: string; contextWindow?: number; rateLimitInfo?: { resetsAt: number; rateLimitType: string; status: string } }
+  | { type: 'agent.result'; sessionId: string; text: string; usage: { input_tokens: number; output_tokens: number; cost_usd?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }; stop_reason?: string; contextWindow?: number; rateLimitInfo?: { resetsAt: number; rateLimitType: string; status: string }; nextSuggestions?: RelayNextSuggestion[] }
   | { type: 'agent.tool'; sessionId: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean }
   | { type: 'agent.permission_request'; sessionId: string; requestId: string; toolName: string; input: Record<string, unknown> }
   | { type: 'gateway.chat-catchup'; sessionId: string; text: string }

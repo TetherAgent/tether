@@ -17,16 +17,23 @@ type RelaySubscriber = {
   onFrameRef: React.MutableRefObject<UseChatRelaySocketOptions['onFrame']>;
   onCloseRef: React.MutableRefObject<UseChatRelaySocketOptions['onClose']>;
   setWsReady: React.Dispatch<React.SetStateAction<boolean>>;
+  setConnectionEpoch: React.Dispatch<React.SetStateAction<number>>;
 };
 
 type SharedRelaySocket = {
   key: string;
+  relayUrl: string;
+  accessToken: string;
   ws: WebSocket | null;
   ready: boolean;
+  reconnectAttempt: number;
+  reconnectTimer?: number;
   activeSubscriber?: RelaySubscriber;
 };
 
 let sharedRelaySocket: SharedRelaySocket | undefined;
+
+const RECONNECT_DELAYS_MS = [500, 1000, 2000, 5000];
 
 function buildRelayUrl(value: string): string {
   const url = new URL(value);
@@ -60,6 +67,10 @@ function sendSharedFrame(frame: Record<string, unknown>): boolean {
 function closeSharedSocket(socket: SharedRelaySocket | undefined = sharedRelaySocket) {
   if (!socket) return;
   const ws = socket.ws;
+  if (socket.reconnectTimer !== undefined) {
+    window.clearTimeout(socket.reconnectTimer);
+    socket.reconnectTimer = undefined;
+  }
   socket.ws = null;
   socket.ready = false;
   socket.activeSubscriber?.setWsReady(false);
@@ -71,35 +82,74 @@ function closeSharedSocket(socket: SharedRelaySocket | undefined = sharedRelaySo
   }
 }
 
-function openSharedSocket(key: string, relayUrl: string, accessToken: string): SharedRelaySocket {
-  const socket: SharedRelaySocket = {
-    key,
-    ws: null,
-    ready: false
-  };
-  const ws = new WebSocket(buildRelayUrl(relayUrl));
+function scheduleReconnect(socket: SharedRelaySocket, immediate = false) {
+  if (sharedRelaySocket !== socket || !socket.activeSubscriber) {
+    return;
+  }
+  if (socket.ws && (socket.ws.readyState === WebSocket.OPEN || socket.ws.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+  if (socket.reconnectTimer !== undefined) {
+    window.clearTimeout(socket.reconnectTimer);
+  }
+  const delay = immediate
+    ? 0
+    : RECONNECT_DELAYS_MS[Math.min(socket.reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)]!;
+  if (!immediate) {
+    socket.reconnectAttempt += 1;
+  }
+  socket.reconnectTimer = window.setTimeout(() => {
+    socket.reconnectTimer = undefined;
+    connectSharedSocket(socket);
+  }, delay);
+}
+
+function connectSharedSocket(socket: SharedRelaySocket) {
+  if (sharedRelaySocket !== socket || !socket.activeSubscriber) {
+    return;
+  }
+  if (socket.ws && (socket.ws.readyState === WebSocket.OPEN || socket.ws.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+  const ws = new WebSocket(buildRelayUrl(socket.relayUrl));
   socket.ws = ws;
-  sharedRelaySocket = socket;
+  socket.ready = false;
+  socket.activeSubscriber?.setWsReady(false);
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({ type: 'client.auth', token: accessToken }));
+    ws.send(JSON.stringify({ type: 'client.auth', token: socket.accessToken }));
   };
   ws.onmessage = (event) => {
     const frame = frameFromRaw(event.data);
-    if (!frame || sharedRelaySocket !== socket) return;
+    if (!frame || sharedRelaySocket !== socket || socket.ws !== ws) return;
     if (frame.type === 'client.auth.ok') {
       socket.ready = true;
+      socket.reconnectAttempt = 0;
       socket.activeSubscriber?.setWsReady(true);
+      socket.activeSubscriber?.setConnectionEpoch((epoch) => epoch + 1);
     }
     socket.activeSubscriber?.onFrameRef.current(frame, { sendFrame: sendSharedFrame });
   };
   ws.onclose = () => {
-    if (sharedRelaySocket !== socket) return;
+    if (sharedRelaySocket !== socket || socket.ws !== ws) return;
     socket.ws = null;
     socket.ready = false;
     socket.activeSubscriber?.setWsReady(false);
     socket.activeSubscriber?.onCloseRef.current();
+    scheduleReconnect(socket);
   };
+}
+
+function openSharedSocket(key: string, relayUrl: string, accessToken: string): SharedRelaySocket {
+  const socket: SharedRelaySocket = {
+    key,
+    relayUrl,
+    accessToken,
+    ws: null,
+    ready: false,
+    reconnectAttempt: 0
+  };
+  sharedRelaySocket = socket;
 
   return socket;
 }
@@ -111,6 +161,7 @@ export function useChatRelaySocket({
   onClose
 }: UseChatRelaySocketOptions) {
   const [wsReady, setWsReady] = React.useState(false);
+  const [connectionEpoch, setConnectionEpoch] = React.useState(0);
   const onFrameRef = React.useRef(onFrame);
   const onCloseRef = React.useRef(onClose);
 
@@ -133,7 +184,8 @@ export function useChatRelaySocket({
     const subscriber: RelaySubscriber = {
       onFrameRef,
       onCloseRef,
-      setWsReady
+      setWsReady,
+      setConnectionEpoch
     };
 
     if (sharedRelaySocket && sharedRelaySocket.key !== key) {
@@ -141,14 +193,30 @@ export function useChatRelaySocket({
     }
 
     let socket = sharedRelaySocket;
-    if (!socket || !socket.ws || socket.ws.readyState === WebSocket.CLOSED || socket.ws.readyState === WebSocket.CLOSING) {
+    if (!socket) {
       socket = openSharedSocket(key, relayUrl, accessToken);
     }
 
     socket.activeSubscriber = subscriber;
+    if (!socket.ws || socket.ws.readyState === WebSocket.CLOSED || socket.ws.readyState === WebSocket.CLOSING) {
+      connectSharedSocket(socket);
+    }
     setWsReady(socket.ready);
 
+    const reconnectWhenVisible = () => {
+      if (document.visibilityState === 'visible') {
+        scheduleReconnect(socket, true);
+      }
+    };
+    const reconnectWhenOnline = () => {
+      scheduleReconnect(socket, true);
+    };
+    document.addEventListener('visibilitychange', reconnectWhenVisible);
+    window.addEventListener('online', reconnectWhenOnline);
+
     return () => {
+      document.removeEventListener('visibilitychange', reconnectWhenVisible);
+      window.removeEventListener('online', reconnectWhenOnline);
       if (sharedRelaySocket !== socket || socket.activeSubscriber !== subscriber) {
         return;
       }
@@ -157,5 +225,5 @@ export function useChatRelaySocket({
     };
   }, [accessToken, relayUrl]);
 
-  return { wsReady, sendFrame };
+  return { wsReady, sendFrame, connectionEpoch };
 }

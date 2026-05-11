@@ -9,6 +9,11 @@ import { ResultCard } from './result-card.js';
 import { ModelAvatar } from './model-avatar.js';
 import { ThinkingDots } from './thinking-dots.js';
 
+export type ChatNextSuggestion = {
+  description: string;
+  title?: string;
+};
+
 function closeUnclosedFence(text: string): string {
   return ((text.match(/^```/gm) ?? []).length % 2 === 1) ? `${text}\n\`\`\`` : text;
 }
@@ -60,7 +65,9 @@ export function ChatBubbleAgent({
   isLost,
   provider,
   usage,
-  durationMs
+  durationMs,
+  nextSuggestions,
+  onSuggestionClick
 }: {
   text: string;
   isStreaming: boolean;
@@ -69,6 +76,8 @@ export function ChatBubbleAgent({
   provider?: string;
   usage?: { input_tokens: number; output_tokens: number; cost_usd?: number };
   durationMs?: number;
+  nextSuggestions?: ChatNextSuggestion[];
+  onSuggestionClick?: (description: string) => void;
 }) {
   const renderText = isStreaming ? closeUnclosedFence(text) : text;
   return (
@@ -95,6 +104,20 @@ export function ChatBubbleAgent({
         </div>
         {isLost ? <div className="mt-2 text-xs text-destructive">Reply lost</div> : null}
         {usage ? <ResultCard usage={usage} durationMs={durationMs} /> : null}
+        {!isStreaming && !isWaiting && nextSuggestions && nextSuggestions.length > 0 ? (
+          <div className="mt-3 flex flex-col items-start gap-2">
+            {nextSuggestions.map((suggestion, index) => (
+              <button
+                key={`${suggestion.description}-${index}`}
+                type="button"
+                className="max-w-full rounded-2xl border border-border bg-background px-4 py-2.5 text-left text-sm text-foreground shadow-sm transition-colors hover:border-muted-foreground/35 hover:bg-muted/50"
+                onClick={() => onSuggestionClick?.(suggestion.description)}
+              >
+                {suggestion.description}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
     </div>
   );

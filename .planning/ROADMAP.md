@@ -323,6 +323,26 @@ Plans:
   - **Wave 4** *(depends on all prior plans)*:
     - [ ] `13-06-PLAN.md` — 端对端集成（ChatPanel + chats-layout 更新）+ human verify checkpoint
 
+### Phase 14: Multi-device Gateway Routing
+
+**Goal:** 允许同一账号在多台设备上各自绑定稳定 Gateway 记录，Web 显示选择器，Relay 按 gatewayId 严格路由，禁止任何 fallback。
+**Requirements**: GATEWAY-MULTI-01, GATEWAY-MULTI-02, GATEWAY-MULTI-03, GATEWAY-MULTI-04, GATEWAY-MULTI-05, GATEWAY-MULTI-06
+**Depends on:** Phase 13
+**Plans:** 6 plans across 5 waves
+
+Plans:
+  - **Wave 1** (no deps):
+    - [ ] 14-P01-db-migration.md — gateways 表 migration 008（添加 device_key/hostname/local_port，更换 unique key）
+  - **Wave 2** *(depends on Plan 01)*:
+    - [ ] 14-P02-server-gateway-api.md — 服务端 upsert-by-device-key + GET /api/server/gateways
+    - [ ] 14-P03-cli-auth-simplification.md — CLI device.json + auth.json 简化 + decodeGatewayToken + 4 callsite 修复（原子）
+  - **Wave 3** *(depends on Plan 02)*:
+    - [ ] 14-P04-protocol-web-frames.md — Protocol gatewayId 类型更新 + Web sendFrame 注入 + gateway_required 处理
+  - **Wave 4** *(depends on Plan 04)*:
+    - [ ] 14-P05-relay-strict-routing.md — Relay 移除 fallback + gateway_required/gateway_unauthorized + 隔离测试
+  - **Wave 5** *(depends on Plans 04 + 05)*:
+    - [ ] 14-P06-web-gateway-selector.md — GatewaySelector 组件 + 离线禁用 + human verify
+
 ---
 *Roadmap created: 2026-05-01*
 *Milestone reordered: 2026-05-01 — personal Relay MVP moved to Phase 1*
@@ -334,4 +354,5 @@ Plans:
 *Scope update: 2026-05-05 — Phase 11 Agent 实时对话视图 planned: 4 plans across 4 waves*
 *Scope update: 2026-05-09 — Phase 12 Server DB Runtime Sync added: Web/App 读取改为 Server DB，Relay 同步 Gateway frame 到 Server*
 *Scope update: 2026-05-10 — Phase 13 Mobile Web Chat planned: 6 plans across 4 waves*
+*Scope update: 2026-05-11 — Phase 14 Multi-device Gateway Routing planned: 6 plans across 5 waves*
 *Coverage: 40/40 v1 requirements mapped*

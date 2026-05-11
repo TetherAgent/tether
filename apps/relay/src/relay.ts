@@ -327,6 +327,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
                 : {}),
               ...(frame.event.payload.rateLimitInfo && typeof frame.event.payload.rateLimitInfo === 'object'
                 ? { rateLimitInfo: frame.event.payload.rateLimitInfo as { resetsAt: number; rateLimitType: string; status: string } }
+                : {}),
+              ...(Array.isArray(frame.event.payload.nextSuggestions)
+                ? { nextSuggestions: frame.event.payload.nextSuggestions.filter(isNextSuggestion) }
                 : {})
             });
           }
@@ -926,6 +929,15 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
   function hasConnectedGateway(): boolean {
     return firstConnectedGateway() !== undefined;
   }
+}
+
+function isNextSuggestion(value: unknown): value is { description: string; title?: string; toolName?: string; reason?: string } {
+  if (!value || typeof value !== 'object') return false;
+  const suggestion = value as { description?: unknown; title?: unknown; toolName?: unknown; reason?: unknown };
+  return typeof suggestion.description === 'string' &&
+    (suggestion.title === undefined || typeof suggestion.title === 'string') &&
+    (suggestion.toolName === undefined || typeof suggestion.toolName === 'string') &&
+    (suggestion.reason === undefined || typeof suggestion.reason === 'string');
 }
 
 async function authenticateGatewayFrame(

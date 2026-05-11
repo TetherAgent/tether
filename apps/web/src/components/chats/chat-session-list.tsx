@@ -2,23 +2,11 @@ import * as React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { LogOut, Moon, MoreHorizontal, PanelLeftClose, Pencil, Sun, Trash2 } from 'lucide-react';
 import { Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Input } from '@tether/design';
-import { createHttpClient } from '@tether/http';
 import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { useUiPreferences } from '../../hooks/use-ui-preferences.js';
 import { deleteChatSession, getStoredNormalAccessToken, renameChatSession } from '../../lib/api.js';
-
-type ChatSessionRecord = {
-  id: string;
-  gatewayId?: string;
-  provider: string;
-  projectPath: string;
-  title?: string;
-  agentSessionId?: string;
-  status: string;
-  transport: string;
-  lastActiveAt?: number;
-};
+import { fetchChatSessions, type ChatSessionRecord } from './chat-data.js';
 
 function groupSessions(sessions: ChatSessionRecord[], t: { groupToday: string; groupLastWeek: string; groupEarlier: string }): { label: string; items: ChatSessionRecord[] }[] {
   const now = Date.now();
@@ -65,11 +53,13 @@ function compactProjectPath(projectPath: string): string {
 export function ChatSessionList({
   activeSessionId,
   onSelect,
-  onToggleSidebar
+  onToggleSidebar,
+  refreshKey = 0
 }: {
   activeSessionId?: string;
   onSelect?: () => void;
   onToggleSidebar?: () => void;
+  refreshKey?: number;
 }) {
   const { t } = useI18n();
   const { normalAuth, logoutNormal } = useAuth();
@@ -81,17 +71,15 @@ export function ChatSessionList({
 
   const loadSessions = React.useCallback(() => {
     const token = getStoredNormalAccessToken();
-    const http = createHttpClient();
-    void http
-      .get<{ sessions: ChatSessionRecord[] }>('/api/server/chat-sessions', undefined, { token })
-      .then((data: { sessions: ChatSessionRecord[] }) => setSessions(data.sessions ?? []))
+    void fetchChatSessions(token, false)
+      .then((nextSessions) => setSessions(nextSessions))
       .catch(() => setSessions([]));
   }, []);
 
-  React.useEffect(() => { loadSessions(); }, [activeSessionId, loadSessions]);
+  React.useEffect(() => { loadSessions(); }, [activeSessionId, loadSessions, refreshKey]);
 
   const startRename = (session: ChatSessionRecord) => {
-    const currentTitle = session.title || (session.projectPath ? (session.projectPath.split('/').pop() ?? session.provider) : session.provider);
+    const currentTitle = session.title || (session.projectPath ? (session.projectPath.split('/').pop() ?? session.provider) : session.provider) || 'agent';
     setRenameDialog({ id: session.id, value: currentTitle });
   };
 
@@ -221,8 +209,8 @@ export function ChatSessionList({
                     const active = session.id === activeSessionId;
                     const title = session.title || (session.projectPath
                       ? (session.projectPath.split('/').pop() ?? session.provider)
-                      : session.provider);
-                    const meta = `${session.provider || 'agent'} · ${compactProjectPath(session.projectPath)}`;
+                      : session.provider) || 'agent';
+                    const meta = `${session.provider || 'agent'} · ${compactProjectPath(session.projectPath ?? '')}`;
                     return (
                       <div
                         key={session.id}

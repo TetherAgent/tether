@@ -86,7 +86,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     onDelta: ({ clientId, sessionId, text }) => {
       sendChatEvent(0, sessionId, 'agent.delta', { clientId: chatClientBindings.get(sessionId) ?? clientId, text });
     },
-    onResult: ({ clientId, sessionId, event, text, usage, stopReason, contextWindow, rateLimitInfo, contextInputTokens }) => {
+    onResult: ({ clientId, sessionId, event, text, usage, stopReason, contextWindow, rateLimitInfo, contextInputTokens, nextSuggestions }) => {
       sendChatEvent(event.id, sessionId, 'agent.result', {
         clientId: chatClientBindings.get(sessionId) ?? clientId,
         text,
@@ -94,7 +94,8 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         ...(stopReason ? { stop_reason: stopReason } : {}),
         ...(contextWindow !== undefined ? { contextWindow } : {}),
         ...(rateLimitInfo ? { rateLimitInfo } : {}),
-        ...(contextInputTokens !== undefined ? { contextInputTokens } : {})
+        ...(contextInputTokens !== undefined ? { contextInputTokens } : {}),
+        ...(nextSuggestions && nextSuggestions.length > 0 ? { nextSuggestions } : {})
       });
     },
     onPermissionRequest: ({ clientId, sessionId, requestId, toolName, input }) => {

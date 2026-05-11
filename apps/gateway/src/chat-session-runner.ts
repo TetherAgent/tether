@@ -28,6 +28,13 @@ export type RateLimitInfo = {
   planType?: string;
 };
 
+export type NextSuggestion = {
+  description: string;
+  title?: string;
+  toolName?: string;
+  reason?: string;
+};
+
 export type ChatRunnerOptions = {
   store: Store;
   gatewayId: () => string;
@@ -45,6 +52,7 @@ export type ChatRunnerOptions = {
     contextWindow?: number;
     rateLimitInfo?: RateLimitInfo;
     contextInputTokens?: number;
+    nextSuggestions?: NextSuggestion[];
   }) => void;
   onTool: (event: {
     clientId: string;
@@ -130,11 +138,12 @@ export type BuildArgsParams = {
  *   - agentSessionId()   — update the resume ID for this session
  *   - tool()             — tool use event
  *   - permissionRequest()— permission gate the user must approve
+ *   - nextSuggestions   — pass post-result suggestions via result() options
  *   - setLastUsage()     — update tracked usage before calling result()
  */
 export type LineEmitter = {
   delta(text: string): void;
-  result(text: string, usage: ChatUsage, opts?: { stopReason?: string }): void;
+  result(text: string, usage: ChatUsage, opts?: { stopReason?: string; nextSuggestions?: NextSuggestion[] }): void;
   rateLimitInfo(info: RateLimitInfo): void;
   contextWindow(tokens: number): void;
   contextInputTokens(tokens: number): void;
@@ -350,7 +359,7 @@ class CliChatRunner implements IChatRunner {
         this.options.onDelta({ clientId: active.clientId, sessionId, text });
       },
       result: (text, usage, opts) => {
-        void this.finishResult(sessionId, active, text, usage, opts?.stopReason);
+        void this.finishResult(sessionId, active, text, usage, opts?.stopReason, opts?.nextSuggestions);
       },
       rateLimitInfo: (info) => { active.rateLimitInfo = info; },
       contextWindow: (tokens) => { active.contextWindow = tokens; },
@@ -374,7 +383,7 @@ class CliChatRunner implements IChatRunner {
     };
   }
 
-  private async finishResult(sessionId: string, active: ActiveSubprocess, text: string, usage: ChatUsage, stopReason?: string): Promise<void> {
+  private async finishResult(sessionId: string, active: ActiveSubprocess, text: string, usage: ChatUsage, stopReason?: string, nextSuggestions?: NextSuggestion[]): Promise<void> {
     active.completed = true;
     active.accumulatedText = text;
     if (this.adapter.afterTurn && !active.rateLimitInfo) {
@@ -398,7 +407,8 @@ class CliChatRunner implements IChatRunner {
       stopReason,
       contextWindow: active.contextWindow,
       rateLimitInfo: active.rateLimitInfo,
-      contextInputTokens: active.contextInputTokens
+      contextInputTokens: active.contextInputTokens,
+      nextSuggestions
     });
     this.activeSubprocesses.delete(sessionId);
   }
@@ -584,7 +594,7 @@ class ClaudeAdapter implements CliProviderAdapter {
         const iterCacheCreate = numberValue(lastIter.cache_creation_input_tokens) ?? 0;
         emit.contextInputTokens(iterInput + iterCacheRead + iterCacheCreate);
       }
-      emit.result(text, usage, { stopReason });
+      emit.result(text, usage, { stopReason, nextSuggestions: suggestionsFromPermissionDenials(event.permission_denials) });
       return;
     }
 
@@ -773,6 +783,44 @@ function normalizeUsage(value: unknown): ChatUsage | undefined {
     ...(numberValue(usage.cache_creation_input_tokens) !== undefined ? { cache_creation_input_tokens: numberValue(usage.cache_creation_input_tokens) } : {}),
     ...(numberValue(usage.cache_read_input_tokens) !== undefined ? { cache_read_input_tokens: numberValue(usage.cache_read_input_tokens) } : {})
   };
+}
+
+function suggestionsFromPermissionDenials(value: unknown): NextSuggestion[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) {
+    return undefined;
+  }
+  const suggestions = value
+    .map((item, index) => suggestionFromPermissionDenial(item, index))
+    .filter((item): item is NextSuggestion => Boolean(item));
+  return suggestions.length > 0 ? suggestions.slice(0, 3) : undefined;
+}
+
+function suggestionFromPermissionDenial(value: unknown, index: number): NextSuggestion | undefined {
+  const record = recordValue(value);
+  if (!record) {
+    return undefined;
+  }
+  const toolName = stringValue(record.tool_name ?? record.toolName ?? record.name);
+  const reason = stringValue(record.reason ?? record.message ?? record.error);
+  const input = recordValue(record.input);
+  const command = stringValue(input?.command ?? input?.cmd ?? input?.description);
+  const pathValue = stringValue(input?.path ?? input?.file_path ?? input?.filePath);
+  const target = command ?? pathValue;
+  const label = toolName ? `${toolName}${target ? `: ${truncateText(target, 80)}` : ''}` : `操作 ${index + 1}`;
+  return {
+    title: '重新授权重试',
+    description: `请重新尝试并在需要时允许 ${label}`,
+    ...(toolName ? { toolName } : {}),
+    ...(reason ? { reason } : {})
+  };
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function truncateText(value: string, maxLength: number): string {
+  return value.length <= maxLength ? value : `${value.slice(0, maxLength - 1)}…`;
 }
 
 function numberValue(value: unknown): number | undefined {

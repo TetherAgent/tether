@@ -5,10 +5,15 @@ import { ChatSessionList } from './chat-session-list.js';
 export function ChatsLayout({ activeSessionId }: { activeSessionId?: string }) {
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
+  const [sessionRefreshKey, setSessionRefreshKey] = React.useState(0);
+  const refreshSessions = React.useCallback(() => {
+    setSessionRefreshKey((key) => key + 1);
+  }, []);
 
   const sidebarContent = (
     <ChatSessionList
       activeSessionId={activeSessionId}
+      refreshKey={sessionRefreshKey}
       onSelect={() => setDrawerOpen(false)}
       onToggleSidebar={() => setSidebarOpen(false)}
     />
@@ -41,6 +46,7 @@ export function ChatsLayout({ activeSessionId }: { activeSessionId?: string }) {
           activeSessionId={activeSessionId}
           onExpandSidebar={!sidebarOpen ? () => setSidebarOpen(true) : undefined}
           onOpenDrawer={() => setDrawerOpen(true)}
+          onReconnectCatchup={refreshSessions}
         />
       </div>
     </div>

@@ -114,6 +114,8 @@ Recent decisions affecting current work:
 - Phase 6 complete: Account Management Console (2026-05-04, human verified)
 - Phase 12 complete: Server DB Runtime Sync (2026-05-09, code verified)
 - Phase 13 complete: Mobile Web Chat (2026-05-10, code verified)
+- Phase 14 added: Multi-device Gateway Routing — deviceId 绑定、稳定 gatewayId、Gateway 列表 API、Web 选择器、Relay 强制路由；参考 docs/working/2026-05-11-multi-device-gateway-routing.md
+- Phase 14 context gathered: 2026-05-11 — 4 个区域讨论完成，CONTEXT.md 已就绪
 
 ### Blockers/Concerns
 
