@@ -791,7 +791,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           }
           hydratedSession = true;
         }
-        if (!clientCanSeeRelaySession(client, session)) {
+        if (!clientCanSeeSession(client.scope, client.authMethod, session, gatewayForSession(session)?.scope)) {
           sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });
           break;
         }

@@ -1485,6 +1485,94 @@ test('relay rebinds client to subscribed session gateway', async () => {
   }
 });
 
+test('relay rebinds client from one same-user gateway session to another', async () => {
+  const GW_TOKEN_1 = 'gw-token-switch-1';
+  const GW_TOKEN_2 = 'gw-token-switch-2';
+  const CLIENT_TOKEN_USER = 'client-token-switch-user';
+
+  const relay = await startRelayServer({
+    host: '127.0.0.1',
+    port: 0,
+    secret: SECRET,
+    validateToken: async (token) => {
+      if (token === GW_TOKEN_1) {
+        return { accountId: 'acct_1', gatewayId: 'gateway-switch-1', userId: 'user_switch', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw_switch_1' };
+      }
+      if (token === GW_TOKEN_2) {
+        return { accountId: 'acct_1', gatewayId: 'gateway-switch-2', userId: 'user_switch', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw_switch_2' };
+      }
+      if (token === CLIENT_TOKEN_USER) {
+        return { accountId: 'acct_1', userId: 'user_switch', tokenClass: 'normal_client_access', expiresAt: Date.now() + 60_000, jti: 'jti_client_switch' };
+      }
+      return undefined;
+    }
+  });
+
+  const wsUrl = relay.url.replace('http', 'ws');
+  const gateway1 = new WebSocket(`${wsUrl}/ws/gateway`);
+  const gateway2 = new WebSocket(`${wsUrl}/ws/gateway`);
+  const client = new WebSocket(`${wsUrl}/ws/client`);
+  const session1: RelaySession = {
+    id: 'tth_switch_gateway_1',
+    provider: 'claude',
+    title: 'Switch Gateway 1',
+    projectPath: process.cwd(),
+    accountId: 'acct_1',
+    gatewayId: 'gateway-switch-1',
+    userId: 'user_switch',
+    status: 'running',
+    transport: 'chat',
+    lastActiveAt: Date.now()
+  };
+  const session2: RelaySession = {
+    id: 'tth_switch_gateway_2',
+    provider: 'claude',
+    title: 'Switch Gateway 2',
+    projectPath: process.cwd(),
+    accountId: 'acct_1',
+    gatewayId: 'gateway-switch-2',
+    userId: 'user_switch',
+    status: 'running',
+    transport: 'chat',
+    lastActiveAt: Date.now()
+  };
+
+  try {
+    await waitForOpen(gateway1);
+    gateway1.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-switch-1', token: GW_TOKEN_1 }));
+    await waitForJson(gateway1, (m) => m.type === 'gateway.auth.ok');
+    gateway1.send(JSON.stringify({ type: 'gateway.sessions', gatewayId: 'gateway-switch-1', sessions: [session1] }));
+
+    await waitForOpen(gateway2);
+    gateway2.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-switch-2', token: GW_TOKEN_2 }));
+    await waitForJson(gateway2, (m) => m.type === 'gateway.auth.ok');
+    gateway2.send(JSON.stringify({ type: 'gateway.sessions', gatewayId: 'gateway-switch-2', sessions: [session2] }));
+
+    await waitForOpen(client);
+    client.send(JSON.stringify({ type: 'client.auth', token: CLIENT_TOKEN_USER }));
+    await waitForJson(client, (m) => m.type === 'client.auth.ok');
+
+    const firstHelloPromise = waitForJson(client, (m) => m.type === 'hello' && m.gatewayId === 'gateway-switch-1');
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId: session1.id, mode: 'control' }));
+    await firstHelloPromise;
+
+    const reboundHelloPromise = waitForJson(client, (m) => m.type === 'hello' && m.gatewayId === 'gateway-switch-2');
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId: session2.id, mode: 'control' }));
+    await reboundHelloPromise;
+
+    const forbiddenCheck = await Promise.race([
+      waitForJson(client, (m) => m.type === 'error' && m.code === 'forbidden').then(() => 'forbidden'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('ok'), 150))
+    ]);
+    assert.equal(forbiddenCheck, 'ok');
+  } finally {
+    gateway1.close();
+    gateway2.close();
+    client.close();
+    await relay.close();
+  }
+});
+
 test('phase14: client.chat without gatewayId returns gateway_required and does not route to first gateway', async () => {
   const relay = await startRelayServer({
     host: '127.0.0.1',
