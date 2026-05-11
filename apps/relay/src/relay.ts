@@ -8,7 +8,8 @@ import type {
   RelayServerToClientFrame,
   RelayServerToGatewayFrame,
   RelaySession,
-  RelayTerminalEvent
+  RelayTerminalEvent,
+  TrustedChatSessionMetadata
 } from '@tether/protocol';
 
 export type RelayServerOptions = {
@@ -54,6 +55,7 @@ type ClientState = {
 };
 
 type RelayAuthMethod = 'token' | 'legacy-secret';
+type FetchedChatSessionMetadata = Omit<TrustedChatSessionMetadata, 'transport'> & { transport: string };
 
 export async function startRelayServer(options: RelayServerOptions): Promise<RunningRelayServer> {
   if (!options.secret && !options.validateToken) {
@@ -75,9 +77,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     'gateway.session-created'
   ]);
 
-  async function syncToServer(endpoint: string, body: unknown, method = 'POST'): Promise<void> {
+  async function syncToServer(endpoint: string, body: unknown, method = 'POST'): Promise<boolean> {
     if (!options.serverSyncUrl || !options.runtimeSyncSecret) {
-      return;
+      return false;
     }
     try {
       const response = await fetch(`${options.serverSyncUrl}${endpoint}`, {
@@ -92,8 +94,48 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
       if (!response.ok) {
         console.warn(`[relay] sync failed: ${endpoint} HTTP ${response.status}`);
       }
+      return response.ok;
     } catch (error) {
       console.warn(`[relay] sync error: ${endpoint}`, String(error));
+      return false;
+    }
+  }
+
+  async function fetchSessionMetadata(sessionId: string): Promise<FetchedChatSessionMetadata | undefined> {
+    if (!options.serverSyncUrl || !options.runtimeSyncSecret) {
+      return undefined;
+    }
+    try {
+      const response = await fetch(
+        `${options.serverSyncUrl}/api/relay/gateway-sessions/${encodeURIComponent(sessionId)}/metadata`,
+        {
+          method: 'GET',
+          headers: { 'x-tether-runtime-sync-secret': options.runtimeSyncSecret },
+          signal: AbortSignal.timeout(3000)
+        }
+      );
+      if (!response.ok) {
+        console.warn(`[relay] fetchSessionMetadata failed: HTTP ${response.status} for ${sessionId}`);
+        return undefined;
+      }
+      const json = await response.json() as { data?: unknown };
+      const data = json.data as Record<string, unknown> | undefined;
+      if (!data || typeof data.provider !== 'string' || typeof data.transport !== 'string') {
+        return undefined;
+      }
+      return {
+        id: String(data.id ?? sessionId),
+        provider: String(data.provider),
+        projectPath: String(data.projectPath ?? data.project_path ?? ''),
+        agentSessionId: data.agentSessionId != null ? String(data.agentSessionId) : undefined,
+        accountId: String(data.accountId ?? data.account_id ?? ''),
+        userId: String(data.userId ?? data.user_id ?? ''),
+        gatewayId: String(data.gatewayId ?? data.gateway_id ?? ''),
+        transport: String(data.transport)
+      };
+    } catch (error) {
+      console.warn('[relay] fetchSessionMetadata error:', String(error));
+      return undefined;
     }
   }
 
@@ -227,7 +269,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           socket.close(POLICY_VIOLATION, 'out of scope');
           return;
         }
-        handleGatewayFrame(parsed, gatewayScope);
+        await handleGatewayFrame(parsed, gatewayScope);
       })().catch(() => {
         socket.close(POLICY_VIOLATION, 'gateway error');
       });
@@ -250,7 +292,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     });
   }
 
-  function handleGatewayFrame(frame: RelayGatewayToServerFrame, gatewayScope: RelayAuthScope): void {
+  async function handleGatewayFrame(frame: RelayGatewayToServerFrame, gatewayScope: RelayAuthScope): Promise<void> {
     switch (frame.type) {
       case 'gateway.sessions':
         if (frame.sessions.length === 0 && hasCachedRunningSessions()) {
@@ -285,9 +327,18 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         if (frame.event.type === 'session.agent-id-updated') {
           const payload = frame.event.payload as { agentSessionId?: unknown };
           if (typeof payload.agentSessionId === 'string') {
+            const session = latestSessions.get(frame.event.sessionId);
             void syncToServer(
               `/api/relay/gateway-sessions/${frame.event.sessionId}/agent-session-id`,
-              { agentSessionId: payload.agentSessionId },
+              {
+                sessionId: frame.event.sessionId,
+                agentSessionId: payload.agentSessionId,
+                scope: {
+                  accountId: gatewayScope.accountId,
+                  gatewayId: gatewayScope.gatewayId ?? frame.gatewayId,
+                  userId: session?.userId ?? gatewayScope.userId ?? ''
+                }
+              },
               'PATCH'
             );
           }
@@ -428,6 +479,53 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         }
         break;
       }
+      case 'gateway.chat-session-created': {
+        const { clientId, session } = frame;
+        const synced = await syncToServer(
+          '/api/relay/runtime-sync/gateway/sessions',
+          {
+            gatewayId: frame.gatewayId,
+            scope: { accountId: gatewayScope.accountId, gatewayId: gatewayScope.gatewayId ?? frame.gatewayId },
+            sessions: [{
+              id: session.id,
+              provider: session.provider,
+              projectPath: session.projectPath,
+              agentSessionId: session.agentSessionId,
+              gatewayId: session.gatewayId,
+              userId: session.userId,
+              transport: 'chat',
+              status: 'running',
+              title: '',
+              lastActiveAt: Date.now()
+            }]
+          }
+        );
+        if (!synced) {
+          sendToClient(clientId, {
+            type: 'error',
+            sessionId: session.id,
+            code: 'session_sync_failed',
+            message: 'failed to sync chat session to server'
+          });
+          break;
+        }
+        latestSessions.set(session.id, {
+          id: session.id,
+          provider: session.provider,
+          title: '',
+          projectPath: session.projectPath,
+          accountId: session.accountId,
+          gatewayId: session.gatewayId,
+          userId: session.userId,
+          agentSessionId: session.agentSessionId,
+          status: 'running',
+          transport: 'chat',
+          lastActiveAt: Date.now()
+        });
+        broadcastSessionList();
+        sendToClient(clientId, { type: 'gateway.session-created', sessionId: session.id });
+        break;
+      }
       case 'gateway.error':
         sendGatewayError(frame);
         break;
@@ -524,7 +622,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           socket.close(POLICY_VIOLATION, 'authentication failed');
           return;
         }
-        handleClientFrame(clientId, clientScope, subscriptions, parsed);
+        await handleClientFrame(clientId, clientScope, subscriptions, parsed);
       })().catch(() => {
         socket.close(POLICY_VIOLATION, 'client error');
       });
@@ -536,12 +634,12 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     });
   }
 
-  function handleClientFrame(
+  async function handleClientFrame(
     clientId: string,
     clientScope: RelayAuthScope,
     subscriptions: Map<string, RelayClientMode>,
     frame: RelayClientToServerFrame
-  ): void {
+  ): Promise<void> {
     const authMethod = clients.get(clientId)?.authMethod ?? 'token';
     switch (frame.type) {
       case 'client.list':
@@ -651,19 +749,62 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         forwardToSessionGateway({ type: 'client.stop', clientId, sessionId: frame.sessionId });
         break;
       case 'client.chat':
-        forwardToGateway(ensureClientGatewayId(clientId), frame.sessionId === null
-          ? {
-              type: 'client.chat',
-              clientId,
-              sessionId: null,
-              provider: frame.provider,
-              model: frame.model,
-              cwd: frame.cwd,
-              message: frame.message,
-              accountId: clientScope.accountId,
-              userId: clientScope.userId
-            }
-          : { type: 'client.chat', clientId, sessionId: frame.sessionId, message: frame.message, model: frame.model });
+        if (frame.sessionId === null) {
+          forwardToGateway(ensureClientGatewayId(clientId), {
+            type: 'client.chat',
+            clientId,
+            sessionId: null,
+            provider: frame.provider,
+            model: frame.model,
+            cwd: frame.cwd,
+            message: frame.message,
+            accountId: clientScope.accountId,
+            userId: clientScope.userId
+          });
+        } else {
+          const metadata = await fetchSessionMetadata(frame.sessionId);
+          if (!metadata) {
+            sendToClient(clientId, {
+              type: 'error',
+              sessionId: frame.sessionId,
+              code: 'session_not_found',
+              message: 'session metadata not found in server'
+            });
+            break;
+          }
+          if (metadata.accountId !== clientScope.accountId || metadata.userId !== clientScope.userId) {
+            sendToClient(clientId, {
+              type: 'error',
+              sessionId: frame.sessionId,
+              code: 'forbidden',
+              message: 'session is outside client scope'
+            });
+            break;
+          }
+          if (metadata.transport !== 'chat') {
+            sendToClient(clientId, {
+              type: 'error',
+              sessionId: frame.sessionId,
+              code: 'wrong_transport',
+              message: 'session transport is not chat'
+            });
+            break;
+          }
+          const targetGateway = gateways.get(metadata.gatewayId);
+          if (!targetGateway || targetGateway.socket.readyState !== WebSocket.OPEN) {
+            sendGatewayUnavailable(clientId);
+            break;
+          }
+          const trustedMetadata: TrustedChatSessionMetadata = { ...metadata, transport: 'chat' };
+          sendToSocket<RelayServerToGatewayFrame>(targetGateway.socket, {
+            type: 'client.chat',
+            clientId,
+            sessionId: frame.sessionId,
+            message: frame.message,
+            model: frame.model,
+            session: trustedMetadata
+          });
+        }
         break;
       case 'client.list-providers':
         forwardToGateway(ensureClientGatewayId(clientId), { type: 'client.list-providers', clientId });
@@ -1001,6 +1142,7 @@ function gatewayFrameWithinScope(frame: RelayGatewayToServerFrame, gatewayScope:
     case 'gateway.error':
       return gatewayScope.sessionId ? gatewayScope.sessionId === frame.sessionId : true;
     case 'gateway.session-created':
+    case 'gateway.chat-session-created':
     case 'gateway.chat-catchup':
     case 'gateway.auth':
       return true;

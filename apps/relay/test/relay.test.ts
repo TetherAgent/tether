@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import test from 'node:test';
 import WebSocket from 'ws';
 import type { RelayAuthScope, RelayServerToClientFrame, RelaySession } from '@tether/protocol';
@@ -9,12 +10,21 @@ const GATEWAY_TOKEN = 'gateway-token';
 const CLIENT_TOKEN = 'client-token';
 const CLIENT_TICKET = 'client-ticket';
 
-function createRelay(options?: { allowLegacySecret?: boolean; omitGatewayIdInScope?: boolean; heartbeatIntervalMs?: number; heartbeatTimeoutMs?: number }) {
+function createRelay(options?: {
+  allowLegacySecret?: boolean;
+  omitGatewayIdInScope?: boolean;
+  heartbeatIntervalMs?: number;
+  heartbeatTimeoutMs?: number;
+  serverSyncUrl?: string;
+  runtimeSyncSecret?: string;
+}) {
   return startRelayServer({
     host: '127.0.0.1',
     port: 0,
     secret: SECRET,
     allowLegacySecret: options?.allowLegacySecret,
+    serverSyncUrl: options?.serverSyncUrl,
+    runtimeSyncSecret: options?.runtimeSyncSecret,
     heartbeatIntervalMs: options?.heartbeatIntervalMs,
     heartbeatTimeoutMs: options?.heartbeatTimeoutMs,
     validateToken: async (token) => {
@@ -51,6 +61,41 @@ function createRelay(options?: { allowLegacySecret?: boolean; omitGatewayIdInSco
       return undefined;
     }
   });
+}
+
+async function createMetadataServer(metadata: Record<string, Record<string, unknown>>) {
+  const requests: Array<{ method?: string; url?: string; body: string }> = [];
+  const server = createServer((request, response) => {
+    let body = '';
+    request.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+    request.on('end', () => {
+      requests.push({ method: request.method, url: request.url, body });
+      const match = request.url?.match(/^\/api\/relay\/gateway-sessions\/([^/]+)\/metadata$/);
+      if (request.method === 'GET' && match) {
+        const session = metadata[decodeURIComponent(match[1]!)];
+        if (!session) {
+          response.writeHead(404, { 'content-type': 'application/json' });
+          response.end(JSON.stringify({ code: 404, msg: 'not found', data: null }));
+          return;
+        }
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ code: 0, msg: 'success', data: session }));
+        return;
+      }
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ code: 0, msg: 'success', data: { ok: true } }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert(address && typeof address !== 'string');
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    requests,
+    close: () => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+  };
 }
 
 test('relay sends websocket heartbeat pings to connected sockets', async () => {
@@ -596,7 +641,18 @@ test('relay forwards subscribed input and resize to gateway', async () => {
 });
 
 test('relay forwards subscribed chat messages to gateway', async () => {
-  const relay = await createRelay();
+  const metadataServer = await createMetadataServer({
+    tth_chat_test: {
+      id: 'tth_chat_test',
+      provider: 'codex',
+      projectPath: process.cwd(),
+      accountId: 'acct_1',
+      gatewayId: 'gateway-test',
+      userId: 'user_1',
+      transport: 'chat'
+    }
+  });
+  const relay = await createRelay({ serverSyncUrl: metadataServer.url, runtimeSyncSecret: 'runtime-secret' });
   const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
   const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
 
@@ -615,7 +671,7 @@ test('relay forwards subscribed chat messages to gateway', async () => {
         gatewayId: 'gateway-test',
         userId: 'user_1',
         status: 'running',
-        transport: 'pty-event-stream',
+        transport: 'chat',
         lastActiveAt: Date.now()
       }]
     }));
@@ -630,12 +686,22 @@ test('relay forwards subscribed chat messages to gateway', async () => {
       type: 'client.chat',
       clientId,
       sessionId: 'tth_chat_test',
-      message: 'hello world'
+      message: 'hello world',
+      session: {
+        id: 'tth_chat_test',
+        provider: 'codex',
+        projectPath: process.cwd(),
+        accountId: 'acct_1',
+        gatewayId: 'gateway-test',
+        userId: 'user_1',
+        transport: 'chat'
+      }
     });
   } finally {
     gateway.close();
     client.close();
     await relay.close();
+    await metadataServer.close();
   }
 });
 
@@ -1429,10 +1495,14 @@ async function waitForOpen(ws: WebSocket): Promise<void> {
   });
 }
 
-async function waitForJson(ws: WebSocket, predicate: (message: Record<string, unknown>) => boolean): Promise<Record<string, unknown>> {
+async function waitForJson(
+  ws: WebSocket,
+  predicate: (message: Record<string, unknown>) => boolean,
+  timeoutMs = 1000
+): Promise<Record<string, unknown>> {
   return await new Promise((resolve, reject) => {
     let lastMessage = '';
-    const timer = setTimeout(() => reject(new Error(`timed out waiting for websocket message; last=${lastMessage}`)), 1000);
+    const timer = setTimeout(() => reject(new Error(`timed out waiting for websocket message; last=${lastMessage}`)), timeoutMs);
     ws.on('message', (raw) => {
       lastMessage = raw.toString();
       const message = JSON.parse(raw.toString()) as Record<string, unknown>;
@@ -1482,19 +1552,102 @@ async function waitForClose(ws: WebSocket, timeoutMs = 1000): Promise<{ code: nu
 
 // ─── Phase 15: Chat Remote Session Metadata ────────────────────────────────
 
-test('Phase15-T1: relay injects trusted metadata into client.chat (existing session)', { skip: 'Phase 15 not implemented' }, async () => {
-  // Relay 收到已有 session 的 client.chat（sessionId !== null）
-  // 应向 Server 查询 metadata 并在转发给 Gateway 的帧中注入 session 字段
-  // 断言：Gateway 收到的 client.chat 帧含 session.provider / session.projectPath / session.transport='chat'
+test('Phase15-T1: relay injects trusted metadata into client.chat (existing session)', async () => {
+  const metadataServer = await createMetadataServer({
+    tth_phase15_chat: {
+      id: 'tth_phase15_chat',
+      provider: 'claude',
+      projectPath: '/tmp/tether-phase15',
+      agentSessionId: 'agent-existing',
+      accountId: 'acct_1',
+      userId: 'user_1',
+      gatewayId: 'gateway-test',
+      transport: 'chat'
+    }
+  });
+  const relay = await createRelay({ serverSyncUrl: metadataServer.url, runtimeSyncSecret: 'runtime-secret' });
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+
+  try {
+    await authenticateGateway(gateway);
+    const clientId = await authenticateClient(client);
+
+    client.send(JSON.stringify({ type: 'client.chat', sessionId: 'tth_phase15_chat', message: 'hi', model: 'sonnet' }));
+    const chat = await waitForJson(gateway, (message) => message.type === 'client.chat');
+    assert.equal(chat.clientId, clientId);
+    assert.equal(chat.sessionId, 'tth_phase15_chat');
+    assert.equal((chat.session as Record<string, unknown>).provider, 'claude');
+    assert.equal((chat.session as Record<string, unknown>).projectPath, '/tmp/tether-phase15');
+    assert.equal((chat.session as Record<string, unknown>).transport, 'chat');
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+    await metadataServer.close();
+  }
 });
 
-test('Phase15-T2: relay rejects cross-account session continuation', { skip: 'Phase 15 not implemented' }, async () => {
-  // 多租户隔离：A 账号的 client 发续聊 B 账号的 sessionId
-  // 断言：Relay 返回 error { code: 'forbidden' }，不转发给任何 Gateway
-  // 两个 Gateway 均连接，B 的 Gateway 先连（CLAUDE.md R4 模板）
+test('Phase15-T2: relay rejects cross-account session continuation', async () => {
+  const metadataServer = await createMetadataServer({
+    tth_cross_account: {
+      id: 'tth_cross_account',
+      provider: 'claude',
+      projectPath: '/tmp/other-account',
+      accountId: 'acct_2',
+      userId: 'user_2',
+      gatewayId: 'gateway-test',
+      transport: 'chat'
+    }
+  });
+  const relay = await createRelay({ serverSyncUrl: metadataServer.url, runtimeSyncSecret: 'runtime-secret' });
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+
+  try {
+    await authenticateGateway(gateway);
+    await authenticateClient(client);
+    client.send(JSON.stringify({ type: 'client.chat', sessionId: 'tth_cross_account', message: 'hi' }));
+    const error = await waitForJson(client, (message) => message.type === 'error' && message.code === 'forbidden');
+    assert.equal(error.sessionId, 'tth_cross_account');
+    await assert.rejects(
+      waitForJson(gateway, (message) => message.type === 'client.chat', 150),
+      /timed out/
+    );
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+    await metadataServer.close();
+  }
 });
 
-test('Phase15-A7: relay rejects client.chat for PTY sessions (transport mismatch)', { skip: 'Phase 15 not implemented' }, async () => {
-  // Server 返回 transport='pty-event-stream' 的 session
-  // 断言：Relay 返回 error { code: 'wrong_transport' }，不转发给 Gateway
+test('Phase15-A7: relay rejects client.chat for PTY sessions (transport mismatch)', async () => {
+  const metadataServer = await createMetadataServer({
+    tth_pty_session: {
+      id: 'tth_pty_session',
+      provider: 'codex',
+      projectPath: '/tmp/pty',
+      accountId: 'acct_1',
+      userId: 'user_1',
+      gatewayId: 'gateway-test',
+      transport: 'pty-event-stream'
+    }
+  });
+  const relay = await createRelay({ serverSyncUrl: metadataServer.url, runtimeSyncSecret: 'runtime-secret' });
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+
+  try {
+    await authenticateGateway(gateway);
+    await authenticateClient(client);
+    client.send(JSON.stringify({ type: 'client.chat', sessionId: 'tth_pty_session', message: 'hi' }));
+    const error = await waitForJson(client, (message) => message.type === 'error' && message.code === 'wrong_transport');
+    assert.equal(error.sessionId, 'tth_pty_session');
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+    await metadataServer.close();
+  }
 });

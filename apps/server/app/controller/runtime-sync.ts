@@ -91,6 +91,6 @@ export default class RuntimeSyncController extends Controller {
       ctx.throw(404, 'Session not found');
       return;
     }
-    ctx.success({ data: metadata });
+    ctx.success(metadata);
   }
 }
