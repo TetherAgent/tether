@@ -554,7 +554,6 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
   function broadcastSessionList(): void {
     const sessions = [...latestSessions.values()];
     for (const client of clients.values()) {
-      ensureClientGatewayId(client.clientId);
       sendToSocket<RelayServerToClientFrame>(client.socket, {
         type: 'sessions',
         sessions: sessions.filter((session) => clientCanSeeRelaySession(client, session))
@@ -596,7 +595,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           authenticated = true;
           clearTimeout(authTimer);
           clientScope = auth.scope;
-          const gatewayId = clientScope.gatewayId ?? firstGatewayForScope(clientScope)?.gatewayId;
+          const gatewayId = clientScope.gatewayId;
           clients.set(clientId, { clientId, scope: auth.scope, gatewayId, authMethod: auth.authMethod, socket, subscriptions });
           sendToSocket<RelayServerToClientFrame>(socket, { type: 'client.auth.ok', clientId });
           sendToSocket<RelayServerToClientFrame>(socket, {
@@ -609,6 +608,13 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
               type: 'gateway.status',
               gatewayId,
               status: 'connected'
+            });
+          }
+          const client = clients.get(clientId);
+          if (client && latestSessions.size > 0) {
+            sendToSocket<RelayServerToClientFrame>(socket, {
+              type: 'sessions',
+              sessions: [...latestSessions.values()].filter((session) => clientCanSeeRelaySession(client, session))
             });
           }
           return;
@@ -643,11 +649,17 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     const authMethod = clients.get(clientId)?.authMethod ?? 'token';
     switch (frame.type) {
       case 'client.list':
-        if (!hasConnectedGateway()) {
+        if (!hasCachedRunningSessions() && !hasConnectedGateway()) {
           sendGatewayUnavailable(clientId);
           break;
         }
-        forwardToGateway(ensureClientGatewayId(clientId), { type: 'client.list', clientId });
+        sendToClient(clientId, {
+          type: 'sessions',
+          sessions: [...latestSessions.values()].filter((session) => {
+            const client = clients.get(clientId);
+            return client ? clientCanSeeRelaySession(client, session) : false;
+          })
+        });
         break;
       case 'client.subscribe': {
         const session = latestSessions.get(frame.sessionId);
@@ -660,12 +672,12 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           sendGatewayUnavailable(clientId);
           break;
         }
-        if (!bindClientToSessionGateway(client, session)) {
-          sendGatewayUnavailable(clientId);
-          break;
-        }
         if (!clientCanSeeRelaySession(client, session)) {
           sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });
+          break;
+        }
+        if (!bindClientToSessionGateway(client, session)) {
+          sendGatewayUnavailable(clientId);
           break;
         }
         if (clientScope.tokenClass === 'ws_ticket') {
@@ -750,7 +762,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         break;
       case 'client.chat':
         if (frame.sessionId === null) {
-          forwardToGateway(ensureClientGatewayId(clientId), {
+          forwardFrameToGateway(clientId, clientScope, frame.gatewayId, {
             type: 'client.chat',
             clientId,
             sessionId: null,
@@ -807,10 +819,10 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         }
         break;
       case 'client.list-providers':
-        forwardToGateway(ensureClientGatewayId(clientId), { type: 'client.list-providers', clientId });
+        forwardFrameToGateway(clientId, clientScope, frame.gatewayId, { type: 'client.list-providers', clientId });
         break;
       case 'client.cwd-suggest':
-        forwardToGateway(ensureClientGatewayId(clientId), { type: 'client.cwd-suggest', clientId, cwd: frame.cwd });
+        forwardFrameToGateway(clientId, clientScope, frame.gatewayId, { type: 'client.cwd-suggest', clientId, cwd: frame.cwd });
         break;
       case 'client.switch-model':
         forwardToGateway(ensureClientGatewayId(clientId), {
@@ -881,13 +893,25 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     if (!client) {
       return undefined;
     }
-    if (client.gatewayId) {
-      return client.gatewayId;
+    return client.gatewayId ?? client.scope?.gatewayId;
+  }
+
+  function forwardFrameToGateway(
+    clientId: string,
+    clientScope: RelayAuthScope,
+    frameGatewayId: string | undefined,
+    gatewayFrame: RelayServerToGatewayFrame
+  ): void {
+    if (!frameGatewayId) {
+      sendToClient(clientId, { type: 'error', code: 'gateway_required', message: 'gatewayId is required in frame' });
+      return;
     }
-    const gatewayId = client.scope?.gatewayId ??
-      firstGatewayForScope(client.scope)?.gatewayId;
-    client.gatewayId = gatewayId;
-    return gatewayId;
+    const gateway = gateways.get(frameGatewayId);
+    if (gateway && !clientCanUseGateway(clientScope, gateway.scope)) {
+      sendToClient(clientId, { type: 'error', code: 'gateway_unauthorized', message: 'gateway does not belong to client account/user' });
+      return;
+    }
+    forwardToGateway(frameGatewayId, gatewayFrame);
   }
 
   function clientCanSeeRelaySession(client: ClientState, session: RelaySession): boolean {
@@ -936,9 +960,6 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     for (const client of clients.values()) {
       if (!clientCanUseGateway(client.scope, gatewayScope)) continue;
       if (client.gatewayId && client.gatewayId !== gatewayId) continue;
-      if (!client.gatewayId && status === 'connected') {
-        client.gatewayId = gatewayId;
-      }
       sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'gateway.status', gatewayId, status });
     }
   }
