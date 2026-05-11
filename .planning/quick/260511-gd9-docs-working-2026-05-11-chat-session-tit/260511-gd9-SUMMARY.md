@@ -19,9 +19,9 @@ completed_at: "2026-05-11T03:52:30.000Z"
 
 - `pnpm --filter @tether/server typecheck` passed.
 - `pnpm --dir apps/server exec egg-bin test test/chat-repository.test.ts test/runtime-sync.test.ts` passed: 8 tests.
+- `008_gateway_session_title_source.sql` was executed twice against the MySQL target from `env.sh`; both passes completed and `gateway_sessions.title_source` is `varchar(32) NOT NULL DEFAULT 'gateway'`.
 - Full `pnpm --filter @tether/server test -- --grep ...` still runs unrelated files and currently fails an existing auth introspection assertion (`402 !== 200`), while the new targeted tests pass.
 
 ## Remaining
 
 - Manual Web verification remains: rename a chat session, refresh/reconnect/restart Gateway, confirm title does not revert.
-- Live MySQL schema verification remains: run schema initialization twice and confirm existing `title_source` does not fail migration.

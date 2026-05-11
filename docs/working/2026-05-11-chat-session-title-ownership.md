@@ -176,7 +176,7 @@ WHERE id = ?
 
 - [x] 新增 DB migration：`gateway_sessions.title_source VARCHAR(32) NOT NULL DEFAULT 'gateway'`
 - [x] migration 做幂等处理：重复执行不会因 `ADD COLUMN` 报错
-- [ ] 确认本地 MySQL schema 初始化不破坏现有表结构
+- [x] 确认 `env.sh` 指向 MySQL 上目标 migration 不破坏现有表结构
 - [x] 修改 `chatRepository.renameSession()`：写入 `title_source = 'user'`
 - [x] 修改 `chatRepository.renameSession()`：检查 affected rows，未命中返回错误
 - [x] 修改 `chatRepository.renameSession()`：`WHERE` 增加 `transport = 'chat'`
@@ -186,7 +186,7 @@ WHERE id = ?
 - [x] 补 server 单测：未 rename 的 gateway title 仍可正常同步
 - [x] 补 server 单测：rename 不存在或无权限 session 不能返回 ok
 - [x] 补 server 单测：非 chat session 不能通过 chat rename 改名
-- [ ] 补 schema 测试或启动验证：重复执行 migration 不因 `title_source` 已存在失败
+- [x] 补 schema 测试或启动验证：重复执行 migration 不因 `title_source` 已存在失败
 - [x] 前端 rename 失败时保留现有回滚策略：重新 `loadSessions()`
 - [ ] 人工验证 Web 列表：改名后刷新、重连、Gateway 重启后仍显示用户标题
 
@@ -228,6 +228,9 @@ WHERE id = ?
    - 已存在 `gateway_sessions.title_source`
    - 再次执行 schema 初始化
    - 期望不抛 `ER_DUP_FIELDNAME`
+   - 2026-05-11 已验证：source `env.sh` 后对 `008_gateway_session_title_source.sql`
+     连续执行两遍，均返回 ok；`INFORMATION_SCHEMA.COLUMNS` 显示
+     `title_source` 为 `varchar(32)`、`NOT NULL`、默认值 `gateway`
 
 ### 人工验证
 

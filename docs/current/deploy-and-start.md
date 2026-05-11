@@ -197,6 +197,43 @@ pnpm dev:server
 curl http://127.0.0.1:4800/healthz
 ```
 
+### Server schema 初始化规范
+
+Server 的 MySQL schema 初始化事实源是：
+
+```text
+apps/server/sql/*.sql
+```
+
+执行规则在 `apps/server/app/service/db.ts`：
+
+- 进入 MySQL 模式后，第一次通过 `ctx.service.db.query()` 或 `ctx.service.db.transaction()`
+  访问数据库前会调用 `ensureSchema()`。
+- `ensureSchema()` 会按文件名排序执行 `apps/server/sql/*.sql`。
+- 本地开发读取仓库根目录 `env.sh`。
+- 服务器读取 `/data/env/tether.sh`。
+
+不要在文档、日志或提交里复制 `env.sh` 里的真实密码、JWT secret、Relay secret。
+
+新增 SQL migration 时遵守：
+
+- 文件放在 `apps/server/sql/NNN_<topic>.sql`。
+- 变更必须能重复执行；`ADD COLUMN` 不要依赖 `db.ts` 现有的 `ADD INDEX` 兜底。
+- 推荐用 `INFORMATION_SCHEMA.COLUMNS` / `INFORMATION_SCHEMA.STATISTICS` 做条件迁移。
+- 验证时先 source 对应环境文件，再执行目标 migration 或启动 Server 触发 `ensureSchema()`。
+
+本地验证生产/远程库时，最短路径是只读取环境变量，不打印任何 secret：
+
+```bash
+set -a
+. ./env.sh
+set +a
+```
+
+然后只执行需要验证的 SQL。比如 `008_gateway_session_title_source.sql` 已按这个方式对
+`env.sh` 指向的 MySQL 重复执行两遍，确认 `gateway_sessions.title_source` 存在且
+`DEFAULT 'gateway'`、`NOT NULL`、`varchar(32)` 正确。
+
 如果启动时直接报：
 
 ```text
