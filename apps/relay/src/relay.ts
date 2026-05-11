@@ -742,19 +742,18 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           broadcastSessionList();
         }
         subscriptions.set(frame.sessionId, frame.mode);
-        if (session.transport === 'chat') {
-          break;
+        if (session.transport !== 'chat' || session.status === 'running') {
+          forwardToSessionGateway({
+            type: 'client.subscribe',
+            clientId,
+            sessionId: frame.sessionId,
+            after: frame.after,
+            tail: frame.tail,
+            mode: frame.mode,
+            cols: frame.cols,
+            rows: frame.rows
+          });
         }
-        forwardToSessionGateway({
-          type: 'client.subscribe',
-          clientId,
-          sessionId: frame.sessionId,
-          after: frame.after,
-          tail: frame.tail,
-          mode: frame.mode,
-          cols: frame.cols,
-          rows: frame.rows
-        });
         break;
       }
       case 'client.input':
