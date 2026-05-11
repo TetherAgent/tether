@@ -199,10 +199,11 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
   // Overrides the stale clientId embedded by Gateway in event payloads.
   const chatSessionSubscribers = new Map<string, Set<string>>(); // sessionId -> Set<clientId>
 
-  function sendChatEventToSubscribers(sessionId: string, frame: RelayServerToClientFrame): void {
+  function sendChatEventToSubscribers(sessionId: string, frame: RelayServerToClientFrame, exceptClientId?: string): void {
     const subscribers = chatSessionSubscribers.get(sessionId);
     if (!subscribers) return;
     for (const subscriberId of subscribers) {
+      if (subscriberId === exceptClientId) continue;
       const client = clients.get(subscriberId);
       if (!client) continue;
       if (!clientCanAccessSession(client.scope, client.authMethod, sessionId)) continue;
@@ -423,6 +424,26 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             );
           }
           sendEventToSubscribers(frame.event);
+          break;
+        }
+        if (frame.event.type === 'user.message') {
+          const sourceClientId = typeof frame.event.payload.clientId === 'string'
+            ? frame.event.payload.clientId
+            : undefined;
+          sendChatEventToSubscribers(frame.event.sessionId, {
+            type: 'user.message',
+            sessionId: frame.event.sessionId,
+            text: String(frame.event.payload.message ?? ''),
+            ...(typeof frame.event.id === 'number' ? { eventId: frame.event.id } : {})
+          }, sourceClientId);
+          void syncToServer('/api/relay/runtime-sync/gateway/event', {
+            gatewayId: frame.gatewayId,
+            event: frame.event,
+            scope: {
+              ...gatewayScope,
+              transport: 'chat'
+            }
+          });
           break;
         }
         if (frame.event.type === 'agent.delta') {

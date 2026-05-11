@@ -821,6 +821,24 @@ export function ChatPanel({
         }
         return;
       }
+      if (frame.type === 'user.message' && typeof frame.text === 'string') {
+        if (frame.sessionId !== currentSessionIdRef.current) {
+          return;
+        }
+        setConnectionError(undefined);
+        setSessionAccessError(undefined);
+        const messageText = frame.text;
+        const id = typeof frame.eventId === 'number' && frame.eventId > 0
+          ? `user-remote-${frame.eventId}`
+          : `user-remote-${Date.now()}`;
+        setMessages((items) => {
+          if (items.some((item) => item.kind === 'user' && item.id === id)) {
+            return items;
+          }
+          return [...items, { kind: 'user', id, content: messageText, ts: Date.now() }];
+        });
+        return;
+      }
       if (frame.type === 'agent.delta' && typeof frame.text === 'string') {
         if (frame.sessionId !== currentSessionIdRef.current) {
           return;

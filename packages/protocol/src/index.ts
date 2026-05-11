@@ -129,6 +129,7 @@ export type RelayServerToClientFrame =
   | { type: 'replay.output'; sessionId: string; data: string; latestEventId: number }
   | { type: 'replay.done'; sessionId: string; latestEventId: number }
   | { type: 'gateway.session-created'; sessionId: string }
+  | { type: 'user.message'; sessionId: string; text: string; eventId?: number }
   | { type: 'agent.delta'; sessionId: string; text: string; eventId?: number }
   | { type: 'agent.result'; sessionId: string; text: string; usage: { input_tokens: number; output_tokens: number; cost_usd?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }; stop_reason?: string; contextWindow?: number; rateLimitInfo?: { resetsAt: number; rateLimitType: string; status: string }; nextSuggestions?: RelayNextSuggestion[] }
   | { type: 'agent.tool'; sessionId: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean }

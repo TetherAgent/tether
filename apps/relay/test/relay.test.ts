@@ -2251,11 +2251,17 @@ async function openPhase17Gateway(harness: Phase17RelayHarness, account: 'a' | '
   return gateway;
 }
 
-async function openPhase17Client(harness: Phase17RelayHarness, token: string) {
+async function openPhase17ClientWithId(harness: Phase17RelayHarness, token: string) {
   const client = new WebSocket(`${harness.relay.url.replace('http', 'ws')}/ws/client`);
   await waitForOpen(client);
   client.send(JSON.stringify({ type: 'client.auth', token }));
-  await waitForJson(client, (message) => message.type === 'client.auth.ok');
+  const auth = await waitForJson(client, (message) => message.type === 'client.auth.ok');
+  assert.equal(typeof auth.clientId, 'string');
+  return { client, clientId: auth.clientId as string };
+}
+
+async function openPhase17Client(harness: Phase17RelayHarness, token: string) {
+  const { client } = await openPhase17ClientWithId(harness, token);
   return client;
 }
 
@@ -2315,6 +2321,44 @@ test('Phase17-T2: relay does not leak chat delta to another account', async () =
     gatewayA.close();
     clientB.close();
     clientA.close();
+    await harness.close();
+  }
+});
+
+test('Phase17-T8: relay broadcasts user.message to other chat subscribers only', async () => {
+  const harness = await createPhase17RelayHarness();
+  const gateway = await openPhase17Gateway(harness, 'a');
+  const source = await openPhase17ClientWithId(harness, 'client-a1');
+  const peer = await openPhase17ClientWithId(harness, 'client-a2');
+  const sourceUserMessages: RelayServerToClientFrame[] = [];
+  source.client.on('message', (raw) => {
+    const frame = JSON.parse(raw.toString()) as RelayServerToClientFrame;
+    if (frame.type === 'user.message') sourceUserMessages.push(frame);
+  });
+  try {
+    const sessionId = 'tth_phase17_user_message';
+    await subscribePhase17Chat(harness, source.client, sessionId);
+    await subscribePhase17Chat(harness, peer.client, sessionId);
+    const peerMessagePromise = waitForJson(peer.client, (message) => message.type === 'user.message');
+    gateway.send(JSON.stringify({
+      type: 'gateway.event',
+      gatewayId: 'gateway-a',
+      event: {
+        id: 1708,
+        type: 'user.message',
+        sessionId,
+        payload: { clientId: source.clientId, message: 'hello from laptop' }
+      }
+    }));
+    const peerMessage = await peerMessagePromise;
+    assert.equal(peerMessage.text, 'hello from laptop');
+    assert.equal(peerMessage.eventId, 1708);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(sourceUserMessages.length, 0);
+  } finally {
+    gateway.close();
+    source.client.close();
+    peer.client.close();
     await harness.close();
   }
 });
