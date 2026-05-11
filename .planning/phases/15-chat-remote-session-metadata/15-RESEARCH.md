@@ -574,22 +574,25 @@ export function createSessionId(now = new Date()): string {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **`gateway.chat-session-created` 失败时 Web 端的用户体验**
    - What we know: D-10 要求明确失败不静默
    - What's unclear: Web 端现有的错误处理是否能正确显示 "session 创建失败" 而不是无限等待
    - Recommendation: 规划中可先验证 Web 现有 error 帧处理路径；如不够，作为 Plan 中的验收步骤列出
+   - **RESOLVED: Relay 通过现有 chat_error / wrong_transport 帧通知 Client；session_sync_failed 错误通过 chat_error 帧传递，Web 收到后显示失败提示。P03 Task 3 验收项包含发送 chat_error 帧的测试。**
 
 2. **chat event id 的幂等方案（Claude's Discretion）**
    - What we know: 现有 `chatEventSequence` 是进程内自增 + 时间戳，不能跨重启保证唯一
    - What's unclear: 是使用 `randomUUID`（简单）还是 `ulidx`（可排序）
    - Recommendation: 第一版用 `randomUUID`（Node 内置，无额外依赖）；`source_event_id` 已在 `gateway_chat_messages` 的 UNIQUE KEY 中保证幂等
+   - **RESOLVED: 使用 randomUUID()（Node.js crypto 内置，无额外依赖）作为 source_event_id。**
 
 3. **`relay.ts` 中 `handleClientFrame` 改 async 后测试影响**
    - What we know: relay.test.ts 中有 client.chat 测试用例（第 627 行），目前同步框架
    - What's unclear: 改 async 后现有测试是否需要同步调整
    - Recommendation: 先 typecheck 确认无编译错误，再跑测试；如果测试框架对 async message handler 有问题，参考现有 handleGateway 的 `void (async () => ...)()` 模式
+   - **RESOLVED: handleClientFrame 改 async 仅影响 relay.test.ts 中直接调用的测试，Wave 0 已追加正确 stub，不是阻塞项。**
 
 ---
 

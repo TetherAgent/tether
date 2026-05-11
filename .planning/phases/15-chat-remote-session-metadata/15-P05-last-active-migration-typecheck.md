@@ -15,8 +15,8 @@ must_haves:
     - "user.message / agent.result 类型的 chat event 入库时更新 gateway_sessions.last_active_at"
     - "migration 007 在所有环境已执行，gateway_sessions 无 workspace_id 列"
     - "全量 TypeScript typecheck：gateway、relay、server 三个包均 --noEmit 无错误"
-    - "代码级验收 A1-A5 全部通过（rg 输出为空）"
-    - "updateAgentSessionId PATCH 中 Relay 携带 scope（accountId/gatewayId/userId）"
+    - "A 账号无法读取或修改 B 账号的 agent_session_id"
+    - "chat 链路执行后本地 SQLite 无 chat session 写入记录"
   artifacts:
     - path: apps/server/app/service/runtimeSyncRepository.ts
       provides: "user.message/agent.result 入库时更新 last_active_at"
@@ -166,7 +166,11 @@ await syncToServer(`/api/relay/gateway-sessions/${sessionId}/agent-session-id`, 
     apps/gateway/src/chat-session-runner.ts
     apps/gateway/src/relay-client.ts
   </read_first>
-  <files></files>
+  <files>
+    apps/relay/src/relay.ts
+    apps/gateway/src/relay-client.ts
+    apps/gateway/src/chat-session-runner.ts
+  </files>
   <action>
 此任务为纯验证，不修改任何文件。按顺序执行以下验证：
 
@@ -205,6 +209,18 @@ pnpm --filter @tether/server run typecheck
 - relay.ts 中 TrustedChatSessionMetadata import（来自 @tether/protocol）
 
 执行方式：在 relay.ts/relay-client.ts/chat-session-runner.ts 顶部添加必要 import，修复类型错误后再次运行 typecheck。
+
+**D-12 migration 验证（必须执行）：**
+
+```bash
+# 验证 007 migration 已在当前环境执行（空库和旧库均可运行）
+pnpm --filter @tether/server run migrate:latest
+
+# 验证 gateway_sessions 列清单不含 workspace_id（如可访问 MySQL）：
+# mysql -e "SHOW COLUMNS FROM gateway_sessions LIKE 'workspace_id'" | grep -c workspace_id || echo "0 rows — workspace_id 已删除"
+```
+
+如果 migrate:latest 失败或 workspace_id 仍存在，则 migration 007 未在该环境执行 — 需手动补跑 `apps/server/sql/007_remove_workspace.sql`。
   </action>
   <verify>
     <automated>pnpm --filter @tether/gateway exec tsc -p tsconfig.json --noEmit 2>&1 | grep -c "error TS" || echo "0 errors"</automated>
@@ -214,8 +230,10 @@ pnpm --filter @tether/server run typecheck
     - `pnpm --filter @tether/gateway exec tsc -p tsconfig.json --noEmit` 输出 0 TypeScript 错误
     - `pnpm --filter @tether/relay exec tsc -p tsconfig.json --noEmit` 输出 0 TypeScript 错误
     - `pnpm --filter @tether/server run typecheck` 输出 0 TypeScript 错误
+    - `pnpm --filter @tether/server run migrate:latest` 执行无错误（D-12：migration 007 已在当前环境运行）
+    - gateway_sessions 不含 workspace_id 列（验证命令：`mysql -e "SHOW COLUMNS FROM gateway_sessions LIKE 'workspace_id'"` 返回空，或 007 migration SQL 已确认执行）
   </acceptance_criteria>
-  <done>代码级验收 A1-A5 全部通过（rg 无输出），三个包 typecheck 无错误</done>
+  <done>代码级验收 A1-A5 全部通过（rg 无输出），三个包 typecheck 无错误，D-12 migration 验证通过</done>
 </task>
 
 <task type="checkpoint:human-verify" gate="blocking">

@@ -40,10 +40,10 @@ created: 2026-05-11
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| A2 | protocol | 1 | D-01 | — | RelayToGatewayChatFrame 包含 session 字段 | grep | `grep -r "TrustedChatSessionMetadata" packages/protocol/src` | ❌ W0 | ⬜ pending |
-| A3 | gateway | 3 | D-05 | T-15-01 | store.getSession 不在 chat 分支调用 | grep | `rg "store\.getSession" apps/gateway/src/chat-session-runner.ts` | ❌ W0 | ⬜ pending |
-| A4 | gateway | 3 | D-06 | — | insertSession 不在 chat 链路调用 | grep | `rg "insertSession" apps/gateway/src/chat-session-runner.ts` | ❌ W0 | ⬜ pending |
-| A5 | gateway | 3 | D-06 | — | touchSession/updateAgentSessionId 不在 chat 链路调用 | grep | `rg "touchSession\|updateAgentSessionId" apps/gateway/src/chat-session-runner.ts` | ❌ W0 | ⬜ pending |
+| A2 | protocol | 1 | D-01 | — | RelayToGatewayChatFrame 包含 session 字段 | grep | `grep -r "TrustedChatSessionMetadata" packages/protocol/src` | ✅ (grep, no file needed) | ⬜ pending |
+| A3 | gateway | 3 | D-05 | T-15-01 | store.getSession 不在 chat 分支调用 | grep | `rg "store\.getSession" apps/gateway/src/chat-session-runner.ts` | ✅ (grep, no file needed) | ⬜ pending |
+| A4 | gateway | 3 | D-06 | — | insertSession 不在 chat 链路调用 | grep | `rg "insertSession" apps/gateway/src/chat-session-runner.ts` | ✅ (grep, no file needed) | ⬜ pending |
+| A5 | gateway | 3 | D-06 | — | touchSession/updateAgentSessionId 不在 chat 链路调用 | grep | `rg "touchSession\|updateAgentSessionId" apps/gateway/src/chat-session-runner.ts` | ✅ (grep, no file needed) | ⬜ pending |
 | A6 | gateway | 3 | D-05 | — | PTY 链路不受影响 | unit | `pnpm --filter @tether/gateway test` | ✅ store.test.ts | ⬜ pending |
 | A7 | relay | 2 | D-08 | T-15-02 | transport!='chat' 的 session 被 Relay 拒绝 | unit | `pnpm --filter @tether/relay test` | ❌ W0 | ⬜ pending |
 | A8 | relay | 2 | D-09 | T-15-03 | Web 帧不能携带 provider/projectPath metadata | unit | `pnpm --filter @tether/relay test` | ❌ W0 | ⬜ pending |
@@ -62,7 +62,7 @@ created: 2026-05-11
 ## Wave 0 Requirements
 
 - [ ] `apps/relay/test/relay.test.ts` — 新增 T1/T2/A7 用例（metadata 补齐、跨账号隔离、transport 校验）
-- [ ] `apps/gateway/test/chat-session-runner.test.ts` — 新增 T4/T5/A3/A4/A5 用例（无本地续聊、新建不写本地）
+- [ ] `apps/gateway/test/chat-session-runner.test.ts` — 新增 T4/T5 用例（无本地续聊、新建不写本地）（A3/A4/A5 为 grep 验证，无需预先存在测试文件）
 - [ ] `apps/gateway/test/relay-client.test.ts` — 新增 A8 用例（PTY session 发 client.chat 被拒、Web 帧约束）
 - [ ] `apps/server/test/chat-repository.test.ts` — 新增 T7 用例（updateAgentSessionId scope 校验）
 

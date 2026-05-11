@@ -55,7 +55,6 @@ import {
   launchAgentPath,
   launchAgentStatus,
   readGatewayRuntimeInfo,
-  restartLaunchAgent,
   startLaunchAgent,
   stopLaunchAgent,
   uninstallLaunchAgent,
@@ -219,7 +218,8 @@ gatewayCommand
   .command('restart')
   .description('通过 launchd 重启 Gateway')
   .action(async () => {
-    await restartLaunchAgent();
+    await stopLaunchAgent();
+    await startGatewayBackground();
     console.log('Gateway 已重启。');
   });
 
@@ -579,10 +579,15 @@ async function startGatewayBackground(): Promise<void> {
   await ensureGatewayAuthForProfile(profile);
   const before = await launchAgentStatus();
   const status = await startLaunchAgent({ env: { ...process.env, TETHER_GATEWAY_PROFILE: profile } });
+  const gatewayStatus = await waitForStartedGateway(profile);
   if (!before.installed) {
     console.log(`LaunchAgent 已安装：${status.path}`);
   }
   console.log(`启动模式: ${profile}`);
+  console.log(`Gateway 状态: 运行中 (${stringValue(gatewayStatus.url) ?? 'URL 未知'})`);
+  if (profile === 'relay') {
+    console.log(`Relay 连接: ${stringValue(gatewayStatus.relay?.state) ?? '未知'}`);
+  }
   console.log(`Gateway 已在后台启动：${status.path}`);
 }
 
@@ -754,6 +759,34 @@ async function deleteGatewayDatabase(options: { yes?: boolean }): Promise<void> 
   for (const filePath of deleted) {
     console.log(`- ${filePath}`);
   }
+}
+
+async function waitForStartedGateway(profile: GatewayProfileName): Promise<GatewayStatus> {
+  const file = readTetherConfig();
+  const resolved = resolveGatewayProfileConfig({ file, profile });
+  const url = gatewayApiUrl(resolved.gateway.host, resolved.gateway.port);
+  let lastStatus: GatewayStatus | undefined;
+
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    const status = await fetchGatewayStatusBody(url);
+    if (status) {
+      lastStatus = status;
+      if (profile !== 'relay' || stringValue(status.relay?.state) === 'connected') {
+        return status;
+      }
+    }
+    await sleep(500);
+  }
+
+  const relayState = stringValue(lastStatus?.relay?.state);
+  const reason = lastStatus
+    ? `Gateway HTTP 已启动，但 Relay 连接状态是 ${relayState ?? '未知'}`
+    : `无法连接 Gateway HTTP：${url}`;
+  throw new Error(
+    `${reason}。\n` +
+    '请查看日志：pnpm tether gateway logs --stderr\n' +
+    '当前未确认启动成功，未打印“Gateway 已在后台启动”。'
+  );
 }
 
 function formatGatewayPathStatus(api: GatewayStatus | undefined): string {

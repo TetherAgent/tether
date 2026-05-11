@@ -81,16 +81,16 @@ export function ChatBubbleAgent({
 }) {
   const renderText = isStreaming ? closeUnclosedFence(text) : text;
   return (
-    <div className="flex items-start gap-3">
+    <div className="flex min-w-0 max-w-full items-start gap-3 overflow-hidden">
       <ModelAvatar provider={provider} label={provider} />
-      <div className="min-w-0 max-w-[80%]">
-        <div className="overflow-hidden rounded-3xl rounded-bl-md bg-[var(--agent-bubble)] px-4 py-3 text-sm shadow-sm">
+      <div className="min-w-0 max-w-[calc(100%-44px)] pb-0.5 sm:max-w-[80%]">
+        <div className="min-w-0 max-w-full overflow-hidden rounded-3xl rounded-bl-md bg-[var(--agent-bubble)] px-4 py-3 text-sm shadow-sm">
           {isWaiting ? (
             <div className="flex items-center gap-2 text-muted-foreground">
               <ThinkingDots />
             </div>
           ) : (
-            <div className="chat-markdown prose prose-sm dark:prose-invert max-w-none overflow-x-auto">
+            <div className="chat-markdown prose prose-sm dark:prose-invert min-w-0 max-w-full overflow-x-auto">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeHighlight]}
@@ -101,9 +101,9 @@ export function ChatBubbleAgent({
               {isStreaming ? <StreamingCursor /> : null}
             </div>
           )}
+          {usage ? <ResultCard usage={usage} durationMs={durationMs} /> : null}
         </div>
         {isLost ? <div className="mt-2 text-xs text-destructive">Reply lost</div> : null}
-        {usage ? <ResultCard usage={usage} durationMs={durationMs} /> : null}
         {!isStreaming && !isWaiting && nextSuggestions && nextSuggestions.length > 0 ? (
           <div className="mt-3 flex flex-col items-start gap-2">
             {nextSuggestions.map((suggestion, index) => (

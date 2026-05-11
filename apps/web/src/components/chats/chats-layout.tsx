@@ -20,7 +20,7 @@ export function ChatsLayout({ activeSessionId }: { activeSessionId?: string }) {
   );
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen w-full max-w-full overflow-hidden bg-background">
       {/* Desktop sidebar */}
       {sidebarOpen && (
         <div className="hidden h-full w-[260px] shrink-0 border-r border-sidebar-border md:flex md:flex-col">
@@ -41,7 +41,7 @@ export function ChatsLayout({ activeSessionId }: { activeSessionId?: string }) {
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex w-full min-w-0 max-w-full flex-1 flex-col overflow-hidden">
         <ChatPanel
           activeSessionId={activeSessionId}
           onExpandSidebar={!sidebarOpen ? () => setSidebarOpen(true) : undefined}

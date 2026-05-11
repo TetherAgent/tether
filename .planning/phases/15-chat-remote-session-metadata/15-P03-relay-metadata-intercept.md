@@ -305,6 +305,7 @@ case 'client.chat': {
     apps/relay/test/relay.test.ts
   </files>
   <behavior>
+    - handleGatewayFrame 改为 async function（使 case 内可 await syncToServer）
     - handleGatewayFrame 中新增 case 'gateway.chat-session-created'
     - 处理顺序（D-04、D-10）：await syncToServer upsert → 成功时更新 latestSessions + broadcastSessionList + 通知 Web → 失败时通知 Client 失败
     - syncToServer 失败（返回 false 或 throw）时发送 error { code: 'session_sync_failed' } 给 clientId
@@ -315,44 +316,80 @@ case 'client.chat': {
 
 首先读取 handleGatewayFrame 中现有 gateway.session-created 的处理方式（参考模式），然后新增：
 
+**步骤 0 — 将 handleGatewayFrame 改为 async function：**
+
+```typescript
+// 修改前（relay.ts 第 ~220 行）
+function handleGatewayFrame(frame: GatewayFrame, scope: GatewayScope): void {
+
+// 修改后
+async function handleGatewayFrame(frame: GatewayFrame, scope: GatewayScope): Promise<void> {
+```
+
+同时将调用方（relay.ts 第 ~230 行）更新为：
+
+```typescript
+// 修改前
+handleGatewayFrame(parsed, gatewayScope);
+
+// 修改后（在已有的 void async wrapper 或 ws.on('message') 回调内）
+await handleGatewayFrame(parsed, gatewayScope);
+// 如果调用方不是 async 函数，改为：
+void handleGatewayFrame(parsed, gatewayScope).catch(err => console.error('[relay] handleGatewayFrame error', err));
+```
+
+注意：读取 relay.ts 确认实际行号和调用方式（调用方可能在 ws.on('message', async (data) => { ... }) 内，已有 await 上下文则直接 await；否则用 void ... .catch(...)）。
+
+**步骤 1 — 扩展 syncToServer 使其返回 boolean（表示 Server 是否 ack 成功）：**
+
+```typescript
+// 将现有 syncToServer 签名从返回 Promise<void> 改为 Promise<boolean>
+async function syncToServer(endpoint: string, body: unknown, method = 'POST'): Promise<boolean> {
+  if (!options.serverSyncUrl || !options.runtimeSyncSecret) return false;
+  try {
+    const response = await fetch(`${options.serverSyncUrl}${endpoint}`, {
+      method,
+      headers: {
+        'content-type': 'application/json',
+        'x-tether-runtime-sync-secret': options.runtimeSyncSecret
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(3000)
+    });
+    if (!response.ok) console.warn(`[relay] sync failed: ${endpoint} HTTP ${response.status}`);
+    return response.ok;
+  } catch (error) {
+    console.warn(`[relay] sync error: ${endpoint}`, String(error));
+    return false;
+  }
+}
+```
+
+注意：现有调用 `void syncToServer(...)` 或 `await syncToServer(...)` 不需要变更（返回 boolean 对 void 调用者无影响）。
+
+**步骤 2 — 使用 syncToServer 实现 gateway.chat-session-created：**
+
 ```typescript
 case 'gateway.chat-session-created': {
   const { clientId, session } = frame;
-  // D-10: await，失败时明确通知 Client
-  let synced = false;
-  try {
-    const response = await fetch(
-      `${options.serverSyncUrl}/api/relay/runtime-sync/gateway/sessions`,
-      {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-tether-runtime-sync-secret': options.runtimeSyncSecret ?? ''
-        },
-        body: JSON.stringify({
-          scope: { accountId: gatewayScope.accountId, gatewayId: gatewayScope.gatewayId },
-          sessions: [{
-            id: session.id,
-            provider: session.provider,
-            projectPath: session.projectPath,
-            agentSessionId: session.agentSessionId,
-            gatewayId: session.gatewayId,
-            userId: session.userId,
-            transport: 'chat',
-            status: 'running',
-            title: ''
-          }]
-        }),
-        signal: AbortSignal.timeout(3000)
-      }
-    );
-    synced = response.ok;
-    if (!response.ok) {
-      console.warn(`[relay] gateway.chat-session-created sync failed: HTTP ${response.status}`);
+  // D-10: await syncToServer，失败时明确通知 Client（复用已有认证逻辑）
+  const synced = await syncToServer(
+    '/api/relay/runtime-sync/gateway/sessions',
+    {
+      scope: { accountId: gatewayScope.accountId, gatewayId: gatewayScope.gatewayId },
+      sessions: [{
+        id: session.id,
+        provider: session.provider,
+        projectPath: session.projectPath,
+        agentSessionId: session.agentSessionId,
+        gatewayId: session.gatewayId,
+        userId: session.userId,
+        transport: 'chat',
+        status: 'running',
+        title: ''
+      }]
     }
-  } catch (err) {
-    console.warn('[relay] gateway.chat-session-created sync error:', String(err));
-  }
+  );
 
   if (!synced) {
     sendToClient(clientId, {
@@ -387,7 +424,7 @@ case 'gateway.chat-session-created': {
 注意：
 - 读取 relay.ts 确认 gatewayScope 变量在 handleGatewayFrame 中的实际名称（可能是 `scope` 或 `gatewayState.scope`）
 - broadcastSessionList 是已有函数；sendToClient 是已有函数
-- 如果 options.serverSyncUrl 未配置则直接通知 Client session-created（降级处理，非生产路径）
+- syncToServer 复用已有 runtimeSyncSecret 认证逻辑，无需重复实现
 
 **relay.test.ts — 将 T1/T2/A7 三个 skip 测试改为完整实现：**
 
@@ -419,6 +456,7 @@ A7 测试要点：
     <automated>grep -n "gateway.chat-session-created" /Users/dream/code/tether/apps/relay/src/relay.ts && pnpm --filter @tether/relay test 2>&1 | grep -E "Phase15|passing|failing|skip" | head -20</automated>
   </verify>
   <acceptance_criteria>
+    - `grep -n "async function handleGatewayFrame" apps/relay/src/relay.ts` 有输出
     - `grep -n "case 'gateway.chat-session-created'" apps/relay/src/relay.ts` 有输出
     - `grep -n "session_sync_failed" apps/relay/src/relay.ts` 有输出（失败路径）
     - `grep -n "broadcastSessionList" apps/relay/src/relay.ts | grep -v "^.*\/\/"` 在 gateway.chat-session-created 处理中

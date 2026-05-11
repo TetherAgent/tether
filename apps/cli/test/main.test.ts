@@ -75,6 +75,19 @@ test('launchd gateway profile skips interactive prompt', () => {
   assert.match(source, /startGatewayForeground\(launchdProfile\)/);
 });
 
+test('gateway restart reuses background startup profile wiring', () => {
+  const source = mainSource();
+  assert.match(source, /command\('restart'\)[\s\S]*stopLaunchAgent\(\);[\s\S]*startGatewayBackground\(\);/);
+  assert.doesNotMatch(source, /command\('restart'\)[\s\S]{0,240}restartLaunchAgent\(\);/);
+});
+
+test('background gateway start verifies daemon and relay readiness before success', () => {
+  const source = mainSource();
+  assert.match(source, /waitForStartedGateway\(profile\)/);
+  assert.match(source, /profile !== 'relay' \|\| stringValue\(status\.relay\?\.state\) === 'connected'/);
+  assert.match(source, /当前未确认启动成功，未打印/);
+});
+
 test('gateway delete-db requires confirmation and removes sqlite sidecar files', () => {
   const source = mainSource();
   assert.match(source, /command\('delete-db'\)/);

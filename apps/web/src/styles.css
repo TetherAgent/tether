@@ -6654,6 +6654,31 @@ textarea.composer-input {
 }
 
 @media (max-width: 720px) {
+  #root:has(.chat-surface),
+  #root:has(.chat-surface) > div {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  #root:has(.chat-surface) {
+    background: var(--background);
+  }
+
+  .chat-session-page,
+  .session-detail-page.chat-session-page {
+    width: 100%;
+    max-width: 100vw;
+    margin: 0;
+    border-left: 0;
+    border-right: 0;
+    border-radius: 0;
+  }
+
+  .chat-surface {
+    border-radius: 0;
+  }
+
   .session-list-topbar {
     position: relative;
     display: grid;
@@ -6947,6 +6972,12 @@ textarea.composer-input {
     overflow-x: hidden;
   }
 
+  .chat-surface > .overflow-y-auto {
+    padding-left: 10px;
+    padding-right: 10px;
+    overflow-x: hidden;
+  }
+
   .chat-new-session-hero {
     margin-bottom: 28px;
     gap: 14px;
@@ -6975,9 +7006,9 @@ textarea.composer-input {
     border-radius: 18px;
   }
 
-  .chat-input-card textarea {
-    min-height: 112px;
-    padding: 18px 16px 14px;
+  .chat-new-session-composer .chat-input-card textarea {
+    min-height: 72px;
+    padding: 14px 14px 10px;
     font-size: 16px;
   }
 

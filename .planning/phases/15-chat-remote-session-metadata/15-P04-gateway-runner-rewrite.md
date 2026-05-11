@@ -221,8 +221,9 @@ private createChatSession(params: {
     - `grep -c "onChatSessionCreated" apps/gateway/src/chat-session-runner.ts` 输出 >= 2（类型定义 + 调用）
     - `grep -n "TrustedChatSessionMetadata" apps/gateway/src/chat-session-runner.ts` 有输出
     - `pnpm --filter @tether/gateway exec tsc -p tsconfig.json --noEmit` 无错误
+    - `pnpm --filter @tether/gateway exec tsc -p tsconfig.json --noEmit` 第二次验证：Gateway 整包 typecheck 无错误（含所有 runner 实现类）
   </acceptance_criteria>
-  <done>chat-session-runner.ts 中所有本地 DB 调用已删除，onChatSessionCreated 替代 onSessionCreated</done>
+  <done>chat-session-runner.ts 中所有本地 DB 调用已删除，onChatSessionCreated 替代 onSessionCreated，Gateway typecheck 通过</done>
 </task>
 
 <task type="auto" tdd="true">
