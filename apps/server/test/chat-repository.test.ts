@@ -43,8 +43,28 @@ describe('test/chat-repository.test.ts', () => {
     )
   })
 
-  it.skip('Phase15-T7: updateAgentSessionId scopes WHERE to accountId, gatewayId, userId', async () => {
-    // 断言：SQL 中包含 "account_id = ?" "gateway_id = ?" "user_id = ?"
-    // 断言：scope 参数被正确传递到 SQL 占位符
+  it('Phase15-T7: updateAgentSessionId scopes WHERE to accountId, gatewayId, userId', async () => {
+    const queries: Array<{ sql: string; values?: unknown[] }> = []
+    const db = ctx.service.db as unknown as {
+      mysqlModeEnabled: () => boolean
+      query: (sql: string, values?: unknown[]) => Promise<unknown>
+    }
+    db.mysqlModeEnabled = () => true
+    db.query = async (sql, values) => {
+      queries.push({ sql, values })
+      return { affectedRows: 1 }
+    }
+
+    await ctx.service.chatRepository.updateAgentSessionId(
+      'tth_session_1',
+      'agent-session-abc',
+      { accountId: 'acct_1', gatewayId: 'gw_1', userId: 'user_1' }
+    )
+
+    assert.equal(queries.length, 1)
+    assert.match(queries[0]!.sql, /account_id = \?/)
+    assert.match(queries[0]!.sql, /gateway_id = \?/)
+    assert.match(queries[0]!.sql, /user_id = \?/)
+    assert.deepEqual(queries[0]!.values, [ 'agent-session-abc', 'tth_session_1', 'acct_1', 'gw_1', 'user_1' ])
   })
 })
