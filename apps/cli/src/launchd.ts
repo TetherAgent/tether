@@ -210,9 +210,10 @@ export function readGatewayRuntimeInfo(): GatewayRuntimeInfo | undefined {
 }
 
 function launchdEnvironment(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
-  const pathValue = env.PATH && env.PATH.length > 0
+  const rawPathValue = env.PATH && env.PATH.length > 0
     ? env.PATH
     : '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
+  const pathValue = expandPathValue(rawPathValue, env);
   const result: Record<string, string> = {
     HOME: os.homedir(),
     PATH: pathValue
@@ -230,6 +231,18 @@ function launchdEnvironment(env: NodeJS.ProcessEnv = process.env): Record<string
     }
   }
   return result;
+}
+
+function expandPathValue(value: string, env: NodeJS.ProcessEnv): string {
+  return value
+    .replace(/^\~(?=\/|$)/, os.homedir())
+    .replace(/\$(\w+)|\$\{([^}]+)\}/g, (_match, bareKey: string | undefined, bracedKey: string | undefined) => {
+      const key = bareKey ?? bracedKey ?? '';
+      if (key === 'HOME') {
+        return env.HOME ?? os.homedir();
+      }
+      return env[key] ?? '';
+    });
 }
 
 function runLaunchctl(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {

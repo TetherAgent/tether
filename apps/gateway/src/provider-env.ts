@@ -61,15 +61,64 @@ export function providerChildEnv(provider: string): Record<string, string> | und
 
 export function providerEffectiveEnv(provider: string, cwd?: string): NodeJS.ProcessEnv {
   const childEnv = providerChildEnv(provider) ?? {};
-  const preSettingsEnv = { ...process.env, ...childEnv };
+  const shellPathEnv = readShellPathEnv(process.env);
+  const preSettingsEnv = { ...process.env, ...shellPathEnv, ...childEnv };
   const settingsEnv = provider === 'claude' ? readClaudeSettingsEnv(cwd, preSettingsEnv.CLAUDE_CONFIG_DIR) : {};
-  const baseEnv = { ...process.env, ...settingsEnv };
+  const baseEnv = { ...process.env, ...shellPathEnv, ...settingsEnv };
   const envFile = readEnvFile(({ ...baseEnv, ...childEnv }).CLAUDE_ENV_FILE);
   return {
     ...baseEnv,
     ...envFile,
     ...childEnv
   };
+}
+
+function readShellPathEnv(baseEnv: NodeJS.ProcessEnv): Record<string, string> {
+  const zshrc = path.join(os.homedir(), '.zshrc');
+  let content = '';
+  try {
+    content = readFileSync(zshrc, 'utf8');
+  } catch {
+    return {};
+  }
+  let pathValue = baseEnv.PATH ?? '';
+  const shellEnv: NodeJS.ProcessEnv = { ...baseEnv, PATH: pathValue };
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue;
+    }
+    const match = trimmed.match(/^export\s+([A-Za-z_]\w*)=(.+)$/);
+    if (!match?.[1]) {
+      continue;
+    }
+    const key = match[1];
+    const expanded = expandShellEnvValue(match[2] ?? '', shellEnv);
+    shellEnv[key] = expanded;
+    if (key === 'PATH') {
+      pathValue = expanded;
+      shellEnv.PATH = expanded;
+    }
+  }
+  return pathValue && pathValue !== baseEnv.PATH ? { PATH: pathValue } : {};
+}
+
+function expandShellEnvValue(raw: string, env: NodeJS.ProcessEnv): string {
+  let value = raw.trim();
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    value = value.slice(1, -1);
+  }
+  value = value.replace(/^\~(?=\/|$)/, os.homedir());
+  return value.replace(/\$(\w+)|\$\{([^}]+)\}/g, (_match, bareKey: string | undefined, bracedKey: string | undefined) => {
+    const key = bareKey ?? bracedKey ?? '';
+    if (key === 'HOME') {
+      return env.HOME ?? os.homedir();
+    }
+    return env[key] ?? '';
+  });
 }
 
 function readShellWrapperEnv(provider: string): Record<string, string> {
