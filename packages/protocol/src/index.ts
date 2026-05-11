@@ -1,6 +1,7 @@
 export type TrustedChatSessionMetadata = {
   id: string;
   provider: string;
+  title?: string;
   projectPath: string;
   agentSessionId?: string;
   accountId: string;

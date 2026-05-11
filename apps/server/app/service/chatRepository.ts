@@ -39,6 +39,7 @@ export type ChatMessageRecord = {
 export type ChatSessionMetadata = {
   id: string;
   provider: string;
+  title?: string;
   projectPath: string;
   agentSessionId?: string;
   gatewayId: string;
@@ -172,7 +173,7 @@ export default class ChatRepositoryService extends Service {
       return undefined;
     }
     const rows = await this.ctx.service.db.query(
-      `SELECT id, provider, project_path, agent_session_id, gateway_id, account_id, user_id, transport
+      `SELECT id, provider, title, project_path, agent_session_id, gateway_id, account_id, user_id, transport
        FROM gateway_sessions
        WHERE id = ?
        LIMIT 1`,
@@ -185,6 +186,7 @@ export default class ChatRepositoryService extends Service {
     return {
       id: String(row.id ?? ''),
       provider: String(row.provider ?? ''),
+      title: this.nullableString(row.title),
       projectPath: String(row.project_path ?? ''),
       agentSessionId: row.agent_session_id != null ? String(row.agent_session_id) : undefined,
       gatewayId: String(row.gateway_id ?? ''),

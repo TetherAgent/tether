@@ -76,6 +76,19 @@ export type ChatRunnerOptions = {
 };
 
 let chatEventSequence = 0;
+const CHAT_TITLE_MAX_LENGTH = 64;
+
+function titleFromFirstMessage(message: string): string | undefined {
+  const normalized = message.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return undefined;
+  }
+  const chars = Array.from(normalized);
+  if (chars.length <= CHAT_TITLE_MAX_LENGTH) {
+    return normalized;
+  }
+  return `${chars.slice(0, CHAT_TITLE_MAX_LENGTH).join('')}...`;
+}
 
 function createChatEvent<TPayload extends Record<string, unknown>>(
   sessionId: string,
@@ -434,6 +447,7 @@ class CliChatRunner implements IChatRunner {
     const metadata: TrustedChatSessionMetadata = {
       id: sessionId,
       provider: params.provider,
+      title: titleFromFirstMessage(params.message),
       projectPath: normalizeCwd(params.cwd),
       accountId: params.accountId ?? '',
       userId: params.userId ?? '',

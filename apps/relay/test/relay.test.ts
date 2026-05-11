@@ -542,6 +542,51 @@ test('relay forwards subscribed chat messages to gateway', async () => {
   }
 });
 
+test('relay preserves first-message chat title when syncing new chat sessions', async () => {
+  const metadataServer = await createMetadataServer({});
+  const relay = await createRelay({ serverSyncUrl: metadataServer.url, runtimeSyncSecret: 'runtime-secret' });
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+
+  try {
+    await authenticateGateway(gateway);
+    const clientId = await authenticateClient(client);
+
+    gateway.send(JSON.stringify({
+      type: 'gateway.chat-session-created',
+      gatewayId: 'gateway-test',
+      clientId,
+      session: {
+        id: 'tth_first_message_title',
+        provider: 'claude',
+        title: '帮我看一下这个登录问题',
+        projectPath: process.cwd(),
+        accountId: 'acct_1',
+        gatewayId: 'gateway-test',
+        userId: 'user_1',
+        transport: 'chat'
+      }
+    }));
+
+    const sessions = await waitForJson(client, (message) =>
+      message.type === 'sessions' &&
+      (message.sessions as RelaySession[]).some((session) => session.id === 'tth_first_message_title')
+    );
+    const syncedRequest = metadataServer.requests.find((request) => request.url === '/api/relay/runtime-sync/gateway/sessions');
+    assert(syncedRequest);
+    const syncedBody = JSON.parse(syncedRequest.body) as { sessions: Array<{ title?: string }> };
+    assert.equal(syncedBody.sessions[0]?.title, '帮我看一下这个登录问题');
+
+    const created = (sessions.sessions as RelaySession[]).find((session) => session.id === 'tth_first_message_title');
+    assert.equal(created?.title, '帮我看一下这个登录问题');
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+    await metadataServer.close();
+  }
+});
+
 test('relay waits for final paged replay frame before replay.done', async () => {
   const relay = await createRelay();
   const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);

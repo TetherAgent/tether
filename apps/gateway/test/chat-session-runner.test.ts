@@ -73,6 +73,7 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
   try {
     let createdSessionId = '';
     let createdProjectPath = '';
+    let createdTitle = '';
     const deltas: string[] = [];
     const results: string[] = [];
     const errors: string[] = [];
@@ -90,6 +91,7 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
       onChatSessionCreated: (_clientId, metadata) => {
         createdSessionId = metadata.id;
         createdProjectPath = metadata.projectPath;
+        createdTitle = metadata.title ?? '';
       },
       onUserMessage: ({ event }) => {
         chatEventTypes.push(event.type);
@@ -116,7 +118,7 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
       provider: 'claude',
       model: 'claude-sonnet-4-5',
       cwd: '',
-      message: 'test',
+      message: '帮我看一下这个登录问题',
       accountId: 'acct-test',
       userId: 'user-test'
     });
@@ -127,11 +129,12 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
     assert.deepEqual(deltas, ['OK']);
     assert.deepEqual(results, ['OK']);
     assert.equal(createdProjectPath, process.cwd());
+    assert.equal(createdTitle, '帮我看一下这个登录问题');
     assert.equal(store.getSession(createdSessionId), undefined);
     assert.deepEqual(chatEventTypes, ['user.message', 'agent.result']);
     assert.deepEqual(JSON.parse(readFileSync(argsFile, 'utf8')) as string[], [
       '-p',
-      'test',
+      '帮我看一下这个登录问题',
       '--output-format',
       'stream-json',
       '--verbose',

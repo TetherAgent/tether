@@ -126,6 +126,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
       return {
         id: String(data.id ?? sessionId),
         provider: String(data.provider),
+        title: data.title != null ? String(data.title) : undefined,
         projectPath: String(data.projectPath ?? data.project_path ?? ''),
         agentSessionId: data.agentSessionId != null ? String(data.agentSessionId) : undefined,
         accountId: String(data.accountId ?? data.account_id ?? ''),
@@ -154,7 +155,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     return {
       id: metadata.id,
       provider: metadata.provider,
-      title: '',
+      title: metadata.title ?? '',
       projectPath: metadata.projectPath,
       accountId: metadata.accountId,
       gatewayId: metadata.gatewayId,
@@ -524,7 +525,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
               userId: session.userId,
               transport: 'chat',
               status: 'running',
-              title: '',
+              title: session.title ?? '',
               lastActiveAt: Date.now()
             }]
           }
@@ -541,7 +542,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         latestSessions.set(session.id, {
           id: session.id,
           provider: session.provider,
-          title: '',
+          title: session.title ?? '',
           projectPath: session.projectPath,
           accountId: session.accountId,
           gatewayId: session.gatewayId,

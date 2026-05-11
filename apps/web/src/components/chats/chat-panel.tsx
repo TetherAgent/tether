@@ -402,6 +402,9 @@ export function ChatPanel({
   const activeSessionProviderRef = React.useRef(activeSessionProvider);
   const selectedProviderRef = React.useRef(selectedProvider);
   const currentSessionIdRef = React.useRef(currentSessionId);
+  const selectedGatewayIdRef = React.useRef(selectedGatewayId);
+  const activeSessionGatewayIdRef = React.useRef(activeSessionGatewayId);
+  const onlineGatewayIdsRef = React.useRef(onlineGatewayIds);
   const subscribedSessionIdRef = React.useRef<string | null>(null);
   const cwdRef = React.useRef(cwd);
   const skipNextHistoryLoadSessionIdRef = React.useRef<string | null>(null);
@@ -433,6 +436,18 @@ export function ChatPanel({
   React.useEffect(() => {
     currentSessionIdRef.current = currentSessionId;
   }, [currentSessionId]);
+
+  React.useEffect(() => {
+    selectedGatewayIdRef.current = selectedGatewayId;
+  }, [selectedGatewayId]);
+
+  React.useEffect(() => {
+    activeSessionGatewayIdRef.current = activeSessionGatewayId;
+  }, [activeSessionGatewayId]);
+
+  React.useEffect(() => {
+    onlineGatewayIdsRef.current = onlineGatewayIds;
+  }, [onlineGatewayIds]);
 
   const scrollMessagesToBottom = React.useCallback((behavior: ScrollBehavior = 'smooth') => {
     window.requestAnimationFrame(() => {
@@ -651,7 +666,11 @@ export function ChatPanel({
         const gatewayId = frame.gatewayId;
         setHasGatewayStatusFrame(true);
         if (frame.status === 'connected') {
-          setOnlineGatewayIds((current) => new Set([...current, gatewayId]));
+          setOnlineGatewayIds((current) => {
+            const next = new Set([...current, gatewayId]);
+            onlineGatewayIdsRef.current = next;
+            return next;
+          });
           setGatewayReady(true);
           setRelayGatewayId(gatewayId);
           setSelectedGatewayId((current) => current ?? gatewayId);
@@ -660,14 +679,24 @@ export function ChatPanel({
           return;
         }
         if (frame.status === 'disconnected') {
+          const nextOnlineGatewayIds = new Set(onlineGatewayIdsRef.current);
+          nextOnlineGatewayIds.delete(gatewayId);
           setOnlineGatewayIds((current) => {
             const next = new Set(current);
             next.delete(gatewayId);
+            onlineGatewayIdsRef.current = next;
             return next;
           });
-          setGatewayReady(false);
-          setRelayGatewayId((current) => current === gatewayId ? undefined : current);
-          setConnectionError(t.gatewayNotConnected);
+          const effectiveGatewayId = currentSessionIdRef.current
+            ? (activeSessionGatewayIdRef.current ?? selectedGatewayIdRef.current)
+            : selectedGatewayIdRef.current;
+          if (gatewayId === effectiveGatewayId) {
+            setGatewayReady(false);
+            setRelayGatewayId((current) => current === gatewayId ? undefined : current);
+            setConnectionError(t.gatewayNotConnected);
+          } else {
+            setGatewayReady(nextOnlineGatewayIds.size > 0);
+          }
           return;
         }
       }
