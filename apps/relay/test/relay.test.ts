@@ -2091,3 +2091,61 @@ test('Phase16: agent.delta syncs to Server with chat transport', async () => {
     await syncServer.close();
   }
 });
+
+test('Phase16: agent.result syncs to Server with chat transport from session metadata', async () => {
+  const syncServer = await createMetadataServer({});
+  const relay = await createRelay({ serverSyncUrl: syncServer.url, runtimeSyncSecret: 'runtime-secret' });
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+
+  try {
+    await authenticateGateway(gateway);
+    await authenticateClient(client);
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [{
+        id: 'tth_result_sync',
+        provider: 'codex',
+        title: 'Result Sync',
+        projectPath: process.cwd(),
+        accountId: 'acct_1',
+        gatewayId: 'gateway-test',
+        userId: 'user_1',
+        status: 'running',
+        transport: 'chat',
+        lastActiveAt: Date.now()
+      }]
+    }));
+    await waitForJson(client, (message) => message.type === 'sessions');
+
+    gateway.send(JSON.stringify({
+      type: 'gateway.event',
+      gatewayId: 'gateway-test',
+      event: {
+        id: 4,
+        sessionId: 'tth_result_sync',
+        type: 'agent.result',
+        ts: Date.now(),
+        payload: {
+          text: 'done',
+          usage: { input_tokens: 1, output_tokens: 2 },
+          lastDeltaEventId: 3
+        }
+      }
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const syncRequest = syncServer.requests
+      .map((request) => ({ ...request, parsed: request.body ? JSON.parse(request.body) as Record<string, unknown> : undefined }))
+      .find((request) => request.url === '/api/relay/runtime-sync/gateway/event' && (request.parsed?.event as { type?: string } | undefined)?.type === 'agent.result');
+    assert(syncRequest?.parsed, 'agent.result sync request should be captured');
+    const scope = syncRequest.parsed.scope as { transport?: string } | undefined;
+    assert.equal(scope?.transport, 'chat');
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+    await syncServer.close();
+  }
+});

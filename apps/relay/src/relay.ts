@@ -77,6 +77,13 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     'agent.permission_request',
     'gateway.session-created'
   ]);
+  const CHAT_RUNTIME_EVENT_TYPES = new Set([
+    'user.message',
+    'agent.result',
+    'agent.tool',
+    'agent.permission_request',
+    'session.error'
+  ]);
 
   async function syncToServer(endpoint: string, body: unknown, method = 'POST'): Promise<boolean> {
     if (!options.serverSyncUrl || !options.runtimeSyncSecret) {
@@ -522,7 +529,11 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           sendEventToSubscribers(frame.event);
         }
         if (RUNTIME_EVENT_WHITELIST.has(frame.event.type)) {
-          const whitelistScope = chatSessionOwners.has(frame.event.sessionId)
+          const isChatRuntimeEvent =
+            latestSessions.get(frame.event.sessionId)?.transport === 'chat' ||
+            chatSessionOwners.has(frame.event.sessionId) ||
+            CHAT_RUNTIME_EVENT_TYPES.has(frame.event.type);
+          const whitelistScope = isChatRuntimeEvent
             ? { ...gatewayScope, transport: 'chat' as const }
             : gatewayScope;
           void syncToServer('/api/relay/runtime-sync/gateway/event', {
