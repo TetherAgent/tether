@@ -133,6 +133,6 @@ export type RelayServerToClientFrame =
   | { type: 'agent.tool'; sessionId: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean }
   | { type: 'agent.permission_request'; sessionId: string; requestId: string; toolName: string; input: Record<string, unknown> }
   | { type: 'gateway.chat-catchup'; sessionId: string; text: string }
-  | { type: 'gateway.providers'; providers: Array<{ provider: string; models: string[] }> }
-  | { type: 'gateway.cwd-suggestions'; cwd: string; suggestions: string[] }
+  | { type: 'gateway.providers'; gatewayId?: string; providers: Array<{ provider: string; models: string[] }> }
+  | { type: 'gateway.cwd-suggestions'; gatewayId?: string; cwd: string; suggestions: string[] }
   | { type: 'error'; sessionId?: string; code: string; message: string };

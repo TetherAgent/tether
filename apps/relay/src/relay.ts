@@ -429,6 +429,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           if (clientId) {
             sendToClient(clientId, {
               type: 'gateway.providers',
+              gatewayId: frame.gatewayId,
               providers: Array.isArray(frame.event.payload.providers)
                 ? (frame.event.payload.providers as Array<{ provider: string; models: string[] }>)
                 : []
@@ -440,6 +441,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           if (clientId) {
             sendToClient(clientId, {
               type: 'gateway.cwd-suggestions',
+              gatewayId: frame.gatewayId,
               cwd: String(frame.event.payload.cwd ?? ''),
               suggestions: Array.isArray(frame.event.payload.suggestions)
                 ? frame.event.payload.suggestions.filter((item): item is string => typeof item === 'string')
@@ -603,7 +605,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             clientId,
             gatewayId
           });
-          if (gatewayId) {
+          const scopedGateway = gatewayId ? gateways.get(gatewayId) : undefined;
+          if (gatewayId && scopedGateway?.socket.readyState === WebSocket.OPEN) {
             sendToSocket<RelayServerToClientFrame>(socket, {
               type: 'gateway.status',
               gatewayId,
@@ -781,6 +784,14 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             accountId: clientScope.accountId,
             userId: clientScope.userId
           });
+          // Eagerly bind client to gateway so bindClientToSessionGateway does not
+          // fire redundant hello + gateway.status frames when client.subscribe arrives.
+          if (frame.gatewayId) {
+            const client = clients.get(clientId);
+            if (client && !client.gatewayId) {
+              client.gatewayId = frame.gatewayId;
+            }
+          }
         } else {
           const metadata = await fetchSessionMetadata(frame.sessionId);
           if (!metadata) {

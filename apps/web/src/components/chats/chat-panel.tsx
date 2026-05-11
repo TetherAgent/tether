@@ -83,8 +83,14 @@ function compactPathLabel(value: string): string {
   }
   const parts = normalized.split('/').filter(Boolean);
   if (normalized.startsWith('/Users/') && parts.length >= 2) {
-    const tail = parts.slice(-2).join('/');
-    return `~/${tail}`;
+    const relativeParts = parts.slice(2);
+    if (relativeParts.length === 0) {
+      return '~';
+    }
+    if (relativeParts.length <= 2) {
+      return `~/${relativeParts.join('/')}`;
+    }
+    return `~/.../${relativeParts.slice(-2).join('/')}`;
   }
   if (parts.length <= 3) {
     return normalized;
@@ -102,7 +108,8 @@ function compactProjectPath(value: string): string {
   }
   const parts = normalized.split('/').filter(Boolean);
   if (normalized.startsWith('/Users/') && parts.length >= 2) {
-    return `~/${parts.slice(2).join('/')}`;
+    const relativeParts = parts.slice(2);
+    return relativeParts.length > 0 ? `~/${relativeParts.join('/')}` : '~';
   }
   if (parts.length <= 3) {
     return normalized;
@@ -114,6 +121,16 @@ function findLatestOpenAgentId(items: MessageItem[]): string | undefined {
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index];
     if (item?.kind === 'agent' && (item.isWaiting || item.isStreaming)) {
+      return item.id;
+    }
+  }
+  return undefined;
+}
+
+function findLatestLostAgentId(items: MessageItem[]): string | undefined {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item?.kind === 'agent' && item.isLost) {
       return item.id;
     }
   }
@@ -343,6 +360,7 @@ export function ChatPanel({
   const [activeSessionMetadataReady, setActiveSessionMetadataReady] = React.useState(!activeSessionId);
   const [relayGatewayId, setRelayGatewayId] = React.useState<string | undefined>(undefined);
   const [selectedGatewayId, setSelectedGatewayId] = React.useState<string | undefined>(undefined);
+  const [selectedGatewayName, setSelectedGatewayName] = React.useState<string | undefined>(undefined);
   const [onlineGatewayIds, setOnlineGatewayIds] = React.useState<Set<string>>(new Set());
   const [relaySessions, setRelaySessions] = React.useState<RelaySessionSummary[]>([]);
   const [cwd, setCwd] = React.useState('~');
@@ -376,6 +394,9 @@ export function ChatPanel({
   const pendingSessionModelRef = React.useRef<string | undefined>(undefined);
   const createdSessionIdRef = React.useRef<string | null>(null);
   const lastCatchupConnectionEpochRef = React.useRef(0);
+  const previousSelectedGatewayIdRef = React.useRef<string | undefined>(undefined);
+  const providerRequestKeyRef = React.useRef<string | undefined>(undefined);
+  const isComposingRef = React.useRef(false);
 
   React.useEffect(() => {
     cwdRef.current = cwd;
@@ -625,6 +646,10 @@ export function ChatPanel({
         return;
       }
       if (frame.type === 'gateway.providers') {
+        const frameGatewayId = typeof frame.gatewayId === 'string' ? frame.gatewayId : undefined;
+        if (frameGatewayId && frameGatewayId !== selectedGatewayId) {
+          return;
+        }
         const nextProviders = Array.isArray(frame.providers)
           ? frame.providers.filter((provider: unknown): provider is ProviderOption => isProviderOption(provider))
           : [];
@@ -648,7 +673,12 @@ export function ChatPanel({
         return;
       }
       if (frame.type === 'gateway.cwd-suggestions') {
-        if (typeof frame.cwd === 'string' && frame.cwd === cwdRef.current) {
+        const frameGatewayId = typeof frame.gatewayId === 'string' ? frame.gatewayId : undefined;
+        if (
+          typeof frame.cwd === 'string' &&
+          frame.cwd === cwdRef.current &&
+          (!frameGatewayId || frameGatewayId === selectedGatewayId)
+        ) {
           const suggestions = Array.isArray(frame.suggestions)
             ? frame.suggestions.filter((item: unknown): item is string => typeof item === 'string')
             : [];
@@ -787,7 +817,7 @@ export function ChatPanel({
           : undefined;
         const nextSuggestions = normalizeNextSuggestions(frame.nextSuggestions);
         const durationMs = Date.now() - inflightStartedAtRef.current;
-        const existingOpenAgentId = currentAgentIdRef.current ?? findLatestOpenAgentId(messagesRef.current);
+        const existingOpenAgentId = currentAgentIdRef.current ?? findLatestOpenAgentId(messagesRef.current) ?? findLatestLostAgentId(messagesRef.current);
         const agentId = existingOpenAgentId ?? `agent-${Date.now()}`;
         const existingById = messagesRef.current.find((item) => item.kind === 'agent' && item.id === agentId);
         const duplicateIndex = messagesRef.current.findIndex(
@@ -986,6 +1016,37 @@ export function ChatPanel({
   }, [currentSessionId, cwd, cwdPickerOpen, selectedGatewayId, sendFrame, wsReady]);
 
   React.useEffect(() => {
+    if (currentSessionId || !selectedGatewayId) {
+      return;
+    }
+    if (previousSelectedGatewayIdRef.current === selectedGatewayId) {
+      return;
+    }
+    previousSelectedGatewayIdRef.current = selectedGatewayId;
+    setCwd('~');
+    setCwdSuggestions([]);
+    setCwdActiveIndex(0);
+    setProviderOptions(DEFAULT_PROVIDER_OPTIONS);
+    setSelectedProvider(DEFAULT_PROVIDER_OPTIONS[0]!.provider);
+    setSelectedModel(DEFAULT_PROVIDER_OPTIONS[0]!.models[0]!);
+    if (wsReady) {
+      providerRequestKeyRef.current = selectedGatewayId;
+      sendFrame({ type: 'client.list-providers', gatewayId: selectedGatewayId });
+      if (cwdPickerOpen) {
+        sendFrame({ type: 'client.cwd-suggest', cwd: '~', gatewayId: selectedGatewayId });
+      }
+    }
+  }, [currentSessionId, cwdPickerOpen, selectedGatewayId, sendFrame, wsReady]);
+
+  React.useEffect(() => {
+    if (currentSessionId || !wsReady || !selectedGatewayId || providerRequestKeyRef.current === selectedGatewayId) {
+      return;
+    }
+    providerRequestKeyRef.current = selectedGatewayId;
+    sendFrame({ type: 'client.list-providers', gatewayId: selectedGatewayId });
+  }, [currentSessionId, selectedGatewayId, sendFrame, wsReady]);
+
+  React.useEffect(() => {
     const models = providerOptions.find((provider) => provider.provider === selectedProvider)?.models ?? [];
     if (models.length > 0 && !models.includes(selectedModel)) {
       setSelectedModel(models[0]!);
@@ -1080,10 +1141,20 @@ export function ChatPanel({
   const isNewSession = !currentSessionId && messages.length === 0;
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    const nativeEvent = event.nativeEvent as KeyboardEvent;
+    const isComposing = isComposingRef.current || nativeEvent.isComposing || nativeEvent.keyCode === 229;
+    if (event.key === 'Enter' && !event.shiftKey && !isComposing) {
       event.preventDefault();
       sendMessage();
     }
+  };
+
+  const handleCompositionStart = () => {
+    isComposingRef.current = true;
+  };
+
+  const handleCompositionEnd = () => {
+    isComposingRef.current = false;
   };
 
   const effectiveGatewayId = currentSessionId ? (activeSessionGatewayId ?? selectedGatewayId) : selectedGatewayId;
@@ -1093,12 +1164,43 @@ export function ChatPanel({
     : selectedGatewayOnline
       ? undefined
       : t.gatewaySelectorOffline;
+
+  const buildInputPlaceholder = (provider: string, model: string, gatewayName?: string) => {
+    const parts: string[] = [];
+    if (gatewayName) parts.push(gatewayName);
+    if (provider) parts.push(provider.charAt(0).toUpperCase() + provider.slice(1));
+    if (model) parts.push(model.charAt(0).toUpperCase() + model.slice(1));
+    return `${t.chatsSendTo} ${parts.join(' · ')}…`;
+  };
   const isGatewayInputBlocked = Boolean(gatewayInputMessage);
   const canSend = wsReady && !isInflight && !connectionError && !sessionAccessError && !isGatewayInputBlocked && inputText.trim().length > 0;
   const isInputDisabled = isInflight || !wsReady || Boolean(connectionError) || Boolean(sessionAccessError) || isGatewayInputBlocked;
-  const connectionStatusChip = (() => {
+  const relayStatusChip = (() => {
+    if (wsReady) {
+      return (
+        <div className="chat-connection-chip chat-connection-chip--connected" role="status" aria-live="polite">
+          <span />
+          <strong>{t.chatsRelayConnected}</strong>
+        </div>
+      );
+    }
+    if (hasEverConnectedRef.current) {
+      return (
+        <div className="chat-connection-chip" role="status" aria-live="polite">
+          <span />
+          <strong>{t.chatsRelayDisconnected}</strong>
+        </div>
+      );
+    }
+    return (
+      <div className="chat-connection-chip chat-connection-chip--connecting" role="status" aria-live="polite">
+        <strong>{t.chatsRelayConnecting}</strong>
+      </div>
+    );
+  })();
+
+  const gatewayStatusChip = (() => {
     if (connectionError) {
-      // Gateway was previously ready and is now unavailable — show real error
       return (
         <div className="chat-connection-chip" role="status" aria-live="polite">
           <span />
@@ -1107,7 +1209,6 @@ export function ChatPanel({
       );
     }
     if (wsReady && hasEverConnectedRef.current && !gatewayReady) {
-      // Authenticated but gateway not confirmed yet — show neutral "connecting" state
       return (
         <div className="chat-connection-chip chat-connection-chip--connecting" role="status" aria-live="polite">
           <strong>{t.chatsGatewayConnecting}</strong>
@@ -1122,22 +1223,56 @@ export function ChatPanel({
         </div>
       );
     }
-    return null;
+    return (
+      <div className="chat-connection-chip chat-connection-chip--connecting" role="status" aria-live="polite">
+        <strong>{t.chatsGatewayConnecting}</strong>
+      </div>
+    );
   })();
+
+  const connectionStatusChips = (
+    wsReady && gatewayReady && !connectionError ? (
+      <div className="chat-connection-mini" role="status" aria-live="polite" title={`${t.chatsGatewayConnected} / ${t.chatsRelayConnected}`}>
+        <span className="chat-connection-mini-label">G</span>
+        <span className="chat-connection-mini-dot" />
+        <span className="chat-connection-mini-label">R</span>
+        <span className="chat-connection-mini-dot" />
+      </div>
+    ) : (
+      <>
+        {gatewayStatusChip}
+        {relayStatusChip}
+      </>
+    )
+  );
 
   const gatewaySelector = (
     <GatewaySelector
       selectedGatewayId={currentSessionId ? activeSessionGatewayId : selectedGatewayId}
-      onSelect={(id) => {
+      onSelect={(id, name) => {
         if (currentSessionId) {
           return;
         }
         setSelectedGatewayId(id);
+        setSelectedGatewayName(name);
+        setCwd('~');
+        setCwdSuggestions([]);
+        setCwdActiveIndex(0);
+        if (wsReady) {
+          providerRequestKeyRef.current = id;
+          sendFrame({ type: 'client.list-providers', gatewayId: id });
+          if (cwdPickerOpen) {
+            sendFrame({ type: 'client.cwd-suggest', cwd: '~', gatewayId: id });
+          }
+        }
         setConnectionError((current) =>
           current === t.gatewaySelectorNoSelection || current === t.gatewaySelectorOffline
             ? undefined
             : current
         );
+      }}
+      onGatewayName={(_, name) => {
+        setSelectedGatewayName(name);
       }}
       onlineGatewayIds={onlineGatewayIds}
       readonly={Boolean(currentSessionId)}
@@ -1168,15 +1303,20 @@ export function ChatPanel({
       <Textarea
         value={inputText}
         onChange={(event) => setInputText(event.target.value)}
-        placeholder={gatewayInputMessage ?? t.chatsInputPlaceholder.replace('{model}', (withControls ? selectedModel : displayModel) || displayProvider)}
+        placeholder={gatewayInputMessage ?? buildInputPlaceholder(
+          withControls ? selectedProvider : displayProvider,
+          withControls ? selectedModel : displayModel,
+          withControls && selectedGatewayOnline ? selectedGatewayName : undefined
+        )}
         disabled={isInputDisabled}
         className="max-h-44 min-h-[88px] resize-none rounded-none border-0 bg-transparent px-4 pt-4 text-[15px] leading-relaxed shadow-none focus-visible:ring-0"
         onKeyDown={onKeyDown}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
       />
       <div className={`chat-input-toolbar ${withControls ? 'chat-input-toolbar-controls' : 'chat-input-toolbar-session'} relative flex items-center gap-2 border-t border-border/50 px-3 py-2.5`}>
         {withControls && (
           <>
-            {gatewaySelector}
             <Select
               value={selectedProvider}
               onValueChange={(value) => {
@@ -1184,25 +1324,26 @@ export function ChatPanel({
                 setSelectedModel(providerOptions.find((p) => p.provider === value)?.models[0] ?? '');
               }}
             >
-              <SelectTrigger className="chat-provider-trigger h-7 w-auto gap-1 rounded-full border-0 bg-muted px-3 text-[12px] font-medium shadow-none ring-0 focus:ring-0">
+              <SelectTrigger className="chat-provider-trigger chat-toolbar-trigger w-auto capitalize">
                 <SelectValue placeholder={t.chatsSelectProvider} />
               </SelectTrigger>
               <SelectContent>
                 {providerOptions.map((p) => (
-                  <SelectItem key={p.provider} value={p.provider}>{p.provider}</SelectItem>
+                  <SelectItem key={p.provider} value={p.provider}>{p.provider.charAt(0).toUpperCase() + p.provider.slice(1)}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <Select value={selectedModel} onValueChange={setSelectedModel}>
-              <SelectTrigger className="chat-model-trigger h-7 w-auto gap-1 rounded-full border-0 bg-muted px-3 text-[12px] font-medium shadow-none ring-0 focus:ring-0">
+              <SelectTrigger className="chat-model-trigger chat-toolbar-trigger w-auto capitalize">
                 <SelectValue placeholder={t.chatsSelectModel} />
               </SelectTrigger>
               <SelectContent>
                 {(providerOptions.find((p) => p.provider === selectedProvider)?.models ?? []).map((model) => (
-                  <SelectItem key={model} value={model}>{model}</SelectItem>
+                  <SelectItem key={model} value={model}>{model.charAt(0).toUpperCase() + model.slice(1)}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {gatewaySelector}
             <Popover
               open={cwdPickerOpen}
               onOpenChange={(open) => {
@@ -1337,11 +1478,9 @@ export function ChatPanel({
           </button>
         )}
         <div className="absolute right-3 top-3 flex items-center gap-2">
-          {connectionStatusChip ? (
-            <div className="chat-header-connection-status">
-              {connectionStatusChip}
-            </div>
-          ) : null}
+          <div className="chat-header-connection-status">
+            {connectionStatusChips}
+          </div>
           <NotificationBell />
         </div>
         <div className="chat-new-session-hero mb-10 flex flex-col items-center gap-4">
@@ -1389,12 +1528,9 @@ export function ChatPanel({
           </button>
         )}
         <div className="flex-1" />
-        {gatewaySelector}
-        {connectionStatusChip ? (
-          <div className="chat-header-connection-status">
-            {connectionStatusChip}
-          </div>
-        ) : null}
+        <div className="chat-header-connection-status">
+          {connectionStatusChips}
+        </div>
         {sessionAccessError ? (
           <div className="chat-header-session-status">
             <div className="chat-connection-chip" role="status" aria-live="polite">
@@ -1480,69 +1616,77 @@ export function ChatPanel({
       <div className="px-4 pb-4 pt-2">
         <div className="mx-auto max-w-3xl flex flex-col gap-1.5">
           {/* Info row — click to open session settings */}
-          <Popover open={sessionSettingsOpen} onOpenChange={setSessionSettingsOpen}>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                title={t.chatsSessionSettings}
-                className="flex items-center gap-1.5 self-start rounded px-1 py-0.5 text-[11px] text-muted-foreground/55 transition-colors hover:text-muted-foreground"
-              >
-                {displayModel && <span className="font-medium">{displayModel}</span>}
-                {activeSessionProjectPath && (
-                  <>
-                    <span className="opacity-40">·</span>
-                    <span className="max-w-[200px] truncate font-mono">{compactPathLabel(activeSessionProjectPath)}</span>
-                  </>
-                )}
-                {usageStats?.contextPct !== undefined && (
-                  <>
-                    <span className="opacity-40">·</span>
-                    <span className="tabular-nums">ctx {usageStats.contextPct}%</span>
-                  </>
-                )}
-                <Settings className="ml-1 h-3 w-3 opacity-50" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent side="top" align="start" sideOffset={8} className="w-64 p-3">
-              <div className="flex flex-col gap-2.5">
-                {displayProviderModels.length > 0 && displayModel && (
-                  <div className="flex items-center gap-2">
-                    <span className="w-10 shrink-0 text-[12px] text-muted-foreground">{t.chatsLabelModel}</span>
-                    <Select value={displayModel} onValueChange={setActiveSessionModel}>
-                      <SelectTrigger className="h-7 flex-1 text-[12px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {displayProviderModels.map((model) => (
-                          <SelectItem key={model} value={model}>{model}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                {activeSessionProjectPath && (
-                  <div className="flex items-center gap-2">
-                    <span className="w-10 shrink-0 text-[12px] text-muted-foreground">{t.chatsCwdShort}</span>
-                    <span
-                      title={activeSessionProjectPath}
-                      className="flex h-7 min-w-0 flex-1 items-center rounded-lg bg-muted px-3 font-mono text-[12px] font-medium text-muted-foreground"
-                    >
-                      <span className="truncate">{compactProjectPath(activeSessionProjectPath)}</span>
-                    </span>
-                  </div>
-                )}
-                {(usageStats?.contextPct !== undefined || usageStats?.rateLimitResetsAt || usageStats?.primary) && (
-                  <UsageStatsRows
-                    contextPct={usageStats?.contextPct}
-                    rateLimitResetsAt={usageStats?.rateLimitResetsAt}
-                    rateLimitType={usageStats?.rateLimitType}
-                    primary={usageStats?.primary}
-                    secondary={usageStats?.secondary}
-                  />
-                )}
-              </div>
-            </PopoverContent>
-          </Popover>
+          <div className="flex items-center gap-2 self-start min-w-0">
+            <Popover open={sessionSettingsOpen} onOpenChange={setSessionSettingsOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  title={t.chatsSessionSettings}
+                  className="flex items-center gap-1.5 rounded px-1 py-0.5 text-[11px] text-muted-foreground/55 transition-colors hover:text-muted-foreground"
+                >
+                  {selectedGatewayName && (
+                    <>
+                      <span className="max-w-[80px] truncate font-medium text-brand">{selectedGatewayName}</span>
+                      <span className="opacity-40">·</span>
+                    </>
+                  )}
+                  {displayModel && <span className="font-medium">{displayModel}</span>}
+                  {activeSessionProjectPath && (
+                    <>
+                      <span className="opacity-40">·</span>
+                      <span className="max-w-[200px] truncate font-mono">{compactPathLabel(activeSessionProjectPath)}</span>
+                    </>
+                  )}
+                  {usageStats?.contextPct !== undefined && (
+                    <>
+                      <span className="opacity-40">·</span>
+                      <span className="tabular-nums">ctx {usageStats.contextPct}%</span>
+                    </>
+                  )}
+                  <Settings className="ml-1 h-3 w-3 opacity-50" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="top" align="start" sideOffset={8} className="w-64 p-3">
+                <div className="flex flex-col gap-2.5">
+                  {displayProviderModels.length > 0 && displayModel && (
+                    <div className="flex items-center gap-2">
+                      <span className="w-10 shrink-0 text-[12px] text-muted-foreground">{t.chatsLabelModel}</span>
+                      <Select value={displayModel} onValueChange={setActiveSessionModel}>
+                        <SelectTrigger className="h-7 flex-1 text-[12px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {displayProviderModels.map((model) => (
+                            <SelectItem key={model} value={model}>{model}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  {activeSessionProjectPath && (
+                    <div className="flex items-center gap-2">
+                      <span className="w-10 shrink-0 text-[12px] text-muted-foreground">{t.chatsCwdShort}</span>
+                      <span
+                        title={activeSessionProjectPath}
+                        className="flex h-7 min-w-0 flex-1 items-center rounded-lg bg-muted px-3 font-mono text-[12px] font-medium text-muted-foreground"
+                      >
+                        <span className="truncate">{compactPathLabel(activeSessionProjectPath)}</span>
+                      </span>
+                    </div>
+                  )}
+                  {(usageStats?.contextPct !== undefined || usageStats?.rateLimitResetsAt || usageStats?.primary) && (
+                    <UsageStatsRows
+                      contextPct={usageStats?.contextPct}
+                      rateLimitResetsAt={usageStats?.rateLimitResetsAt}
+                      rateLimitType={usageStats?.rateLimitType}
+                      primary={usageStats?.primary}
+                      secondary={usageStats?.secondary}
+                    />
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
 
           {/* Compact input card */}
           <div className="chat-input-card relative overflow-hidden rounded-2xl border border-border bg-card" style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
@@ -1551,10 +1695,12 @@ export function ChatPanel({
                 ref={inputRef}
                 value={inputText}
                 onChange={(event) => setInputText(event.target.value)}
-                placeholder={t.chatsInputPlaceholder.replace('{model}', displayModel || displayProvider)}
+                placeholder={buildInputPlaceholder(displayProvider, displayModel)}
                 disabled={isInputDisabled}
                 className="flex-1 max-h-44 min-h-[36px] resize-none border-0 bg-transparent py-1 text-[15px] leading-relaxed shadow-none focus-visible:ring-0"
                 onKeyDown={onKeyDown}
+                onCompositionStart={handleCompositionStart}
+                onCompositionEnd={handleCompositionEnd}
               />
               {sendButton}
             </div>

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import * as ReactDOM from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 import { Button } from '@tether/design';
 import { useI18n } from '../../hooks/use-i18n.js';
@@ -13,7 +14,8 @@ type GatewayInfo = {
 
 type GatewaySelectorProps = {
   selectedGatewayId: string | undefined;
-  onSelect: (gatewayId: string) => void;
+  onSelect: (gatewayId: string, name: string) => void;
+  onGatewayName?: (gatewayId: string, name: string) => void;
   onlineGatewayIds: Set<string>;
   readonly?: boolean;
 };
@@ -26,10 +28,14 @@ function gatewayLabel(gateway: GatewayInfo): string {
   return gateway.gatewayId.slice(0, 8);
 }
 
-export function GatewaySelector({ selectedGatewayId, onSelect, onlineGatewayIds, readonly = false }: GatewaySelectorProps) {
+export function GatewaySelector({ selectedGatewayId, onSelect, onGatewayName, onlineGatewayIds, readonly = false }: GatewaySelectorProps) {
   const { t } = useI18n();
   const [gateways, setGateways] = React.useState<GatewayInfo[]>([]);
   const [open, setOpen] = React.useState(false);
+  const [dropdownRect, setDropdownRect] = React.useState<DOMRect | null>(null);
+  const triggerRef = React.useRef<HTMLDivElement>(null);
+  const onGatewayNameRef = React.useRef(onGatewayName);
+  onGatewayNameRef.current = onGatewayName;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -52,73 +58,112 @@ export function GatewaySelector({ selectedGatewayId, onSelect, onlineGatewayIds,
   const visibleGateways = readonly
     ? gateways.filter((gateway) => gateway.status !== 'revoked')
     : gateways.filter((gateway) => gateway.status !== 'revoked' && onlineGatewayIds.has(gateway.gatewayId));
-  const selectedGateway = visibleGateways.find((gateway) => gateway.gatewayId === selectedGatewayId) ?? visibleGateways[0];
 
   React.useEffect(() => {
-    if (!readonly && !selectedGatewayId && visibleGateways.length > 0) {
-      onSelect(visibleGateways[0]!.gatewayId);
+    if (
+      !readonly &&
+      visibleGateways.length > 0 &&
+      (!selectedGatewayId || !visibleGateways.some((gateway) => gateway.gatewayId === selectedGatewayId))
+    ) {
+      const first = visibleGateways[0]!;
+      onSelect(first.gatewayId, gatewayLabel(first));
     }
   }, [onSelect, readonly, selectedGatewayId, visibleGateways]);
 
-  if (visibleGateways.length === 0) {
-    return (
-      <div className="flex min-h-7 items-center rounded-md bg-muted px-3 text-xs font-medium text-muted-foreground">
-        {t.gatewaySelectorEmpty}
-      </div>
-    );
-  }
+  const selectedGateway = visibleGateways.find((gw) => gw.gatewayId === selectedGatewayId) ?? visibleGateways[0];
+
+  React.useEffect(() => {
+    if (selectedGateway) {
+      onGatewayNameRef.current?.(selectedGateway.gatewayId, gatewayLabel(selectedGateway));
+    }
+  }, [selectedGateway]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (triggerRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+
+  const handleToggle = () => {
+    if (!open && triggerRef.current) {
+      setDropdownRect(triggerRef.current.getBoundingClientRect());
+    }
+    setOpen((current) => !current);
+  };
 
   const isOnline = selectedGateway ? onlineGatewayIds.has(selectedGateway.gatewayId) : false;
   const statusLabel = isOnline ? 'online' : t.gatewaySelectorOffline;
 
-  if (visibleGateways.length === 1 || readonly) {
+  if (visibleGateways.length === 0) {
+    return null;
+  }
+
+  if (readonly) {
     return (
-      <div className="flex h-7 max-w-[260px] items-center gap-2 rounded-md bg-muted px-3 text-xs font-medium text-foreground">
+      <div
+        title={selectedGateway ? gatewayLabel(selectedGateway) : t.gatewaySelectorSelect}
+        className="chat-gateway-selector-trigger flex h-7 items-center gap-2 rounded-md bg-muted px-3 text-xs font-medium text-foreground"
+      >
         <span className={`h-2 w-2 shrink-0 rounded-full ${isOnline ? 'bg-green-500' : 'bg-muted-foreground'}`} />
-        <span className="truncate">{selectedGateway ? gatewayLabel(selectedGateway) : t.gatewaySelectorSelect}</span>
+        <span className="min-w-0 flex-1 truncate">{selectedGateway ? gatewayLabel(selectedGateway) : t.gatewaySelectorSelect}</span>
         {readonly && !isOnline ? <span className="shrink-0 text-muted-foreground">{statusLabel}</span> : null}
       </div>
     );
   }
 
+  const dropdown = open && dropdownRect ? ReactDOM.createPortal(
+    <div
+      style={{
+        position: 'fixed',
+        top: dropdownRect.bottom + 4,
+        right: window.innerWidth - dropdownRect.right,
+        width: 288,
+        zIndex: 9999,
+      }}
+      className="overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+    >
+      {visibleGateways.map((gateway) => (
+        <button
+          key={gateway.gatewayId}
+          type="button"
+          onClick={() => {
+            onSelect(gateway.gatewayId, gatewayLabel(gateway));
+            setOpen(false);
+          }}
+          className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent"
+        >
+          <span className="h-2 w-2 shrink-0 rounded-full bg-green-500" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-medium">{gatewayLabel(gateway)}</span>
+            {gateway.hostname && gateway.hostname !== gatewayLabel(gateway) ? <span className="block truncate text-[11px] text-muted-foreground">{gateway.hostname}</span> : null}
+          </span>
+        </button>
+      ))}
+    </div>,
+    document.body
+  ) : null;
+
   return (
-    <div className="relative">
+    <div className="chat-gateway-selector relative" ref={triggerRef}>
       <Button
         type="button"
-        variant="outline"
+        variant="ghost"
         size="xs"
-        onClick={() => setOpen((current) => !current)}
+        onClick={handleToggle}
         aria-expanded={open}
-        className="max-w-[280px] gap-2 rounded-md bg-muted text-foreground"
+        title={selectedGateway ? gatewayLabel(selectedGateway) : t.gatewaySelectorSelect}
+        className="chat-gateway-selector-trigger chat-toolbar-trigger"
       >
         <span className={`h-2 w-2 shrink-0 rounded-full ${isOnline ? 'bg-green-500' : 'bg-muted-foreground'}`} />
-        <span className="truncate">{selectedGateway ? gatewayLabel(selectedGateway) : t.gatewaySelectorSelect}</span>
+        <span className="min-w-0 flex-1 truncate text-left">{selectedGateway ? gatewayLabel(selectedGateway) : t.gatewaySelectorSelect}</span>
         {readonly && !isOnline && selectedGateway ? <span className="text-muted-foreground">{t.gatewaySelectorOffline}</span> : null}
-        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       </Button>
-      {open ? (
-        <div className="absolute right-0 top-9 z-50 w-72 overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg">
-          {visibleGateways.map((gateway) => {
-            return (
-              <button
-                key={gateway.gatewayId}
-                type="button"
-                onClick={() => {
-                  onSelect(gateway.gatewayId);
-                  setOpen(false);
-                }}
-                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent"
-              >
-                <span className="h-2 w-2 shrink-0 rounded-full bg-green-500" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{gatewayLabel(gateway)}</span>
-                  {gateway.hostname ? <span className="block truncate text-[11px] text-muted-foreground">{gateway.hostname}</span> : null}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
+      {dropdown}
     </div>
   );
 }

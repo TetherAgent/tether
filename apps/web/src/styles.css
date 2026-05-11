@@ -5937,6 +5937,36 @@ textarea.composer-input {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 58%, transparent);
 }
 
+.chat-toolbar-trigger {
+  height: 28px;
+  border-radius: 9999px;
+  background: var(--muted);
+  border: none;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 500;
+  gap: 6px;
+  padding-inline: 12px;
+  color: var(--foreground);
+  min-width: 0;
+}
+
+.chat-toolbar-trigger:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.chat-gateway-selector,
+.chat-gateway-selector-trigger {
+  width: 150px;
+  max-width: 150px;
+  min-width: 0;
+}
+
+.chat-gateway-selector-trigger {
+  justify-content: flex-start;
+}
+
 .chat-cwd-label {
   font-size: 11px;
   color: var(--muted-foreground);
@@ -5997,8 +6027,37 @@ textarea.composer-input {
 }
 
 .chat-header-connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
   flex: 0 1 auto;
+}
+
+.chat-connection-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--brand) 36%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card) 90%, var(--brand) 10%);
+  color: color-mix(in srgb, var(--brand) 84%, var(--foreground));
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.chat-connection-mini-label {
+  color: color-mix(in srgb, var(--foreground) 70%, var(--brand));
+}
+
+.chat-connection-mini-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--brand);
 }
 
 .chat-header-session-status {
@@ -7212,6 +7271,7 @@ textarea.composer-input {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px;
     grid-template-areas:
       "provider model send"
+      "gateway gateway gateway"
       "cwd cwd cwd";
     gap: 8px;
     align-items: center;
@@ -7228,6 +7288,10 @@ textarea.composer-input {
 
   .chat-input-toolbar-controls .chat-model-trigger {
     grid-area: model;
+  }
+
+  .chat-input-toolbar-controls .chat-gateway-selector {
+    grid-area: gateway;
   }
 
   .chat-input-toolbar-controls .chat-cwd-trigger {
@@ -7254,6 +7318,12 @@ textarea.composer-input {
     width: 100% !important;
     max-width: none;
     min-width: 0;
+  }
+
+  .chat-gateway-selector,
+  .chat-gateway-selector-trigger {
+    width: 100% !important;
+    max-width: none;
   }
 
   .chat-cwd-popover {

@@ -226,7 +226,7 @@ gatewayCommand
   .command('stop')
   .description('通过 launchd 停止 Gateway')
   .action(async () => {
-    await stopLaunchAgent();
+    await stopGatewayBackground();
     terminal.success('Gateway 已停止。');
   });
 
@@ -234,7 +234,7 @@ gatewayCommand
   .command('restart')
   .description('通过 launchd 重启 Gateway')
   .action(async () => {
-    await stopLaunchAgent();
+    await stopGatewayBackground();
     await startGatewayBackground();
     terminal.success('Gateway 已重启。');
   });
@@ -649,6 +649,50 @@ async function startGatewayForeground(profile?: GatewayProfileName): Promise<voi
   terminal.success('Gateway 正在运行。按 Ctrl-C 停止。');
   await waitForShutdown();
   await daemon.close();
+}
+
+async function stopGatewayBackground(): Promise<void> {
+  await stopLaunchAgent();
+
+  const file = readTetherConfig();
+  const resolved = resolveGatewayProfileConfig({ file });
+  const gatewayConfig = resolved.gateway;
+  const registryRecords = await listGateways();
+  const status = await fetchFirstGatewayStatus([
+    ...registryRecords.map((record) => record.url),
+    gatewayApiUrl(gatewayConfig.host, gatewayConfig.port)
+  ]);
+  const pid = numberValue(status?.pid);
+  if (!pid || pid === process.pid) {
+    return;
+  }
+
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ESRCH') {
+      return;
+    }
+    throw error;
+  }
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await sleep(100);
+    const stillRunning = await fetchFirstGatewayStatus([
+      ...registryRecords.map((record) => record.url),
+      gatewayApiUrl(gatewayConfig.host, gatewayConfig.port)
+    ]);
+    if (!stillRunning) {
+      return;
+    }
+  }
+
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== 'ESRCH') {
+      throw error;
+    }
+  }
 }
 
 async function ensureGatewayAuthForProfile(profile: GatewayProfileName): Promise<void> {

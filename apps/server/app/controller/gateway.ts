@@ -5,12 +5,18 @@ export default class GatewayController extends Controller {
     const { ctx } = this;
     const auth = ctx.state.auth as { userId?: string } | undefined;
     const gateways = await ctx.service.gatewayRepository.loadGatewaysByUserId(auth?.userId ?? '');
+    const now = Date.now();
+    const onlineWindowMs = 120_000;
     ctx.success(gateways.map(gateway => ({
       gatewayId: gateway.id,
       deviceKey: gateway.deviceKey,
       hostname: gateway.hostname,
       name: gateway.name,
-      status: gateway.status,
+      status: gateway.status === 'revoked'
+        ? 'revoked'
+        : now - gateway.lastSeenAt <= onlineWindowMs
+          ? 'online'
+          : 'offline',
       lastSeenAt: gateway.lastSeenAt
     })));
   }

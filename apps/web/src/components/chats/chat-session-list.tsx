@@ -36,14 +36,11 @@ function compactProjectPath(projectPath: string): string {
   if (!value) {
     return '未选择工作目录';
   }
-  const homePrefix = '/Users/dream';
-  if (value === homePrefix) {
-    return '~';
-  }
-  if (value.startsWith(`${homePrefix}/`)) {
-    return `~/${value.slice(homePrefix.length + 1)}`;
-  }
   const parts = value.split('/').filter(Boolean);
+  if (value.startsWith('/Users/') && parts.length >= 2) {
+    const relativeParts = parts.slice(2);
+    return relativeParts.length > 0 ? `~/${relativeParts.join('/')}` : '~';
+  }
   if (parts.length <= 3) {
     return value;
   }
