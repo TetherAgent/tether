@@ -148,6 +148,23 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     return undefined;
   }
 
+  function textFromRawChatEvent(rawJson: string): string {
+    try {
+      const parsed = JSON.parse(rawJson) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return '';
+      }
+      const payload = (parsed as Record<string, unknown>).payload;
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        return '';
+      }
+      const text = (payload as Record<string, unknown>).text;
+      return typeof text === 'string' ? text : '';
+    } catch {
+      return '';
+    }
+  }
+
   function metadataToRelaySession(metadata: FetchedChatSessionMetadata): RelaySession | undefined {
     const transport = metadataTransport(metadata.transport);
     if (!transport) {
@@ -390,9 +407,18 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             sendToClient(clientId, {
               type: 'agent.delta',
               sessionId: frame.event.sessionId,
-              text: String(frame.event.payload.text ?? '')
+              text: String(frame.event.payload.text ?? ''),
+              ...(typeof frame.event.id === 'number' ? { eventId: frame.event.id } : {})
             });
           }
+          void syncToServer('/api/relay/runtime-sync/gateway/event', {
+            gatewayId: frame.gatewayId,
+            event: frame.event,
+            scope: {
+              ...gatewayScope,
+              transport: 'chat'
+            }
+          });
           break;
         }
         if (frame.event.type === 'agent.result') {
@@ -496,10 +522,13 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           sendEventToSubscribers(frame.event);
         }
         if (RUNTIME_EVENT_WHITELIST.has(frame.event.type)) {
+          const whitelistScope = chatSessionOwners.has(frame.event.sessionId)
+            ? { ...gatewayScope, transport: 'chat' as const }
+            : gatewayScope;
           void syncToServer('/api/relay/runtime-sync/gateway/event', {
             gatewayId: frame.gatewayId,
             event: frame.event,
-            scope: gatewayScope
+            scope: whitelistScope
           });
         }
         break;
@@ -763,6 +792,39 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         subscriptions.set(frame.sessionId, frame.mode);
         if (session.transport === 'chat') {
           chatSessionOwners.set(frame.sessionId, clientId);
+          if (session.status === 'running' && options.serverSyncUrl && options.runtimeSyncSecret) {
+            const after = typeof frame.after === 'number' ? frame.after : 0;
+            try {
+              const catchupResponse = await fetch(
+                `${options.serverSyncUrl}/api/relay/chat-events/${encodeURIComponent(frame.sessionId)}?after=${after}`,
+                {
+                  method: 'GET',
+                  headers: { 'x-tether-runtime-sync-secret': options.runtimeSyncSecret },
+                  signal: AbortSignal.timeout(3000)
+                }
+              );
+              if (catchupResponse.ok) {
+                const catchupJson = await catchupResponse.json() as { data?: { events?: unknown } };
+                const events = Array.isArray(catchupJson.data?.events)
+                  ? catchupJson.data.events as Array<{ eventId: number; rawJson: string }>
+                  : [];
+                if (events.length > 0) {
+                  const blob = events.map((event) => textFromRawChatEvent(event.rawJson)).join('');
+                  const lastEventId = events[events.length - 1]?.eventId ?? after;
+                  sendToClient(clientId, {
+                    type: 'gateway.chat-catchup',
+                    sessionId: frame.sessionId,
+                    text: blob,
+                    lastEventId
+                  });
+                }
+              } else {
+                console.warn(`[relay] chat catch-up failed: HTTP ${catchupResponse.status} for ${frame.sessionId}`);
+              }
+            } catch (error) {
+              console.warn(`[relay] chat catch-up error for ${frame.sessionId}:`, String(error));
+            }
+          }
           break;
         }
         forwardToSessionGateway({
