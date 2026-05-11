@@ -325,6 +325,8 @@ export function ChatPanel({
   const [activeSessionGatewayId, setActiveSessionGatewayId] = React.useState<string | undefined>(undefined);
   const [activeSessionMetadataReady, setActiveSessionMetadataReady] = React.useState(!activeSessionId);
   const [relayGatewayId, setRelayGatewayId] = React.useState<string | undefined>(undefined);
+  const [selectedGatewayId, setSelectedGatewayId] = React.useState<string | undefined>(undefined);
+  const [showGatewaySelector, setShowGatewaySelector] = React.useState(false);
   const [cwd, setCwd] = React.useState('~');
   const [cwdSuggestions, setCwdSuggestions] = React.useState<string[]>([]);
   const [cwdPickerOpen, setCwdPickerOpen] = React.useState(false);
@@ -512,6 +514,7 @@ export function ChatPanel({
     setGatewayReady(false);
     setHasGatewayStatusFrame(false);
     setRelayGatewayId(undefined);
+    setSelectedGatewayId(undefined);
     setConnectionError(t.gatewayNotConnected);
     setIsInflight(false);
     currentAgentIdRef.current = null;
@@ -532,29 +535,32 @@ export function ChatPanel({
       if (frame.type === 'client.auth.ok') {
         hasEverConnectedRef.current = true;
         setConnectionError(undefined);
-        relay.sendFrame({ type: 'client.list-providers' });
         return;
       }
       if (frame.type === 'hello') {
         const gatewayId = typeof frame.gatewayId === 'string' ? frame.gatewayId : undefined;
         setRelayGatewayId(gatewayId);
         if (gatewayId) {
+          setSelectedGatewayId((current) => current ?? gatewayId);
           markGatewayReadyFallback(gatewayId);
         }
         return;
       }
       if (frame.type === 'gateway.status' && typeof frame.gatewayId === 'string') {
+        const gatewayId = frame.gatewayId;
         setHasGatewayStatusFrame(true);
         if (frame.status === 'connected') {
           setGatewayReady(true);
-          setRelayGatewayId(frame.gatewayId);
+          setRelayGatewayId(gatewayId);
+          setSelectedGatewayId((current) => current ?? gatewayId);
           setConnectionError((current) => current === t.gatewayNotConnected ? undefined : current);
-          relay.sendFrame({ type: 'client.list-providers' });
+          relay.sendFrame({ type: 'client.list-providers', gatewayId });
           return;
         }
         if (frame.status === 'disconnected') {
           setGatewayReady(false);
-          setRelayGatewayId((current) => current === frame.gatewayId ? undefined : current);
+          setRelayGatewayId((current) => current === gatewayId ? undefined : current);
+          setSelectedGatewayId((current) => current === gatewayId ? undefined : current);
           setConnectionError(t.gatewayNotConnected);
           return;
         }
@@ -563,6 +569,7 @@ export function ChatPanel({
         setGatewayReady(false);
         setHasGatewayStatusFrame(false);
         setRelayGatewayId(undefined);
+        setSelectedGatewayId(undefined);
         setConnectionError(t.gatewayNotConnected);
         return;
       }
@@ -812,6 +819,19 @@ export function ChatPanel({
       }
       if (frame.type === 'error' && typeof frame.message === 'string') {
         const frameMessage = frame.message;
+        if (frame.code === 'gateway_required') {
+          setShowGatewaySelector(true);
+          setConnectionError('请先选择 Gateway');
+          setIsInflight(false);
+          currentAgentIdRef.current = null;
+          return;
+        }
+        if (frame.code === 'gateway_unauthorized') {
+          setConnectionError('Gateway 不属于当前账号');
+          setIsInflight(false);
+          currentAgentIdRef.current = null;
+          return;
+        }
         if (
           frame.code === 'gateway_unavailable' ||
           frame.code === 'forbidden' ||
@@ -885,16 +905,16 @@ export function ChatPanel({
   }, [connectionEpoch, loadActiveSessionHistory, loadActiveSessionMetadata, onReconnectCatchup, wsReady]);
 
   React.useEffect(() => {
-    if (!cwdPickerOpen || currentSessionId || !wsReady) {
+    if (!cwdPickerOpen || currentSessionId || !wsReady || !selectedGatewayId) {
       setCwdSuggestions([]);
       setCwdActiveIndex(0);
       return;
     }
     const timer = window.setTimeout(() => {
-      sendFrame({ type: 'client.cwd-suggest', cwd });
+      sendFrame({ type: 'client.cwd-suggest', cwd, gatewayId: selectedGatewayId });
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [currentSessionId, cwd, cwdPickerOpen, sendFrame, wsReady]);
+  }, [currentSessionId, cwd, cwdPickerOpen, selectedGatewayId, sendFrame, wsReady]);
 
   React.useEffect(() => {
     const models = providerOptions.find((provider) => provider.provider === selectedProvider)?.models ?? [];
@@ -917,6 +937,11 @@ export function ChatPanel({
     const existingProviderModels = providerOptions.find((provider) => provider.provider === activeSessionProvider)?.models ?? [];
     const messageProvider = currentSessionId ? (activeSessionProvider ?? 'agent') : selectedProvider;
     const messageModel = currentSessionId ? (activeSessionModel ?? existingProviderModels[0]) : selectedModel;
+    if (!currentSessionId && !selectedGatewayId) {
+      setShowGatewaySelector(true);
+      setConnectionError('请先选择 Gateway');
+      return;
+    }
     inflightStartedAtRef.current = Date.now();
     const pendingAgentId = `agent-${Date.now()}`;
     currentAgentIdRef.current = pendingAgentId;
@@ -939,9 +964,10 @@ export function ChatPanel({
       provider: selectedProvider,
       model: selectedModel,
       cwd,
-      message: text
+      message: text,
+      gatewayId: selectedGatewayId
     });
-  }, [activeSessionModel, activeSessionProvider, connectionError, cwd, currentSessionId, inputText, isInflight, providerOptions, selectedModel, selectedProvider, sendFrame, sessionAccessError, wsReady]);
+  }, [activeSessionModel, activeSessionProvider, connectionError, cwd, currentSessionId, inputText, isInflight, providerOptions, selectedGatewayId, selectedModel, selectedProvider, sendFrame, sessionAccessError, wsReady]);
 
   const sendPermissionResponse = React.useCallback((requestId: string, decision: 'allow' | 'deny') => {
     if (!wsReady || !currentSessionIdRef.current) return;
@@ -1062,8 +1088,8 @@ export function ChatPanel({
               open={cwdPickerOpen}
               onOpenChange={(open) => {
                 setCwdPickerOpen(open);
-                if (open && wsReady) {
-                  sendFrame({ type: 'client.cwd-suggest', cwd });
+                if (open && wsReady && selectedGatewayId) {
+                  sendFrame({ type: 'client.cwd-suggest', cwd, gatewayId: selectedGatewayId });
                 }
               }}
             >
@@ -1247,6 +1273,14 @@ export function ChatPanel({
         {connectionStatusChip ? (
           <div className="chat-header-connection-status">
             {connectionStatusChip}
+          </div>
+        ) : null}
+        {showGatewaySelector && !selectedGatewayId ? (
+          <div className="chat-header-session-status">
+            <div className="chat-connection-chip" role="status" aria-live="polite">
+              <span />
+              <strong>请选择 Gateway 后再发送消息</strong>
+            </div>
           </div>
         ) : null}
         {sessionAccessError ? (

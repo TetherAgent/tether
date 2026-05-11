@@ -109,10 +109,10 @@ export type RelayClientToServerFrame =
   | { type: 'client.resize'; sessionId: string; cols: number; rows: number }
   | { type: 'client.stop'; sessionId: string }
   | { type: 'client.detach'; sessionId: string }
-  | { type: 'client.chat'; sessionId: null; provider: string; model: string; cwd: string; message: string }
+  | { type: 'client.chat'; sessionId: null; provider: string; model: string; cwd: string; message: string; gatewayId: string }
   | { type: 'client.chat'; sessionId: string; message: string; model?: string }
-  | { type: 'client.cwd-suggest'; cwd: string }
-  | { type: 'client.list-providers' }
+  | { type: 'client.cwd-suggest'; cwd: string; gatewayId: string }
+  | { type: 'client.list-providers'; gatewayId: string }
   | { type: 'client.switch-model'; sessionId: string; provider: string; model: string }
   | { type: 'client.permission_response'; sessionId: string; requestId: string; decision: 'allow' | 'deny' };
 
