@@ -58,14 +58,15 @@ test('gateway login defaults to prod and keeps local as an explicit environment'
   assert.match(source, /\.option\('--env <env>'/);
   assert.match(source, /process\.env\.TETHER_SERVER_URL/);
   assert.match(source, /options\.env === 'local' \? LOCAL_SERVER_URL : DEFAULT_SERVER_URL/);
-  assert.match(source, /performGatewayLogin\(\{\}\)/);
+  assert.match(source, /performGatewayLogin\(\{ \.\.\.options, env: parseGatewayLoginEnvOption\(options\.env\) \}\)/);
 });
 
-test('gateway login callback server does not keep the cli process alive after auth', () => {
+test('gateway login callback server closes after auth without dropping the pending callback wait', () => {
   const source = mainSource();
   assert.match(source, /const finish = \(result: GatewayAuthCallbackResult \| undefined, error: Error \| undefined\): void =>/);
-  assert.match(source, /timer\.unref\(\)/);
-  assert.match(source, /server\.unref\(\)/);
+  assert.match(source, /clearTimeout\(timer\);[\s\S]*server\.close\(\(\) =>/);
+  assert.doesNotMatch(source, /timer\.unref\(\)/);
+  assert.doesNotMatch(source, /server\.unref\(\)/);
   assert.match(source, /connection: 'close'/);
   assert.match(source, /req\.socket\.destroy\(\)/);
 });
@@ -86,7 +87,7 @@ test('launchd gateway profile skips interactive prompt', () => {
 
 test('gateway restart reuses background startup profile wiring', () => {
   const source = mainSource();
-  assert.match(source, /command\('restart'\)[\s\S]*stopLaunchAgent\(\);[\s\S]*startGatewayBackground\(\);/);
+  assert.match(source, /command\('restart'\)[\s\S]*stopGatewayBackground\(\);[\s\S]*startGatewayBackground\(\);/);
   assert.doesNotMatch(source, /command\('restart'\)[\s\S]{0,240}restartLaunchAgent\(\);/);
 });
 

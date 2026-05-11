@@ -48,6 +48,8 @@ completed: 2026-05-11
 - Added Server transaction mock coverage for `agent.result` message upsert with `raw_json`.
 - Added Relay account isolation coverage for chat catch-up.
 - Added Relay coverage proving `agent.delta` syncs to Server with `scope.transport = 'chat'`.
+- Stabilized root test coverage by making Relay/Gateway test fixtures use trusted metadata and owner-scoped PTY sessions.
+- Kept CLI gateway login callback timer/server refed while waiting for auth, and verified `finish()` closes the server after callback completion.
 
 ## Task Commits
 
@@ -90,6 +92,10 @@ None.
 - `pnpm --filter @tether/server test` -> passed; 28 tests passing
 - `pnpm --filter @tether/relay typecheck` -> passed
 - `pnpm --filter @tether/relay test` -> passed; 39 tests passing
+- `pnpm --filter @tether/gateway test` -> passed; 71 tests passing
+- `pnpm --filter @tether-labs/cli test` -> passed; 20 tests passing
+- `pnpm typecheck` -> passed
+- `pnpm --filter @tether/server clean && pnpm test` -> passed
 
 ## User Setup Required
 

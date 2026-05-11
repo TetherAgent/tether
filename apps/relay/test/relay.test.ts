@@ -1942,6 +1942,26 @@ test('Phase16: chat catch-up is isolated by account', async () => {
         response.end(JSON.stringify({ code: 0, msg: 'success', data: { events: chatEventsBySession[sessionId] ?? [] } }));
         return;
       }
+      const metadataMatch = request.url?.match(/^\/api\/relay\/gateway-sessions\/([^/]+)\/metadata$/);
+      if (request.method === 'GET' && metadataMatch) {
+        const sessionId = decodeURIComponent(metadataMatch[1]!);
+        const accountSuffix = sessionId.endsWith('_b') ? 'b' : 'a';
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({
+          code: 0,
+          msg: 'success',
+          data: {
+            id: sessionId,
+            provider: 'codex',
+            projectPath: process.cwd(),
+            accountId: `acct_${accountSuffix}`,
+            gatewayId: `gateway-${accountSuffix}`,
+            userId: `user_${accountSuffix}`,
+            transport: 'chat'
+          }
+        }));
+        return;
+      }
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ code: 0, msg: 'success', data: { ok: true } }));
     });
@@ -1986,42 +2006,14 @@ test('Phase16: chat catch-up is isolated by account', async () => {
     clientA.send(JSON.stringify({ type: 'client.auth', token: 'client-a' }));
     await waitForJson(clientA, (message) => message.type === 'client.auth.ok');
 
-    gatewayB.send(JSON.stringify({
-      type: 'gateway.sessions',
-      gatewayId: 'gateway-b',
-      sessions: [{
-        id: 'tth_chat_acct_b',
-        provider: 'codex',
-        title: 'B Chat',
-        projectPath: process.cwd(),
-        accountId: 'acct_b',
-        gatewayId: 'gateway-b',
-        userId: 'user_b',
-        status: 'running',
-        transport: 'chat',
-        lastActiveAt: Date.now()
-      }]
-    }));
-    gatewayA.send(JSON.stringify({
-      type: 'gateway.sessions',
-      gatewayId: 'gateway-a',
-      sessions: [{
-        id: 'tth_chat_acct_a',
-        provider: 'codex',
-        title: 'A Chat',
-        projectPath: process.cwd(),
-        accountId: 'acct_a',
-        gatewayId: 'gateway-a',
-        userId: 'user_a',
-        status: 'running',
-        transport: 'chat',
-        lastActiveAt: Date.now()
-      }]
-    }));
-    await waitForJson(clientA, (message) => message.type === 'sessions');
-    await waitForJson(clientB, (message) => message.type === 'sessions');
-
     clientB.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_chat_acct_b', mode: 'control', after: 0 }));
+    await waitForJson(
+      clientB,
+      (message) =>
+        message.type === 'sessions' &&
+        Array.isArray(message.sessions) &&
+        (message.sessions as RelaySession[]).some((session) => session.id === 'tth_chat_acct_b')
+    );
     clientA.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_chat_acct_a', mode: 'control', after: 0 }));
     const catchupA = await waitForJson(clientA, (message) => message.type === 'gateway.chat-catchup');
     assert.equal(catchupA.sessionId, 'tth_chat_acct_a');

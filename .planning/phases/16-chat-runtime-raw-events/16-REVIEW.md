@@ -8,7 +8,7 @@ findings:
   warning: 0
   info: 0
   total: 0
-reviewed_at: 2026-05-11T15:10:00Z
+reviewed_at: 2026-05-11T15:20:00Z
 ---
 
 # Phase 16 Code Review
@@ -56,6 +56,10 @@ Fixed in commit `8eff47f` by adding `upsertDerivedChatMessageRawJson`, which ato
 - `pnpm --filter @tether/relay typecheck` -> passed
 - `pnpm --filter @tether/relay test` -> passed; 39 tests
 - `pnpm --filter @tether/web typecheck` -> passed
+- `pnpm --filter @tether/gateway test` -> passed; 71 tests
+- `pnpm --filter @tether-labs/cli test` -> passed; 20 tests
+- `pnpm typecheck` -> passed
+- `pnpm --filter @tether/server clean && pnpm test` -> passed
 
 ## Residual Risk
 
