@@ -352,6 +352,7 @@ export function ChatPanel({
   const activeSessionProviderRef = React.useRef(activeSessionProvider);
   const selectedProviderRef = React.useRef(selectedProvider);
   const currentSessionIdRef = React.useRef(currentSessionId);
+  const subscribedSessionIdRef = React.useRef<string | null>(null);
   const cwdRef = React.useRef(cwd);
   const skipNextHistoryLoadSessionIdRef = React.useRef<string | null>(null);
   const pendingCreatedSessionIdRef = React.useRef<string | null>(null);
@@ -418,6 +419,7 @@ export function ChatPanel({
       revealTimerRef.current = undefined;
     }
     setSessionAccessError(undefined);
+    currentSessionIdRef.current = activeSessionId;
     setCurrentSessionId(activeSessionId);
     setAgentSessionId(undefined);
     setActiveSessionProjectPath(undefined);
@@ -625,6 +627,7 @@ export function ChatPanel({
         setAgentSessionId(undefined);
         setActiveSessionProvider(pendingSessionProviderRef.current);
         setActiveSessionModel(pendingSessionModelRef.current);
+        currentSessionIdRef.current = frame.sessionId;
         setCurrentSessionId(frame.sessionId);
         navigate(`/chats/${frame.sessionId}`, { replace: true });
         setMessages((items) => [...items, { kind: 'system', id: `started-${frame.sessionId}`, text: t.chatsSessionStarted }]);
@@ -644,6 +647,9 @@ export function ChatPanel({
         return;
       }
       if (frame.type === 'gateway.chat-catchup' && typeof frame.text === 'string') {
+        if (frame.sessionId !== currentSessionIdRef.current) {
+          return;
+        }
         setConnectionError(undefined);
         setSessionAccessError(undefined);
         const frameText = frame.text;
@@ -661,6 +667,9 @@ export function ChatPanel({
         return;
       }
       if (frame.type === 'agent.delta' && typeof frame.text === 'string') {
+        if (frame.sessionId !== currentSessionIdRef.current) {
+          return;
+        }
         setConnectionError(undefined);
         setSessionAccessError(undefined);
         if (revealTimerRef.current !== undefined) {
@@ -699,6 +708,9 @@ export function ChatPanel({
         return;
       }
       if (frame.type === 'agent.result' && typeof frame.text === 'string') {
+        if (frame.sessionId !== currentSessionIdRef.current) {
+          return;
+        }
         setConnectionError(undefined);
         setSessionAccessError(undefined);
         if (typeof frame.sessionId === 'string' && frame.sessionId === pendingCreatedSessionIdRef.current) {
@@ -802,6 +814,9 @@ export function ChatPanel({
         return;
       }
       if (frame.type === 'agent.tool' && typeof frame.name === 'string') {
+        if (frame.sessionId !== currentSessionIdRef.current) {
+          return;
+        }
         const toolName = frame.name;
         setMessages((items) => [
           ...items,
@@ -818,6 +833,9 @@ export function ChatPanel({
         return;
       }
       if (frame.type === 'agent.permission_request' && typeof frame.requestId === 'string' && typeof frame.toolName === 'string') {
+        if (frame.sessionId !== currentSessionIdRef.current) {
+          return;
+        }
         const { requestId, toolName } = frame as { requestId: string; toolName: string; input?: Record<string, unknown> };
         setMessages((items) => [
           ...items,
@@ -826,6 +844,9 @@ export function ChatPanel({
         return;
       }
       if (frame.type === 'error' && typeof frame.message === 'string') {
+        if (typeof frame.sessionId === 'string' && frame.sessionId && frame.sessionId !== currentSessionIdRef.current) {
+          return;
+        }
         const frameMessage = frame.message;
         if (frame.code === 'gateway_required') {
           setConnectionError(t.gatewaySelectorNoSelection);
@@ -931,12 +952,31 @@ export function ChatPanel({
   }, [providerOptions, selectedModel, selectedProvider]);
 
   React.useEffect(() => {
-    if (!wsReady || !currentSessionId || !activeSessionMetadataReady) {
+    if (!wsReady) {
+      return;
+    }
+    const previousSessionId = subscribedSessionIdRef.current;
+    if (previousSessionId && previousSessionId !== currentSessionId) {
+      sendFrame({ type: 'client.unsubscribe', sessionId: previousSessionId });
+      subscribedSessionIdRef.current = null;
+    }
+    if (!currentSessionId || !activeSessionMetadataReady) {
       return;
     }
     setSessionAccessError(undefined);
     sendFrame({ type: 'client.subscribe', sessionId: currentSessionId, mode: 'control' });
+    subscribedSessionIdRef.current = currentSessionId;
   }, [activeSessionMetadataReady, currentSessionId, sendFrame, wsReady]);
+
+  React.useEffect(() => {
+    return () => {
+      const sessionId = subscribedSessionIdRef.current;
+      if (sessionId) {
+        sendFrame({ type: 'client.unsubscribe', sessionId });
+        subscribedSessionIdRef.current = null;
+      }
+    };
+  }, [sendFrame]);
 
   const sendMessage = React.useCallback(() => {
     const text = inputText.trim();

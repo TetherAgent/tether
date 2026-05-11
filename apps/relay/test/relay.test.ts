@@ -928,6 +928,71 @@ test('relay rejects observe input and resize', async () => {
   }
 });
 
+test('relay unsubscribe removes only current client subscription', async () => {
+  const relay = await createRelay();
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const clientA = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+  const clientB = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+  const sessionId = 'tth_unsubscribe_test';
+
+  try {
+    await authenticateGateway(gateway);
+    const clientAId = await authenticateClient(clientA);
+    await authenticateClient(clientB);
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [{
+        id: sessionId,
+        provider: 'codex',
+        title: 'Unsubscribe Test',
+        projectPath: process.cwd(),
+        accountId: 'acct_1',
+        gatewayId: 'gateway-test',
+        userId: 'user_1',
+        status: 'running',
+        transport: 'pty-event-stream',
+        lastActiveAt: Date.now()
+      }]
+    }));
+    await waitForJson(clientA, (message) => message.type === 'sessions');
+    await waitForJson(clientB, (message) => message.type === 'sessions');
+
+    clientA.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control' }));
+    await waitForJson(gateway, (message) => message.type === 'client.subscribe' && message.clientId === clientAId);
+    clientB.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control' }));
+    await waitForJson(gateway, (message) => message.type === 'client.subscribe' && message.clientId !== clientAId);
+
+    clientA.send(JSON.stringify({ type: 'client.unsubscribe', sessionId }));
+    const unsubscribe = await waitForJson(gateway, (message) => message.type === 'client.unsubscribe');
+    assert.deepEqual(unsubscribe, { type: 'client.unsubscribe', clientId: clientAId, sessionId });
+
+    gateway.send(JSON.stringify({
+      type: 'gateway.event',
+      gatewayId: 'gateway-test',
+      event: {
+        id: 1,
+        sessionId,
+        type: 'agent.status',
+        ts: Date.now(),
+        payload: { status: 'running' }
+      }
+    }));
+
+    await waitForJson(clientB, (message) => message.type === 'event' && (message.event as { sessionId?: string })?.sessionId === sessionId);
+    const clientALeak = await Promise.race([
+      waitForJson(clientA, (message) => message.type === 'event' && (message.event as { sessionId?: string })?.sessionId === sessionId).then(() => 'leaked'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('isolated'), 200))
+    ]);
+    assert.equal(clientALeak, 'isolated');
+  } finally {
+    gateway.close();
+    clientA.close();
+    clientB.close();
+    await relay.close();
+  }
+});
+
 test('relay rejects invalid resize frames', async () => {
   const relay = await createRelay();
   const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);

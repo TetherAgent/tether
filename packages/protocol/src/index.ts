@@ -82,6 +82,7 @@ export type RelayServerToGatewayFrame =
   | { type: 'client.input'; clientId: string; sessionId: string; data: string }
   | { type: 'client.resize'; clientId: string; sessionId: string; cols: number; rows: number }
   | { type: 'client.stop'; clientId: string; sessionId: string }
+  | { type: 'client.unsubscribe'; clientId: string; sessionId: string }
   | { type: 'client.detach'; clientId: string; sessionId: string }
   | { type: 'client.permission_response'; clientId: string; sessionId: string; requestId: string; decision: 'allow' | 'deny' }
   | {
@@ -108,6 +109,7 @@ export type RelayClientToServerFrame =
   | { type: 'client.input'; sessionId: string; data: string }
   | { type: 'client.resize'; sessionId: string; cols: number; rows: number }
   | { type: 'client.stop'; sessionId: string }
+  | { type: 'client.unsubscribe'; sessionId: string }
   | { type: 'client.detach'; sessionId: string }
   | { type: 'client.chat'; sessionId: null; provider: string; model: string; cwd: string; message: string; gatewayId: string }
   | { type: 'client.chat'; sessionId: string; message: string; model?: string }

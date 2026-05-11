@@ -842,6 +842,12 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           decision: frame.decision
         });
         break;
+      case 'client.unsubscribe':
+        subscriptions.delete(frame.sessionId);
+        if (clientCanAccessSession(clientScope, authMethod, frame.sessionId)) {
+          forwardToSessionGateway({ type: 'client.unsubscribe', clientId, sessionId: frame.sessionId });
+        }
+        break;
       case 'client.detach':
         if (!clientCanAccessSession(clientScope, authMethod, frame.sessionId)) {
           sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });

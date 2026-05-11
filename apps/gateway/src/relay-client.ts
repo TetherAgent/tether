@@ -338,6 +338,9 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       case 'client.stop':
         void stopPty(frame.clientId, frame.sessionId);
         return;
+      case 'client.unsubscribe':
+        removeSubscription(frame.clientId, frame.sessionId);
+        return;
       case 'client.detach':
         removeSubscription(frame.clientId, frame.sessionId);
         return;
