@@ -97,8 +97,8 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         message: event.payload.message
       });
     },
-    onDelta: ({ clientId, sessionId, text }) => {
-      sendChatEvent(0, sessionId, 'agent.delta', { clientId: chatClientBindings.get(sessionId) ?? clientId, text });
+    onDelta: ({ clientId, sessionId, text, deltaEventId }) => {
+      sendChatEvent(deltaEventId, sessionId, 'agent.delta', { clientId: chatClientBindings.get(sessionId) ?? clientId, text });
     },
     onResult: ({ clientId, sessionId, event, text, usage, stopReason, contextWindow, rateLimitInfo, contextInputTokens, nextSuggestions }) => {
       sendChatEvent(event.id, sessionId, 'agent.result', {

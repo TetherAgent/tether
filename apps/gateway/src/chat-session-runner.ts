@@ -43,7 +43,7 @@ export type ChatRunnerOptions = {
   onChatSessionCreated: (clientId: string, metadata: TrustedChatSessionMetadata) => void;
   onPermissionRequest: (event: { clientId: string; sessionId: string; requestId: string; toolName: string; input: Record<string, unknown> }) => void;
   onUserMessage: (event: { clientId: string; sessionId: string; event: ChatEvent<{ message: string }> }) => void;
-  onDelta: (event: { clientId: string; sessionId: string; text: string }) => void;
+  onDelta: (event: { clientId: string; sessionId: string; text: string; deltaEventId: number }) => void;
   onResult: (event: {
     clientId: string;
     sessionId: string;
@@ -221,6 +221,7 @@ type ActiveSubprocess = {
   agentSessionId?: string;
   lineBuffer: string;
   completed: boolean;
+  nextDeltaId: number;
   rateLimitInfo?: RateLimitInfo;
   contextWindow?: number;
   contextInputTokens?: number;
@@ -295,6 +296,7 @@ class CliChatRunner implements IChatRunner {
       agentSessionId: session.agentSessionId,
       lineBuffer: '',
       completed: false,
+      nextDeltaId: 1,
       pendingPermissions: new Map()
     };
     this.activeSubprocesses.set(sessionId, active);
@@ -369,7 +371,8 @@ class CliChatRunner implements IChatRunner {
     return {
       delta: (text) => {
         active.accumulatedText += text;
-        this.options.onDelta({ clientId: active.clientId, sessionId, text });
+        const deltaEventId = active.nextDeltaId++;
+        this.options.onDelta({ clientId: active.clientId, sessionId, text, deltaEventId });
       },
       result: (text, usage, opts) => {
         void this.finishResult(sessionId, active, text, usage, opts?.stopReason, opts?.nextSuggestions);
@@ -402,9 +405,11 @@ class CliChatRunner implements IChatRunner {
       active.rateLimitInfo = await this.adapter.afterTurn(active.cwd).catch(() => null) ?? undefined;
     }
     const agentSessionId = active.agentSessionId ?? randomUUID();
+    const lastDeltaEventId = active.nextDeltaId > 1 ? active.nextDeltaId - 1 : 0;
     const resultEvent = createChatEvent(sessionId, 'agent.result', {
       text,
       usage,
+      lastDeltaEventId,
       ...(stopReason ? { stop_reason: stopReason } : {})
     });
     this.options.onAgentIdUpdate(sessionId, agentSessionId);
