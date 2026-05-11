@@ -198,7 +198,7 @@ export const WEB_MESSAGES = {
     authQuickStartTitle: '快速上手',
     authDemoLoginDone: 'Gateway 已绑定账号',
     authQuickStartSteps: [
-      { label: '安装 CLI', cmd: 'npm i -g @tether-labs/cli' },
+      { label: '安装 CLI', cmd: 'npm install -g @tether-labs/cli@latest' },
       { label: '登录绑定', cmd: 'tether gateway login' },
       { label: '启动 Gateway', cmd: 'tether gateway start' },
     ],
