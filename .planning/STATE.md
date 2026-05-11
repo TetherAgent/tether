@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.3
 milestone_name: milestone
-status: ready_to_plan
-stopped_at: Phase 17 context gathered
-last_updated: "2026-05-11T15:50:45.973Z"
-last_activity: 2026-05-11 -- Phase 17 planning complete
+status: ready_for_uat
+stopped_at: Phase 17 code verification complete
+last_updated: "2026-05-12T01:10:00.000Z"
+last_activity: 2026-05-12 -- Phase 17 execution complete
 progress:
   total_phases: 17
-  completed_phases: 9
+  completed_phases: 10
   total_plans: 65
-  completed_plans: 63
-  percent: 97
+  completed_plans: 65
+  percent: 100
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-01)
 
 **Core value:** 在 agent session 场景里，本地体验对齐 tmux，并在历史回放、多端接管、审计、手机/Web/App 接入上超越 tmux。
-**Current focus:** Phase 16 — chat-runtime-raw-events
+**Current focus:** Phase 17 — chat-multi-client-realtime-sync
 
 ## Current Position
 
 Phase: 17
-Plan: Not started
-Next: human UAT / verify-work for Phase 15
-Last activity: 2026-05-11 -- Phase 17 planning complete
+Plan: Complete
+Next: human UAT / verify-work for Phase 17 live multi-client chat
+Last activity: 2026-05-12 -- Phase 17 execution complete
 
 Progress: [██████████] 100%
 
@@ -130,6 +130,7 @@ Recent decisions affecting current work:
 - Phase 14 added: Multi-device Gateway Routing — deviceId 绑定、稳定 gatewayId、Gateway 列表 API、Web 选择器、Relay 强制路由；参考 docs/working/2026-05-11-multi-device-gateway-routing.md
 - Phase 14 context gathered: 2026-05-11 — 4 个区域讨论完成，CONTEXT.md 已就绪
 - Phase 17 added: Chat Multi-client Realtime Sync — 多端同时订阅同一 chat session，按 session 广播 delta/result，Gateway in-flight 锁防并发发送；参考 docs/working/2026-05-11-chat-multi-client-realtime.md
+- Phase 17 complete: Relay 多 client chat 广播 + Gateway `chatInFlight` 锁已实现并通过 relay/gateway/web 验证；剩余为 live 双端人工 UAT。
 
 ### Blockers/Concerns
 
@@ -155,6 +156,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-11T14:56:48.709Z
-Stopped at: Phase 17 context gathered
-Resume file: .planning/phases/17-chat-multi-client-realtime-sync/17-CONTEXT.md
+Last session: 2026-05-12T01:10:00.000Z
+Stopped at: Phase 17 code verification complete
+Resume file: .planning/phases/17-chat-multi-client-realtime-sync/17-03-SUMMARY.md

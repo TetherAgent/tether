@@ -1012,11 +1012,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
       case 'client.unsubscribe': {
         subscriptions.delete(frame.sessionId);
         removeChatSubscriber(frame.sessionId, clientId);
-        if (clientCanAccessSession(clientScope, authMethod, frame.sessionId)) {
-          const unsubSession = latestSessions.get(frame.sessionId);
-          if (!unsubSession || unsubSession.transport !== 'chat') {
-            forwardToSessionGateway({ type: 'client.unsubscribe', clientId, sessionId: frame.sessionId });
-          }
+        const unsubSession = latestSessions.get(frame.sessionId);
+        if (!unsubSession || unsubSession.transport !== 'chat') {
+          forwardToSessionGateway({ type: 'client.unsubscribe', clientId, sessionId: frame.sessionId });
         }
         break;
       }

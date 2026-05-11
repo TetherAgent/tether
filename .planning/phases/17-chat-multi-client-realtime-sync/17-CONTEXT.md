@@ -48,6 +48,12 @@
 - **D-10:** `chatInFlight.add(sessionId)` 在通过检查后、启动 runner 之前执行。
 - **D-11:** 锁释放时机三选一：`agent.result` 发出后、`session.error` 发出后、runner 子进程异常退出后。第一版不加超时兜底——超时属于后续优化。
 
+### Runtime stderr 与前端渲染
+
+- **D-12:** `chat_runner_stderr` 属于 runner/runtime 诊断事件，不等价于当前 assistant 回复失败。前端不能因为收到 `type: "error"` 且 `code: "chat_runner_stderr"` 就立刻显示 `Reply lost`。
+- **D-13:** 当前 turn 已收到 `agent.delta` 后，后续即使出现 stderr 诊断事件，也必须继续渲染后续 `agent.delta` / `agent.result`。
+- **D-14:** `Reply lost` 只应在“没有收到任何 `agent.delta` / `agent.result`，并且出现明确 fatal / disconnect / timeout”时显示。若已有部分 delta，失败时应保留已有内容并标记“回复中断”或等价状态。
+
 </decisions>
 
 <canonical_refs>
@@ -109,6 +115,9 @@
 
 ### 错误码
 `chat_in_progress` 是本阶段新增错误码。如果 protocol 包的 error frame 类型有枚举约束，需同步更新；若是 `string` 类型则无需修改。
+
+### 前端 Reply lost 判定
+实测同一轮回复中可能先收到 `chat_runner_stderr`，随后继续收到 `agent.delta`。因此前端应把 `chat_runner_stderr` 记录到 raw events / debug 面板，最多显示非阻断 warning；它不能关闭当前 assistant bubble，也不能阻止后续 delta append。
 
 ### 测试模板（来自 CLAUDE.md R4）
 两个账号的 Gateway 都连接，B 账号的 Gateway 先连，验证 A 账号的广播不泄漏到 B 的 client（反之亦然）。多端广播测试也要覆盖同账号两个 client 都能收到 delta/result。

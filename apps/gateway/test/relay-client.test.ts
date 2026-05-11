@@ -9,6 +9,7 @@ import { startRelayServer } from '../../relay/src/relay.js';
 import { createSessionId } from '../src/ids.js';
 import { PtySessionManager } from '../src/pty.js';
 import { relayGatewayUrl, startRelayClient } from '../src/relay-client.js';
+import { CodexChatRunner } from '../src/chat-session-runner.js';
 import type { SessionRunnerClient } from '../src/session-runner-client.js';
 import { Store } from '../src/store.js';
 
@@ -1020,5 +1021,183 @@ test('Phase15-A8: relay-client rejects new chat with non-whitelisted provider', 
     await relayClient.close();
     await closeWebSocketServer(fakeRelay);
     cleanup();
+  }
+});
+
+// ─── Phase 17: Chat Multi-client Realtime Sync ──────────────────────────────
+
+type CodexRun = typeof CodexChatRunner.prototype.run;
+
+function phase17TrustedSession(sessionId: string) {
+  return {
+    id: sessionId,
+    provider: 'codex',
+    projectPath: process.cwd(),
+    accountId: 'acct_test',
+    userId: 'user_test',
+    gatewayId: 'gw_phase17',
+    transport: 'chat' as const
+  };
+}
+
+async function startPhase17RelayClient() {
+  const { store, cleanup } = tempStore();
+  const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  const port = await waitForWebSocketServerPort(fakeRelay);
+  const gatewaySocketPromise = waitForGatewaySocket(fakeRelay);
+  const relayClient = startRelayClient({
+    url: `ws://127.0.0.1:${port}`,
+    secret: SECRET,
+    gatewayId: 'gw_phase17',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_phase17' },
+    store
+  });
+  const gatewaySocket = await gatewaySocketPromise;
+  await waitForGatewayFrame(gatewaySocket, (frame) => frame.type === 'gateway.auth');
+  gatewaySocket.send(JSON.stringify({ type: 'gateway.auth.ok', gatewayId: 'gw_phase17' }));
+  await waitForRelayClientConnected(relayClient);
+  return {
+    gatewaySocket,
+    close: async () => {
+      await relayClient.close();
+      await closeWebSocketServer(fakeRelay);
+      cleanup();
+    }
+  };
+}
+
+function sendPhase17Chat(gatewaySocket: WebSocket, clientId: string, sessionId: string, message: string, withSession = true) {
+  gatewaySocket.send(JSON.stringify({
+    type: 'client.chat',
+    clientId,
+    sessionId,
+    message,
+    model: 'gpt-test',
+    ...(withSession ? { session: phase17TrustedSession(sessionId) } : {})
+  }));
+}
+
+function patchCodexRun(run: CodexRun): () => void {
+  const original = CodexChatRunner.prototype.run;
+  CodexChatRunner.prototype.run = run;
+  return () => {
+    CodexChatRunner.prototype.run = original;
+  };
+}
+
+test('Phase17-GW-T1: relay-client rejects concurrent chat for the same session', async () => {
+  const restore = patchCodexRun(function () {
+    return new Promise<void>(() => {});
+  } as CodexRun);
+  const harness = await startPhase17RelayClient();
+  try {
+    sendPhase17Chat(harness.gatewaySocket, 'client-1', 'tth_phase17_lock', 'first');
+    sendPhase17Chat(harness.gatewaySocket, 'client-2', 'tth_phase17_lock', 'second');
+    const error = await waitForGatewayFrame(
+      harness.gatewaySocket,
+      (frame) => frame.type === 'gateway.error' && frame.code === 'chat_in_progress'
+    );
+    assert.equal(error.type, 'gateway.error');
+    assert.equal(error.clientId, 'client-2');
+    assert.equal(error.sessionId, 'tth_phase17_lock');
+  } finally {
+    restore();
+    await harness.close();
+  }
+});
+
+test('Phase17-GW-T2: relay-client releases chat lock after agent.result', async () => {
+  let runCount = 0;
+  const restore = patchCodexRun(function (this: unknown, params: Parameters<CodexRun>[0]) {
+    runCount += 1;
+    const options = (this as { options: { onResult: (event: unknown) => void } }).options;
+    const sessionId = params.sessionId ?? 'new-session';
+    options.onResult({
+      clientId: params.clientId,
+      sessionId,
+      event: { id: Date.now(), sessionId, type: 'agent.result', ts: Date.now(), payload: { text: 'ok', usage: { input_tokens: 1, output_tokens: 1 } } },
+      text: 'ok',
+      usage: { input_tokens: 1, output_tokens: 1 }
+    });
+    return Promise.resolve();
+  } as CodexRun);
+  const harness = await startPhase17RelayClient();
+  try {
+    sendPhase17Chat(harness.gatewaySocket, 'client-1', 'tth_phase17_result_unlock', 'first');
+    await waitForGatewayFrame(harness.gatewaySocket, (frame) => frame.type === 'gateway.event' && frame.event.type === 'agent.result');
+    sendPhase17Chat(harness.gatewaySocket, 'client-2', 'tth_phase17_result_unlock', 'second');
+    await waitFor(() => runCount === 2);
+    assert.equal(runCount, 2);
+  } finally {
+    restore();
+    await harness.close();
+  }
+});
+
+test('Phase17-GW-T3: relay-client releases chat lock after session.error', async () => {
+  let runCount = 0;
+  const restore = patchCodexRun(function (this: unknown, params: Parameters<CodexRun>[0]) {
+    runCount += 1;
+    const options = (this as { options: { onError: (event: unknown) => void } }).options;
+    const sessionId = params.sessionId ?? 'new-session';
+    options.onError({ clientId: params.clientId, sessionId, code: 'runner_error', message: 'failed' });
+    return Promise.resolve();
+  } as CodexRun);
+  const harness = await startPhase17RelayClient();
+  try {
+    sendPhase17Chat(harness.gatewaySocket, 'client-1', 'tth_phase17_error_unlock', 'first');
+    await waitForGatewayFrame(harness.gatewaySocket, (frame) => frame.type === 'gateway.error' && frame.code === 'runner_error');
+    sendPhase17Chat(harness.gatewaySocket, 'client-2', 'tth_phase17_error_unlock', 'second');
+    await waitFor(() => runCount === 2);
+    assert.equal(runCount, 2);
+  } finally {
+    restore();
+    await harness.close();
+  }
+});
+
+test('Phase17-GW-T4: relay-client releases chat lock after runner.run reject', async () => {
+  let runCount = 0;
+  const restore = patchCodexRun(function () {
+    runCount += 1;
+    return runCount === 1 ? Promise.reject(new Error('boom')) : new Promise<void>(() => {});
+  } as CodexRun);
+  const harness = await startPhase17RelayClient();
+  try {
+    sendPhase17Chat(harness.gatewaySocket, 'client-1', 'tth_phase17_reject_unlock', 'first');
+    const failed = await waitForGatewayFrame(
+      harness.gatewaySocket,
+      (frame) => frame.type === 'gateway.error' && frame.code === 'chat_runner_failed'
+    );
+    assert.equal((failed as Extract<RelayGatewayToServerFrame, { type: 'gateway.error' }>).sessionId, 'tth_phase17_reject_unlock');
+    sendPhase17Chat(harness.gatewaySocket, 'client-2', 'tth_phase17_reject_unlock', 'second');
+    await waitFor(() => runCount === 2);
+    assert.equal(runCount, 2);
+  } finally {
+    restore();
+    await harness.close();
+  }
+});
+
+test('Phase17-GW-T5: missing session metadata does not leak chat lock', async () => {
+  let runCount = 0;
+  const restore = patchCodexRun(function () {
+    runCount += 1;
+    return new Promise<void>(() => {});
+  } as CodexRun);
+  const harness = await startPhase17RelayClient();
+  try {
+    sendPhase17Chat(harness.gatewaySocket, 'client-1', 'tth_phase17_missing_metadata', 'first', false);
+    await waitForGatewayFrame(
+      harness.gatewaySocket,
+      (frame) => frame.type === 'gateway.error' && frame.code === 'missing_session_metadata'
+    );
+    sendPhase17Chat(harness.gatewaySocket, 'client-2', 'tth_phase17_missing_metadata', 'second');
+    await waitFor(() => runCount === 1);
+    assert.equal(runCount, 1);
+  } finally {
+    restore();
+    await harness.close();
   }
 });

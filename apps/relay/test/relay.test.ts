@@ -853,8 +853,9 @@ test('relay unsubscribe removes only current client subscription', async () => {
     clientB.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control' }));
     await waitForJson(gateway, (message) => message.type === 'client.subscribe' && message.clientId !== clientAId);
 
+    const unsubscribePromise = waitForJson(gateway, (message) => message.type === 'client.unsubscribe');
     clientA.send(JSON.stringify({ type: 'client.unsubscribe', sessionId }));
-    const unsubscribe = await waitForJson(gateway, (message) => message.type === 'client.unsubscribe');
+    const unsubscribe = await unsubscribePromise;
     assert.deepEqual(unsubscribe, { type: 'client.unsubscribe', clientId: clientAId, sessionId });
 
     gateway.send(JSON.stringify({
@@ -2147,5 +2148,284 @@ test('Phase16: agent.result syncs to Server with chat transport from session met
     client.close();
     await relay.close();
     await syncServer.close();
+  }
+});
+
+// ─── Phase 17: Chat Multi-client Realtime Sync ──────────────────────────────
+
+type Phase17RelayHarness = Awaited<ReturnType<typeof createPhase17RelayHarness>>;
+
+async function createPhase17RelayHarness() {
+  const metadataBySession: Record<string, Record<string, unknown>> = {};
+  const syncServer = await createMetadataServer(metadataBySession);
+  const relay = await startRelayServer({
+    host: '127.0.0.1',
+    port: 0,
+    secret: SECRET,
+    serverSyncUrl: syncServer.url,
+    runtimeSyncSecret: 'runtime-secret',
+    validateToken: async (token) => {
+      if (token === 'gw-a') return { accountId: 'acct_a', gatewayId: 'gateway-a', userId: 'user_a', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'gw_a' };
+      if (token === 'gw-b') return { accountId: 'acct_b', gatewayId: 'gateway-b', userId: 'user_b', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'gw_b' };
+      if (token === 'client-a1') return { accountId: 'acct_a', gatewayId: 'gateway-a', userId: 'user_a', tokenClass: 'normal_client_access', expiresAt: Date.now() + 60_000, jti: 'cli_a1' };
+      if (token === 'client-a2') return { accountId: 'acct_a', gatewayId: 'gateway-a', userId: 'user_a', tokenClass: 'normal_client_access', expiresAt: Date.now() + 60_000, jti: 'cli_a2' };
+      if (token === 'client-b') return { accountId: 'acct_b', gatewayId: 'gateway-b', userId: 'user_b', tokenClass: 'normal_client_access', expiresAt: Date.now() + 60_000, jti: 'cli_b' };
+      return undefined;
+    }
+  });
+
+  return {
+    metadataBySession,
+    relay,
+    syncServer,
+    close: async () => {
+      await relay.close();
+      await syncServer.close();
+    }
+  };
+}
+
+function phase17Metadata(sessionId: string, account: 'a' | 'b' = 'a') {
+  return {
+    id: sessionId,
+    provider: 'codex',
+    projectPath: process.cwd(),
+    accountId: `acct_${account}`,
+    gatewayId: `gateway-${account}`,
+    userId: `user_${account}`,
+    transport: 'chat'
+  };
+}
+
+async function openPhase17Gateway(harness: Phase17RelayHarness, account: 'a' | 'b') {
+  const gateway = new WebSocket(`${harness.relay.url.replace('http', 'ws')}/ws/gateway`);
+  await waitForOpen(gateway);
+  gateway.send(JSON.stringify({ type: 'gateway.auth', gatewayId: `gateway-${account}`, token: `gw-${account}` }));
+  await waitForJson(gateway, (message) => message.type === 'gateway.auth.ok');
+  return gateway;
+}
+
+async function openPhase17Client(harness: Phase17RelayHarness, token: string) {
+  const client = new WebSocket(`${harness.relay.url.replace('http', 'ws')}/ws/client`);
+  await waitForOpen(client);
+  client.send(JSON.stringify({ type: 'client.auth', token }));
+  await waitForJson(client, (message) => message.type === 'client.auth.ok');
+  return client;
+}
+
+async function subscribePhase17Chat(harness: Phase17RelayHarness, client: WebSocket, sessionId: string, account: 'a' | 'b' = 'a') {
+  harness.metadataBySession[sessionId] = phase17Metadata(sessionId, account);
+  client.send(JSON.stringify({ type: 'client.subscribe', sessionId, mode: 'control', after: 0 }));
+  await waitForJson(client, (message) => message.type === 'sessions');
+}
+
+test('Phase17-T1: relay broadcasts agent.delta to all chat subscribers (same account)', async () => {
+  const harness = await createPhase17RelayHarness();
+  const gateway = await openPhase17Gateway(harness, 'a');
+  const clientA1 = await openPhase17Client(harness, 'client-a1');
+  const clientA2 = await openPhase17Client(harness, 'client-a2');
+  try {
+    const sessionId = 'tth_phase17_delta';
+    await subscribePhase17Chat(harness, clientA1, sessionId);
+    await subscribePhase17Chat(harness, clientA2, sessionId);
+    const delta1Promise = waitForJson(clientA1, (message) => message.type === 'agent.delta');
+    const delta2Promise = waitForJson(clientA2, (message) => message.type === 'agent.delta');
+    gateway.send(JSON.stringify({
+      type: 'gateway.event',
+      gatewayId: 'gateway-a',
+      event: { id: 1701, type: 'agent.delta', sessionId, payload: { text: 'hello-multi' } }
+    }));
+    const [delta1, delta2] = await Promise.all([delta1Promise, delta2Promise]);
+    assert.equal(delta1.text, 'hello-multi');
+    assert.equal(delta2.text, 'hello-multi');
+  } finally {
+    gateway.close();
+    clientA1.close();
+    clientA2.close();
+    await harness.close();
+  }
+});
+
+test('Phase17-T2: relay does not leak chat delta to another account', async () => {
+  const harness = await createPhase17RelayHarness();
+  const gatewayB = await openPhase17Gateway(harness, 'b');
+  const gatewayA = await openPhase17Gateway(harness, 'a');
+  const clientB = await openPhase17Client(harness, 'client-b');
+  const clientA = await openPhase17Client(harness, 'client-a1');
+  const clientBFrames: RelayServerToClientFrame[] = [];
+  clientB.on('message', (raw) => clientBFrames.push(JSON.parse(raw.toString()) as RelayServerToClientFrame));
+  try {
+    await subscribePhase17Chat(harness, clientB, 'tth_phase17_iso_b', 'b');
+    await subscribePhase17Chat(harness, clientA, 'tth_phase17_iso_a', 'a');
+    gatewayA.send(JSON.stringify({
+      type: 'gateway.event',
+      gatewayId: 'gateway-a',
+      event: { id: 1702, type: 'agent.delta', sessionId: 'tth_phase17_iso_a', payload: { text: 'secret-a' } }
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal(clientBFrames.some((frame) => frame.type === 'agent.delta'), false);
+  } finally {
+    gatewayB.close();
+    gatewayA.close();
+    clientB.close();
+    clientA.close();
+    await harness.close();
+  }
+});
+
+test('Phase17-T3: relay broadcasts agent.result to all chat subscribers', async () => {
+  const harness = await createPhase17RelayHarness();
+  const gateway = await openPhase17Gateway(harness, 'a');
+  const clientA1 = await openPhase17Client(harness, 'client-a1');
+  const clientA2 = await openPhase17Client(harness, 'client-a2');
+  try {
+    const sessionId = 'tth_phase17_result';
+    await subscribePhase17Chat(harness, clientA1, sessionId);
+    await subscribePhase17Chat(harness, clientA2, sessionId);
+    const result1Promise = waitForJson(clientA1, (message) => message.type === 'agent.result');
+    const result2Promise = waitForJson(clientA2, (message) => message.type === 'agent.result');
+    gateway.send(JSON.stringify({
+      type: 'gateway.event',
+      gatewayId: 'gateway-a',
+      event: {
+        id: 1703,
+        type: 'agent.result',
+        sessionId,
+        payload: { text: 'done', usage: { input_tokens: 1, output_tokens: 2 } }
+      }
+    }));
+    const [result1, result2] = await Promise.all([result1Promise, result2Promise]);
+    assert.equal(result1.text, 'done');
+    assert.equal(result2.text, 'done');
+  } finally {
+    gateway.close();
+    clientA1.close();
+    clientA2.close();
+    await harness.close();
+  }
+});
+
+test('Phase17-T4: relay broadcasts agent.permission_request to all chat subscribers', async () => {
+  const harness = await createPhase17RelayHarness();
+  const gateway = await openPhase17Gateway(harness, 'a');
+  const clientA1 = await openPhase17Client(harness, 'client-a1');
+  const clientA2 = await openPhase17Client(harness, 'client-a2');
+  try {
+    const sessionId = 'tth_phase17_permission';
+    await subscribePhase17Chat(harness, clientA1, sessionId);
+    await subscribePhase17Chat(harness, clientA2, sessionId);
+    const request1Promise = waitForJson(clientA1, (message) => message.type === 'agent.permission_request');
+    const request2Promise = waitForJson(clientA2, (message) => message.type === 'agent.permission_request');
+    gateway.send(JSON.stringify({
+      type: 'gateway.event',
+      gatewayId: 'gateway-a',
+      event: {
+        id: 1704,
+        type: 'agent.permission_request',
+        sessionId,
+        payload: { requestId: 'req-1', toolName: 'bash', input: { path: '/tmp' } }
+      }
+    }));
+    const [request1, request2] = await Promise.all([request1Promise, request2Promise]);
+    assert.equal(request1.requestId, 'req-1');
+    assert.equal(request2.requestId, 'req-1');
+  } finally {
+    gateway.close();
+    clientA1.close();
+    clientA2.close();
+    await harness.close();
+  }
+});
+
+test('Phase17-T5: relay removes disconnected chat subscribers', async () => {
+  const harness = await createPhase17RelayHarness();
+  const gateway = await openPhase17Gateway(harness, 'a');
+  const clientA1 = await openPhase17Client(harness, 'client-a1');
+  const clientA2 = await openPhase17Client(harness, 'client-a2');
+  const clientA2Deltas: RelayServerToClientFrame[] = [];
+  clientA2.on('message', (raw) => {
+    const frame = JSON.parse(raw.toString()) as RelayServerToClientFrame;
+    if (frame.type === 'agent.delta') clientA2Deltas.push(frame);
+  });
+  try {
+    const sessionId = 'tth_phase17_disconnect';
+    await subscribePhase17Chat(harness, clientA1, sessionId);
+    await subscribePhase17Chat(harness, clientA2, sessionId);
+    clientA2.close();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    gateway.send(JSON.stringify({
+      type: 'gateway.event',
+      gatewayId: 'gateway-a',
+      event: { id: 1705, type: 'agent.delta', sessionId, payload: { text: 'after-close' } }
+    }));
+    await waitForJson(clientA1, (message) => message.type === 'agent.delta');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(clientA2Deltas.length, 0);
+  } finally {
+    gateway.close();
+    clientA1.close();
+    await harness.close();
+  }
+});
+
+test('Phase17-T6: relay removes unsubscribed chat subscribers', async () => {
+  const harness = await createPhase17RelayHarness();
+  const gateway = await openPhase17Gateway(harness, 'a');
+  const clientA1 = await openPhase17Client(harness, 'client-a1');
+  const clientA2 = await openPhase17Client(harness, 'client-a2');
+  const clientA2Deltas: RelayServerToClientFrame[] = [];
+  clientA2.on('message', (raw) => {
+    const frame = JSON.parse(raw.toString()) as RelayServerToClientFrame;
+    if (frame.type === 'agent.delta') clientA2Deltas.push(frame);
+  });
+  try {
+    const sessionId = 'tth_phase17_unsubscribe';
+    await subscribePhase17Chat(harness, clientA1, sessionId);
+    await subscribePhase17Chat(harness, clientA2, sessionId);
+    clientA2.send(JSON.stringify({ type: 'client.unsubscribe', sessionId }));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    gateway.send(JSON.stringify({
+      type: 'gateway.event',
+      gatewayId: 'gateway-a',
+      event: { id: 1706, type: 'agent.delta', sessionId, payload: { text: 'after-unsub' } }
+    }));
+    await waitForJson(clientA1, (message) => message.type === 'agent.delta');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(clientA2Deltas.length, 0);
+  } finally {
+    gateway.close();
+    clientA1.close();
+    clientA2.close();
+    await harness.close();
+  }
+});
+
+test('Phase17-T7: other-account client cannot send permission_response to A session gateway', async () => {
+  const harness = await createPhase17RelayHarness();
+  const gatewayB = await openPhase17Gateway(harness, 'b');
+  const gatewayA = await openPhase17Gateway(harness, 'a');
+  const clientB = await openPhase17Client(harness, 'client-b');
+  const clientA = await openPhase17Client(harness, 'client-a1');
+  const gatewayAFrames: Record<string, unknown>[] = [];
+  gatewayA.on('message', (raw) => gatewayAFrames.push(JSON.parse(raw.toString()) as Record<string, unknown>));
+  try {
+    await subscribePhase17Chat(harness, clientA, 'tth_phase17_perm_a', 'a');
+    await subscribePhase17Chat(harness, clientB, 'tth_phase17_perm_b', 'b');
+    clientB.send(JSON.stringify({
+      type: 'client.permission_response',
+      sessionId: 'tth_phase17_perm_a',
+      requestId: 'req-a',
+      decision: 'allow'
+    }));
+    const error = await waitForJson(clientB, (message) => message.type === 'error' && message.code === 'forbidden');
+    assert.equal(error.sessionId, 'tth_phase17_perm_a');
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal(gatewayAFrames.some((frame) => frame.type === 'client.permission_response'), false);
+  } finally {
+    gatewayB.close();
+    gatewayA.close();
+    clientB.close();
+    clientA.close();
+    await harness.close();
   }
 });

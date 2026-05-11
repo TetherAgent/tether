@@ -61,6 +61,28 @@ sessionId -> clientId
 
 所以只做广播还不够，必须同时加 session 级 in-flight 锁。
 
+### 4. runner stderr 不等于当前回复失败
+
+实测 Codex / ChatGPT runtime 可能在同一轮回复中先吐出 stderr 诊断事件，例如：
+
+```text
+chat_runner_stderr: codex_core::tools::router: error=apply_patch ...
+chat_runner_stderr: rmcp::transport::worker: worker quit ...
+```
+
+但随后仍然继续收到 `agent.delta`。这说明 `chat_runner_stderr` 不能被前端当作
+当前 assistant 回复的终止失败。
+
+前端渲染规则应为：
+
+- 收到 `agent.delta`：继续追加到当前 assistant bubble。
+- 收到 `chat_runner_stderr`：只记录为 runtime warning / raw event，不显示 `Reply lost`。
+- 收到 `agent.result` / `agent.done`：标记当前回复完成。
+- 只有明确 fatal / disconnect / timeout，且当前 turn 没有收到任何 `agent.delta` 或
+  `agent.result`，才显示 `Reply lost`。
+- 如果当前 turn 已经收到部分 `agent.delta`，后续失败也应保留已有内容，并标记为
+  “回复中断”或等价状态，而不是整条丢失。
+
 ## 目标边界
 
 第一版只做最小可靠能力：
@@ -142,6 +164,8 @@ sessionId -> active run
 │ C5   │ 补 Relay 多 client 订阅测试                  │ 两个 client 都收到输出       │
 ├──────┼──────────────────────────────────────────────┼──────────────────────────────┤
 │ C6   │ 补 Gateway 并发发送测试                      │ 第二个请求被拒绝             │
+├──────┼──────────────────────────────────────────────┼──────────────────────────────┤
+│ C7   │ 前端区分 runtime warning 与 fatal error       │ stderr 后仍继续渲染 delta    │
 └──────┴──────────────────────────────────────────────┴──────────────────────────────┘
 ```
 
@@ -170,6 +194,8 @@ sessionId -> active run
 │ [ ]  │ 补 Relay 多端广播测试                        │ 两个 client 都收到 delta/result│
 ├──────┼──────────────────────────────────────────────┼──────────────────────────────┤
 │ [ ]  │ 补 Gateway 并发发送测试                      │ 第二个发送返回 chat_in_progress│
+├──────┼──────────────────────────────────────────────┼──────────────────────────────┤
+│ [ ]  │ 前端不把 chat_runner_stderr 判为 Reply lost   │ stderr 后有 delta 继续渲染    │
 └──────┴──────────────────────────────────────────────┴──────────────────────────────┘
 ```
 
@@ -204,6 +230,8 @@ pnpm --filter @tether/web typecheck
 │ UAT5 │ 第一轮完成后手机再次发送                     │ 可以正常开始下一轮           │
 ├──────┼──────────────────────────────────────────────┼──────────────────────────────┤
 │ UAT6 │ 刷新任一端                                   │ 历史消息不重复、不丢最终回复 │
+├──────┼──────────────────────────────────────────────┼──────────────────────────────┤
+│ UAT7 │ 同一轮先收到 chat_runner_stderr 后又收到 delta│ 继续显示 delta，不显示 Reply lost│
 └──────┴──────────────────────────────────────────────┴──────────────────────────────┘
 ```
 

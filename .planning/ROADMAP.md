@@ -418,10 +418,10 @@ Plans:
 
 Plans:
   - **Wave 1** (parallel, no deps):
-    - [ ] `17-01-PLAN.md` — relay.ts：chatSessionOwners → chatSessionSubscribers + sendChatEventToSubscribers 广播函数
-    - [ ] `17-02-PLAN.md` — relay-client.ts：删除 chatClientBindings + 新增 chatInFlight in-flight 锁
+    - [x] `17-01-PLAN.md` — relay.ts：chatSessionOwners → chatSessionSubscribers + sendChatEventToSubscribers 广播函数
+    - [x] `17-02-PLAN.md` — relay-client.ts：删除 chatClientBindings + 新增 chatInFlight in-flight 锁
   - **Wave 2** *(blocked on Plans 01 + 02)*:
-    - [ ] `17-03-PLAN.md` — 测试：relay.test.ts 追加 T1~T6 + relay-client.test.ts 追加 GW-T1~GW-T3
+    - [x] `17-03-PLAN.md` — 测试：relay.test.ts 追加 T1~T7 + relay-client.test.ts 追加 GW-T1~GW-T5
 
 ---
 *Roadmap created: 2026-05-01*
@@ -438,4 +438,5 @@ Plans:
 *Scope update: 2026-05-11 — Phase 15 Chat Remote Session Metadata added: chat 链路去本地 SQLite，Relay 补可信 metadata*
 *Scope update: 2026-05-11 — Phase 16 Chat Runtime Raw Events added: gateway_runtime_chats_events 新表 + gateway_chat_messages.raw_json + Relay delta sync*
 *Scope update: 2026-05-11 — Phase 17 Chat Multi-client Realtime Sync planned: 3 plans across 2 waves; chatSessionOwners→chatSessionSubscribers + chatInFlight 锁*
+*Execution update: 2026-05-12 — Phase 17 complete; Relay multi-client broadcast + Gateway chatInFlight lock verified by relay/gateway tests*
 *Coverage: 40/40 v1 requirements mapped*
