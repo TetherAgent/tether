@@ -36,7 +36,7 @@ occupies an active roadmap phase number.
 - [ ] **Phase 10: Multi-workspace Expansion** - Product support for creating/switching workspaces, binding Gateways per workspace, and isolating members, sessions, audit, and admin pages by workspace
 - [x] **Phase 12: Server DB Runtime Sync** - Web/App 从 Server DB 直接读取 session 列表、聊天历史和受限 Terminal 历史，不再依赖 Gateway 反向 RPC；Relay 实时同步 Gateway frame 到 Server DB (completed 2026-05-09)
 - [x] **Phase 13: Mobile Web Chat** - 在 apps/web 中新增类微信三栏聊天界面，通过 Relay WS stream-json 链路创建 AI 会话（Claude/Codex/Copilot）、实时渲染 agent delta、Markdown 渲染、会话历史 HTTP 加载、断线续传 (completed 2026-05-10)
-- [ ] **Phase 14: Multi-device Gateway Routing** - 允许同一账号在多台设备上各自绑定稳定 Gateway 记录，Web 显示选择器，Relay 按 gatewayId 严格路由，禁止任何 fallback
+- [ ] **Phase 14: Multi-device Gateway Routing** - 允许同一账号在多台设备上各自绑定稳定 Gateway 记录，Web 显示选择器，Relay 按 gatewayId 严格路由，禁止任何 fallback (automated implementation complete; human UAT pending)
 - [ ] **Phase 15: Chat Remote Session Metadata** - Chat 链路不再依赖 Gateway 本地 SQLite：Relay 从 Server DB 补齐可信 metadata（provider/projectPath/agentSessionId）后转发给 Gateway，Gateway 直接执行不查本地 sessions
 
 ## Phase Details
@@ -330,7 +330,7 @@ Plans:
 **Goal:** 允许同一账号在多台设备上各自绑定稳定 Gateway 记录，Web 显示选择器，Relay 按 gatewayId 严格路由，禁止任何 fallback。
 **Requirements**: GATEWAY-MULTI-01, GATEWAY-MULTI-02, GATEWAY-MULTI-03, GATEWAY-MULTI-04, GATEWAY-MULTI-05, GATEWAY-MULTI-06
 **Depends on:** Phase 13
-**Plans:** 4/6 plans executed
+**Plans:** 6/6 plans executed; human UAT pending
 
 Plans:
   - **Wave 1** (no deps):
