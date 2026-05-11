@@ -11,26 +11,34 @@ autonomous: true
 requirements: [GATEWAY-MULTI-04]
 must_haves:
   truths:
-    - "client.chat、client.list-providers、client.cwd-suggest 帧类型均包含 gatewayId: string"
-    - "Web chat-panel 从 selectedGatewayId state 读取 gatewayId 并注入到这三种 sendFrame 调用中"
+    - "client.chat（sessionId: null）、client.list-providers、client.cwd-suggest 帧类型包含 gatewayId: string"
+    - "client.chat（sessionId: string）续聊变体不含 gatewayId（或仅为可选），Phase 15 通过 DB metadata 路由，Web 不需要传"
+    - "Web chat-panel 从 selectedGatewayId state 读取 gatewayId 并注入到新建/list-providers/cwd-suggest 三种 sendFrame 调用中"
     - "RelayServerToClientFrame 包含 gateway_required 和 gateway_unauthorized 错误码"
     - "Web 收到 gateway_required 时显示 Gateway 选择器提示"
   artifacts:
     - path: "packages/protocol/src/index.ts"
-      provides: "RelayClientToServerFrame 三种帧加 gatewayId; error 帧加新 code"
+      provides: "RelayClientToServerFrame 按 H2 规则更新 gatewayId; error 帧加新 code"
     - path: "apps/web/src/components/chats/chat-panel.tsx"
       provides: "selectedGatewayId state + 三处 sendFrame 注入 gatewayId + gateway_required 处理"
   key_links:
-    - from: "chat-panel.tsx sendMessage"
-      to: "sendFrame({ type: 'client.chat', ..., gatewayId: selectedGatewayId })"
+    - from: "chat-panel.tsx sendMessage（新建分支）"
+      to: "sendFrame({ type: 'client.chat', sessionId: null, ..., gatewayId: selectedGatewayId })"
       via: "selectedGatewayId state（来自 Gateway 选择器，Plan 06 完成前使用 relayGatewayId）"
+    - from: "chat-panel.tsx sendMessage（续聊分支）"
+      to: "sendFrame({ type: 'client.chat', sessionId: currentSessionId, ... })"
+      via: "续聊不带 gatewayId，Relay 通过 Phase 15 的 DB metadata 路由，保持不变"
     - from: "chat-panel.tsx error handler"
       to: "frame.code === 'gateway_required'"
       via: "显示 Gateway 选择器提示（setShowGatewaySelector(true)）"
 ---
 
 <objective>
-更新 Protocol 类型和 Web chat-panel，使三种关键帧类型携带 gatewayId，并为新错误码添加 Web 处理。此 Plan 必须在 Plan 05（Relay 移除 fallback）之前完成，否则移除 fallback 后 Web 无法正常发送请求。
+更新 Protocol 类型和 Web chat-panel，使新建会话相关帧携带 gatewayId，但续聊帧保持不变（Phase 15 路由）。为新错误码添加 Web 处理。
+
+**H2 修复：** `client.chat sessionId: string`（续聊变体）不得要求 gatewayId。续聊已通过 Phase 15 的 DB metadata.gatewayId 路由，Relay 不从帧中读取 gatewayId。
+
+此 Plan 必须在 Plan 05（Relay 移除 fallback）之前完成，否则移除 fallback 后 Web 无法正常发送请求。
 
 Purpose: 让 Relay 能从帧中读取 gatewayId 进行路由（D-10）；Web 处理 gateway_required 错误（D-11）。
 Output: 更新的 protocol 类型 + 注入 gatewayId 的 chat-panel
@@ -52,7 +60,7 @@ Output: 更新的 protocol 类型 + 注入 gatewayId 的 chat-panel
 
 <!-- packages/protocol/src/index.ts line 107+ — RelayServerToClientFrame -->
 -- 当前 error 帧: { type: 'error'; code: string; message: string; sessionId?: string }
--- 需要 gateway_required 和 gateway_unauthorized 作为 code 值（类型层面用字符串联合或保留为 string）
+-- 需要 gateway_required 和 gateway_unauthorized 作为 code 值
 
 <!-- chat-panel.tsx lines 264-266 — 当前 gateway state -->
 const [activeSessionGatewayId, setActiveSessionGatewayId] = React.useState<string | undefined>(undefined);
@@ -81,10 +89,17 @@ sendFrame({ type: 'client.chat', sessionId: null, provider, model, cwd, message:
   <action>
     **修改 RelayClientToServerFrame（lines 100-104）：**
 
-    为三种帧类型加入 `gatewayId: string`（D-10）：
+    按 H2 修复规则，只有以下三种变体需要加 `gatewayId: string`（必填）：
+    - `client.chat` 的 `sessionId: null` 变体（新建会话）
+    - `client.list-providers`
+    - `client.cwd-suggest`
+
+    `client.chat` 的 `sessionId: string` 变体（续聊）**保持不变或最多加可选字段**。
+    Phase 15 的 Relay 续聊分支已通过 DB metadata.gatewayId 路由，不使用帧中的 gatewayId。
+
     ```typescript
     | { type: 'client.chat'; sessionId: null; provider: string; model: string; cwd: string; message: string; gatewayId: string }
-    | { type: 'client.chat'; sessionId: string; message: string; model?: string; gatewayId: string }
+    | { type: 'client.chat'; sessionId: string; message: string; model?: string }
     | { type: 'client.cwd-suggest'; cwd: string; gatewayId: string }
     | { type: 'client.list-providers'; gatewayId: string }
     ```
@@ -105,9 +120,11 @@ sendFrame({ type: 'client.chat', sessionId: null, provider, model, cwd, message:
     ```
   </verify>
   <done>
-    - client.chat（两种变体）、client.cwd-suggest、client.list-providers 均含 gatewayId: string
+    - client.chat（sessionId: null 变体）含 gatewayId: string
+    - client.chat（sessionId: string 续聊变体）不含 gatewayId（保持原样）
+    - client.cwd-suggest、client.list-providers 均含 gatewayId: string
     - protocol typecheck 通过
-    - relay 和 gateway typecheck 通过（现有代码传帧处可能有类型报错，在下一 task 或 Plan 05 中修复）
+    - relay 和 gateway typecheck 通过
   </done>
 </task>
 
@@ -151,12 +168,19 @@ sendFrame({ type: 'client.chat', sessionId: null, provider, model, cwd, message:
     }
     ```
 
-    **4. 修改 sendMessage 中三处 sendFrame（约 lines 893-906）：**
+    **4. 修改 sendMessage 中两处 sendFrame（约 lines 893-906）：**
+
+    续聊分支（sessionId 为 string）**保持不变**，不加 gatewayId：
     ```typescript
     if (currentSessionId) {
-      sendFrame({ type: 'client.chat', sessionId: currentSessionId, message: text, model: messageModel, gatewayId: selectedGatewayId ?? '' });
+      // 续聊：Phase 15 通过 DB metadata.gatewayId 路由，帧不需要 gatewayId
+      sendFrame({ type: 'client.chat', sessionId: currentSessionId, message: text, model: messageModel });
       return;
     }
+    ```
+
+    新建分支（sessionId: null）加入 gatewayId：
+    ```typescript
     sendFrame({
       type: 'client.chat',
       sessionId: null,
@@ -213,7 +237,7 @@ sendFrame({ type: 'client.chat', sessionId: null, provider, model, cwd, message:
     - selectedGatewayId state 存在
     - client.auth.ok 不再发送无 gatewayId 的 list-providers
     - gateway.status connected 帧发送含 gatewayId 的 list-providers
-    - sendMessage 中两种 client.chat 均含 gatewayId
+    - sendMessage 新建分支（sessionId: null）含 gatewayId；续聊分支不含 gatewayId（H2 修复）
     - client.cwd-suggest 含 gatewayId
     - gateway_required / gateway_unauthorized error 帧有处理逻辑
     - typecheck 和 build 通过
@@ -233,15 +257,18 @@ pnpm --filter @tether/gateway typecheck
 </verification>
 
 <success_criteria>
-- Protocol 中 client.chat（两变体）、client.cwd-suggest、client.list-providers 均含 gatewayId: string
-- chat-panel.tsx 中所有三种帧的 sendFrame 调用均注入 selectedGatewayId
+- Protocol 中 client.chat（sessionId: null 变体）、client.cwd-suggest、client.list-providers 均含 gatewayId: string
+- Protocol 中 client.chat（sessionId: string 续聊变体）不含 gatewayId（H2 修复：保留 Phase 15 路由语义）
+- chat-panel.tsx 新建分支、list-providers、cwd-suggest 的 sendFrame 调用均注入 selectedGatewayId
+- chat-panel.tsx 续聊分支 sendFrame 保持不变（无 gatewayId）
 - gateway_required 错误码有明确的 UI 处理（显示选择 Gateway 提示）
 - 全部 typecheck 通过，build 无报错
 </success_criteria>
 
 <output>
 完成后创建 `.planning/phases/14-multi-device-gateway-routing/14-04-SUMMARY.md`，记录：
-- Protocol 类型变更（三种帧 + gatewayId）
+- Protocol 类型变更（三种帧 + gatewayId；续聊变体保持不变）
 - selectedGatewayId state 的初始化逻辑
 - gateway_required 处理位置
+- 续聊分支保持不变的说明（Phase 15 路由语义）
 </output>

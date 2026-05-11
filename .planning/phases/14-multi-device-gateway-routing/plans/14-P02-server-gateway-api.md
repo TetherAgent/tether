@@ -16,6 +16,7 @@ requirements: [GATEWAY-MULTI-02]
 must_haves:
   truths:
     - "POST /api/server/gateway-auth/bind 接受 deviceKey/hostname/port 参数，按 device_key upsert，不覆盖已有 name"
+    - "deviceKey 格式在 service 层校验（非空、格式匹配 dev_ 前缀、合理长度）"
     - "GET /api/server/gateways 返回当前用户自己的全部 Gateway 列表"
     - "GatewayRecord 类型包含 deviceKey, hostname, localPort, status 支持 'revoked'"
   artifacts:
@@ -24,7 +25,7 @@ must_haves:
     - path: "apps/server/app/service/gatewayRepository.ts"
       provides: "upsertGatewayByDeviceKey, loadGatewaysByUserId, gatewayFromRow 扩展"
     - path: "apps/server/app/service/gateway.ts"
-      provides: "bindGatewayForUser 重写为 upsert-by-device-key"
+      provides: "bindGatewayForUser 重写为 upsert-by-device-key，含 deviceKey 格式校验"
     - path: "apps/server/app/controller/gateway-auth.ts"
       provides: "bind() 读取 deviceKey/hostname/port"
     - path: "apps/server/app/router.ts"
@@ -69,7 +70,7 @@ export type GatewayRecord = {
 
 <!-- 当前 gatewayRepository.ts saveGateway SQL (line 37-47) -->
 INSERT INTO gateways (account_id, device_id, user_id, admin_user_id, name, status, last_seen_at, ...)
-ON DUPLICATE KEY UPDATE -- 依赖旧 uq_gateways_account_user，008 migration 后已删除
+ON DUPLICATE KEY UPDATE -- 依赖旧 uq_gateways_account_user，009 migration 后已删除
   name = VALUES(name),  -- D-08: 不应在 UPDATE 时覆盖 name
 
 <!-- 当前 gatewayFromRow (line 24) -->
@@ -77,7 +78,7 @@ status: row.status === 'offline' ? 'offline' : 'online'
 -- 需要支持 'revoked': row.status === 'offline' ? 'offline' : row.status === 'revoked' ? 'revoked' : 'online'
 
 <!-- 当前 bindGatewayForUser (gateway.ts lines 90-142) -->
-// 用 loadGatewayByUserId (按 userId 查第一条) -- 008 后应改为按 device_key 查
+// 用 loadGatewayByUserId (按 userId 查第一条) -- 009 后应改为按 device_key 查
 // line 105: gateway.name = input.gatewayName ?? gateway.name -- D-08: UPDATE 时禁止覆盖 name
 
 <!-- 路由文件 apps/server/app/router.ts: GET /api/server/gateways 不存在，需新增 -->
@@ -114,9 +115,10 @@ status: row.status === 'offline' ? 'offline' : 'online'
     **gatewayRepository.ts：**
 
     1. **修改 gatewayFromRow（line 18-28）：**
-       - 新增映射: `deviceKey: row.device_key ? String(row.device_key) : undefined`
-       - 新增映射: `hostname: row.hostname ? String(row.hostname) : undefined`
-       - 新增映射: `localPort: row.local_port ? Number(row.local_port) : undefined`
+       - 新增映射: `deviceKey: row.device_key != null ? String(row.device_key) : undefined`
+       - 新增映射: `hostname: row.hostname != null ? String(row.hostname) : undefined`
+       - 新增映射: `localPort: row.local_port != null ? Number(row.local_port) : undefined`
+         （用 `!= null` 而非 truthy 判断，以正确处理 0 值端口；M4 LOW 修复）
        - 修改 status 映射: `row.status === 'offline' ? 'offline' : row.status === 'revoked' ? 'revoked' : 'online'`
 
     2. **新增 upsertGatewayByDeviceKey 方法**（替代 saveGateway 用于 device_key upsert）：
@@ -206,12 +208,12 @@ status: row.status === 'offline' ? 'offline' : 'online'
   </verify>
   <done>
     GatewayRecord 含 deviceKey/hostname/localPort/status='revoked'；
-    repository 新增四个方法；gatewayFromRow 映射正确；typecheck 通过。
+    repository 新增四个方法；gatewayFromRow 映射正确（localPort 用 != null 判断）；typecheck 通过。
   </done>
 </task>
 
 <task type="auto">
-  <name>Task 2: 更新 gateway service + controller + 新增 GET 路由</name>
+  <name>Task 2: 更新 gateway service（含 deviceKey 格式校验）+ controller + 新增 GET 路由</name>
   <files>
     apps/server/app/service/gateway.ts
     apps/server/app/controller/gateway-auth.ts
@@ -235,7 +237,21 @@ status: row.status === 'offline' ? 'offline' : 'online'
     };
     ```
 
-    重写 bindGatewayForUser：
+    **deviceKey 格式校验（M4 修复，在 service 层，controller 传入前验证）：**
+    在 bindGatewayForUser 方法开头加入：
+    ```typescript
+    const { deviceKey } = input;
+    // deviceKey 必须非空，且符合 dev_ 前缀格式，长度 4-132 字符
+    if (
+      !deviceKey ||
+      typeof deviceKey !== 'string' ||
+      !/^dev_[A-Za-z0-9_-]{1,128}$/.test(deviceKey)
+    ) {
+      ctx.throw(400, 'invalid_device_key');
+    }
+    ```
+
+    重写 bindGatewayForUser 主体：
     - 用 `ctx.service.gatewayRepository.loadGatewayByDeviceKey(input.userId, input.deviceKey)` 查找已有 Gateway
     - 若不存在（新建）: name 默认 input.hostname ?? 'local-gateway'（per D-08 new: name = hostname）
     - 若已存在（更新）: **不更新 name**（per D-08），只更新 hostname/localPort/status/lastSeenAt
@@ -303,10 +319,19 @@ status: row.status === 'offline' ? 'offline' : 'online'
     curl -X GET http://127.0.0.1:4800/api/server/gateways \
       -H "authorization: Bearer $TOKEN"
     # 预期: { code: 0, data: [...] }
+
+    # 测试无效 deviceKey 被拒绝
+    curl -X POST http://127.0.0.1:4800/api/server/gateway-auth/bind \
+      -H "authorization: Bearer $TOKEN" \
+      -H "content-type: application/json" \
+      -d '{"deviceKey": "invalid_no_prefix", "hostname": "test"}'
+    # 预期: 400 invalid_device_key
     ```
   </verify>
   <done>
     - bindGatewayForUser 按 device_key upsert，不覆盖已有 name
+    - deviceKey 格式校验：必须匹配 /^dev_[A-Za-z0-9_-]{1,128}$/ 否则返回 400（M4 修复）
+    - localPort 映射使用 != null 判断（LOW 修复）
     - GET /api/server/gateways 返回当前用户的 Gateway 列表（按 D-14 字段）
     - typecheck 和现有测试通过
   </done>
@@ -326,7 +351,7 @@ status: row.status === 'offline' ? 'offline' : 'online'
 
 | Threat ID | Category | Component | Disposition | Mitigation Plan |
 |-----------|----------|-----------|-------------|-----------------|
-| T-14-P02-01 | Spoofing | POST /api/server/gateway-auth/bind: deviceKey 由客户端传入 | accept | deviceKey 是设备自生成标识符，不用于鉴权；恶意伪造只影响该用户自己的 Gateway 记录，不跨账号 |
+| T-14-P02-01 | Spoofing | POST /api/server/gateway-auth/bind: deviceKey 由客户端传入 | mitigate | 在 service 层校验格式 /^dev_[A-Za-z0-9_-]{1,128}$/，拒绝非法格式；恶意伪造只影响该用户自己的 Gateway 记录，不跨账号 |
 | T-14-P02-02 | Information Disclosure | GET /api/server/gateways 返回 hostname/localPort | mitigate | 路由挂 requireNormalAccess；userId 来自 JWT，不接受用户传入参数 |
 | T-14-P02-03 | Elevation of Privilege | bindGatewayForUser 按 accountId+userId upsert | mitigate | accountId 和 userId 来自 ctx.state.auth（JWT 解码），不接受 body 传入 |
 </threat_model>
@@ -340,6 +365,8 @@ pnpm --filter @tether/server test
 
 <success_criteria>
 - `POST /api/server/gateway-auth/bind` 接受 deviceKey/hostname/port，按 (accountId, userId, deviceKey) upsert
+- deviceKey 格式校验（/^dev_[A-Za-z0-9_-]{1,128}$/）在 service 层生效，非法格式返回 400（M4 修复）
+- localPort 映射使用 `!= null` 判断，不会把端口 0 丢失（LOW 修复）
 - 已有 Gateway 重复登录不覆盖 name（D-08）
 - `GET /api/server/gateways` 返回 gatewayId/deviceKey/hostname/name/status/lastSeenAt
 - `GatewayRecord.status` 支持 'revoked'（BC-4 修复）
@@ -352,4 +379,5 @@ pnpm --filter @tether/server test
 - 新增的 repository 方法
 - GET /api/server/gateways 路由
 - bindGatewayForUser 的 upsert 语义变化
+- deviceKey 格式校验规则
 </output>
