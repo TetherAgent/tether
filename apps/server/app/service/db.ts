@@ -1,4 +1,4 @@
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Service } from 'egg';
@@ -31,7 +31,11 @@ export default class DbService extends Service {
     }
     if (!schemaReady) {
       schemaReady = (async () => {
-        const sqlDir = path.resolve(__dirname, '../../sql');
+        const sqlDir = resolveSqlDir();
+        if (!sqlDir) {
+          this.app.logger.warn('Server SQL migration directory is missing; skipping automatic schema migration');
+          return;
+        }
         const files = readdirSync(sqlDir)
           .filter(f => f.endsWith('.sql'))
           .sort();
@@ -92,6 +96,17 @@ function stripSqlLineComments(statement: string): string {
     .filter(line => !line.trimStart().startsWith('--'))
     .join('\n')
     .trim();
+}
+
+function resolveSqlDir(): string | undefined {
+  const candidates = [
+    process.env.TETHER_SERVER_SQL_DIR,
+    path.resolve(__dirname, '../../sql'),
+    path.resolve(process.cwd(), 'sql'),
+    path.resolve(process.cwd(), 'apps/server/sql')
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  return candidates.find(candidate => existsSync(candidate));
 }
 
 function enrichMigrationError(error: unknown, file: string, statement: string): Error {
