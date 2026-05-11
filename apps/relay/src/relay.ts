@@ -701,6 +701,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           break;
         }
         subscriptions.set(frame.sessionId, frame.mode);
+        if (session.transport === 'chat') {
+          break;
+        }
         forwardToSessionGateway({
           type: 'client.subscribe',
           clientId,

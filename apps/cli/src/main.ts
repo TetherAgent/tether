@@ -247,6 +247,14 @@ gatewayCommand
   });
 
 gatewayCommand
+  .command('delete-db')
+  .description('删除本机 Gateway SQLite 数据库（会清空本机 session 历史和回放数据）')
+  .option('--yes', '确认删除')
+  .action(async (options: { yes?: boolean }) => {
+    await deleteGatewayDatabase(options);
+  });
+
+gatewayCommand
   .command('logs')
   .description('查看 Gateway launchd 日志')
   .option('-f, --follow', '持续跟随日志输出')
@@ -584,12 +592,12 @@ function parsePort(value: string): number {
 async function startGatewayBackground(): Promise<void> {
   let profile = gatewayProfileFromEnv();
   if (!fs.existsSync(configPath())) {
-    const chosen = await promptGatewayProfile('首次启动，请选择运行模式');
+    const chosen = profile ?? 'relay';
     const existing = readTetherConfig();
     const next: TetherConfig = { ...defaultTetherConfig(chosen), providers: existing.providers };
     await writeTetherConfig(next);
     terminal.success(`配置已写入：${configPath()}`);
-    profile ??= chosen;
+    profile = chosen;
   }
   profile ??= 'relay';
   await ensureGatewayAuthForProfile(profile);
@@ -651,10 +659,11 @@ async function ensureGatewayAuthForProfile(profile: GatewayProfileName): Promise
   if (existing && existing.expiresAt > Date.now()) {
     return;
   }
-  terminal.warn(profile === 'relay'
-    ? 'Relay 模式需要先绑定 Gateway 账号。'
-    : 'Direct 模式需要先绑定 Gateway 账号。');
-  await performGatewayLogin({});
+  throw new Error(
+    `${profile === 'relay' ? 'Relay' : 'Direct'} 模式需要先绑定 Gateway 账号。\n` +
+    '请先执行：tether gateway login\n' +
+    '登录成功后再执行：tether gateway start'
+  );
 }
 
 async function assertGatewayPortAvailable(host: string, port: number): Promise<void> {
@@ -1494,7 +1503,7 @@ async function performGatewayLogin(options: {
   terminal.success(`Gateway 登录成功，凭据已写入：${gatewayAuthPath()}`);
   terminal.line('已绑定 Gateway ID', result.gatewayId);
   terminal.line('Account ID', result.accountId);
-  terminal.line('下一步', 'tether gateway restart');
+  terminal.line('下一步', 'tether gateway start');
   terminal.line('查看状态', 'tether gateway status');
 }
 
@@ -1547,7 +1556,6 @@ async function waitForGatewayAuthCallback(port: number, timeoutMs: number): Prom
     const timer = setTimeout(() => {
       finish(undefined, new Error('Gateway 授权超时（2 分钟），请重试'));
     }, timeoutMs);
-    timer.unref();
 
     const server = http.createServer((req, res) => {
       const url = new URL(req.url ?? '/', `http://localhost:${port}`);
@@ -1580,7 +1588,6 @@ async function waitForGatewayAuthCallback(port: number, timeoutMs: number): Prom
     });
 
     server.listen(port, '127.0.0.1');
-    server.unref();
   });
 }
 

@@ -43,6 +43,13 @@ type UsageStats = {
   primary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
   secondary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
 };
+type RelaySessionSummary = {
+  id: string;
+  gatewayId?: string;
+  provider?: string;
+  projectPath?: string;
+  transport?: string;
+};
 
 const RELAY_URL_KEY = 'tether:relayUrl';
 const DEFAULT_RELAY_URL = import.meta.env.VITE_TETHER_RELAY_URL ?? 'wss://tether.earntools.me';
@@ -58,6 +65,14 @@ function isProviderOption(value: unknown): value is ProviderOption {
     Array.isArray((value as { models?: unknown }).models) &&
     (value as { models: unknown[] }).models.every((model) => typeof model === 'string') &&
     (value as { models: unknown[] }).models.length > 0
+  );
+}
+
+function isRelaySessionSummary(value: unknown): value is RelaySessionSummary {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    typeof (value as { id?: unknown }).id === 'string'
   );
 }
 
@@ -329,6 +344,7 @@ export function ChatPanel({
   const [relayGatewayId, setRelayGatewayId] = React.useState<string | undefined>(undefined);
   const [selectedGatewayId, setSelectedGatewayId] = React.useState<string | undefined>(undefined);
   const [onlineGatewayIds, setOnlineGatewayIds] = React.useState<Set<string>>(new Set());
+  const [relaySessions, setRelaySessions] = React.useState<RelaySessionSummary[]>([]);
   const [cwd, setCwd] = React.useState('~');
   const [cwdSuggestions, setCwdSuggestions] = React.useState<string[]>([]);
   const [cwdPickerOpen, setCwdPickerOpen] = React.useState(false);
@@ -481,6 +497,27 @@ export function ChatPanel({
   }, [normalAuth?.accessToken]);
 
   React.useEffect(() => {
+    if (!currentSessionId) {
+      return;
+    }
+    const session = relaySessions.find((item) => item.id === currentSessionId);
+    if (!session) {
+      return;
+    }
+    if (session.gatewayId) {
+      setActiveSessionGatewayId(session.gatewayId);
+      setSelectedGatewayId(session.gatewayId);
+    }
+    if (session.provider) {
+      setActiveSessionProvider(session.provider);
+    }
+    if (session.projectPath) {
+      setActiveSessionProjectPath(session.projectPath);
+    }
+    setActiveSessionMetadataReady(true);
+  }, [currentSessionId, relaySessions]);
+
+  React.useEffect(() => {
     if (!activeSessionId) {
       setMessages([]);
       setIsInflight(false);
@@ -581,6 +618,10 @@ export function ChatPanel({
         setRelayGatewayId(undefined);
         setSelectedGatewayId(undefined);
         setConnectionError(t.gatewayNotConnected);
+        return;
+      }
+      if (frame.type === 'sessions' && Array.isArray(frame.sessions)) {
+        setRelaySessions(frame.sessions.filter(isRelaySessionSummary));
         return;
       }
       if (frame.type === 'gateway.providers') {
@@ -1086,8 +1127,11 @@ export function ChatPanel({
 
   const gatewaySelector = (
     <GatewaySelector
-      selectedGatewayId={selectedGatewayId}
+      selectedGatewayId={currentSessionId ? activeSessionGatewayId : selectedGatewayId}
       onSelect={(id) => {
+        if (currentSessionId) {
+          return;
+        }
         setSelectedGatewayId(id);
         setConnectionError((current) =>
           current === t.gatewaySelectorNoSelection || current === t.gatewaySelectorOffline
@@ -1096,6 +1140,7 @@ export function ChatPanel({
         );
       }}
       onlineGatewayIds={onlineGatewayIds}
+      readonly={Boolean(currentSessionId)}
     />
   );
 
@@ -1131,6 +1176,7 @@ export function ChatPanel({
       <div className={`chat-input-toolbar ${withControls ? 'chat-input-toolbar-controls' : 'chat-input-toolbar-session'} relative flex items-center gap-2 border-t border-border/50 px-3 py-2.5`}>
         {withControls && (
           <>
+            {gatewaySelector}
             <Select
               value={selectedProvider}
               onValueChange={(value) => {
@@ -1291,7 +1337,6 @@ export function ChatPanel({
           </button>
         )}
         <div className="absolute right-3 top-3 flex items-center gap-2">
-          {gatewaySelector}
           {connectionStatusChip ? (
             <div className="chat-header-connection-status">
               {connectionStatusChip}

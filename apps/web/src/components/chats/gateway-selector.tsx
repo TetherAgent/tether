@@ -15,6 +15,7 @@ type GatewaySelectorProps = {
   selectedGatewayId: string | undefined;
   onSelect: (gatewayId: string) => void;
   onlineGatewayIds: Set<string>;
+  readonly?: boolean;
 };
 
 function gatewayLabel(gateway: GatewayInfo): string {
@@ -25,7 +26,7 @@ function gatewayLabel(gateway: GatewayInfo): string {
   return gateway.gatewayId.slice(0, 8);
 }
 
-export function GatewaySelector({ selectedGatewayId, onSelect, onlineGatewayIds }: GatewaySelectorProps) {
+export function GatewaySelector({ selectedGatewayId, onSelect, onlineGatewayIds, readonly = false }: GatewaySelectorProps) {
   const { t } = useI18n();
   const [gateways, setGateways] = React.useState<GatewayInfo[]>([]);
   const [open, setOpen] = React.useState(false);
@@ -48,14 +49,16 @@ export function GatewaySelector({ selectedGatewayId, onSelect, onlineGatewayIds 
     };
   }, []);
 
-  const visibleGateways = gateways.filter((gateway) => gateway.status !== 'revoked');
+  const visibleGateways = readonly
+    ? gateways.filter((gateway) => gateway.status !== 'revoked')
+    : gateways.filter((gateway) => gateway.status !== 'revoked' && onlineGatewayIds.has(gateway.gatewayId));
   const selectedGateway = visibleGateways.find((gateway) => gateway.gatewayId === selectedGatewayId) ?? visibleGateways[0];
 
   React.useEffect(() => {
-    if (!selectedGatewayId && visibleGateways.length === 1) {
+    if (!readonly && !selectedGatewayId && visibleGateways.length > 0) {
       onSelect(visibleGateways[0]!.gatewayId);
     }
-  }, [onSelect, selectedGatewayId, visibleGateways]);
+  }, [onSelect, readonly, selectedGatewayId, visibleGateways]);
 
   if (visibleGateways.length === 0) {
     return (
@@ -68,12 +71,12 @@ export function GatewaySelector({ selectedGatewayId, onSelect, onlineGatewayIds 
   const isOnline = selectedGateway ? onlineGatewayIds.has(selectedGateway.gatewayId) : false;
   const statusLabel = isOnline ? 'online' : t.gatewaySelectorOffline;
 
-  if (visibleGateways.length === 1) {
+  if (visibleGateways.length === 1 || readonly) {
     return (
       <div className="flex h-7 max-w-[260px] items-center gap-2 rounded-md bg-muted px-3 text-xs font-medium text-foreground">
         <span className={`h-2 w-2 shrink-0 rounded-full ${isOnline ? 'bg-green-500' : 'bg-muted-foreground'}`} />
-        <span className="truncate">{gatewayLabel(selectedGateway!)}</span>
-        {!isOnline ? <span className="shrink-0 text-muted-foreground">{statusLabel}</span> : null}
+        <span className="truncate">{selectedGateway ? gatewayLabel(selectedGateway) : t.gatewaySelectorSelect}</span>
+        {readonly && !isOnline ? <span className="shrink-0 text-muted-foreground">{statusLabel}</span> : null}
       </div>
     );
   }
@@ -90,13 +93,12 @@ export function GatewaySelector({ selectedGatewayId, onSelect, onlineGatewayIds 
       >
         <span className={`h-2 w-2 shrink-0 rounded-full ${isOnline ? 'bg-green-500' : 'bg-muted-foreground'}`} />
         <span className="truncate">{selectedGateway ? gatewayLabel(selectedGateway) : t.gatewaySelectorSelect}</span>
-        {!isOnline && selectedGateway ? <span className="text-muted-foreground">{t.gatewaySelectorOffline}</span> : null}
+        {readonly && !isOnline && selectedGateway ? <span className="text-muted-foreground">{t.gatewaySelectorOffline}</span> : null}
         <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
       </Button>
       {open ? (
         <div className="absolute right-0 top-9 z-50 w-72 overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg">
           {visibleGateways.map((gateway) => {
-            const gatewayOnline = onlineGatewayIds.has(gateway.gatewayId);
             return (
               <button
                 key={gateway.gatewayId}
@@ -107,12 +109,11 @@ export function GatewaySelector({ selectedGatewayId, onSelect, onlineGatewayIds 
                 }}
                 className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent"
               >
-                <span className={`h-2 w-2 shrink-0 rounded-full ${gatewayOnline ? 'bg-green-500' : 'bg-muted-foreground'}`} />
+                <span className="h-2 w-2 shrink-0 rounded-full bg-green-500" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{gatewayLabel(gateway)}</span>
                   {gateway.hostname ? <span className="block truncate text-[11px] text-muted-foreground">{gateway.hostname}</span> : null}
                 </span>
-                {!gatewayOnline ? <span className="shrink-0 text-[11px] text-muted-foreground">{t.gatewaySelectorOffline}</span> : null}
               </button>
             );
           })}
