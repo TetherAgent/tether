@@ -36,6 +36,8 @@ occupies an active roadmap phase number.
 - [ ] **Phase 10: Multi-workspace Expansion** - Product support for creating/switching workspaces, binding Gateways per workspace, and isolating members, sessions, audit, and admin pages by workspace
 - [x] **Phase 12: Server DB Runtime Sync** - Web/App 从 Server DB 直接读取 session 列表、聊天历史和受限 Terminal 历史，不再依赖 Gateway 反向 RPC；Relay 实时同步 Gateway frame 到 Server DB (completed 2026-05-09)
 - [x] **Phase 13: Mobile Web Chat** - 在 apps/web 中新增类微信三栏聊天界面，通过 Relay WS stream-json 链路创建 AI 会话（Claude/Codex/Copilot）、实时渲染 agent delta、Markdown 渲染、会话历史 HTTP 加载、断线续传 (completed 2026-05-10)
+- [x] **Phase 14: Multi-device Gateway Routing** - 允许同一账号在多台设备上各自绑定稳定 Gateway 记录，Web 显示选择器，Relay 按 gatewayId 严格路由，禁止任何 fallback (completed 2026-05-11)
+- [ ] **Phase 15: Chat Remote Session Metadata** - Chat 链路不再依赖 Gateway 本地 SQLite：Relay 从 Server DB 补齐可信 metadata（provider/projectPath/agentSessionId）后转发给 Gateway，Gateway 直接执行不查本地 sessions
 
 ## Phase Details
 
@@ -343,6 +345,38 @@ Plans:
   - **Wave 5** *(depends on Plans 04 + 05)*:
     - [ ] 14-P06-web-gateway-selector.md — GatewaySelector 组件 + 离线禁用 + human verify
 
+### Phase 15: Chat Remote Session Metadata
+
+**Goal:** Chat 链路不再依赖 Gateway 本地 SQLite。Relay 收到已有 session 的 `client.chat` 后，从 Server DB 补齐可信 metadata（provider / projectPath / agentSessionId / gatewayId），通过 `RelayToGatewayChatFrame.session` 转发给 Gateway；Gateway 续聊直接用 `frame.session` 执行 provider resume，不查本地 `store.getSession()`。新建 chat 时 Gateway 显式上报完整 metadata，不依赖 `sendSessions()` 间接同步。
+
+**Depends on:** Phase 14
+**Canonical Refs:**
+  - `docs/working/2026-05-11-chat-remote-session-metadata.md` — 完整设计文档（目标协议、TODO、风险、验收）
+
+**Success Criteria** (what must be TRUE):
+  1. 已有 chat 续聊时，Gateway 不调用 `store.getSession(sessionId)`，直接用 `frame.session` 中的可信 metadata 执行 provider resume（即使本地 SQLite 没有该 session 行）
+  2. 新建 chat 时，Gateway 不调用 `store.insertSession()`；session metadata 通过显式 `gateway.chat-session-created` 帧上报到 Relay/Server
+  3. Chat 链路不调用 `store.touchSession()` 或 `store.updateAgentSessionId()`；`last_active_at` 和 `agent_session_id` 只通过 Server DB 更新
+  4. Relay 收到 `client.chat`（已有 session）后，从 Server 内部接口（`GET /api/relay/gateway-sessions/:sessionId/metadata`）获取可信 metadata，并在转发给 Gateway 前完成权限和 transport 校验
+  5. `agent_session_id` PATCH 带 accountId/gatewayId/userId scope；Server WHERE 限定 session 归属，不允许跨账号更新
+  6. PTY session 误发 `client.chat` 时，Relay/Gateway 返回明确错误，不走 chat runner
+  7. `rg appendChatEvent\|listChatEvents\|insertSession\|touchSession\|updateAgentSessionId` 在 chat 链路代码中输出为空
+
+**Plans**: 6 plans across 5 waves
+
+Plans:
+  - **Wave 0** (no deps — test scaffold):
+    - [ ] `15-P00-test-scaffold.md` — 四个测试文件追加 Phase 15 RED 测试桩（T1/T2/T4/T5/T7/A7/A8）
+  - **Wave 1** (no deps — can run parallel with Wave 0):
+    - [ ] `15-P01-protocol-types.md` — Protocol 帧类型扩展（TrustedChatSessionMetadata + gateway.chat-session-created + RelayServerToGatewayFrame session 字段）
+  - **Wave 2** *(depends on Wave 1, parallel streams)*:
+    - [ ] `15-P02-server-metadata-api.md` — Server metadata 只读接口 + updateAgentSessionId scope 修复
+    - [ ] `15-P03-relay-metadata-intercept.md` — Relay client.chat 拦截 + metadata 查询 + gateway.chat-session-created 处理
+  - **Wave 3** *(depends on Waves 1 + 2)*:
+    - [ ] `15-P04-gateway-runner-rewrite.md` — Gateway ChatSessionRunner 去本地 DB + relay-client 更新
+  - **Wave 4** *(depends on Wave 3)*:
+    - [ ] `15-P05-last-active-migration-typecheck.md` — last_active_at 更新 + PATCH scope + 全量 typecheck + UAT checkpoint
+
 ---
 *Roadmap created: 2026-05-01*
 *Milestone reordered: 2026-05-01 — personal Relay MVP moved to Phase 1*
@@ -355,4 +389,5 @@ Plans:
 *Scope update: 2026-05-09 — Phase 12 Server DB Runtime Sync added: Web/App 读取改为 Server DB，Relay 同步 Gateway frame 到 Server*
 *Scope update: 2026-05-10 — Phase 13 Mobile Web Chat planned: 6 plans across 4 waves*
 *Scope update: 2026-05-11 — Phase 14 Multi-device Gateway Routing planned: 6 plans across 5 waves*
+*Scope update: 2026-05-11 — Phase 15 Chat Remote Session Metadata added: chat 链路去本地 SQLite，Relay 补可信 metadata*
 *Coverage: 40/40 v1 requirements mapped*
