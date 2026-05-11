@@ -14,7 +14,10 @@ type BindGatewayInput = {
 type BindGatewayForUserInput = {
   accountId: string;
   userId: string;
+  deviceKey: string;
   gatewayName?: string;
+  hostname?: string;
+  localPort?: number;
   ip?: string;
   userAgent?: string;
 };
@@ -89,24 +92,31 @@ export default class GatewayService extends Service {
 
   public async bindGatewayForUser(input: BindGatewayForUserInput) {
     const { ctx } = this;
-    const existing = await ctx.service.gatewayRepository.loadGatewayByUserId(input.userId);
+    if (!/^dev_[A-Za-z0-9_-]{1,128}$/.test(input.deviceKey)) {
+      ctx.throw(400, 'invalid_device_key');
+    }
+
+    const existing = await ctx.service.gatewayRepository.loadGatewayByDeviceKey(input.userId, input.deviceKey);
     const createdAt = Date.now();
     const gateway: GatewayRecord = existing ?? {
       id: createId('gateway'),
       accountId: input.accountId,
       userId: input.userId,
-      name: input.gatewayName ?? 'local-gateway',
+      name: input.gatewayName ?? input.hostname ?? 'local-gateway',
+      deviceKey: input.deviceKey,
       status: 'online',
       lastSeenAt: createdAt,
       createdAt,
       updatedAt: createdAt
     };
 
-    gateway.name = input.gatewayName ?? gateway.name ?? 'local-gateway';
+    gateway.deviceKey = input.deviceKey;
+    gateway.hostname = input.hostname;
+    gateway.localPort = input.localPort;
     gateway.status = 'online';
     gateway.lastSeenAt = createdAt;
     gateway.updatedAt = createdAt;
-    gateway.id = await ctx.service.gatewayRepository.saveGateway(gateway);
+    gateway.id = await ctx.service.gatewayRepository.upsertGatewayByDeviceKey(gateway);
 
     const gatewayTokens = ctx.service.auth.issueGatewayTokenBundle({
       accountId: input.accountId,
@@ -123,7 +133,12 @@ export default class GatewayService extends Service {
       tokenClass: 'gateway_access',
       ip: input.ip,
       userAgent: input.userAgent,
-      payload: { gatewayName: input.gatewayName ?? 'local-gateway' }
+      payload: {
+        deviceKey: input.deviceKey,
+        gatewayName: gateway.name,
+        hostname: input.hostname,
+        localPort: input.localPort
+      }
     });
     ctx.service.notification.emitNotification({
       accountId: gateway.accountId,

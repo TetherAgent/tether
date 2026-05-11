@@ -35,6 +35,9 @@ export default (app: Application): void => {
   router.post('/api/relay/runtime-sync/gateway/sessions', requireRuntimeSyncSecret, controller.runtimeSync.sessions);      // 同步 Session 列表
   router.post('/api/relay/runtime-sync/gateway/event', requireRuntimeSyncSecret, controller.runtimeSync.event);            // 同步终端事件
 
+  // Gateway 数据读取（前端只读）
+  router.get('/api/server/gateways', requireNormalAccess, controller.gateway.list);
+
   // Session 数据读取（前端只读，stop/input/resize 走 WebSocket）
   router.get('/api/server/sessions', requireNormalAccess, controller.session.list);                          // Session 列表
   router.get('/api/server/sessions/:id/events', requireNormalAccess, controller.session.events);             // 终端事件流

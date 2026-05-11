@@ -48,7 +48,10 @@ export type GatewayRecord = {
   accountId: string;
   userId: string;
   name: string;
-  status: 'online' | 'offline';
+  deviceKey?: string;
+  hostname?: string;
+  localPort?: number;
+  status: 'online' | 'offline' | 'revoked';
   lastSeenAt: number;
   createdAt: number;
   updatedAt: number;
