@@ -1,3 +1,14 @@
+export type TrustedChatSessionMetadata = {
+  id: string;
+  provider: string;
+  projectPath: string;
+  agentSessionId?: string;
+  accountId: string;
+  userId: string;
+  gatewayId: string;
+  transport: 'chat';
+};
+
 export type RelaySessionStatus = 'running' | 'stopped' | 'completed' | 'failed' | 'lost';
 
 export type RelayClientMode = 'control' | 'observe';
@@ -60,6 +71,7 @@ export type RelayGatewayToServerFrame =
   | { type: 'gateway.event'; gatewayId: string; event: RelayTerminalEvent }
   | { type: 'gateway.session-created'; gatewayId: string; clientId: string; sessionId: string }
   | { type: 'gateway.chat-catchup'; gatewayId: string; clientId: string; sessionId: string; text: string }
+  | { type: 'gateway.chat-session-created'; gatewayId: string; clientId: string; session: TrustedChatSessionMetadata }
   | { type: 'gateway.error'; gatewayId: string; clientId?: string; sessionId?: string; code: string; message: string };
 
 export type RelayServerToGatewayFrame =
@@ -83,7 +95,7 @@ export type RelayServerToGatewayFrame =
       accountId?: string;
       userId?: string;
     }
-  | { type: 'client.chat'; clientId: string; sessionId: string; message: string; model?: string }
+  | { type: 'client.chat'; clientId: string; sessionId: string; message: string; model?: string; session: TrustedChatSessionMetadata }
   | { type: 'client.cwd-suggest'; clientId: string; cwd: string }
   | { type: 'client.list-providers'; clientId: string }
   | { type: 'client.switch-model'; clientId: string; sessionId: string; provider: string; model: string };
