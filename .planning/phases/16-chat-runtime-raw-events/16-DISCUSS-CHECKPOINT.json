@@ -2,8 +2,8 @@
   "phase": "16",
   "phase_name": "Chat Runtime Raw Events",
   "timestamp": "2026-05-11T12:00:00.000Z",
-  "areas_completed": ["旧表 gateway_runtime_events 的定位", "agent.delta event id 生成策略"],
-  "areas_remaining": ["Relay 同步 delta 的代码路径", "Server 写路径 — 新方法 vs 扩展现有"],
+  "areas_completed": ["旧表 gateway_runtime_events 的定位", "agent.delta event id 生成策略", "Relay 同步 delta 的代码路径"],
+  "areas_remaining": ["Server 写路径 — 新方法 vs 扩展现有"],
   "decisions": {
     "旧表 gateway_runtime_events 的定位": [
       {

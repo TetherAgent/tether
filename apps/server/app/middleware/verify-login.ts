@@ -10,11 +10,23 @@ function normalizePath(url: string): string {
   return url.split('?')[0] ?? url;
 }
 
+function whitelistPathMatches(pattern: string, path: string): boolean {
+  if (pattern === path) {
+    return true;
+  }
+  const patternParts = pattern.split('/');
+  const pathParts = path.split('/');
+  if (patternParts.length !== pathParts.length) {
+    return false;
+  }
+  return patternParts.every((part, index) => part.startsWith(':') || part === pathParts[index]);
+}
+
 export default function verifyLogin(options: VerifyLoginOptions = {}) {
   return async (ctx: Context, next: () => Promise<unknown>) => {
     const path = normalizePath(ctx.url);
-    const whitelist = new Set<string>(ctx.app.config.verifyLoginWhitelist ?? []);
-    if (whitelist.has(path) || path === '/') {
+    const whitelist = ctx.app.config.verifyLoginWhitelist ?? [];
+    if (path === '/' || whitelist.some((pattern) => whitelistPathMatches(pattern, path))) {
       await next();
       return;
     }
