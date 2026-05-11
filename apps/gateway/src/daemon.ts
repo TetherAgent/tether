@@ -45,12 +45,57 @@ export type RunningDaemon = {
 
 type GatewayAuthState = {
   serverUrl: string;
-  gatewayId: string;
-  accountId: string;
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
 };
+
+function decodeGatewayToken(token: string): Record<string, unknown> | undefined {
+  const parts = token.split('.');
+  if (parts.length !== 3) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf8')) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
+function getGatewayIdentity(authState: GatewayAuthState): { gatewayId: string; accountId: string; userId: string } | undefined {
+  const payload = decodeGatewayToken(authState.accessToken);
+  if (
+    typeof payload?.gatewayId === 'string' &&
+    typeof payload.accountId === 'string' &&
+    typeof payload.userId === 'string'
+  ) {
+    return {
+      gatewayId: payload.gatewayId,
+      accountId: payload.accountId,
+      userId: payload.userId
+    };
+  }
+  const legacy = authState as GatewayAuthState & { gatewayId?: unknown; accountId?: unknown; userId?: unknown };
+  if (
+    typeof legacy.gatewayId === 'string' &&
+    typeof legacy.accountId === 'string' &&
+    typeof legacy.userId === 'string'
+  ) {
+    return {
+      gatewayId: legacy.gatewayId,
+      accountId: legacy.accountId,
+      userId: legacy.userId
+    };
+  }
+  if (typeof legacy.gatewayId === 'string') {
+    return {
+      gatewayId: legacy.gatewayId,
+      accountId: typeof legacy.accountId === 'string' ? legacy.accountId : '',
+      userId: typeof legacy.userId === 'string' ? legacy.userId : ''
+    };
+  }
+  return undefined;
+}
 
 type AuthenticatedActor = AuthScopePayload;
 
@@ -183,9 +228,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!authState.ok) {
       return c.json({ error: authState.error }, authState.status);
     }
+    const identity = getGatewayIdentity(authState.value);
     const ticket = issueWsTicket({
       accountId: actor.payload.accountId,
-      gatewayId: actor.payload.gatewayId ?? authState.value.gatewayId,
+      gatewayId: actor.payload.gatewayId ?? identity?.gatewayId,
       userId: actor.payload.userId,
       deviceId: actor.payload.deviceId,
       sessionId: session.id,
@@ -684,7 +730,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       socket.close(1008, ticketPayload.error);
       return;
     }
-    const ticketOwnership = authorizeSessionAccess(session, ticketPayload.payload, authState.value.gatewayId);
+    const identity = getGatewayIdentity(authState.value);
+    const ticketOwnership = authorizeSessionAccess(session, ticketPayload.payload, identity?.gatewayId);
     if (!ticketOwnership.ok) {
       socket.close(1008, ticketOwnership.error);
       return;
@@ -1062,7 +1109,7 @@ async function authorizeRequest(
   authorization: string | undefined,
   allowedTokenClasses: AuthTokenClass[]
 ): Promise<
-  | { ok: true; payload: AuthenticatedActor; gatewayId: string }
+  | { ok: true; payload: AuthenticatedActor; gatewayId?: string }
   | { ok: false; status: 401 | 403 | 500; error: string }
 > {
   const token = bearerTokenFromHeader(authorization);
@@ -1080,7 +1127,8 @@ async function authorizeRequest(
   if (!allowedTokenClasses.includes(payload.tokenClass)) {
     return { ok: false, status: 403, error: 'wrong_token_class' };
   }
-  return { ok: true, payload, gatewayId: authState.value.gatewayId };
+  const identity = getGatewayIdentity(authState.value);
+  return { ok: true, payload, gatewayId: identity?.gatewayId };
 }
 
 function authorizeSessionAccess(
@@ -1138,8 +1186,6 @@ function parseGatewayAuthState(raw: string): GatewayAuthState | undefined {
     const value = JSON.parse(raw) as Partial<GatewayAuthState>;
     if (
       typeof value.serverUrl === 'string' &&
-      typeof value.gatewayId === 'string' &&
-      typeof value.accountId === 'string' &&
       typeof value.accessToken === 'string' &&
       typeof value.refreshToken === 'string' &&
       typeof value.expiresAt === 'number'

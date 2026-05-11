@@ -1086,6 +1086,18 @@ function sanitizeRelayValue(value: unknown): unknown {
   return sanitizeRelayPayload(value as Record<string, unknown>);
 }
 
+function decodeGatewayToken(token: string): Record<string, unknown> | undefined {
+  const parts = token.split('.');
+  if (parts.length !== 3) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf8')) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
 async function resolveRelayAuth(
   options: RelayClientOptions
 ): Promise<{ gatewayId: string; token?: string; scope: RelayAuthScope } | undefined> {
@@ -1108,8 +1120,6 @@ async function resolveRelayAuth(
     expiresAt?: unknown;
   };
   if (
-    typeof parsed.gatewayId !== 'string' ||
-    typeof parsed.accountId !== 'string' ||
     typeof parsed.accessToken !== 'string' ||
     typeof parsed.expiresAt !== 'number'
   ) {
@@ -1118,12 +1128,23 @@ async function resolveRelayAuth(
   if (parsed.expiresAt <= Date.now()) {
     return undefined;
   }
+  const payload = decodeGatewayToken(parsed.accessToken);
+  const gatewayId = typeof payload?.gatewayId === 'string'
+    ? payload.gatewayId
+    : typeof parsed.gatewayId === 'string' ? parsed.gatewayId : undefined;
+  const accountId = typeof payload?.accountId === 'string'
+    ? payload.accountId
+    : typeof parsed.accountId === 'string' ? parsed.accountId : undefined;
+  if (!gatewayId || !accountId) {
+    console.error('auth.json accessToken 缺少 gatewayId/accountId，请重新运行 tether gateway login');
+    return undefined;
+  }
   return {
-    gatewayId: parsed.gatewayId,
+    gatewayId,
     token: parsed.accessToken,
     scope: {
-      accountId: parsed.accountId,
-      gatewayId: parsed.gatewayId,
+      accountId,
+      gatewayId,
       tokenClass: 'gateway_access',
       expiresAt: parsed.expiresAt,
       jti: 'relay-auth-local'

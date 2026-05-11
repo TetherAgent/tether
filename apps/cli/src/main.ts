@@ -139,11 +139,14 @@ type AttachAttemptResult = {
 
 type GatewayAuthState = {
   serverUrl: string;
-  gatewayId: string;
-  accountId: string;
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
+};
+
+type DeviceState = {
+  deviceKey: string;
+  deviceName: string;
 };
 
 class NonTetherGatewayError extends Error {
@@ -1367,6 +1370,35 @@ function gatewayAuthPath(): string {
   return process.env.TETHER_AUTH_PATH ?? path.join(os.homedir(), '.tether', 'auth.json');
 }
 
+function deviceStatePath(): string {
+  return process.env.TETHER_DEVICE_PATH ?? path.join(os.homedir(), '.tether', 'device.json');
+}
+
+async function loadOrCreateDeviceState(): Promise<DeviceState> {
+  const raw = await readFile(deviceStatePath(), 'utf8').catch(() => undefined);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as Partial<DeviceState>;
+      if (typeof parsed.deviceKey === 'string' && parsed.deviceKey.startsWith('dev_')) {
+        return {
+          deviceKey: parsed.deviceKey,
+          deviceName: typeof parsed.deviceName === 'string' ? parsed.deviceName : os.hostname()
+        };
+      }
+    } catch {
+      // Regenerate malformed local device metadata below.
+    }
+  }
+  const { randomBytes } = await import('node:crypto');
+  const state: DeviceState = {
+    deviceKey: `dev_${randomBytes(12).toString('hex')}`,
+    deviceName: os.hostname()
+  };
+  await mkdir(path.dirname(deviceStatePath()), { recursive: true });
+  await writeFile(deviceStatePath(), `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  return state;
+}
+
 function unwrapServerApiData(body: unknown): unknown {
   if (!body || typeof body !== 'object' || !('code' in body)) {
     return body;
@@ -1390,7 +1422,8 @@ async function performGatewayLogin(options: {
   }
   const port = await findAvailablePort();
   const hostname = os.hostname();
-  const browserUrl = `${serverUrl}/gateway-auth?port=${port}&hostname=${encodeURIComponent(hostname)}`;
+  const device = await loadOrCreateDeviceState();
+  const browserUrl = `${serverUrl}/gateway-auth?port=${port}&hostname=${encodeURIComponent(hostname)}&deviceKey=${encodeURIComponent(device.deviceKey)}`;
   console.log('正在打开浏览器进行授权...');
   console.log(`如果浏览器未自动打开，请访问：${browserUrl}`);
   openBrowser(browserUrl);
@@ -1401,8 +1434,6 @@ async function performGatewayLogin(options: {
   }
   await writeGatewayAuthState({
     serverUrl,
-    gatewayId: result.gatewayId,
-    accountId: result.accountId,
     accessToken: result.gatewayAccessToken,
     refreshToken: result.gatewayRefreshToken,
     expiresAt: payload.expiresAt
@@ -1504,8 +1535,6 @@ async function readGatewayAuthState(): Promise<GatewayAuthState> {
   const parsed = JSON.parse(raw) as Partial<GatewayAuthState>;
   if (
     typeof parsed.serverUrl !== 'string' ||
-    typeof parsed.gatewayId !== 'string' ||
-    typeof parsed.accountId !== 'string' ||
     typeof parsed.accessToken !== 'string' ||
     typeof parsed.refreshToken !== 'string' ||
     typeof parsed.expiresAt !== 'number'
@@ -1520,13 +1549,13 @@ async function writeGatewayAuthState(state: GatewayAuthState): Promise<void> {
   await writeFile(gatewayAuthPath(), `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
 }
 
-function decodeTokenPayload(token: string): { expiresAt?: unknown } | undefined {
+function decodeTokenPayload(token: string): Record<string, unknown> | undefined {
   const parts = token.split('.');
   if (parts.length !== 3) {
     return undefined;
   }
   try {
-    return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as { expiresAt?: unknown };
+    return JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf8')) as Record<string, unknown>;
   } catch {
     return undefined;
   }

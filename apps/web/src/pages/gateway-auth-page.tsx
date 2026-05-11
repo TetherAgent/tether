@@ -21,6 +21,7 @@ export function GatewayAuthPage() {
   const params = new URLSearchParams(location.search);
   const port = params.get('port');
   const hostname = params.get('hostname') ?? 'unknown';
+  const deviceKey = params.get('deviceKey') ?? '';
 
   const [status, setStatus] = React.useState<'idle' | 'loading' | 'done' | 'error'>('idle');
   const [error, setError] = React.useState<string | null>(null);
@@ -39,6 +40,14 @@ export function GatewayAuthPage() {
     );
   }
 
+  if (!deviceKey) {
+    return (
+      <WebAuthShell title="授权 Gateway" description="缺少设备标识，请重新运行 tether gateway login。">
+        <div />
+      </WebAuthShell>
+    );
+  }
+
   const authorize = async () => {
     setStatus('loading');
     setError(null);
@@ -46,7 +55,7 @@ export function GatewayAuthPage() {
       const response = await fetch('/api/server/gateway-auth/bind', {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...gatewayAuthHeaders() },
-        body: JSON.stringify({ hostname })
+        body: JSON.stringify({ hostname, deviceKey, port: Number(port) })
       });
       if (!response.ok) {
         throw new Error(`授权失败：HTTP ${response.status}`);
@@ -68,7 +77,7 @@ export function GatewayAuthPage() {
   return (
     <WebAuthShell
       title="授权 Gateway"
-      description={`允许本机 "${hostname}" 作为 Gateway 连接到你的账号？`}
+      description={`允许本机 "${hostname}" (${deviceKey.slice(0, 12)}...) 作为 Gateway 连接到你的账号？`}
     >
       {status === 'done' ? (
         <p>授权成功，可以关闭此窗口。</p>
