@@ -52,6 +52,7 @@ completed: 2026-05-11
 
 - Added `upsertChatRuntimeEvent` to write full masked raw event JSON into `gateway_runtime_chats_events`.
 - Added `raw_json` update for `user.message` and `agent.result` chat message rows.
+- Review fix: `upsertChatRuntimeEvent` now also upserts the derived `gateway_chat_messages` row for `user.message` / `agent.result`, so chat history remains populated after routing chat events away from the old runtime table.
 - Added `/api/relay/chat-events/:sessionId?after=N` protected by runtime sync secret.
 - Added `lastEventId` to chat messages API responses.
 - Regenerated tracked Egg controller/service typings for the new controller and service.
@@ -78,10 +79,18 @@ Followed the plan-specified separation: terminal/runtime events still use `upser
 
 ## Deviations from Plan
 
-None - plan executed exactly as written.
+### Auto-fixed Issues
 
-**Total deviations:** 0 auto-fixed.
-**Impact on plan:** No scope change.
+**1. [Rule 2 - Missing Critical] Chat transport branch must still create message rows**
+- **Found during:** Code review after Wave 3
+- **Issue:** Routing `transport='chat'` away from `upsertRuntimeEvent` meant `user.message` / `agent.result` could reach only `gateway_runtime_chats_events`; a raw_json-only UPDATE would not create missing `gateway_chat_messages` rows.
+- **Fix:** Added `upsertDerivedChatMessageRawJson` so `upsertChatRuntimeEvent` atomically writes the raw event table and upserts the final message row with `raw_json`.
+- **Files modified:** `apps/server/app/service/runtimeSyncRepository.ts`, `apps/server/test/runtime-sync.test.ts`
+- **Verification:** `pnpm --filter @tether/server typecheck`; `pnpm --filter @tether/server clean && pnpm --filter @tether/server test`
+- **Committed in:** pending review-fix commit
+
+**Total deviations:** 1 auto-fixed (missing critical message persistence).
+**Impact on plan:** Preserves intended chat history behavior while keeping chat runtime events out of `gateway_runtime_events`.
 
 ## Issues Encountered
 
@@ -90,7 +99,7 @@ The first server test run failed because previous `tsc` output left `.js` files 
 ## Verification
 
 - `pnpm --filter @tether/server typecheck` -> passed
-- `pnpm --filter @tether/server test` -> passed after clean; 22 tests passing
+- `pnpm --filter @tether/server test` -> passed after clean; 28 tests passing
 
 ## User Setup Required
 

@@ -45,6 +45,7 @@ completed: 2026-05-11
 
 - Added Server tests for `upsertChatRuntimeEvent`, `chatEventsRepository`, and route whitelist matching.
 - Added Server transaction mock coverage for `gateway_runtime_chats_events` writes.
+- Added Server transaction mock coverage for `agent.result` message upsert with `raw_json`.
 - Added Relay account isolation coverage for chat catch-up.
 - Added Relay coverage proving `agent.delta` syncs to Server with `scope.transport = 'chat'`.
 
@@ -86,7 +87,7 @@ None.
 ## Verification
 
 - `pnpm --filter @tether/server typecheck` -> passed
-- `pnpm --filter @tether/server test` -> passed; 27 tests passing
+- `pnpm --filter @tether/server test` -> passed; 28 tests passing
 - `pnpm --filter @tether/relay typecheck` -> passed
 - `pnpm --filter @tether/relay test` -> passed; 39 tests passing
 

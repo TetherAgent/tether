@@ -236,12 +236,7 @@ export default class RuntimeSyncRepositoryService extends Service {
            updated_at = CURRENT_TIMESTAMP`,
         [sessionId, eventId, eventType, rawJson, this.toDate(createdAt)]
       );
-      if (eventType === 'user.message' || eventType === 'agent.result') {
-        await connection.query(
-          'UPDATE gateway_chat_messages SET raw_json = ? WHERE session_id = ? AND source_event_id = ?',
-          [rawJson, sessionId, eventId]
-        );
-      }
+      await this.upsertDerivedChatMessageRawJson(connection, sessionId, eventId, eventType, event, rawJson, createdAt);
     });
   }
 
@@ -307,6 +302,50 @@ export default class RuntimeSyncRepositoryService extends Service {
         message.role,
         message.content,
         usageJson,
+        this.toDate(createdAt)
+      ]
+    );
+    await db.query(
+      'UPDATE gateway_sessions SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [sessionId]
+    );
+  }
+
+  private async upsertDerivedChatMessageRawJson(
+    db: Queryable,
+    sessionId: string,
+    sourceEventId: number,
+    eventType: string,
+    eventInput: unknown,
+    rawJson: string,
+    createdAt?: unknown
+  ): Promise<void> {
+    if (!Number.isFinite(sourceEventId) || sourceEventId <= 0) {
+      return;
+    }
+    const event = this.normalizePayload(eventInput);
+    const payload = this.normalizePayload(event.payload);
+    const message = this.chatMessageFromEvent(eventType, payload);
+    if (!message) {
+      return;
+    }
+    const usageJson = message.usage == null ? null : truncatePayload(maskPayload(message.usage));
+    await db.query(
+      `INSERT INTO gateway_chat_messages (session_id, source_event_id, role, content, usage_json, raw_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         role = VALUES(role),
+         content = VALUES(content),
+         usage_json = VALUES(usage_json),
+         raw_json = VALUES(raw_json),
+         created_at = VALUES(created_at)`,
+      [
+        sessionId,
+        sourceEventId,
+        message.role,
+        message.content,
+        usageJson,
+        rawJson,
         this.toDate(createdAt)
       ]
     );

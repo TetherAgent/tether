@@ -258,4 +258,55 @@ describe('test/runtime-sync.test.ts', () => {
     const rawJsonUpdate = queries.find(query => /UPDATE gateway_chat_messages SET raw_json/.test(query.sql))
     assert(!rawJsonUpdate, 'agent.delta should not update gateway_chat_messages.raw_json')
   })
+
+  it('upsertChatRuntimeEvent transport=chat — agent.result 写入 messages raw_json', async () => {
+    const queries: Array<{ sql: string; values?: any[] }> = []
+    const db = ctx.service.db as unknown as {
+      mysqlModeEnabled: () => boolean
+      transaction: <T>(run: (connection: { query: (sql: string, values?: any[]) => Promise<unknown> }) => Promise<T>) => Promise<T>
+    }
+    db.mysqlModeEnabled = () => true
+    db.transaction = async run => {
+      const connection = {
+        query: async (sql: string, values?: any[]) => {
+          queries.push({ sql, values })
+          if (/SELECT user_id FROM gateway_sessions/.test(sql)) {
+            return [{ user_id: 'user_1' }]
+          }
+          if (/SELECT session_id FROM gateway_deleted_sessions/.test(sql)) {
+            return []
+          }
+          if (/SELECT id FROM gateway_sessions[\s\S]*gateway_id <>/.test(sql)) {
+            return []
+          }
+          return { affectedRows: 1 }
+        }
+      }
+      return await run(connection)
+    }
+
+    const event = {
+      id: 6,
+      type: 'agent.result',
+      sessionId: 'tth_result_session',
+      ts: Date.now(),
+      payload: { text: 'done', usage: { input_tokens: 1, output_tokens: 2 }, lastDeltaEventId: 5 }
+    }
+    await ctx.service.runtimeSyncRepository.upsertChatRuntimeEvent(
+      'tth_result_session',
+      6,
+      'agent.result',
+      event,
+      { accountId: 'acct_1', gatewayId: 'gw_1', transport: 'chat' },
+      Date.now()
+    )
+
+    const messageInsert = queries.find(query => /INSERT INTO gateway_chat_messages/.test(query.sql))
+    assert(messageInsert, 'agent.result should upsert gateway_chat_messages')
+    assert.match(messageInsert.sql, /raw_json/)
+    assert.equal(messageInsert.values?.[0], 'tth_result_session')
+    assert.equal(messageInsert.values?.[1], 6)
+    assert.equal(messageInsert.values?.[2], 'assistant')
+    assert.equal(messageInsert.values?.[3], 'done')
+  })
 })
