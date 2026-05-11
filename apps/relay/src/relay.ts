@@ -197,7 +197,25 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
   const gateways = new Map<string, GatewayState>();
   // Relay-side routing for chat sessions: updated on every client.subscribe/unsubscribe.
   // Overrides the stale clientId embedded by Gateway in event payloads.
-  const chatSessionOwners = new Map<string, string>(); // sessionId → clientId
+  const chatSessionSubscribers = new Map<string, Set<string>>(); // sessionId -> Set<clientId>
+
+  function sendChatEventToSubscribers(sessionId: string, frame: RelayServerToClientFrame): void {
+    const subscribers = chatSessionSubscribers.get(sessionId);
+    if (!subscribers) return;
+    for (const subscriberId of subscribers) {
+      const client = clients.get(subscriberId);
+      if (!client) continue;
+      if (!clientCanAccessSession(client.scope, client.authMethod, sessionId)) continue;
+      sendToClient(subscriberId, frame);
+    }
+  }
+
+  function removeChatSubscriber(sessionId: string, clientId: string): void {
+    const subscribers = chatSessionSubscribers.get(sessionId);
+    if (!subscribers) return;
+    subscribers.delete(clientId);
+    if (subscribers.size === 0) chatSessionSubscribers.delete(sessionId);
+  }
   const server = createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/healthz') {
       response.writeHead(200, { 'content-type': 'text/plain; charset=UTF-8' });
@@ -408,16 +426,12 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           break;
         }
         if (frame.event.type === 'agent.delta') {
-          const clientId = chatSessionOwners.get(frame.event.sessionId)
-            ?? (typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined);
-          if (clientId) {
-            sendToClient(clientId, {
-              type: 'agent.delta',
-              sessionId: frame.event.sessionId,
-              text: String(frame.event.payload.text ?? ''),
-              ...(typeof frame.event.id === 'number' ? { eventId: frame.event.id } : {})
-            });
-          }
+          sendChatEventToSubscribers(frame.event.sessionId, {
+            type: 'agent.delta',
+            sessionId: frame.event.sessionId,
+            text: String(frame.event.payload.text ?? ''),
+            ...(typeof frame.event.id === 'number' ? { eventId: frame.event.id } : {})
+          });
           void syncToServer('/api/relay/runtime-sync/gateway/event', {
             gatewayId: frame.gatewayId,
             event: frame.event,
@@ -429,77 +443,59 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           break;
         }
         if (frame.event.type === 'agent.result') {
-          const clientId = chatSessionOwners.get(frame.event.sessionId)
-            ?? (typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined);
-          if (clientId) {
-            sendToClient(clientId, {
-              type: 'agent.result',
-              sessionId: frame.event.sessionId,
-              text: String(frame.event.payload.text ?? ''),
-              usage: (frame.event.payload.usage ?? { input_tokens: 0, output_tokens: 0 }) as {
-                input_tokens: number;
-                output_tokens: number;
-                cost_usd?: number;
-                cache_creation_input_tokens?: number;
-                cache_read_input_tokens?: number;
-              },
-              ...(typeof frame.event.payload.stop_reason === 'string'
-                ? { stop_reason: frame.event.payload.stop_reason }
-                : {}),
-              ...(typeof frame.event.payload.contextWindow === 'number'
-                ? { contextWindow: frame.event.payload.contextWindow }
-                : {}),
-              ...(frame.event.payload.rateLimitInfo && typeof frame.event.payload.rateLimitInfo === 'object'
-                ? { rateLimitInfo: frame.event.payload.rateLimitInfo as { resetsAt: number; rateLimitType: string; status: string } }
-                : {}),
-              ...(Array.isArray(frame.event.payload.nextSuggestions)
-                ? { nextSuggestions: frame.event.payload.nextSuggestions.filter(isNextSuggestion) }
-                : {})
-            });
-          }
+          sendChatEventToSubscribers(frame.event.sessionId, {
+            type: 'agent.result',
+            sessionId: frame.event.sessionId,
+            text: String(frame.event.payload.text ?? ''),
+            usage: (frame.event.payload.usage ?? { input_tokens: 0, output_tokens: 0 }) as {
+              input_tokens: number;
+              output_tokens: number;
+              cost_usd?: number;
+              cache_creation_input_tokens?: number;
+              cache_read_input_tokens?: number;
+            },
+            ...(typeof frame.event.payload.stop_reason === 'string'
+              ? { stop_reason: frame.event.payload.stop_reason }
+              : {}),
+            ...(typeof frame.event.payload.contextWindow === 'number'
+              ? { contextWindow: frame.event.payload.contextWindow }
+              : {}),
+            ...(frame.event.payload.rateLimitInfo && typeof frame.event.payload.rateLimitInfo === 'object'
+              ? { rateLimitInfo: frame.event.payload.rateLimitInfo as { resetsAt: number; rateLimitType: string; status: string } }
+              : {}),
+            ...(Array.isArray(frame.event.payload.nextSuggestions)
+              ? { nextSuggestions: frame.event.payload.nextSuggestions.filter(isNextSuggestion) }
+              : {})
+          });
         } else if (frame.event.type === 'agent.permission_request') {
-          const clientId = chatSessionOwners.get(frame.event.sessionId)
-            ?? (typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined);
-          if (clientId) {
-            sendToClient(clientId, {
-              type: 'agent.permission_request',
-              sessionId: frame.event.sessionId,
-              requestId: String(frame.event.payload.requestId ?? ''),
-              toolName: String(frame.event.payload.toolName ?? ''),
-              input: (frame.event.payload.input && typeof frame.event.payload.input === 'object'
-                ? frame.event.payload.input
-                : {}) as Record<string, unknown>
-            });
-          }
+          sendChatEventToSubscribers(frame.event.sessionId, {
+            type: 'agent.permission_request',
+            sessionId: frame.event.sessionId,
+            requestId: String(frame.event.payload.requestId ?? ''),
+            toolName: String(frame.event.payload.toolName ?? ''),
+            input: (frame.event.payload.input && typeof frame.event.payload.input === 'object'
+              ? frame.event.payload.input
+              : {}) as Record<string, unknown>
+          });
         } else if (frame.event.type === 'session.error') {
-          const clientId = chatSessionOwners.get(frame.event.sessionId)
-            ?? (typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined);
-          if (clientId) {
-            sendToClient(clientId, {
-              type: 'error',
-              sessionId: frame.event.sessionId,
-              code: String(frame.event.payload.code ?? 'session_error'),
-              message: String(frame.event.payload.message ?? 'session error')
-            });
-          } else {
-            sendEventToSubscribers(frame.event);
-          }
+          sendChatEventToSubscribers(frame.event.sessionId, {
+            type: 'error',
+            sessionId: frame.event.sessionId,
+            code: String(frame.event.payload.code ?? 'session_error'),
+            message: String(frame.event.payload.message ?? 'session error')
+          });
         } else if (frame.event.type === 'agent.tool') {
-          const clientId = chatSessionOwners.get(frame.event.sessionId)
-            ?? (typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined);
-          if (clientId) {
-            sendToClient(clientId, {
-              type: 'agent.tool',
-              sessionId: frame.event.sessionId,
-              name: String(frame.event.payload.name ?? ''),
-              input:
-                frame.event.payload.input && typeof frame.event.payload.input === 'object'
-                  ? (frame.event.payload.input as Record<string, unknown>)
-                  : {},
-              ...(typeof frame.event.payload.result === 'string' ? { result: frame.event.payload.result } : {}),
-              ...(typeof frame.event.payload.isError === 'boolean' ? { isError: frame.event.payload.isError } : {})
-            });
-          }
+          sendChatEventToSubscribers(frame.event.sessionId, {
+            type: 'agent.tool',
+            sessionId: frame.event.sessionId,
+            name: String(frame.event.payload.name ?? ''),
+            input:
+              frame.event.payload.input && typeof frame.event.payload.input === 'object'
+                ? (frame.event.payload.input as Record<string, unknown>)
+                : {},
+            ...(typeof frame.event.payload.result === 'string' ? { result: frame.event.payload.result } : {}),
+            ...(typeof frame.event.payload.isError === 'boolean' ? { isError: frame.event.payload.isError } : {})
+          });
         } else if (frame.event.type === 'gateway.providers') {
           const clientId = typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined;
           if (clientId) {
@@ -531,7 +527,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         if (RUNTIME_EVENT_WHITELIST.has(frame.event.type)) {
           const isChatRuntimeEvent =
             latestSessions.get(frame.event.sessionId)?.transport === 'chat' ||
-            chatSessionOwners.has(frame.event.sessionId) ||
+            chatSessionSubscribers.has(frame.event.sessionId) ||
             CHAT_RUNTIME_EVENT_TYPES.has(frame.event.type);
           const whitelistScope = isChatRuntimeEvent
             ? { ...gatewayScope, transport: 'chat' as const }
@@ -729,8 +725,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     socket.on('close', () => {
       clearTimeout(authTimer);
       clients.delete(clientId);
-      for (const [sessionId, ownerId] of chatSessionOwners) {
-        if (ownerId === clientId) chatSessionOwners.delete(sessionId);
+      for (const [sessionId, subscribers] of chatSessionSubscribers) {
+        subscribers.delete(clientId);
+        if (subscribers.size === 0) chatSessionSubscribers.delete(sessionId);
       }
     });
   }
@@ -802,7 +799,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         }
         subscriptions.set(frame.sessionId, frame.mode);
         if (session.transport === 'chat') {
-          chatSessionOwners.set(frame.sessionId, clientId);
+          const chatSubscribers = chatSessionSubscribers.get(frame.sessionId) ?? new Set<string>();
+          chatSubscribers.add(clientId);
+          chatSessionSubscribers.set(frame.sessionId, chatSubscribers);
           if (session.status === 'running' && options.serverSyncUrl && options.runtimeSyncSecret) {
             const after = typeof frame.after === 'number' ? frame.after : 0;
             try {
@@ -984,6 +983,24 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         });
         break;
       case 'client.permission_response':
+        if (!clientCanAccessSession(clientScope, authMethod, frame.sessionId)) {
+          sendToClient(clientId, {
+            type: 'error',
+            sessionId: frame.sessionId,
+            code: 'forbidden',
+            message: 'session is outside client scope'
+          });
+          break;
+        }
+        if (!chatSessionSubscribers.get(frame.sessionId)?.has(clientId)) {
+          sendToClient(clientId, {
+            type: 'error',
+            sessionId: frame.sessionId,
+            code: 'not_subscribed',
+            message: 'client is not subscribed to this session'
+          });
+          break;
+        }
         forwardToSessionGateway({
           type: 'client.permission_response',
           clientId,
@@ -994,9 +1011,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         break;
       case 'client.unsubscribe': {
         subscriptions.delete(frame.sessionId);
-        if (chatSessionOwners.get(frame.sessionId) === clientId) {
-          chatSessionOwners.delete(frame.sessionId);
-        }
+        removeChatSubscriber(frame.sessionId, clientId);
         if (clientCanAccessSession(clientScope, authMethod, frame.sessionId)) {
           const unsubSession = latestSessions.get(frame.sessionId);
           if (!unsubSession || unsubSession.transport !== 'chat') {
@@ -1011,9 +1026,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           break;
         }
         subscriptions.delete(frame.sessionId);
-        if (chatSessionOwners.get(frame.sessionId) === clientId) {
-          chatSessionOwners.delete(frame.sessionId);
-        }
+        removeChatSubscriber(frame.sessionId, clientId);
         const detachSession = latestSessions.get(frame.sessionId);
         if (!detachSession || detachSession.transport !== 'chat') {
           forwardToSessionGateway({ type: 'client.detach', clientId, sessionId: frame.sessionId });
