@@ -1,4 +1,4 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -54,6 +54,7 @@ const MAX_RECONNECT_DELAY_MS = 5000;
 const RELAY_HEARTBEAT_INTERVAL_MS = 15_000;
 const RELAY_HEARTBEAT_TIMEOUT_MS = 10_000;
 const RELAY_FORBIDDEN_KEYS = new Set(['command', 'args', 'argv', 'env', 'providerCommand']);
+const GATEWAY_TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
 
 export function startRelayClient(options: RelayClientOptions): RunningRelayClient {
   let closed = false;
@@ -1116,10 +1117,12 @@ async function resolveRelayAuth(
   if (!raw) {
     return undefined;
   }
-  const parsed = JSON.parse(raw) as {
+  let parsed = JSON.parse(raw) as {
+    serverUrl?: unknown;
     gatewayId?: unknown;
     accountId?: unknown;
     accessToken?: unknown;
+    refreshToken?: unknown;
     expiresAt?: unknown;
   };
   if (
@@ -1128,7 +1131,14 @@ async function resolveRelayAuth(
   ) {
     return undefined;
   }
-  if (parsed.expiresAt <= Date.now()) {
+  if (parsed.expiresAt <= Date.now() + GATEWAY_TOKEN_REFRESH_SKEW_MS) {
+    parsed = await refreshGatewayAuthState(parsed).catch(() => parsed);
+  }
+  if (
+    typeof parsed.expiresAt !== 'number' ||
+    typeof parsed.accessToken !== 'string' ||
+    parsed.expiresAt <= Date.now()
+  ) {
     return undefined;
   }
   const payload = decodeGatewayToken(parsed.accessToken);
@@ -1153,4 +1163,55 @@ async function resolveRelayAuth(
       jti: 'relay-auth-local'
     }
   };
+}
+
+async function refreshGatewayAuthState(state: {
+  serverUrl?: unknown;
+  accessToken?: unknown;
+  refreshToken?: unknown;
+  expiresAt?: unknown;
+}): Promise<{
+  serverUrl?: unknown;
+  accessToken?: unknown;
+  refreshToken?: unknown;
+  expiresAt?: unknown;
+}> {
+  if (typeof state.serverUrl !== 'string' || typeof state.refreshToken !== 'string') {
+    return state;
+  }
+  const response = await fetch(`${state.serverUrl}/api/relay/gateway/refresh`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ refreshToken: state.refreshToken })
+  });
+  if (!response.ok) {
+    return state;
+  }
+  const body = await response.json().catch(() => undefined);
+  const data = unwrapServerApiData(body) as { accessToken?: unknown; refreshToken?: unknown } | undefined;
+  if (typeof data?.accessToken !== 'string' || typeof data.refreshToken !== 'string') {
+    return state;
+  }
+  const payload = decodeGatewayToken(data.accessToken);
+  if (typeof payload?.expiresAt !== 'number') {
+    return state;
+  }
+  const next = {
+    serverUrl: state.serverUrl,
+    accessToken: data.accessToken,
+    refreshToken: data.refreshToken,
+    expiresAt: payload.expiresAt
+  };
+  const authPath = process.env.TETHER_AUTH_PATH ?? path.join(os.homedir(), '.tether', 'auth.json');
+  await mkdir(path.dirname(authPath), { recursive: true });
+  await writeFile(authPath, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+  return next;
+}
+
+function unwrapServerApiData(body: unknown): unknown {
+  if (!body || typeof body !== 'object' || !('code' in body)) {
+    return body;
+  }
+  const payload = body as { code?: unknown; data?: unknown };
+  return payload.code === 200 ? payload.data : undefined;
 }

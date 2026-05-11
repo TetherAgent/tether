@@ -41,7 +41,17 @@ export type AuthStorageRecord<TIdentity> = {
 
 export const NORMAL_STORAGE_KEY = 'tether:web:normalAuth';
 
-const http = createHttpClient();
+function detectPlatform(): string {
+  const ua = navigator.userAgent;
+  if (/Mobi|Android|iPhone|iPad|iPod/i.test(ua)) {
+    return 'web-h5';
+  }
+  return 'web-pc';
+}
+
+const http = createHttpClient({
+  defaultHeaders: { 'x-client-platform': detectPlatform() }
+});
 
 function normalizeRequestError(error: unknown): Error {
   if (error instanceof ApiRequestError) {

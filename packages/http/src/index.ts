@@ -9,6 +9,7 @@ type QueryParams = Record<string, QueryValue>;
 type RequestOptions = {
   token?: string;
   headers?: HeadersInit;
+  defaultHeaders?: Record<string, string>;
   suppressGlobalError?: boolean;
 };
 
@@ -86,11 +87,13 @@ export type HttpClientOptions = {
   timeout?: number;
   tokenHeaderName?: string;
   tokenFormatter?: (token: string) => string;
+  defaultHeaders?: Record<string, string>;
 };
 
 export function createHttpClient(options: HttpClientOptions = {}) {
   const tokenHeaderName = options.tokenHeaderName ?? 'Authorization';
   const tokenFormatter = options.tokenFormatter ?? ((token: string) => `Bearer ${token}`);
+  const clientDefaultHeaders = options.defaultHeaders ?? {};
 
   const alova = createAlova({
     baseURL: options.baseURL ?? '',
@@ -128,7 +131,10 @@ export function createHttpClient(options: HttpClientOptions = {}) {
   }
 
   function buildHeaders(options: RequestOptions): Record<string, string> | undefined {
-    const headers = new Headers(options.headers);
+    const headers = new Headers(options.defaultHeaders ?? clientDefaultHeaders);
+    if (options.headers) {
+      new Headers(options.headers).forEach((v, k) => headers.set(k, v));
+    }
     if (options.token) {
       headers.set(tokenHeaderName, tokenFormatter(options.token));
     }
@@ -140,9 +146,6 @@ export function createHttpClient(options: HttpClientOptions = {}) {
   }
 
   function applyHeaders(method: { config: { headers?: HeadersInit } }, options: RequestOptions): void {
-    if (!options.token && !options.headers) {
-      return;
-    }
     const headers = buildHeaders(options);
     if (!headers) {
       return;

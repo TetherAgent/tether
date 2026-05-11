@@ -7,6 +7,8 @@ export default class AdminGatewaysService extends Service {
     const offset = (page - 1) * limit;
     const gateways = await ctx.service.gatewayRepository.loadAllGateways(limit, offset);
     const total = await ctx.service.gatewayRepository.countGateways();
+    const now = Date.now();
+    const onlineWindowMs = 120_000;
     return {
       gateways: gateways.map(g => ({
         id: g.id,
@@ -19,7 +21,7 @@ export default class AdminGatewaysService extends Service {
         lastSeenAt: g.lastSeenAt,
         createdAt: g.createdAt,
         updatedAt: g.updatedAt,
-        status: g.status === 'revoked' ? 'unlinked' : g.status
+        status: g.status === 'revoked' ? 'unlinked' : now - g.lastSeenAt <= onlineWindowMs ? 'online' : 'offline'
       })),
       total
     };
@@ -39,7 +41,8 @@ export default class AdminGatewaysService extends Service {
       return;
     }
 
-    await ctx.service.gatewayRepository.deleteGatewayById(gatewayId);
+    await ctx.service.authRepository.revokeRefreshTokensByGatewayId(gatewayId);
+    await ctx.service.gatewayRepository.unlinkGatewayById(gatewayId);
     await ctx.service.audit.recordAuditEvent({
       accountId,
       adminUserId,

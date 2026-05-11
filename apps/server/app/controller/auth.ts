@@ -9,7 +9,7 @@ export default class AuthController extends Controller {
       password: body.password ?? '',
       displayName: body.displayName,
       deviceName: body.deviceName,
-      platform: body.platform,
+      platform: body.platform ?? (ctx.get('x-client-platform') || undefined),
       ip: ctx.ip,
       userAgent: ctx.get('user-agent')
     });
@@ -23,7 +23,7 @@ export default class AuthController extends Controller {
       email: body.email ?? '',
       password: body.password ?? '',
       deviceName: body.deviceName,
-      platform: body.platform,
+      platform: body.platform ?? (ctx.get('x-client-platform') || undefined),
       ip: ctx.ip,
       userAgent: ctx.get('user-agent')
     });

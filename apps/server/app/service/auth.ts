@@ -150,22 +150,31 @@ export default class AuthService extends Service {
     platform?: string;
   }, options?: { persist?: boolean }): Promise<DeviceRecord> {
     const createdAt = this.now();
-    const device: DeviceRecord = {
-      id: this.newId('device'),
+    const name = base.deviceName ?? 'web-browser';
+    const platform = base.platform ?? 'web';
+
+    if (options?.persist === false) {
+      return {
+        id: this.newId('device'),
+        accountId: base.accountId,
+        userId: base.userId,
+        adminUserId: base.adminUserId,
+        name,
+        platform,
+        createdAt,
+        updatedAt: createdAt
+      };
+    }
+
+    return await this.ctx.service.authRepository.findOrCreateDevice({
       accountId: base.accountId,
       userId: base.userId,
       adminUserId: base.adminUserId,
-      name: base.deviceName ?? 'web-browser',
-      platform: base.platform ?? 'web',
+      name,
+      platform,
       createdAt,
       updatedAt: createdAt
-    };
-
-    if (options?.persist !== false) {
-      const { ctx } = this;
-      device.id = await ctx.service.authRepository.saveDevice(device);
-    }
-    return device;
+    });
   }
 
   private async primaryAccountRecord(): Promise<AccountRecord | undefined> {

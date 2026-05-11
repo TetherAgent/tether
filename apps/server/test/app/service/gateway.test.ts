@@ -1,5 +1,4 @@
 import assert from 'assert'
-import { readFileSync } from 'fs'
 import { Context } from 'egg'
 import { app } from 'egg-mock/bootstrap'
 
@@ -46,14 +45,35 @@ describe('test/app/service/gateway.test.ts', () => {
     )
   })
 
-  it('deletes gateway refresh tokens before deleting the gateway row', async () => {
-    const source = readFileSync(
-      require.resolve('../../../app/service/gatewayRepository.ts'),
-      'utf8',
+  it('admin unlink revokes gateway refresh tokens and keeps gateway row', async () => {
+    const bound = await ctx.service.gateway.bindGateway({
+      email: 'owner@example.com',
+      password: 'pw-123456',
+    })
+    await ctx.service.auth.registerManagementUser({
+      email: 'admin@example.com',
+      password: 'pw-123456',
+    })
+    const admin = await ctx.service.auth.loginManagementUser({
+      email: 'admin@example.com',
+      password: 'pw-123456',
+    })
+
+    await ctx.service.admin.gateways.unlinkAdminGateway(
+      bound.gateway.id,
+      admin.adminUser.id,
+      bound.accountId,
     )
-    assert.match(
-      source,
-      /DELETE FROM gateway_refresh_tokens WHERE gateway_id = \?[\s\S]*DELETE FROM gateways WHERE id = \?/,
+
+    const gateway = await ctx.service.gatewayRepository.loadGatewayById(bound.gateway.id)
+    assert(gateway)
+    assert.strictEqual(gateway.status, 'revoked')
+    const refreshPayload = await ctx.service.auth.verifyToken(bound.gatewayRefreshToken)
+    const refreshRecord = await ctx.service.authRepository.loadRefreshTokenByJti(refreshPayload.jti)
+    assert(refreshRecord?.revokedAt)
+    await assert.rejects(
+      () => ctx.service.gateway.refreshGatewayToken(bound.gatewayRefreshToken),
+      /gateway_unlinked|token_revoked/,
     )
   })
 })

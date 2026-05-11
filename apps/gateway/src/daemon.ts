@@ -1,6 +1,6 @@
 import { exec } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
@@ -49,6 +49,8 @@ type GatewayAuthState = {
   refreshToken: string;
   expiresAt: number;
 };
+
+const GATEWAY_TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
 
 function decodeGatewayToken(token: string): Record<string, unknown> | undefined {
   const parts = token.split('.');
@@ -153,6 +155,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   const controllers = new Map<string, string>();
   const runnerClients = new Map<string, SessionRunnerClient>();
   let relayClient: RunningRelayClient | undefined;
+  let lastServerHeartbeatAt: number | undefined;
+  let lastServerHeartbeatError: string | undefined;
 
   const getRunnerClient = (session: Session): SessionRunnerClient | undefined => {
     if (!session.runnerSocketPath) {
@@ -270,6 +274,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       port: options.port,
       allowApiSessionCreate: Boolean(options.allowApiSessionCreate),
       relay: relayClient ? relayClient.status() : { configured: false },
+      serverAuth: await gatewayServerAuthStatus(),
+      serverHeartbeat: {
+        lastOkAt: lastServerHeartbeatAt,
+        lastError: lastServerHeartbeatError
+      },
       environment: {
         pathHasHomebrewBin: pathListIncludes(process.env.PATH, '/opt/homebrew/bin'),
         pathHasUsrLocalBin: pathListIncludes(process.env.PATH, '/usr/local/bin')
@@ -985,6 +994,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     touchGateway(gatewayId).catch(() => undefined);
   }, 10_000);
   heartbeat.unref();
+  const serverHeartbeat = setInterval(() => {
+    void sendServerHeartbeat();
+  }, 30_000);
+  serverHeartbeat.unref();
+  void sendServerHeartbeat();
 
   if (options.relay) {
     relayClient = startRelayClient({
@@ -1001,6 +1015,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     url,
     close: async () => {
       clearInterval(heartbeat);
+      clearInterval(serverHeartbeat);
       await relayClient?.close();
       for (const client of runnerClients.values()) {
         await client.close().catch(() => undefined);
@@ -1018,6 +1033,44 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       }).finally(() => unregisterGateway(gatewayId).catch(() => undefined));
     }
   };
+
+  async function sendServerHeartbeat(): Promise<void> {
+    const authState = await loadGatewayAuthState();
+    if (!authState.ok) {
+      lastServerHeartbeatError = authState.error;
+      return;
+    }
+    try {
+      const response = await fetch(`${authState.value.serverUrl}/api/relay/gateway/heartbeat`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${authState.value.accessToken}` }
+      });
+      if (!response.ok) {
+        lastServerHeartbeatError = `HTTP ${response.status}`;
+        return;
+      }
+      lastServerHeartbeatAt = Date.now();
+      lastServerHeartbeatError = undefined;
+    } catch (error) {
+      lastServerHeartbeatError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  async function gatewayServerAuthStatus(): Promise<Record<string, unknown>> {
+    const authState = await loadGatewayAuthState();
+    if (!authState.ok) {
+      return { state: authState.status === 401 ? 'missing_or_expired' : 'invalid', error: authState.error };
+    }
+    const identity = getGatewayIdentity(authState.value);
+    return {
+      state: 'logged_in',
+      serverUrl: authState.value.serverUrl,
+      gatewayId: identity?.gatewayId,
+      accountId: identity?.accountId,
+      userId: identity?.userId,
+      expiresAt: authState.value.expiresAt
+    };
+  }
 }
 
 function providerCommand(provider: string, config = readTetherConfig()): string {
@@ -1171,6 +1224,12 @@ async function loadGatewayAuthState(): Promise<
   if (!parsed) {
     return { ok: false, status: 500, error: 'gateway_auth_invalid' };
   }
+  if (parsed.expiresAt <= Date.now() + GATEWAY_TOKEN_REFRESH_SKEW_MS) {
+    const refreshed = await refreshGatewayAuthState(parsed).catch(() => undefined);
+    if (refreshed) {
+      return { ok: true, value: refreshed };
+    }
+  }
   if (parsed.expiresAt <= Date.now()) {
     return { ok: false, status: 401, error: 'gateway_auth_expired' };
   }
@@ -1196,6 +1255,35 @@ function parseGatewayAuthState(raw: string): GatewayAuthState | undefined {
     return undefined;
   }
   return undefined;
+}
+
+async function refreshGatewayAuthState(state: GatewayAuthState): Promise<GatewayAuthState | undefined> {
+  const response = await fetch(`${state.serverUrl}/api/relay/gateway/refresh`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ refreshToken: state.refreshToken })
+  });
+  if (!response.ok) {
+    return undefined;
+  }
+  const body = await response.json().catch(() => undefined);
+  const data = unwrapServerApiData<{ accessToken?: unknown; refreshToken?: unknown }>(body);
+  if (typeof data?.accessToken !== 'string' || typeof data.refreshToken !== 'string') {
+    return undefined;
+  }
+  const payload = decodeGatewayToken(data.accessToken);
+  if (typeof payload?.expiresAt !== 'number') {
+    return undefined;
+  }
+  const next: GatewayAuthState = {
+    serverUrl: state.serverUrl,
+    accessToken: data.accessToken,
+    refreshToken: data.refreshToken,
+    expiresAt: payload.expiresAt
+  };
+  await mkdir(path.dirname(gatewayAuthPath()), { recursive: true });
+  await writeFile(gatewayAuthPath(), `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+  return next;
 }
 
 function resolvePackageVersion(startUrl: string, packageNames: string[]): string | undefined {

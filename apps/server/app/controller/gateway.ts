@@ -34,4 +34,11 @@ export default class GatewayController extends Controller {
     const data = await ctx.service.gateway.refreshGatewayToken(body.refreshToken ?? '');
     ctx.success(data);
   }
+
+  public async heartbeat(): Promise<void> {
+    const { ctx } = this;
+    const auth = ctx.state.auth as { gatewayId?: string } | undefined;
+    const data = await ctx.service.gateway.heartbeatGateway(auth?.gatewayId ?? '');
+    ctx.success(data);
+  }
 }

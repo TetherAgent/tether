@@ -279,6 +279,38 @@ export default class AuthRepositoryService extends Service {
     return { adminId, deviceId };
   }
 
+  public async findOrCreateDevice(input: {
+    accountId: string;
+    userId?: string;
+    adminUserId?: string;
+    name: string;
+    platform: string;
+    createdAt: number;
+    updatedAt: number;
+  }): Promise<DeviceRecord> {
+    if (!this.mysqlModeEnabled()) {
+      const existing = [...this.runtimeStore().devices.values()].find(
+        d => d.userId === input.userId && d.adminUserId === input.adminUserId && d.name === input.name && d.platform === input.platform
+      );
+      if (existing) return existing;
+      const device: DeviceRecord = { id: createId('device'), ...input };
+      this.runtimeStore().devices.set(device.id, device);
+      return device;
+    }
+    const existing = await this.query(
+      `SELECT * FROM devices WHERE user_id <=> ? AND admin_user_id <=> ? AND name = ? AND platform = ? AND revoked_at IS NULL LIMIT 1`,
+      [input.userId ?? null, input.adminUserId ?? null, input.name, input.platform]
+    );
+    const row = (existing as Record<string, unknown>[])[0];
+    if (row) return this.deviceFromRow(row);
+    let deviceId = '';
+    await this.transaction(async connection => {
+      deviceId = await this.insertDeviceWithConnection(connection, { id: '', ...input });
+    });
+    const rows = await this.query('SELECT * FROM devices WHERE id = ? LIMIT 1', [deviceId]);
+    return this.deviceFromRow((rows as Record<string, unknown>[])[0]);
+  }
+
   public async saveDevice(device: DeviceRecord): Promise<string> {
     if (!this.mysqlModeEnabled()) {
       this.runtimeStore().devices.set(device.id, device);
@@ -380,6 +412,21 @@ export default class AuthRepositoryService extends Service {
     await this.query(
       `UPDATE gateway_refresh_tokens SET revoked_at = FROM_UNIXTIME(? / 1000), updated_at = FROM_UNIXTIME(? / 1000) WHERE jti = ?`,
       [revokedAt, revokedAt, jti]
+    );
+  }
+
+  public async revokeRefreshTokensByGatewayId(gatewayId: string): Promise<void> {
+    if (!this.mysqlModeEnabled()) {
+      for (const token of this.runtimeStore().refreshTokens.values()) {
+        if (token.gatewayId === gatewayId) {
+          token.revokedAt = Date.now();
+        }
+      }
+      return;
+    }
+    await this.query(
+      'UPDATE gateway_refresh_tokens SET revoked_at = NOW(), updated_at = NOW() WHERE gateway_id = ? AND revoked_at IS NULL',
+      [gatewayId]
     );
   }
 

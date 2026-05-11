@@ -99,6 +99,10 @@ type GatewayStatus = {
     configured?: unknown;
     state?: unknown;
   };
+  serverHeartbeat?: {
+    lastOkAt?: unknown;
+    lastError?: unknown;
+  };
   environment?: {
     pathHasHomebrewBin?: unknown;
     pathHasUsrLocalBin?: unknown;
@@ -117,6 +121,7 @@ type GatewayLoginEnv = 'local' | 'prod';
 
 const LOCAL_SERVER_URL = 'http://127.0.0.1:4800';
 const LOCAL_DETACH_KEY = '\x01';
+const GATEWAY_TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
 
 type CreatedGatewaySession = {
   id: string;
@@ -200,6 +205,13 @@ gatewayCommand
   .option('--env <env>', '登录环境：local 或 prod；默认 prod')
   .action(async (options: { serverUrl?: string; env?: string }) => {
     await performGatewayLogin({ ...options, env: parseGatewayLoginEnvOption(options.env) });
+  });
+
+gatewayCommand
+  .command('logout')
+  .description('删除本机 Gateway 登录凭据，不解绑服务端 Gateway')
+  .action(async () => {
+    await logoutGateway();
   });
 
 gatewayCommand
@@ -632,7 +644,7 @@ async function ensureGatewayAuthForProfile(profile: GatewayProfileName): Promise
   if (profile === 'local') {
     return;
   }
-  const existing = await readGatewayAuthState().catch(() => undefined);
+  const existing = await readFreshGatewayAuthState().catch(() => undefined);
   if (existing && existing.expiresAt > Date.now()) {
     return;
   }
@@ -703,18 +715,24 @@ async function printGatewayStatus(): Promise<void> {
   const pid = numberValue(api?.pid) ?? launchd.pid ?? registry?.pid;
   const relayConfigured = booleanValue(api?.relay?.configured) ?? Boolean(relay);
   const relayState = stringValue(api?.relay?.state);
+  const authSummary = await gatewayAuthSummary();
 
   console.log('Gateway 状态');
   console.log(`默认模式: ${resolved.profile}`);
-  console.log(`运行状态: ${api ? '运行中' : '已停止或不可连接'}`);
+  console.log(`本机 Gateway 进程: ${api ? 'running' : 'stopped/unreachable'}`);
   console.log(`PID: ${pid ?? '-'}`);
   console.log(`URL: ${url}`);
   console.log(`配置文件: ${configPath()}`);
   console.log(`Server: ${resolved.serverUrl}`);
+  console.log(`Server 登录: ${authSummary.state}`);
+  console.log(`Gateway ID: ${authSummary.gatewayId ?? '-'}`);
+  console.log(`Account ID: ${authSummary.accountId ?? '-'}`);
+  console.log(`Token 过期时间: ${authSummary.expiresAt ? new Date(authSummary.expiresAt).toLocaleString('zh-CN', { hour12: false }) : '-'}`);
   console.log(`Host: ${host}`);
   console.log(`Port: ${port}`);
   console.log(`Relay 配置: ${relayConfigured ? '已配置' : '未配置'}`);
   console.log(`Relay 连接: ${relayState ?? '未确认'}`);
+  console.log(`最近 Server 心跳: ${formatGatewayServerHeartbeat(api)}`);
   console.log(`后台 PATH: ${formatGatewayPathStatus(api)}`);
   console.log(`Provider 命令: ${formatProviderCommands(file)}`);
   console.log(`LaunchAgent: ${formatLaunchAgentStatus(launchd)}`);
@@ -805,6 +823,16 @@ function formatGatewayPathStatus(api: GatewayStatus | undefined): string {
     ].filter(Boolean).join('，');
   }
   return '未包含常见用户 bin 目录';
+}
+
+function formatGatewayServerHeartbeat(api: GatewayStatus | undefined): string {
+  const lastOkAt = numberValue(api?.serverHeartbeat?.lastOkAt);
+  const lastError = stringValue(api?.serverHeartbeat?.lastError);
+  if (lastOkAt) {
+    const ageSec = Math.max(0, Math.round((Date.now() - lastOkAt) / 1000));
+    return `${new Date(lastOkAt).toLocaleString('zh-CN', { hour12: false })}（${ageSec}s 前）`;
+  }
+  return lastError ? `失败：${lastError}` : '未确认';
 }
 
 function formatProviderCommands(config: TetherConfig): string {
@@ -1439,6 +1467,16 @@ async function performGatewayLogin(options: {
     expiresAt: payload.expiresAt
   });
   console.log(`Gateway 登录成功，凭据已写入：${gatewayAuthPath()}`);
+  console.log(`已绑定 Gateway ID: ${result.gatewayId}`);
+  console.log(`Account ID: ${result.accountId}`);
+  console.log('下一步：tether gateway restart');
+  console.log('查看状态：tether gateway status');
+}
+
+async function logoutGateway(): Promise<void> {
+  await rm(gatewayAuthPath(), { force: true });
+  console.log(`已删除本机 Gateway 登录凭据：${gatewayAuthPath()}`);
+  console.log('服务端 Gateway 绑定未变；如需解绑，请在管理后台取消链接。');
 }
 
 function openBrowser(url: string): void {
@@ -1537,11 +1575,23 @@ function resolveGatewayLoginServerUrl(options: {
 }
 
 async function gatewayAuthHeaders(): Promise<Record<string, string>> {
-  const auth = await readGatewayAuthState();
-  if (auth.expiresAt <= Date.now()) {
-    throw new Error('本地 auth.json 已过期，请重新执行 tether gateway login。');
-  }
+  const auth = await readFreshGatewayAuthState();
   return { authorization: `Bearer ${auth.accessToken}` };
+}
+
+async function readFreshGatewayAuthState(): Promise<GatewayAuthState> {
+  const auth = await readGatewayAuthState();
+  if (auth.expiresAt > Date.now() + GATEWAY_TOKEN_REFRESH_SKEW_MS) {
+    return auth;
+  }
+  const refreshed = await refreshGatewayAuthState(auth).catch(() => undefined);
+  if (refreshed) {
+    return refreshed;
+  }
+  if (auth.expiresAt <= Date.now()) {
+    throw new Error('本地 auth.json 已过期，且 refresh 失败。请重新执行 tether gateway login。');
+  }
+  return auth;
 }
 
 async function readGatewayAuthState(): Promise<GatewayAuthState> {
@@ -1564,6 +1614,68 @@ async function readGatewayAuthState(): Promise<GatewayAuthState> {
 async function writeGatewayAuthState(state: GatewayAuthState): Promise<void> {
   await mkdir(path.dirname(gatewayAuthPath()), { recursive: true });
   await writeFile(gatewayAuthPath(), `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+}
+
+async function refreshGatewayAuthState(state: GatewayAuthState): Promise<GatewayAuthState | undefined> {
+  const response = await fetch(`${state.serverUrl}/api/relay/gateway/refresh`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ refreshToken: state.refreshToken })
+  });
+  if (!response.ok) {
+    return undefined;
+  }
+  const data = unwrapServerApiData(await response.json().catch(() => undefined)) as { accessToken?: unknown; refreshToken?: unknown } | undefined;
+  if (typeof data?.accessToken !== 'string' || typeof data.refreshToken !== 'string') {
+    return undefined;
+  }
+  const payload = decodeTokenPayload(data.accessToken);
+  if (!payload || typeof payload.expiresAt !== 'number') {
+    return undefined;
+  }
+  const next: GatewayAuthState = {
+    serverUrl: state.serverUrl,
+    accessToken: data.accessToken,
+    refreshToken: data.refreshToken,
+    expiresAt: payload.expiresAt
+  };
+  await writeGatewayAuthState(next);
+  return next;
+}
+
+async function gatewayAuthSummary(): Promise<{
+  state: string;
+  gatewayId?: string;
+  accountId?: string;
+  expiresAt?: number;
+}> {
+  const raw = await readFile(gatewayAuthPath(), 'utf8').catch(() => undefined);
+  if (!raw) {
+    return { state: '未登录' };
+  }
+  let parsed: Partial<GatewayAuthState>;
+  try {
+    parsed = JSON.parse(raw) as Partial<GatewayAuthState>;
+  } catch {
+    return { state: 'auth.json 无效' };
+  }
+  if (
+    typeof parsed.serverUrl !== 'string' ||
+    typeof parsed.accessToken !== 'string' ||
+    typeof parsed.refreshToken !== 'string' ||
+    typeof parsed.expiresAt !== 'number'
+  ) {
+    return { state: 'auth.json 无效' };
+  }
+  const refreshed = await readFreshGatewayAuthState().catch(() => undefined);
+  const auth = refreshed ?? (parsed as GatewayAuthState);
+  const payload = decodeTokenPayload(auth.accessToken);
+  return {
+    state: refreshed ? '已登录' : auth.expiresAt > Date.now() ? '已登录（refresh 未确认）' : '已过期',
+    gatewayId: typeof payload?.gatewayId === 'string' ? payload.gatewayId : undefined,
+    accountId: typeof payload?.accountId === 'string' ? payload.accountId : undefined,
+    expiresAt: auth.expiresAt
+  };
 }
 
 function decodeTokenPayload(token: string): Record<string, unknown> | undefined {

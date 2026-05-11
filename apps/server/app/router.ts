@@ -7,6 +7,7 @@ export default (app: Application): void => {
   const requireAnyAccess = middleware.requireTokenClass({
     expected: [ 'management_access', 'normal_client_access', 'gateway_access' ]
   });
+  const requireGatewayAccess = middleware.requireTokenClass({ expected: [ 'gateway_access' ] });
   const requireRuntimeSyncSecret = middleware.requireRuntimeSyncSecret();
 
   router.get('/healthz', controller.health.index); // 健康检查
@@ -21,6 +22,7 @@ export default (app: Application): void => {
   // Gateway 注册与凭据（CLI 调用）
   router.post('/api/relay/gateway/bind', controller.gateway.bind);                                   // Gateway 绑定账号（邮箱密码）
   router.post('/api/relay/gateway/refresh', controller.gateway.refresh);                             // Gateway 刷新凭据
+  router.post('/api/relay/gateway/heartbeat', requireGatewayAccess, controller.gateway.heartbeat);    // Gateway 在线心跳
   router.post('/api/server/gateway-auth/bind', requireNormalAccess, controller.gatewayAuth.bind);    // Gateway 浏览器授权绑定
 
   // Token 管理

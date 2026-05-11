@@ -165,15 +165,36 @@ export default class GatewayRepositoryService extends Service {
     return Number((rows as Record<string, unknown>[])[0]?.count ?? 0);
   }
 
-  public async deleteGatewayById(id: string): Promise<void> {
+  public async touchGatewayHeartbeat(id: string, lastSeenAt: number): Promise<void> {
     const { ctx } = this;
     if (!this.mysqlModeEnabled()) {
-      ctx.service.runtime.runtimeStore().gateways.delete(id);
+      const gateway = ctx.service.runtime.runtimeStore().gateways.get(id);
+      if (gateway && gateway.status !== 'revoked') {
+        gateway.status = 'online';
+        gateway.lastSeenAt = lastSeenAt;
+        gateway.updatedAt = lastSeenAt;
+      }
       return;
     }
-    await ctx.service.db.transaction(async connection => {
-      await connection.query('DELETE FROM gateway_refresh_tokens WHERE gateway_id = ?', [id]);
-      await connection.query('DELETE FROM gateways WHERE id = ?', [id]);
-    });
+    await ctx.service.db.query(
+      "UPDATE gateways SET status = 'online', last_seen_at = FROM_UNIXTIME(? / 1000), updated_at = FROM_UNIXTIME(? / 1000) WHERE id = ? AND status <> 'revoked'",
+      [lastSeenAt, lastSeenAt, id]
+    );
+  }
+
+  public async unlinkGatewayById(id: string): Promise<void> {
+    const { ctx } = this;
+    if (!this.mysqlModeEnabled()) {
+      const gateway = ctx.service.runtime.runtimeStore().gateways.get(id);
+      if (gateway) {
+        gateway.status = 'revoked';
+        gateway.updatedAt = Date.now();
+      }
+      return;
+    }
+    await ctx.service.db.query(
+      "UPDATE gateways SET status = 'revoked', updated_at = NOW() WHERE id = ?",
+      [id]
+    );
   }
 }

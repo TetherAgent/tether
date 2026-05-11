@@ -169,10 +169,25 @@ export default class GatewayService extends Service {
     if (!gateway) {
       return ctx.throw(404, 'gateway_missing');
     }
+
     if (gateway.status !== 'online') {
       ctx.throw(401, 'gateway_unlinked');
     }
     return await ctx.service.auth.refreshFromToken(refreshToken);
+  }
+
+  public async heartbeatGateway(gatewayId: string) {
+    const { ctx } = this;
+    const gateway = await ctx.service.gatewayRepository.loadGatewayById(gatewayId);
+    if (!gateway) {
+      return ctx.throw(404, 'gateway_missing');
+    }
+    if (gateway.status === 'revoked') {
+      return ctx.throw(401, 'gateway_unlinked');
+    }
+    const lastSeenAt = Date.now();
+    await ctx.service.gatewayRepository.touchGatewayHeartbeat(gatewayId, lastSeenAt);
+    return { ok: true, lastSeenAt };
   }
 
 
