@@ -17,7 +17,7 @@ import {
 } from '@tether/design';
 import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
-import { getStoredNormalAccessToken } from '../../lib/api.js';
+import { gatewayAuthHeaders, getStoredNormalAccessToken, readGatewayData } from '../../lib/api.js';
 import { providerResumeCommand } from '../../lib/provider-resume-command.js';
 import { fetchChatMessages, fetchChatSessions, type ChatHistoryMessage, type ChatHistoryUsage, type ChatSessionRecord, type ChatUsage, type ProviderOption } from './chat-data.js';
 import { ChatBubbleAgent, type ChatNextSuggestion } from './chat-bubble-agent.js';
@@ -50,6 +50,12 @@ type RelaySessionSummary = {
   projectPath?: string;
   transport?: string;
 };
+type GatewayInfo = {
+  gatewayId: string;
+  name?: string;
+  hostname?: string;
+  status?: string;
+};
 
 const RELAY_URL_KEY = 'tether:relayUrl';
 const DEFAULT_RELAY_URL = import.meta.env.VITE_TETHER_RELAY_URL ?? 'wss://tether.earntools.me';
@@ -74,6 +80,14 @@ function isRelaySessionSummary(value: unknown): value is RelaySessionSummary {
     typeof value === 'object' &&
     typeof (value as { id?: unknown }).id === 'string'
   );
+}
+
+function gatewayDisplayName(gateway: GatewayInfo): string {
+  const name = gateway.name?.trim();
+  if (name) return name;
+  const hostname = gateway.hostname?.trim();
+  if (hostname) return hostname;
+  return gateway.gatewayId.slice(0, 8);
 }
 
 function compactPathLabel(value: string): string {
@@ -361,6 +375,7 @@ export function ChatPanel({
   const [relayGatewayId, setRelayGatewayId] = React.useState<string | undefined>(undefined);
   const [selectedGatewayId, setSelectedGatewayId] = React.useState<string | undefined>(undefined);
   const [selectedGatewayName, setSelectedGatewayName] = React.useState<string | undefined>(undefined);
+  const [gatewayNamesById, setGatewayNamesById] = React.useState<Record<string, string>>({});
   const [onlineGatewayIds, setOnlineGatewayIds] = React.useState<Set<string>>(new Set());
   const [relaySessions, setRelaySessions] = React.useState<RelaySessionSummary[]>([]);
   const [cwd, setCwd] = React.useState('~');
@@ -566,6 +581,28 @@ export function ChatPanel({
     }
     void loadActiveSessionMetadata(activeSessionId).catch(() => setActiveSessionMetadataReady(true));
   }, [activeSessionId, loadActiveSessionMetadata]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/server/gateways', { headers: gatewayAuthHeaders(normalAuth?.accessToken) })
+      .then((response) => response.ok ? readGatewayData<GatewayInfo[]>(response) : [])
+      .then((items) => {
+        if (cancelled || !Array.isArray(items)) return;
+        setGatewayNamesById(Object.fromEntries(
+          items
+            .filter((gateway) => gateway.status !== 'revoked')
+            .map((gateway) => [gateway.gatewayId, gatewayDisplayName(gateway)])
+        ));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setGatewayNamesById({});
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [normalAuth?.accessToken]);
 
   const relayUrl = React.useMemo(
     () => window.localStorage.getItem(RELAY_URL_KEY) ?? DEFAULT_RELAY_URL,
@@ -1159,6 +1196,9 @@ export function ChatPanel({
 
   const effectiveGatewayId = currentSessionId ? (activeSessionGatewayId ?? selectedGatewayId) : selectedGatewayId;
   const selectedGatewayOnline = effectiveGatewayId ? onlineGatewayIds.has(effectiveGatewayId) : false;
+  const displayGatewayName = currentSessionId
+    ? (activeSessionGatewayId ? gatewayNamesById[activeSessionGatewayId] : undefined)
+    : selectedGatewayName;
   const gatewayInputMessage = !effectiveGatewayId
     ? t.gatewaySelectorNoSelection
     : selectedGatewayOnline
@@ -1624,9 +1664,9 @@ export function ChatPanel({
                   title={t.chatsSessionSettings}
                   className="flex items-center gap-1.5 rounded px-1 py-0.5 text-[11px] text-muted-foreground/55 transition-colors hover:text-muted-foreground"
                 >
-                  {selectedGatewayName && (
+                  {displayGatewayName && (
                     <>
-                      <span className="max-w-[80px] truncate font-medium text-brand">{selectedGatewayName}</span>
+                      <span className="max-w-[80px] truncate font-medium text-brand">{displayGatewayName}</span>
                       <span className="opacity-40">·</span>
                     </>
                   )}

@@ -861,20 +861,28 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           decision: frame.decision
         });
         break;
-      case 'client.unsubscribe':
+      case 'client.unsubscribe': {
         subscriptions.delete(frame.sessionId);
         if (clientCanAccessSession(clientScope, authMethod, frame.sessionId)) {
-          forwardToSessionGateway({ type: 'client.unsubscribe', clientId, sessionId: frame.sessionId });
+          const unsubSession = latestSessions.get(frame.sessionId);
+          if (!unsubSession || unsubSession.transport !== 'chat') {
+            forwardToSessionGateway({ type: 'client.unsubscribe', clientId, sessionId: frame.sessionId });
+          }
         }
         break;
-      case 'client.detach':
+      }
+      case 'client.detach': {
         if (!clientCanAccessSession(clientScope, authMethod, frame.sessionId)) {
           sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });
           break;
         }
         subscriptions.delete(frame.sessionId);
-        forwardToSessionGateway({ type: 'client.detach', clientId, sessionId: frame.sessionId });
+        const detachSession = latestSessions.get(frame.sessionId);
+        if (!detachSession || detachSession.transport !== 'chat') {
+          forwardToSessionGateway({ type: 'client.detach', clientId, sessionId: frame.sessionId });
+        }
         break;
+      }
       case 'client.auth':
         break;
     }
