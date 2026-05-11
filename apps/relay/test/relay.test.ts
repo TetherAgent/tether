@@ -267,27 +267,27 @@ test('relay clears visible sessions when gateway disconnects', async () => {
   }
 });
 
-test('relay reports gateway unavailable when subscribing to an uncached session', async () => {
+test('relay reports session_not_found without clearing sessions when subscribing to an uncached session', async () => {
   const relay = await createRelay();
   const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
 
   try {
     await authenticateClient(client);
 
-    const emptySessionsPromise = waitForJson(
+    const notFoundPromise = waitForJson(
       client,
-      (message) => message.type === 'sessions' && Array.isArray(message.sessions) && message.sessions.length === 0
-    );
-    const unavailablePromise = waitForJson(
-      client,
-      (message) => message.type === 'error' && message.code === 'gateway_unavailable'
+      (message) => message.type === 'error' && message.code === 'session_not_found'
     );
     client.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_missing_cache', mode: 'control' }));
 
-    const emptySessions = await emptySessionsPromise;
-    assert.deepEqual(emptySessions.sessions, []);
-    const unavailable = await unavailablePromise;
-    assert.equal(unavailable.message, 'gateway is not connected');
+    const notFound = await notFoundPromise;
+    assert.equal(notFound.sessionId, 'tth_missing_cache');
+    const clearCheck = await Promise.race([
+      waitForJson(client, (message) => message.type === 'sessions' && Array.isArray(message.sessions) && message.sessions.length === 0, 150)
+        .then(() => 'cleared', () => 'not-cleared'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('not-cleared'), 200))
+    ]);
+    assert.equal(clearCheck, 'not-cleared');
   } finally {
     client.close();
     await relay.close();
@@ -516,7 +516,6 @@ test('relay forwards subscribed chat messages to gateway', async () => {
     await waitForJson(client, (message) => message.type === 'sessions');
 
     client.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_chat_test', after: 0, mode: 'control' }));
-    await waitForJson(gateway, (message) => message.type === 'client.subscribe');
 
     client.send(JSON.stringify({ type: 'client.chat', sessionId: 'tth_chat_test', message: 'hello world' }));
     const chat = await waitForJson(gateway, (message) => message.type === 'client.chat');
@@ -1358,7 +1357,7 @@ test('relay rebinds client to subscribed session gateway', async () => {
     gatewayId: 'gateway-1',
     userId: 'user_3',
     status: 'running',
-    transport: 'chat',
+    transport: 'pty-event-stream',
     lastActiveAt: Date.now()
   };
 
@@ -1744,6 +1743,104 @@ test('Phase15-T2: relay rejects cross-account session continuation', async () =>
       waitForJson(gateway, (message) => message.type === 'client.chat', 150),
       /timed out/
     );
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+    await metadataServer.close();
+  }
+});
+
+test('relay hydrates chat session metadata on subscribe when relay cache is empty', async () => {
+  const sessionId = 'tth_hydrate_subscribe';
+  const metadataServer = await createMetadataServer({
+    [sessionId]: {
+      id: sessionId,
+      provider: 'claude',
+      projectPath: '/tmp/hydrate',
+      accountId: 'acct_1',
+      userId: 'user_1',
+      gatewayId: 'gateway-test',
+      transport: 'chat'
+    }
+  });
+  const relay = await createRelay({ serverSyncUrl: metadataServer.url, runtimeSyncSecret: 'runtime-secret' });
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+
+  try {
+    await authenticateGateway(gateway);
+    await authenticateClient(client);
+
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId, mode: 'control' }));
+    const sessions = await waitForJson(
+      client,
+      (message) =>
+        message.type === 'sessions' &&
+        Array.isArray(message.sessions) &&
+        (message.sessions as RelaySession[]).some((session) => session.id === sessionId)
+    );
+    const hydrated = (sessions.sessions as RelaySession[]).find((session) => session.id === sessionId);
+    assert.equal(hydrated?.transport, 'chat');
+    assert.equal(hydrated?.gatewayId, 'gateway-test');
+
+    gateway.send(JSON.stringify({
+      type: 'gateway.event',
+      gatewayId: 'gateway-test',
+      event: {
+        id: 1,
+        sessionId,
+        type: 'session.agent-id-updated',
+        ts: Date.now(),
+        payload: { agentSessionId: 'agent-hydrated' }
+      }
+    }));
+    const event = await waitForJson(client, (message) => message.type === 'event');
+    assert.equal((event.event as { sessionId?: string }).sessionId, sessionId);
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+    await metadataServer.close();
+  }
+});
+
+test('relay hydrates PTY session metadata on subscribe when relay cache is empty', async () => {
+  const sessionId = 'tth_hydrate_pty_subscribe';
+  const metadataServer = await createMetadataServer({
+    [sessionId]: {
+      id: sessionId,
+      provider: 'codex',
+      projectPath: '/tmp/hydrate-pty',
+      accountId: 'acct_1',
+      userId: 'user_1',
+      gatewayId: 'gateway-test',
+      transport: 'pty-event-stream'
+    }
+  });
+  const relay = await createRelay({ serverSyncUrl: metadataServer.url, runtimeSyncSecret: 'runtime-secret' });
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+
+  try {
+    await authenticateGateway(gateway);
+    await authenticateClient(client);
+
+    const subscribePromise = waitForJson(gateway, (message) => message.type === 'client.subscribe' && message.sessionId === sessionId);
+    const sessionsPromise = waitForJson(
+      client,
+      (message) =>
+        message.type === 'sessions' &&
+        Array.isArray(message.sessions) &&
+        (message.sessions as RelaySession[]).some((session) => session.id === sessionId)
+    );
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId, mode: 'control', after: 0 }));
+    const subscribe = await subscribePromise;
+    assert.equal(subscribe.type, 'client.subscribe');
+    const sessions = await sessionsPromise;
+    const hydrated = (sessions.sessions as RelaySession[]).find((session) => session.id === sessionId);
+    assert.equal(hydrated?.transport, 'pty-event-stream');
+    assert.equal(hydrated?.gatewayId, 'gateway-test');
   } finally {
     gateway.close();
     client.close();

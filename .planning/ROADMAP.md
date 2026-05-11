@@ -38,6 +38,7 @@ occupies an active roadmap phase number.
 - [x] **Phase 13: Mobile Web Chat** - 在 apps/web 中新增类微信三栏聊天界面，通过 Relay WS stream-json 链路创建 AI 会话（Claude/Codex/Copilot）、实时渲染 agent delta、Markdown 渲染、会话历史 HTTP 加载、断线续传 (completed 2026-05-10)
 - [ ] **Phase 14: Multi-device Gateway Routing** - 允许同一账号在多台设备上各自绑定稳定 Gateway 记录，Web 显示选择器，Relay 按 gatewayId 严格路由，禁止任何 fallback (automated implementation complete; human UAT pending)
 - [ ] **Phase 15: Chat Remote Session Metadata** - Chat 链路不再依赖 Gateway 本地 SQLite：Relay 从 Server DB 补齐可信 metadata（provider/projectPath/agentSessionId）后转发给 Gateway，Gateway 直接执行不查本地 sessions
+- [ ] **Phase 16: Chat Runtime Raw Events** - 新增 `gateway_runtime_chats_events` 表存储所有 chat 过程事件（包括 agent.delta）；`gateway_chat_messages` 补 `raw_json` 字段；Relay 同步 agent.delta 到 Server；支持完整 chat 链路调试和审计
 
 ## Phase Details
 
@@ -377,6 +378,26 @@ Plans:
   - **Wave 4** *(depends on Wave 3)*:
     - [x] `15-P05-last-active-migration-typecheck.md` — last_active_at 更新 + PATCH scope + 全量 typecheck + UAT checkpoint
 
+### Phase 16: Chat Runtime Raw Events
+
+**Goal:** 让 chat 链路每一条过程事件（包括 agent.delta）都能完整入库，支持调试、审计和断线回放。新增 `gateway_runtime_chats_events` 表存储所有 chat event 的 raw JSON；`gateway_chat_messages` 补 `raw_json` 字段保存最终气泡的完整原始事件；Relay 开启 agent.delta 的 runtime sync；Server 写入新表。
+
+**Depends on:** Phase 12
+**Canonical Refs:**
+  - `docs/working/2026-05-11-chat-runtime-raw-events.md` — 完整设计文档（表职责、写入规则、SQL schema、TODO、验收）
+
+**Success Criteria** (what must be TRUE):
+  1. `gateway_runtime_chats_events` 表存在，包含 `session_id`、`event_id`、`event_type`、`raw_json`，唯一键 `(session_id, event_id)`
+  2. `gateway_chat_messages` 含 `raw_json` 字段；写入 `user.message` / `agent.result` 行时同步写入完整事件 JSON
+  3. Relay 不再跳过 `agent.delta`，将其通过 runtime sync 发到 Server
+  4. Server 对所有 chat event 类型（user.message / agent.delta / agent.result / agent.tool / session.error）写入 `gateway_runtime_chats_events`
+  5. agent.delta 使用非零真实 event id；`(session_id, event_id)` 唯一键保证重试幂等
+  6. `raw_json` 中敏感信息已脱敏（复用现有掩码策略）
+  7. `gateway_chat_messages` 读取路径（聊天历史 API）不变；Web 聊天历史展示正常
+  8. 单测覆盖 delta/result 写库逻辑和 relay 同步路径
+
+**Plans**: TBD
+
 ---
 *Roadmap created: 2026-05-01*
 *Milestone reordered: 2026-05-01 — personal Relay MVP moved to Phase 1*
@@ -390,4 +411,5 @@ Plans:
 *Scope update: 2026-05-10 — Phase 13 Mobile Web Chat planned: 6 plans across 4 waves*
 *Scope update: 2026-05-11 — Phase 14 Multi-device Gateway Routing planned: 6 plans across 5 waves*
 *Scope update: 2026-05-11 — Phase 15 Chat Remote Session Metadata added: chat 链路去本地 SQLite，Relay 补可信 metadata*
+*Scope update: 2026-05-11 — Phase 16 Chat Runtime Raw Events added: gateway_runtime_chats_events 新表 + gateway_chat_messages.raw_json + Relay delta sync*
 *Coverage: 40/40 v1 requirements mapped*

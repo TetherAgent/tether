@@ -378,6 +378,7 @@ export function ChatPanel({
   const [gatewayNamesById, setGatewayNamesById] = React.useState<Record<string, string>>({});
   const [onlineGatewayIds, setOnlineGatewayIds] = React.useState<Set<string>>(new Set());
   const [relaySessions, setRelaySessions] = React.useState<RelaySessionSummary[]>([]);
+  const [subscribeRetryKey, setSubscribeRetryKey] = React.useState(0);
   const [cwd, setCwd] = React.useState('~');
   const [cwdSuggestions, setCwdSuggestions] = React.useState<string[]>([]);
   const [cwdPickerOpen, setCwdPickerOpen] = React.useState(false);
@@ -680,6 +681,13 @@ export function ChatPanel({
       }
       if (frame.type === 'sessions' && Array.isArray(frame.sessions)) {
         setRelaySessions(frame.sessions.filter(isRelaySessionSummary));
+        const pendingId = currentSessionIdRef.current;
+        if (pendingId && subscribedSessionIdRef.current == null) {
+          const appeared = (frame.sessions as unknown[]).some((s) => typeof s === 'object' && s !== null && (s as Record<string, unknown>).id === pendingId);
+          if (appeared) {
+            setSubscribeRetryKey((k) => k + 1);
+          }
+        }
         return;
       }
       if (frame.type === 'gateway.providers') {
@@ -956,6 +964,12 @@ export function ChatPanel({
           return;
         }
         const frameMessage = frame.message;
+        if (frame.code === 'session_not_found') {
+          // Session not yet known to relay (race on reconnect). Clear subscription
+          // state so the subscribe effect retries when sessions broadcast arrives.
+          subscribedSessionIdRef.current = null;
+          return;
+        }
         if (frame.code === 'gateway_required') {
           setConnectionError(t.gatewaySelectorNoSelection);
           setIsInflight(false);
@@ -1102,10 +1116,13 @@ export function ChatPanel({
     if (!currentSessionId || !activeSessionMetadataReady) {
       return;
     }
+    if (subscribedSessionIdRef.current === currentSessionId) {
+      return;
+    }
     setSessionAccessError(undefined);
     sendFrame({ type: 'client.subscribe', sessionId: currentSessionId, mode: 'control' });
     subscribedSessionIdRef.current = currentSessionId;
-  }, [activeSessionMetadataReady, currentSessionId, sendFrame, wsReady]);
+  }, [activeSessionMetadataReady, currentSessionId, sendFrame, wsReady, subscribeRetryKey]);
 
   React.useEffect(() => {
     return () => {

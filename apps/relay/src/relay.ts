@@ -139,6 +139,33 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     }
   }
 
+  function metadataTransport(value: string): RelaySession['transport'] | undefined {
+    if (value === 'chat' || value === 'pty-event-stream' || value === 'tmux') {
+      return value;
+    }
+    return undefined;
+  }
+
+  function metadataToRelaySession(metadata: FetchedChatSessionMetadata): RelaySession | undefined {
+    const transport = metadataTransport(metadata.transport);
+    if (!transport) {
+      return undefined;
+    }
+    return {
+      id: metadata.id,
+      provider: metadata.provider,
+      title: '',
+      projectPath: metadata.projectPath,
+      accountId: metadata.accountId,
+      gatewayId: metadata.gatewayId,
+      userId: metadata.userId,
+      agentSessionId: metadata.agentSessionId,
+      status: 'running',
+      transport,
+      lastActiveAt: Date.now()
+    };
+  }
+
   const clients = new Map<string, ClientState>();
   const latestSessions = new Map<string, RelaySession>();
   const gateways = new Map<string, GatewayState>();
@@ -670,15 +697,21 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         });
         break;
       case 'client.subscribe': {
-        const session = latestSessions.get(frame.sessionId);
+        let session = latestSessions.get(frame.sessionId);
+        let hydratedSession = false;
         const client = clients.get(clientId);
         if (!client) {
           sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });
           break;
         }
         if (!session) {
-          sendGatewayUnavailable(clientId);
-          break;
+          const metadata = await fetchSessionMetadata(frame.sessionId);
+          session = metadata ? metadataToRelaySession(metadata) : undefined;
+          if (!session) {
+            sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'session_not_found', message: 'session not found' });
+            break;
+          }
+          hydratedSession = true;
         }
         if (!clientCanSeeRelaySession(client, session)) {
           sendToClient(clientId, { type: 'error', sessionId: frame.sessionId, code: 'forbidden', message: 'session is outside client scope' });
@@ -702,6 +735,10 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             message: 'PTY session is no longer running'
           });
           break;
+        }
+        if (hydratedSession) {
+          latestSessions.set(session.id, session);
+          broadcastSessionList();
         }
         subscriptions.set(frame.sessionId, frame.mode);
         if (session.transport === 'chat') {
