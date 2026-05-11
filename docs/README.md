@@ -36,7 +36,10 @@
 | [2026-05-04-npm-cli-gateway-packaging.md](working/2026-05-04-npm-cli-gateway-packaging.md) | **Working** | npm CLI 与本机 Gateway 打包发布给其他用户安装使用的方案 |
 | [2026-05-04-token-auth-unfinished-items.md](working/2026-05-04-token-auth-unfinished-items.md) | **Working** | 当前代码核验后仍未完成的 token/auth 问题清单 |
 | [2026-05-09-server-db-runtime-sync.md](working/2026-05-09-server-db-runtime-sync.md) | **Working** | Relay 将 Gateway 上报的 sessions / chat messages / runtime events 同步到 Server DB，生产读接口走 DB、控制接口继续走 Relay -> Gateway 的方案 |
+| [2026-05-11-chat-remote-session-metadata.md](working/2026-05-11-chat-remote-session-metadata.md) | **Working** | Chat 链路去本地 DB：Relay 从远程 session 事实源补 metadata 后转发给 Gateway 的 TODO 和验收 |
+| [2026-05-11-chat-session-title-ownership.md](working/2026-05-11-chat-session-title-ownership.md) | **Working** | Web 手动改名与 Gateway runtime sync 的 title 所有权冲突、`title_source` 保护方案、TODO 和验证项 |
 | [2026-05-11-multi-device-gateway-routing.md](working/2026-05-11-multi-device-gateway-routing.md) | **Working** | 同一账号多电脑多 Gateway 的设备绑定、Gateway 选择、Relay 路由和防串设计 |
+| [2026-05-11-pty-remote-event-store.md](working/2026-05-11-pty-remote-event-store.md) | **Working** | PTY / Terminal 未来迁远端事件存储的阶段边界和初步路线，明确不混入当前 chat 去本地 DB 阶段 |
 
 ## 归档记录 (`archive/`)
 
