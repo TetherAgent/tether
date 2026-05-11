@@ -69,7 +69,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   const heartbeatIntervalMs = options.heartbeatIntervalMs ?? RELAY_HEARTBEAT_INTERVAL_MS;
   const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? RELAY_HEARTBEAT_TIMEOUT_MS;
   const subscriptions = new Map<string, RelaySubscription>();
-  const chatClientBindings = new Map<string, string>();
+  const chatInFlight = new Set<string>();
   let connectionState: RelayConnectionStatus['state'] = 'connecting';
   let lastChangedAt = Date.now();
   let effectiveGatewayId = options.gatewayId;
@@ -78,12 +78,10 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     store: options.store,
     gatewayId: () => effectiveGatewayId,
     onSessionCreated: (clientId, sessionId) => {
-      chatClientBindings.set(sessionId, clientId);
       send({ type: 'gateway.session-created', gatewayId: effectiveGatewayId, clientId, sessionId });
       void sendSessions();
     },
     onChatSessionCreated: (clientId, metadata) => {
-      chatClientBindings.set(metadata.id, clientId);
       send({
         type: 'gateway.chat-session-created',
         gatewayId: effectiveGatewayId,
@@ -93,16 +91,17 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     },
     onUserMessage: ({ clientId, sessionId, event }) => {
       sendChatEvent(event.id, sessionId, 'user.message', {
-        clientId: chatClientBindings.get(sessionId) ?? clientId,
+        clientId,
         message: event.payload.message
       });
     },
     onDelta: ({ clientId, sessionId, text, deltaEventId }) => {
-      sendChatEvent(deltaEventId, sessionId, 'agent.delta', { clientId: chatClientBindings.get(sessionId) ?? clientId, text });
+      sendChatEvent(deltaEventId, sessionId, 'agent.delta', { clientId, text });
     },
     onResult: ({ clientId, sessionId, event, text, usage, stopReason, contextWindow, rateLimitInfo, contextInputTokens, nextSuggestions }) => {
+      chatInFlight.delete(sessionId);
       sendChatEvent(event.id, sessionId, 'agent.result', {
-        clientId: chatClientBindings.get(sessionId) ?? clientId,
+        clientId,
         text,
         usage,
         ...(stopReason ? { stop_reason: stopReason } : {}),
@@ -114,7 +113,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     },
     onPermissionRequest: ({ clientId, sessionId, requestId, toolName, input }) => {
       sendChatEvent(Date.now(), sessionId, 'agent.permission_request', {
-        clientId: chatClientBindings.get(sessionId) ?? clientId,
+        clientId,
         requestId,
         toolName,
         input
@@ -122,7 +121,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     },
     onTool: ({ clientId, sessionId, event, name, input, result, isError }) => {
       sendChatEvent(event.id, sessionId, 'agent.tool', {
-        clientId: chatClientBindings.get(sessionId) ?? clientId,
+        clientId,
         name,
         input,
         ...(result ? { result } : {}),
@@ -130,9 +129,10 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       });
     },
     onError: ({ clientId, sessionId, code, message, event }) => {
+      chatInFlight.delete(sessionId);
       if (event) {
         sendChatEvent(event.id, sessionId, 'session.error', {
-          clientId: chatClientBindings.get(sessionId) ?? clientId,
+          clientId,
           code,
           message
         });
@@ -140,7 +140,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       send({
         type: 'gateway.error',
         gatewayId: effectiveGatewayId,
-        clientId: chatClientBindings.get(sessionId) ?? clientId,
+        clientId,
         sessionId,
         code,
         message
@@ -374,6 +374,10 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
           });
           return;
         }
+        if (chatInFlight.has(frame.sessionId)) {
+          sendError(frame.clientId, frame.sessionId, 'chat_in_progress', '当前会话正在回复中');
+          return;
+        }
         if (!frame.session) {
           send({
             type: 'gateway.error',
@@ -397,12 +401,16 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
           });
           return;
         }
+        chatInFlight.add(frame.sessionId);
         void runner.run({
           clientId: frame.clientId,
           sessionId: frame.sessionId,
           message: frame.message,
           model: frame.model,
           session: frame.session
+        }).catch((err: unknown) => {
+          chatInFlight.delete(frame.sessionId);
+          sendError(frame.clientId, frame.sessionId, 'chat_runner_failed', String(err));
         });
         return;
       }
@@ -512,7 +520,6 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     }
     subscriptions.set(key, { mode });
     if (session.transport === 'chat') {
-      chatClientBindings.set(sessionId, clientId);
       const catchupText = runnerForProvider(session.provider)?.getCatchup(sessionId);
       if (catchupText !== undefined) {
         send({
@@ -753,9 +760,6 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     const subscription = subscriptions.get(key);
     await subscription?.unsubscribe?.();
     subscriptions.delete(key);
-    if (chatClientBindings.get(sessionId) === clientId) {
-      chatClientBindings.delete(sessionId);
-    }
   };
 
   const clearSubscriptions = () => {
@@ -763,7 +767,6 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       void subscription.unsubscribe?.();
     }
     subscriptions.clear();
-    chatClientBindings.clear();
   };
 
   connect();
