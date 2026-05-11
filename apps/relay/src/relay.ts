@@ -742,7 +742,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           broadcastSessionList();
         }
         subscriptions.set(frame.sessionId, frame.mode);
-        if (session.transport !== 'chat' || session.status === 'running') {
+        // For chat sessions hydrated from DB (not in relay cache): Gateway doesn't have them live,
+        // forwarding would return session_not_found and trigger a retry loop.
+        if (session.transport !== 'chat' || !hydratedSession) {
           forwardToSessionGateway({
             type: 'client.subscribe',
             clientId,
