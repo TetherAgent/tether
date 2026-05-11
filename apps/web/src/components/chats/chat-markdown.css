@@ -1,6 +1,7 @@
 /* ── Code block (with header) ── */
 .chat-code-block {
   margin: .7em 0;
+  max-width: 100%;
   border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   overflow: hidden;
@@ -45,10 +46,25 @@
 .chat-code-block pre {
   margin: 0 !important;
   padding: 5px !important;
+  min-height: 0 !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  white-space: pre !important;
+  overflow-wrap: normal !important;
+  word-break: normal !important;
   border-radius: 0 !important;
   border: none !important;
   background: var(--code-bg) !important;
   color: var(--code-text) !important;
+}
+
+.chat-code-block pre code {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  white-space: pre !important;
+  overflow-wrap: normal !important;
+  word-break: normal !important;
 }
 
 .chat-code-block pre code.hljs {
