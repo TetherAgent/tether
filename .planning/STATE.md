@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.3
 milestone_name: milestone
-status: Phase 13 complete
-stopped_at: Phase 12 complete — v0.3 milestone all phases done
-last_updated: "2026-05-11T04:30:20.255Z"
-last_activity: 2026-05-11 -- Phase 15 planning complete
+status: Phase 15 automated execution complete; human UAT pending
+stopped_at: Completed Phase 15 automated execution; human UAT pending
+last_updated: "2026-05-11T04:51:30.520Z"
+last_activity: 2026-05-11 -- Phase 15 automated execution complete; human UAT pending
 progress:
   total_phases: 15
   completed_phases: 7
-  total_plans: 50
-  completed_plans: 45
-  percent: 90
+  total_plans: 56
+  completed_plans: 51
+  percent: 91
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-01)
 
 **Core value:** 在 agent session 场景里，本地体验对齐 tmux，并在历史回放、多端接管、审计、手机/Web/App 接入上超越 tmux。
-**Current focus:** Phase 13 — mobile-web-chat (COMPLETE)
+**Current focus:** Phase 15 — chat-remote-session-metadata
 
 ## Current Position
 
-Phase: 13 — COMPLETE
+Phase: 15 (chat-remote-session-metadata) — AUTOMATED EXECUTION COMPLETE; HUMAN UAT PENDING
 Plan: 6 of 6
-Next: milestone wrap-up / follow-up verification
-Last activity: 2026-05-11 -- Phase 15 planning complete
+Next: human UAT / verify-work for Phase 15
+Last activity: 2026-05-11 -- Phase 15 automated execution complete; human UAT pending
 
-Progress: [█████████░] 90%
+Progress: [█████████░] 91%
 
 ## Quick Tasks Completed
 
@@ -147,6 +147,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-09T08:30:00.000Z
-Stopped at: Phase 12 complete — v0.3 milestone all phases done
-Resume file: .planning/phases/12-server-db-runtime-sync/12-VERIFICATION.md
+Last session: 2026-05-11T04:51:30.514Z
+Stopped at: Completed Phase 15 automated execution; human UAT pending
+Resume file: .planning/phases/15-chat-remote-session-metadata/15-P05-SUMMARY.md

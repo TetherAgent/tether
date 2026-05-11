@@ -366,16 +366,16 @@ Plans:
 
 Plans:
   - **Wave 0** (no deps — test scaffold):
-    - [ ] `15-P00-test-scaffold.md` — 四个测试文件追加 Phase 15 RED 测试桩（T1/T2/T4/T5/T7/A7/A8）
+    - [x] `15-P00-test-scaffold.md` — 四个测试文件追加 Phase 15 RED 测试桩（T1/T2/T4/T5/T7/A7/A8）
   - **Wave 1** (no deps — can run parallel with Wave 0):
-    - [ ] `15-P01-protocol-types.md` — Protocol 帧类型扩展（TrustedChatSessionMetadata + gateway.chat-session-created + RelayServerToGatewayFrame session 字段）
+    - [x] `15-P01-protocol-types.md` — Protocol 帧类型扩展（TrustedChatSessionMetadata + gateway.chat-session-created + RelayServerToGatewayFrame session 字段）
   - **Wave 2** *(depends on Wave 1, parallel streams)*:
-    - [ ] `15-P02-server-metadata-api.md` — Server metadata 只读接口 + updateAgentSessionId scope 修复
-    - [ ] `15-P03-relay-metadata-intercept.md` — Relay client.chat 拦截 + metadata 查询 + gateway.chat-session-created 处理
+    - [x] `15-P02-server-metadata-api.md` — Server metadata 只读接口 + updateAgentSessionId scope 修复
+    - [x] `15-P03-relay-metadata-intercept.md` — Relay client.chat 拦截 + metadata 查询 + gateway.chat-session-created 处理
   - **Wave 3** *(depends on Waves 1 + 2)*:
-    - [ ] `15-P04-gateway-runner-rewrite.md` — Gateway ChatSessionRunner 去本地 DB + relay-client 更新
+    - [x] `15-P04-gateway-runner-rewrite.md` — Gateway ChatSessionRunner 去本地 DB + relay-client 更新
   - **Wave 4** *(depends on Wave 3)*:
-    - [ ] `15-P05-last-active-migration-typecheck.md` — last_active_at 更新 + PATCH scope + 全量 typecheck + UAT checkpoint
+    - [x] `15-P05-last-active-migration-typecheck.md` — last_active_at 更新 + PATCH scope + 全量 typecheck + UAT checkpoint
 
 ---
 *Roadmap created: 2026-05-01*
