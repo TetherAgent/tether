@@ -1,6 +1,6 @@
 {
   "name": "tether",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "bin": {
@@ -28,8 +28,7 @@
     "test": "pnpm -r --if-present run test",
     "tether": "node --experimental-sqlite --no-warnings=ExperimentalWarning --import tsx apps/cli/src/main.ts",
     "build:release": "tsup --config tsup.release.config.ts && node scripts/fix-node-prefix.mjs",
-    "pack:release": "pnpm build:release && cd release && npm pack --dry-run",
-    "publish:alpha": "npm --prefix release version prerelease --preid=alpha --no-git-tag-version && pnpm build:release && cd release && npm publish --access public --tag alpha"
+    "publish:release": "npm --prefix release version patch --no-git-tag-version && pnpm build:release && cd release && npm publish --access public"
   },
   "dependencies": {
     "@tether-labs/cli": "workspace:*",

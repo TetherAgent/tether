@@ -10,7 +10,7 @@ Tether Gateway 是本机后台服务。安装后先登录账号，再启动 Gate
 ## 安装
 
 ```bash
-npm install -g @tether-labs/cli
+npm install -g @tether-labs/cli@latest
 ```
 
 ## 最短使用路径
