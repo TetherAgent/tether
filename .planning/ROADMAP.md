@@ -36,7 +36,7 @@ occupies an active roadmap phase number.
 - [ ] **Phase 10: Multi-workspace Expansion** - Product support for creating/switching workspaces, binding Gateways per workspace, and isolating members, sessions, audit, and admin pages by workspace
 - [x] **Phase 12: Server DB Runtime Sync** - Web/App 从 Server DB 直接读取 session 列表、聊天历史和受限 Terminal 历史，不再依赖 Gateway 反向 RPC；Relay 实时同步 Gateway frame 到 Server DB (completed 2026-05-09)
 - [x] **Phase 13: Mobile Web Chat** - 在 apps/web 中新增类微信三栏聊天界面，通过 Relay WS stream-json 链路创建 AI 会话（Claude/Codex/Copilot）、实时渲染 agent delta、Markdown 渲染、会话历史 HTTP 加载、断线续传 (completed 2026-05-10)
-- [x] **Phase 14: Multi-device Gateway Routing** - 允许同一账号在多台设备上各自绑定稳定 Gateway 记录，Web 显示选择器，Relay 按 gatewayId 严格路由，禁止任何 fallback (completed 2026-05-11)
+- [ ] **Phase 14: Multi-device Gateway Routing** - 允许同一账号在多台设备上各自绑定稳定 Gateway 记录，Web 显示选择器，Relay 按 gatewayId 严格路由，禁止任何 fallback
 - [ ] **Phase 15: Chat Remote Session Metadata** - Chat 链路不再依赖 Gateway 本地 SQLite：Relay 从 Server DB 补齐可信 metadata（provider/projectPath/agentSessionId）后转发给 Gateway，Gateway 直接执行不查本地 sessions
 
 ## Phase Details
@@ -334,16 +334,16 @@ Plans:
 
 Plans:
   - **Wave 1** (no deps):
-    - [ ] 14-P01-db-migration.md — gateways 表 migration 008（添加 device_key/hostname/local_port，更换 unique key）
+    - [ ] `14-01-PLAN.md` — gateways 表 migration 008（添加 device_key/hostname/local_port，更换 unique key）
   - **Wave 2** *(depends on Plan 01)*:
-    - [ ] 14-P02-server-gateway-api.md — 服务端 upsert-by-device-key + GET /api/server/gateways
-    - [ ] 14-P03-cli-auth-simplification.md — CLI device.json + auth.json 简化 + decodeGatewayToken + 4 callsite 修复（原子）
+    - [ ] `14-02-PLAN.md` — 服务端 upsert-by-device-key + GET /api/server/gateways
+    - [ ] `14-03-PLAN.md` — CLI device.json + auth.json 简化 + decodeGatewayToken + 4 callsite 修复（原子）
   - **Wave 3** *(depends on Plan 02)*:
-    - [ ] 14-P04-protocol-web-frames.md — Protocol gatewayId 类型更新 + Web sendFrame 注入 + gateway_required 处理
+    - [ ] `14-04-PLAN.md` — Protocol gatewayId 类型更新 + Web sendFrame 注入 + gateway_required 处理
   - **Wave 4** *(depends on Plan 04)*:
-    - [ ] 14-P05-relay-strict-routing.md — Relay 移除 fallback + gateway_required/gateway_unauthorized + 隔离测试
+    - [ ] `14-05-PLAN.md` — Relay 移除 fallback + gateway_required/gateway_unauthorized + 隔离测试
   - **Wave 5** *(depends on Plans 04 + 05)*:
-    - [ ] 14-P06-web-gateway-selector.md — GatewaySelector 组件 + 离线禁用 + human verify
+    - [ ] `14-06-PLAN.md` — GatewaySelector 组件 + 离线禁用 + human verify
 
 ### Phase 15: Chat Remote Session Metadata
 

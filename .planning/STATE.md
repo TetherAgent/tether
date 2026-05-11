@@ -4,8 +4,8 @@ milestone: v0.3
 milestone_name: milestone
 status: Phase 15 automated execution complete; human UAT pending
 stopped_at: Completed Phase 15 automated execution; human UAT pending
-last_updated: "2026-05-11T04:51:30.520Z"
-last_activity: 2026-05-11 -- Phase 15 automated execution complete; human UAT pending
+last_updated: "2026-05-11T05:44:49.522Z"
+last_activity: 2026-05-11 -- Phase 14 execution started
 progress:
   total_phases: 15
   completed_phases: 7
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-01)
 
 **Core value:** 在 agent session 场景里，本地体验对齐 tmux，并在历史回放、多端接管、审计、手机/Web/App 接入上超越 tmux。
-**Current focus:** Phase 15 — chat-remote-session-metadata
+**Current focus:** Phase 14 — multi-device-gateway-routing
 
 ## Current Position
 
-Phase: 15 (chat-remote-session-metadata) — AUTOMATED EXECUTION COMPLETE; HUMAN UAT PENDING
-Plan: 6 of 6
+Phase: 14 (multi-device-gateway-routing) — EXECUTING
+Plan: 1 of 6
 Next: human UAT / verify-work for Phase 15
-Last activity: 2026-05-11 -- Phase 15 automated execution complete; human UAT pending
+Last activity: 2026-05-11 -- Phase 14 execution started
 
 Progress: [█████████░] 91%
 
