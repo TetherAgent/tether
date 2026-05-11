@@ -1479,3 +1479,22 @@ async function waitForClose(ws: WebSocket, timeoutMs = 1000): Promise<{ code: nu
     ws.once('error', reject);
   });
 }
+
+// ─── Phase 15: Chat Remote Session Metadata ────────────────────────────────
+
+test('Phase15-T1: relay injects trusted metadata into client.chat (existing session)', { skip: 'Phase 15 not implemented' }, async () => {
+  // Relay 收到已有 session 的 client.chat（sessionId !== null）
+  // 应向 Server 查询 metadata 并在转发给 Gateway 的帧中注入 session 字段
+  // 断言：Gateway 收到的 client.chat 帧含 session.provider / session.projectPath / session.transport='chat'
+});
+
+test('Phase15-T2: relay rejects cross-account session continuation', { skip: 'Phase 15 not implemented' }, async () => {
+  // 多租户隔离：A 账号的 client 发续聊 B 账号的 sessionId
+  // 断言：Relay 返回 error { code: 'forbidden' }，不转发给任何 Gateway
+  // 两个 Gateway 均连接，B 的 Gateway 先连（CLAUDE.md R4 模板）
+});
+
+test('Phase15-A7: relay rejects client.chat for PTY sessions (transport mismatch)', { skip: 'Phase 15 not implemented' }, async () => {
+  // Server 返回 transport='pty-event-stream' 的 session
+  // 断言：Relay 返回 error { code: 'wrong_transport' }，不转发给 Gateway
+});

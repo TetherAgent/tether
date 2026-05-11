@@ -42,4 +42,9 @@ describe('test/chat-repository.test.ts', () => {
       /Session not found or access denied/
     )
   })
+
+  it.skip('Phase15-T7: updateAgentSessionId scopes WHERE to accountId, gatewayId, userId', async () => {
+    // 断言：SQL 中包含 "account_id = ?" "gateway_id = ?" "user_id = ?"
+    // 断言：scope 参数被正确传递到 SQL 占位符
+  })
 })

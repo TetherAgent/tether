@@ -959,3 +959,11 @@ async function waitFor(predicate: () => boolean, timeoutMs = 1500): Promise<void
   }
   throw new Error('timed out waiting for condition');
 }
+
+// ─── Phase 15: Chat Remote Session Metadata ────────────────────────────────
+
+test('Phase15-A8: relay-client rejects new chat with non-whitelisted provider', { skip: 'Phase 15 not implemented' }, async () => {
+  // Gateway 收到 client.chat { sessionId: null, provider: 'evil-provider', ... }
+  // 断言：onError 被调用，错误码为 'provider_not_supported' 或 'invalid_provider'
+  // 断言：没有启动任何 subprocess
+});

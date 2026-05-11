@@ -274,3 +274,17 @@ test('chat runner maps Claude permission denials to next suggestions', async () 
     cleanupStore();
   }
 });
+
+// ─── Phase 15: Chat Remote Session Metadata ────────────────────────────────
+
+test('Phase15-T4: chat runner resumes existing session from frame.session without calling store.getSession', { skip: 'Phase 15 not implemented' }, async () => {
+  // 续聊分支：runner.run({ sessionId: 'tth_xxx', session: trustedMetadata, message: 'hi' })
+  // 断言：store.getSession 从未被调用
+  // 断言：subprocess 被以正确 provider/cwd/agentSessionId 启动
+});
+
+test('Phase15-T5: createChatSession does not call store.insertSession', { skip: 'Phase 15 not implemented' }, async () => {
+  // 新建分支：runner.run({ sessionId: null, provider: 'claude', cwd: '/tmp', ... })
+  // 断言：store.insertSession 从未被调用
+  // 断言：onChatSessionCreated 回调被调用（取代 onSessionCreated）
+});
