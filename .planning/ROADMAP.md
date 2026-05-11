@@ -38,7 +38,7 @@ occupies an active roadmap phase number.
 - [x] **Phase 13: Mobile Web Chat** - 在 apps/web 中新增类微信三栏聊天界面，通过 Relay WS stream-json 链路创建 AI 会话（Claude/Codex/Copilot）、实时渲染 agent delta、Markdown 渲染、会话历史 HTTP 加载、断线续传 (completed 2026-05-10)
 - [ ] **Phase 14: Multi-device Gateway Routing** - 允许同一账号在多台设备上各自绑定稳定 Gateway 记录，Web 显示选择器，Relay 按 gatewayId 严格路由，禁止任何 fallback (automated implementation complete; human UAT pending)
 - [ ] **Phase 15: Chat Remote Session Metadata** - Chat 链路不再依赖 Gateway 本地 SQLite：Relay 从 Server DB 补齐可信 metadata（provider/projectPath/agentSessionId）后转发给 Gateway，Gateway 直接执行不查本地 sessions
-- [ ] **Phase 16: Chat Runtime Raw Events** - 新增 `gateway_runtime_chats_events` 表存储所有 chat 过程事件（包括 agent.delta）；`gateway_chat_messages` 补 `raw_json` 字段；Relay 同步 agent.delta 到 Server；支持完整 chat 链路调试和审计
+- [x] **Phase 16: Chat Runtime Raw Events** - 新增 `gateway_runtime_chats_events` 表存储所有 chat 过程事件（包括 agent.delta）；`gateway_chat_messages` 补 `raw_json` 字段；Relay 同步 agent.delta 到 Server；支持完整 chat 链路调试和审计 (completed 2026-05-11)
 
 ## Phase Details
 
