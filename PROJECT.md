@@ -56,6 +56,9 @@ Tether 直接控制本机命令行，安全是底线，必须始终遵守：
 - daemon 默认监听 `127.0.0.1`，仅在用户显式 pair / 显式开启 `--host` 时才暴露。
 - WebSocket 写操作必须通过 HTTP 换一次性 ticket 后连接；公网/device token
   认证仍按后续 pairing 设计补齐。
+- Server 新增公开接口或内部 secret 接口时，必须同步写入
+  `config.verifyLoginWhitelist`；仅在 router 挂 `requireRuntimeSyncSecret` 不够，
+  否则会先被全局 `verifyLogin` 拦成 `Token 必填`。
 - 终端输出向手机/Web 客户端外发前要做基础敏感信息掩码（已知 API Key 格式、
   常见 token 格式）。
 - 不让任何客户端能让 daemon 执行任意 shell 命令；客户端只能 `send-keys`

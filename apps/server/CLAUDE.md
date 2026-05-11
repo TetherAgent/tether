@@ -267,6 +267,9 @@ test/                         服务端测试
 - 新增配置按业务域分组，命名必须表达语义；不要新增含义不清的缩写键。
 - 全局中间件只在 `config.middleware` 配置，当前顺序固定为 `['error', 'verifyLogin']`。
 - 公开接口必须写进 `config.verifyLoginWhitelist`，不要在 router 里绕过登录态。
+- 内部 secret 接口（例如 `requireRuntimeSyncSecret`）也必须写进
+  `config.verifyLoginWhitelist`；router 里的 secret middleware 只负责二次鉴权，
+  不能替代全局登录白名单。
 - 角色或 token class 权限不要写进全局 `verifyLogin`，统一在 router 里挂 `middleware.requireTokenClass(...)`。
 - MySQL、Redis、JWT、Egg `keys`、CORS、CSRF 等配置必须在 `config/config.default.ts` 形成单一来源。
 - 本地开发优先读取仓库根目录 `env.sh`。

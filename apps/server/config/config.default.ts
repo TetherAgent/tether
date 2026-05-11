@@ -168,7 +168,9 @@ export default (appInfo: EggAppInfo) => {
       '/api/server/token/validate',
       '/api/relay/runtime-sync/gateway/sessions',
       '/api/relay/runtime-sync/gateway/conversation',
-      '/api/relay/runtime-sync/gateway/event'
+      '/api/relay/runtime-sync/gateway/event',
+      '/api/relay/gateway-sessions/:sessionId/metadata',
+      '/api/relay/gateway-sessions/:sessionId/agent-session-id'
     ],
     verifyLogin: {
       expected: [ 'normal_client_access', 'management_access', 'gateway_access' ]

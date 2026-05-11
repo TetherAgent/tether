@@ -9,6 +9,14 @@ describe('test/runtime-sync.test.ts', () => {
     ctx = app.mockContext()
   })
 
+  it('runtime sync 内部接口必须进入登录白名单', async () => {
+    const whitelist = app.config.verifyLoginWhitelist
+    assert(whitelist.includes('/api/relay/runtime-sync/gateway/sessions'))
+    assert(whitelist.includes('/api/relay/runtime-sync/gateway/event'))
+    assert(whitelist.includes('/api/relay/gateway-sessions/:sessionId/metadata'))
+    assert(whitelist.includes('/api/relay/gateway-sessions/:sessionId/agent-session-id'))
+  })
+
   it('runtimeSyncRepository.upsertGatewaySession — MySQL 未启用时静默返回', async () => {
     const scope = { accountId: 'acct_1', gatewayId: 'gw_1' }
     await assert.doesNotReject(async () => {

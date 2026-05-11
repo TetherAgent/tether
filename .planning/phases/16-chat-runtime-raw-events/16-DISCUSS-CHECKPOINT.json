@@ -1,0 +1,47 @@
+{
+  "phase": "16",
+  "phase_name": "Chat Runtime Raw Events",
+  "timestamp": "2026-05-11T12:00:00.000Z",
+  "areas_completed": ["旧表 gateway_runtime_events 的定位", "agent.delta event id 生成策略"],
+  "areas_remaining": ["Relay 同步 delta 的代码路径", "Server 写路径 — 新方法 vs 扩展现有"],
+  "decisions": {
+    "旧表 gateway_runtime_events 的定位": [
+      {
+        "question": "Phase 16 完成后，chat events 还写入 gateway_runtime_events 吗？",
+        "answer": "只写新表 gateway_runtime_chats_events，不再写 gateway_runtime_events",
+        "options_presented": ["双写，后续再迁移", "只写新表"]
+      },
+      {
+        "question": "chat events 从 gateway_runtime_events 移出的时机？",
+        "answer": "Phase 16 同一次完成",
+        "options_presented": ["Phase 16 同一次完成", "先加新表，下一个 PR 停旧表"]
+      },
+      {
+        "question": "gateway_runtime_events 里已有的 chat event 历史数据（旧行）如何处理？",
+        "answer": "保留，不做迁移",
+        "options_presented": ["保留，不做迁移", "按需要再议"]
+      }
+    ],
+    "agent.delta event id 生成策略": [
+      {
+        "question": "Gateway 处 agent.delta 的 event id 怎么生成？",
+        "answer": "per-session 递增计数器，从 1 开始",
+        "options_presented": ["per-session 递增计数器", "timestamp-ms", "与 PTY event 共用全局计数器"]
+      },
+      {
+        "question": "递增计数器的起始值和范围？",
+        "answer": "从 1 开始，局限于 delta event（独立序列）",
+        "options_presented": ["从 1 开始，局限于 delta event", "接续 PTY event id 序列"]
+      },
+      {
+        "question": "per-session delta 计数器在哪里维护？",
+        "answer": "ChatSessionRunner 内部属性（nextDeltaId 或 deltaTurnIndex）",
+        "options_presented": ["ChatSessionRunner 内部属性", "全局 Map<sessionId, counter>"]
+      }
+    ]
+  },
+  "deferred_ideas": [],
+  "canonical_refs": [
+    "docs/working/2026-05-11-chat-runtime-raw-events.md"
+  ]
+}
