@@ -411,13 +411,17 @@ Plans:
 
 ### Phase 17: Chat Multi-client Realtime Sync
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** 让多个已认证 client 可以同时订阅同一个 chat session，实时收到相同的 agent.delta/result/tool/session.error/agent.permission_request 输出；同时禁止同一 session 并发发送——第二个发送请求立即返回 chat_in_progress 错误。
+**Requirements**: D-01, D-02, D-03, D-04, D-05, D-06, D-07, D-08, D-09, D-10, D-11
 **Depends on:** Phase 16
-**Plans:** 0 plans
+**Plans:** 3 plans across 2 waves
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 17 to break down)
+  - **Wave 1** (parallel, no deps):
+    - [ ] `17-01-PLAN.md` — relay.ts：chatSessionOwners → chatSessionSubscribers + sendChatEventToSubscribers 广播函数
+    - [ ] `17-02-PLAN.md` — relay-client.ts：删除 chatClientBindings + 新增 chatInFlight in-flight 锁
+  - **Wave 2** *(blocked on Plans 01 + 02)*:
+    - [ ] `17-03-PLAN.md` — 测试：relay.test.ts 追加 T1~T6 + relay-client.test.ts 追加 GW-T1~GW-T3
 
 ---
 *Roadmap created: 2026-05-01*
@@ -433,4 +437,5 @@ Plans:
 *Scope update: 2026-05-11 — Phase 14 Multi-device Gateway Routing planned: 6 plans across 5 waves*
 *Scope update: 2026-05-11 — Phase 15 Chat Remote Session Metadata added: chat 链路去本地 SQLite，Relay 补可信 metadata*
 *Scope update: 2026-05-11 — Phase 16 Chat Runtime Raw Events added: gateway_runtime_chats_events 新表 + gateway_chat_messages.raw_json + Relay delta sync*
+*Scope update: 2026-05-11 — Phase 17 Chat Multi-client Realtime Sync planned: 3 plans across 2 waves; chatSessionOwners→chatSessionSubscribers + chatInFlight 锁*
 *Coverage: 40/40 v1 requirements mapped*
