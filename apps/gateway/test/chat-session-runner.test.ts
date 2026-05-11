@@ -57,6 +57,7 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
   process.env.TETHER_FAKE_CLAUDE_ARGS_FILE = argsFile;
   try {
     let createdSessionId = '';
+    let createdProjectPath = '';
     const deltas: string[] = [];
     const results: string[] = [];
     const errors: string[] = [];
@@ -70,6 +71,10 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
       gatewayId: () => 'gateway-test',
       onSessionCreated: (_clientId, sessionId) => {
         createdSessionId = sessionId;
+      },
+      onChatSessionCreated: (_clientId, metadata) => {
+        createdSessionId = metadata.id;
+        createdProjectPath = metadata.projectPath;
       },
       onUserMessage: ({ event }) => {
         chatEventTypes.push(event.type);
@@ -106,8 +111,8 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
     assert.equal(createdSessionId.startsWith('tth_'), true);
     assert.deepEqual(deltas, ['OK']);
     assert.deepEqual(results, ['OK']);
-    assert.equal(store.getSession(createdSessionId)?.agentSessionId, 'claude-session-1');
-    assert.equal(store.getSession(createdSessionId)?.projectPath, process.cwd());
+    assert.equal(createdProjectPath, process.cwd());
+    assert.equal(store.getSession(createdSessionId), undefined);
     assert.deepEqual(chatEventTypes, ['user.message', 'agent.result']);
     assert.deepEqual(JSON.parse(readFileSync(argsFile, 'utf8')) as string[], [
       '-p',
@@ -171,6 +176,9 @@ test('chat runner streams Claude content block text deltas', async () => {
       gatewayId: () => 'gateway-test',
       onSessionCreated: (_clientId, sessionId) => {
         createdSessionId = sessionId;
+      },
+      onChatSessionCreated: (_clientId, metadata) => {
+        createdSessionId = metadata.id;
       },
       onUserMessage: () => undefined,
       onDelta: ({ text }) => {
@@ -240,6 +248,7 @@ test('chat runner maps Claude permission denials to next suggestions', async () 
       store,
       gatewayId: () => 'gateway-test',
       onSessionCreated: () => undefined,
+      onChatSessionCreated: () => undefined,
       onUserMessage: () => undefined,
       onDelta: () => undefined,
       onResult: ({ nextSuggestions }) => {
@@ -277,14 +286,140 @@ test('chat runner maps Claude permission denials to next suggestions', async () 
 
 // ─── Phase 15: Chat Remote Session Metadata ────────────────────────────────
 
-test('Phase15-T4: chat runner resumes existing session from frame.session without calling store.getSession', { skip: 'Phase 15 not implemented' }, async () => {
-  // 续聊分支：runner.run({ sessionId: 'tth_xxx', session: trustedMetadata, message: 'hi' })
-  // 断言：store.getSession 从未被调用
-  // 断言：subprocess 被以正确 provider/cwd/agentSessionId 启动
+test('Phase15-T4: chat runner resumes existing session from frame.session without calling store.getSession', async () => {
+  const { store, cleanup: cleanupStore } = tempStore();
+  const fakeClaude = installFakeClaude([
+    {
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result: 'resumed',
+      session_id: 'claude-resumed',
+      usage: { input_tokens: 1, output_tokens: 1 },
+      terminal_reason: 'completed'
+    }
+  ]);
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${fakeClaude.pathPrefix}${path.delimiter}${previousPath ?? ''}`;
+  let getSessionCalls = 0;
+  const originalGetSession = store.getSession.bind(store);
+  store.getSession = ((sessionId: string) => {
+    getSessionCalls += 1;
+    return originalGetSession(sessionId);
+  }) as Store['getSession'];
+  try {
+    let result = '';
+    let resolveResult: (() => void) | undefined;
+    const resultPromise = new Promise<void>((resolve) => {
+      resolveResult = resolve;
+    });
+    const runner = new ChatSessionRunner({
+      store,
+      gatewayId: () => 'gateway-test',
+      onSessionCreated: () => undefined,
+      onChatSessionCreated: () => undefined,
+      onUserMessage: () => undefined,
+      onDelta: () => undefined,
+      onResult: ({ text }) => {
+        result = text;
+        resolveResult?.();
+      },
+      onTool: () => undefined,
+      onPermissionRequest: () => undefined,
+      onError: ({ message }) => assert.fail(message),
+      onAgentIdUpdate: () => undefined
+    });
+
+    await runner.run({
+      clientId: 'client-test',
+      sessionId: 'tth_resume',
+      message: 'resume',
+      model: 'sonnet',
+      session: {
+        id: 'tth_resume',
+        provider: 'claude',
+        projectPath: process.cwd(),
+        agentSessionId: 'claude-existing',
+        accountId: 'acct-test',
+        userId: 'user-test',
+        gatewayId: 'gateway-test',
+        transport: 'chat'
+      }
+    });
+    await resultPromise;
+
+    assert.equal(result, 'resumed');
+    assert.equal(getSessionCalls, 0);
+  } finally {
+    process.env.PATH = previousPath;
+    fakeClaude.cleanup();
+    cleanupStore();
+  }
 });
 
-test('Phase15-T5: createChatSession does not call store.insertSession', { skip: 'Phase 15 not implemented' }, async () => {
-  // 新建分支：runner.run({ sessionId: null, provider: 'claude', cwd: '/tmp', ... })
-  // 断言：store.insertSession 从未被调用
-  // 断言：onChatSessionCreated 回调被调用（取代 onSessionCreated）
+test('Phase15-T5: createChatSession does not call store.insertSession', async () => {
+  const { store, cleanup: cleanupStore } = tempStore();
+  const fakeClaude = installFakeClaude([
+    {
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result: 'created',
+      session_id: 'claude-created',
+      usage: { input_tokens: 1, output_tokens: 1 },
+      terminal_reason: 'completed'
+    }
+  ]);
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${fakeClaude.pathPrefix}${path.delimiter}${previousPath ?? ''}`;
+  let insertSessionCalls = 0;
+  const originalInsertSession = store.insertSession.bind(store);
+  store.insertSession = ((session) => {
+    insertSessionCalls += 1;
+    return originalInsertSession(session);
+  }) as Store['insertSession'];
+  try {
+    let createdSessionId = '';
+    let resolveResult: (() => void) | undefined;
+    const resultPromise = new Promise<void>((resolve) => {
+      resolveResult = resolve;
+    });
+    const runner = new ChatSessionRunner({
+      store,
+      gatewayId: () => 'gateway-test',
+      onSessionCreated: () => undefined,
+      onChatSessionCreated: (_clientId, metadata) => {
+        createdSessionId = metadata.id;
+      },
+      onUserMessage: () => undefined,
+      onDelta: () => undefined,
+      onResult: () => {
+        resolveResult?.();
+      },
+      onTool: () => undefined,
+      onPermissionRequest: () => undefined,
+      onError: ({ message }) => assert.fail(message),
+      onAgentIdUpdate: () => undefined
+    });
+
+    await runner.run({
+      clientId: 'client-test',
+      sessionId: null,
+      provider: 'claude',
+      model: 'sonnet',
+      cwd: '/tmp',
+      message: 'create',
+      accountId: 'acct-test',
+      userId: 'user-test'
+    });
+    await resultPromise;
+
+    assert.equal(createdSessionId.startsWith('tth_'), true);
+    assert.equal(insertSessionCalls, 0);
+    assert.equal(store.getSession(createdSessionId), undefined);
+  } finally {
+    process.env.PATH = previousPath;
+    fakeClaude.cleanup();
+    cleanupStore();
+  }
 });

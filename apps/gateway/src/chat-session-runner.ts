@@ -6,6 +6,7 @@ import path from 'node:path';
 import { createSessionId } from './ids.js';
 import { providerEffectiveEnv } from './provider-env.js';
 import type { ChatEvent, ChatEventType, Store } from './store.js';
+import type { TrustedChatSessionMetadata } from '@tether/protocol';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -39,6 +40,7 @@ export type ChatRunnerOptions = {
   store: Store;
   gatewayId: () => string;
   onSessionCreated: (clientId: string, sessionId: string) => void;
+  onChatSessionCreated: (clientId: string, metadata: TrustedChatSessionMetadata) => void;
   onPermissionRequest: (event: { clientId: string; sessionId: string; requestId: string; toolName: string; input: Record<string, unknown> }) => void;
   onUserMessage: (event: { clientId: string; sessionId: string; event: ChatEvent<{ message: string }> }) => void;
   onDelta: (event: { clientId: string; sessionId: string; text: string }) => void;
@@ -104,7 +106,7 @@ export interface IChatRunner {
           accountId?: string;
           userId?: string;
         }
-      | { clientId: string; sessionId: string; message: string; model?: string }
+      | { clientId: string; sessionId: string; message: string; model?: string; session: TrustedChatSessionMetadata }
   ): Promise<void>;
   getCatchup(sessionId: string): string | undefined;
   kill(sessionId: string): void;
@@ -227,7 +229,7 @@ class CliChatRunner implements IChatRunner {
           accountId?: string;
           userId?: string;
         }
-      | { clientId: string; sessionId: string; message: string; model?: string }
+      | { clientId: string; sessionId: string; message: string; model?: string; session: TrustedChatSessionMetadata }
   ): Promise<void> {
     if ('provider' in params && params.provider !== this.adapter.provider) {
       this.options.onError({
@@ -239,19 +241,10 @@ class CliChatRunner implements IChatRunner {
       return;
     }
 
-    const session =
+    const session: TrustedChatSessionMetadata =
       params.sessionId === null
         ? this.createChatSession(params)
-        : this.options.store.getSession(params.sessionId);
-    if (!session) {
-      this.options.onError({
-        clientId: params.clientId,
-        sessionId: params.sessionId ?? '',
-        code: 'session_not_found',
-        message: 'session not found'
-      });
-      return;
-    }
+        : params.session;
 
     const sessionId = session.id;
     const cwd = normalizeCwd(params.sessionId === null ? params.cwd : session.projectPath);
@@ -270,7 +263,6 @@ class CliChatRunner implements IChatRunner {
     });
 
     const userEvent = createChatEvent(sessionId, 'user.message', { message: params.message });
-    this.options.store.touchSession(sessionId);
     this.options.onUserMessage({ clientId: params.clientId, sessionId, event: userEvent });
 
     const active: ActiveSubprocess = {
@@ -366,7 +358,6 @@ class CliChatRunner implements IChatRunner {
       contextInputTokens: (tokens) => { active.contextInputTokens = tokens; },
       agentSessionId: (id) => {
         active.agentSessionId = id;
-        this.options.store.updateAgentSessionId(sessionId, id);
         this.options.onAgentIdUpdate(sessionId, id);
       },
       tool: (name, input) => { this.emitTool(sessionId, active.clientId, name, input); },
@@ -395,8 +386,6 @@ class CliChatRunner implements IChatRunner {
       usage,
       ...(stopReason ? { stop_reason: stopReason } : {})
     });
-    this.options.store.updateAgentSessionId(sessionId, agentSessionId);
-    this.options.store.touchSession(sessionId);
     this.options.onAgentIdUpdate(sessionId, agentSessionId);
     this.options.onResult({
       clientId: active.clientId,
@@ -415,13 +404,11 @@ class CliChatRunner implements IChatRunner {
 
   private emitTool(sessionId: string, clientId: string, name: string, input: Record<string, unknown>): void {
     const event = createChatEvent(sessionId, 'agent.tool', { name, input });
-    this.options.store.touchSession(sessionId);
     this.options.onTool({ clientId, sessionId, event, name, input });
   }
 
   private emitError(clientId: string, sessionId: string, code: string, message: string): void {
     const event = createChatEvent(sessionId, 'session.error', { code, message });
-    this.options.store.touchSession(sessionId);
     this.options.onError({ clientId, sessionId, code, message, event });
   }
 
@@ -434,28 +421,19 @@ class CliChatRunner implements IChatRunner {
     message: string;
     accountId?: string;
     userId?: string;
-  }) {
-    const now = Date.now();
+  }): TrustedChatSessionMetadata {
     const sessionId = createSessionId();
-    this.options.store.insertSession({
+    const metadata: TrustedChatSessionMetadata = {
       id: sessionId,
       provider: params.provider,
-      title: params.message.slice(0, 60),
       projectPath: normalizeCwd(params.cwd),
-      accountId: params.accountId,
-      userId: params.userId,
+      accountId: params.accountId ?? '',
+      userId: params.userId ?? '',
       gatewayId: this.options.gatewayId(),
-      status: 'running',
-      attachState: 'detached',
-      tmuxSessionName: '',
-      command: this.adapter.command,
-      transport: 'chat',
-      createdAt: now,
-      updatedAt: now,
-      lastActiveAt: now
-    });
-    this.options.onSessionCreated(params.clientId, sessionId);
-    return this.options.store.getSession(sessionId);
+      transport: 'chat'
+    };
+    this.options.onChatSessionCreated(params.clientId, metadata);
+    return metadata;
   }
 }
 

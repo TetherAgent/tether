@@ -69,6 +69,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   let connectionState: RelayConnectionStatus['state'] = 'connecting';
   let lastChangedAt = Date.now();
   let effectiveGatewayId = options.gatewayId;
+  const getStoredSession = (sessionId: string) => options.store['getSession'](sessionId);
   const chatRunnerOptions: ChatRunnerOptions = {
     store: options.store,
     gatewayId: () => effectiveGatewayId,
@@ -76,6 +77,15 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       chatClientBindings.set(sessionId, clientId);
       send({ type: 'gateway.session-created', gatewayId: effectiveGatewayId, clientId, sessionId });
       void sendSessions();
+    },
+    onChatSessionCreated: (clientId, metadata) => {
+      chatClientBindings.set(metadata.id, clientId);
+      send({
+        type: 'gateway.chat-session-created',
+        gatewayId: effectiveGatewayId,
+        clientId,
+        session: metadata
+      });
     },
     onUserMessage: ({ clientId, sessionId, event }) => {
       sendChatEvent(event.id, sessionId, 'user.message', {
@@ -273,7 +283,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     });
   };
 
-  const runnerForProvider = (provider: string): IChatRunner => {
+  const runnerForProvider = (provider: string): IChatRunner | undefined => {
     switch (provider) {
       case 'claude':
         return chatRunner;
@@ -282,7 +292,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       case 'copilot':
         return copilotChatRunner;
       default:
-        return codexChatRunner;
+        return undefined;
     }
   };
 
@@ -333,7 +343,19 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         return;
       case 'client.chat': {
         if (frame.sessionId === null) {
-          void runnerForProvider(frame.provider).run({
+          const runner = runnerForProvider(frame.provider);
+          if (!runner) {
+            send({
+              type: 'gateway.error',
+              gatewayId: effectiveGatewayId,
+              clientId: frame.clientId,
+              sessionId: '',
+              code: 'provider_not_supported',
+              message: `provider is not supported: ${frame.provider}`
+            });
+            return;
+          }
+          void runner.run({
             clientId: frame.clientId,
             sessionId: null,
             provider: frame.provider,
@@ -345,16 +367,35 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
           });
           return;
         }
-        const session = options.store.getSession(frame.sessionId);
-        if (!session) {
-          send({ type: 'gateway.error', gatewayId: effectiveGatewayId, clientId: frame.clientId, sessionId: frame.sessionId, code: 'session_not_found', message: 'session not found' });
+        if (!frame.session) {
+          send({
+            type: 'gateway.error',
+            gatewayId: effectiveGatewayId,
+            clientId: frame.clientId,
+            sessionId: frame.sessionId,
+            code: 'missing_session_metadata',
+            message: 'trusted session metadata is missing from relay frame'
+          });
           return;
         }
-        void runnerForProvider(session.provider).run({
+        const runner = runnerForProvider(frame.session.provider);
+        if (!runner) {
+          send({
+            type: 'gateway.error',
+            gatewayId: effectiveGatewayId,
+            clientId: frame.clientId,
+            sessionId: frame.sessionId,
+            code: 'provider_not_supported',
+            message: `provider is not supported: ${frame.session.provider}`
+          });
+          return;
+        }
+        void runner.run({
           clientId: frame.clientId,
           sessionId: frame.sessionId,
           message: frame.message,
-          model: frame.model
+          model: frame.model,
+          session: frame.session
         });
         return;
       }
@@ -382,9 +423,9 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         });
         return;
       case 'client.permission_response': {
-        const session = options.store.getSession(frame.sessionId);
+        const session = getStoredSession(frame.sessionId);
         if (session) {
-          runnerForProvider(session.provider).respondToPermission(frame.sessionId, frame.requestId, frame.decision);
+          runnerForProvider(session.provider)?.respondToPermission(frame.sessionId, frame.requestId, frame.decision);
         }
         return;
       }
@@ -408,7 +449,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         continue;
       }
       markSessionLost(session.id);
-      const updated = options.store.getSession(session.id);
+      const updated = getStoredSession(session.id);
       result.push(updated ?? { ...session, status: 'lost' });
     }
     return result;
@@ -447,7 +488,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     cols?: number,
     rows?: number
   ) => {
-    const session = options.store.getSession(sessionId);
+    const session = getStoredSession(sessionId);
     if (!session) {
       sendError(clientId, sessionId, 'session_not_found', 'session not found');
       return;
@@ -465,7 +506,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     subscriptions.set(key, { mode });
     if (session.transport === 'chat') {
       chatClientBindings.set(sessionId, clientId);
-      const catchupText = runnerForProvider(session.provider).getCatchup(sessionId);
+      const catchupText = runnerForProvider(session.provider)?.getCatchup(sessionId);
       if (catchupText !== undefined) {
         send({
           type: 'gateway.chat-catchup',
@@ -535,7 +576,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         if (!matchedOptions) {
           return;
         }
-        const subSession = options.store.getSession(session.id);
+        const subSession = getStoredSession(session.id);
         if (!subSession) {
           return;
         }
@@ -582,7 +623,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   };
 
   const markSessionLost = (sessionId: string): void => {
-    const session = options.store.getSession(sessionId);
+    const session = getStoredSession(sessionId);
     if (session?.status === 'running') {
       options.store.updateSessionStatus(sessionId, 'lost');
       options.store.appendEvent(sessionId, 'session.error', {
@@ -622,7 +663,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       sendError(clientId, sessionId, 'observe_only', 'observer clients cannot send input');
       return;
     }
-    const session = options.store.getSession(sessionId);
+    const session = getStoredSession(sessionId);
     const runnerClient = session ? options.runnerClientForSession?.(session) : undefined;
     if (runnerClient) {
       await runnerClient.write(data, clientId).catch(() => {
@@ -650,7 +691,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       sendError(clientId, sessionId, 'bad_resize', 'resize requires positive terminal dimensions');
       return;
     }
-    const session = options.store.getSession(sessionId);
+    const session = getStoredSession(sessionId);
     const runnerClient = session ? options.runnerClientForSession?.(session) : undefined;
     if (runnerClient) {
       await runnerClient.resize(cols, rows, clientId).catch(() => {
@@ -674,7 +715,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       sendError(clientId, sessionId, 'observe_only', 'observer clients cannot stop sessions');
       return;
     }
-    const session = options.store.getSession(sessionId);
+    const session = getStoredSession(sessionId);
     const runnerClient = session ? options.runnerClientForSession?.(session) : undefined;
     if (runnerClient) {
       await runnerClient.stop('relay-stop').catch(() => {

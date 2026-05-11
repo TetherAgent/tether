@@ -962,8 +962,45 @@ async function waitFor(predicate: () => boolean, timeoutMs = 1500): Promise<void
 
 // ─── Phase 15: Chat Remote Session Metadata ────────────────────────────────
 
-test('Phase15-A8: relay-client rejects new chat with non-whitelisted provider', { skip: 'Phase 15 not implemented' }, async () => {
-  // Gateway 收到 client.chat { sessionId: null, provider: 'evil-provider', ... }
-  // 断言：onError 被调用，错误码为 'provider_not_supported' 或 'invalid_provider'
-  // 断言：没有启动任何 subprocess
+test('Phase15-A8: relay-client rejects new chat with non-whitelisted provider', async () => {
+  const { store, cleanup } = tempStore();
+  const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  const port = await waitForWebSocketServerPort(fakeRelay);
+  const gatewaySocketPromise = waitForGatewaySocket(fakeRelay);
+  const relayClient = startRelayClient({
+    url: `ws://127.0.0.1:${port}`,
+    secret: SECRET,
+    gatewayId: 'gw_phase15_a8',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_phase15_a8' },
+    store
+  });
+
+  try {
+    const gatewaySocket = await gatewaySocketPromise;
+    await waitForGatewayFrame(gatewaySocket, (frame) => frame.type === 'gateway.auth');
+    gatewaySocket.send(JSON.stringify({ type: 'gateway.auth.ok', gatewayId: 'gw_phase15_a8' }));
+    await waitForRelayClientConnected(relayClient);
+
+    gatewaySocket.send(JSON.stringify({
+      type: 'client.chat',
+      clientId: 'client-a8',
+      sessionId: null,
+      provider: 'evil-provider',
+      model: 'x',
+      cwd: process.cwd(),
+      message: 'hi'
+    }));
+
+    const error = await waitForGatewayFrame(
+      gatewaySocket,
+      (frame) => frame.type === 'gateway.error' && frame.code === 'provider_not_supported'
+    );
+    assert.equal(error.type, 'gateway.error');
+    assert.equal(error.clientId, 'client-a8');
+  } finally {
+    await relayClient.close();
+    await closeWebSocketServer(fakeRelay);
+    cleanup();
+  }
 });
