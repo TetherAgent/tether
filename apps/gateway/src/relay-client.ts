@@ -1,25 +1,27 @@
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import type {
   RelayAuthScope,
   RelayGatewayToServerFrame,
   RelayServerToGatewayFrame,
-  RelaySession,
   RelayTerminalEvent
 } from '@tether/protocol';
 import { detectSelectOptions } from './agent-select-detect.js';
+import { ChatSessionRegistry } from './chat/chat-session-registry.js';
 import { ChatSessionRunner, CodexChatRunner, CopilotChatRunner, type ChatRunnerOptions, type IChatRunner } from './chat-session-runner.js';
 import { createSessionEvent } from './events.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
+import { ChatHandler } from './relay/chat-handler.js';
+import { PtyHandler, type NewPtySessionHandler } from './relay/pty-handler.js';
 import { RelaySender } from './relay/relay-sender.js';
+import { SessionCatalog, toRelaySession } from './relay/session-catalog.js';
+import { SubscriptionManager } from './relay/subscription-manager.js';
 import type { SessionRunnerClient } from './session-runner-client.js';
 import type { Session, SessionEvent } from './types.js';
-import { providerEffectiveEnv } from './provider-env.js';
 
 const TETHER_VERSION = resolvePackageVersion(import.meta.url, ['@tether-labs/cli', '@tether/gateway']) ?? '0.0.0-dev';
 
@@ -31,16 +33,7 @@ export type RelayClientOptions = {
   scope?: RelayAuthScope;
   ptySessions?: PtySessionManager;
   runnerClientForSession?: (session: Session) => SessionRunnerClient | undefined;
-  onNewPtySession?: (params: {
-    clientId: string;
-    provider: string;
-    command: string;
-    cwd: string;
-    cols: number;
-    rows: number;
-    title?: string;
-    providerArgs?: string[];
-  }) => Promise<{ sessionId: string }>;
+  onNewPtySession?: NewPtySessionHandler;
   heartbeatIntervalMs?: number;
   heartbeatTimeoutMs?: number;
 };
@@ -55,11 +48,6 @@ export type RelayConnectionStatus = {
   state: 'connecting' | 'connected' | 'disconnected' | 'auth_failed';
   url: string;
   lastChangedAt: number;
-};
-
-type RelaySubscription = {
-  mode: 'control' | 'observe';
-  unsubscribe?: () => void | Promise<void>;
 };
 
 const MIN_RECONNECT_DELAY_MS = 1000;
@@ -78,14 +66,38 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   let heartbeatTimeout: NodeJS.Timeout | undefined;
   const heartbeatIntervalMs = options.heartbeatIntervalMs ?? RELAY_HEARTBEAT_INTERVAL_MS;
   const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? RELAY_HEARTBEAT_TIMEOUT_MS;
-  const subscriptions = new Map<string, RelaySubscription>();
-  const chatInFlight = new Set<string>();
-  const chatSessions = new Map<string, Session>();
+  const subscriptions = new SubscriptionManager();
+  const chatRegistry = new ChatSessionRegistry();
   let connectionState: RelayConnectionStatus['state'] = 'connecting';
   let lastChangedAt = Date.now();
   let effectiveGatewayId = options.gatewayId;
   const relaySender = new RelaySender((frame) => send(frame), () => effectiveGatewayId);
-  const getStoredSession = (sessionId: string) => options.ptySessions?.getSession(sessionId) ?? chatSessions.get(sessionId);
+  const sessionCatalog = new SessionCatalog({
+    chatRegistry,
+    ptySessions: options.ptySessions,
+    runnerClientForSession: options.runnerClientForSession,
+    emitEvent: (event) => relaySender.event(toRelayEvent(event)),
+    isPidAlive
+  });
+  const getStoredSession = (sessionId: string) => sessionCatalog.get(sessionId);
+  const sendError = (clientId: string, sessionId: string, code: string, message: string) => {
+    relaySender.error(clientId, sessionId, code, message);
+  };
+  const deferLostError = (clientId: string, sessionId: string) => {
+    setTimeout(() => {
+      sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
+    }, 0);
+  };
+  const ptyHandler = new PtyHandler({
+    relaySender,
+    sessionCatalog,
+    subscriptions,
+    ptySessions: options.ptySessions,
+    runnerClientForSession: options.runnerClientForSession,
+    onNewPtySession: options.onNewPtySession,
+    sendSessions: () => sendSessions(),
+    sendError
+  });
   const chatRunnerOptions: ChatRunnerOptions = {
     gatewayId: () => effectiveGatewayId,
     onSessionCreated: (clientId, sessionId) => {
@@ -93,25 +105,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       void sendSessions();
     },
     onChatSessionCreated: (clientId, metadata) => {
-      const now = Date.now();
-      chatSessions.set(metadata.id, {
-        id: metadata.id,
-        provider: metadata.provider,
-        title: metadata.title ?? metadata.provider,
-        projectPath: metadata.projectPath,
-        accountId: metadata.accountId,
-        userId: metadata.userId,
-        gatewayId: metadata.gatewayId,
-        status: 'running',
-        attachState: 'detached',
-        tmuxSessionName: '',
-        command: metadata.provider,
-        transport: 'chat',
-        agentSessionId: metadata.agentSessionId,
-        createdAt: now,
-        updatedAt: now,
-        lastActiveAt: now
-      });
+      chatRegistry.upsertFromMetadata(metadata);
       relaySender.chatSessionCreated(clientId, metadata);
     },
     onUserMessage: ({ clientId, sessionId, event }) => {
@@ -124,7 +118,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       sendChatEvent(deltaEventId, sessionId, 'agent.delta', { clientId, text });
     },
     onResult: ({ clientId, sessionId, event, text, usage, stopReason, contextWindow, rateLimitInfo, contextInputTokens, nextSuggestions }) => {
-      chatInFlight.delete(sessionId);
+      chatRegistry.releaseInFlight(sessionId);
       sendChatEvent(event.id, sessionId, 'agent.result', {
         clientId,
         text,
@@ -154,7 +148,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       });
     },
     onError: ({ clientId, sessionId, code, message, event }) => {
-      chatInFlight.delete(sessionId);
+      chatRegistry.releaseInFlight(sessionId);
       if (event) {
         sendChatEvent(event.id, sessionId, 'session.error', {
           clientId,
@@ -165,12 +159,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       relaySender.error(clientId, sessionId, code, message);
     },
     onAgentIdUpdate: (sessionId, agentSessionId) => {
-      const session = chatSessions.get(sessionId);
-      if (session) {
-        session.agentSessionId = agentSessionId;
-        session.updatedAt = Date.now();
-        session.lastActiveAt = session.updatedAt;
-      }
+      chatRegistry.updateAgentSessionId(sessionId, agentSessionId);
       sendChatEvent(Date.now(), sessionId, 'session.agent-id-updated', { sessionId, agentSessionId });
     }
   };
@@ -320,17 +309,17 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     }
   };
 
-  const sendProviders = async (clientId: string) => {
-    const providers = [
-      isInstalled('claude') ? { provider: 'claude', models: await providerModels('claude') } : undefined,
-      isInstalled('codex') ? { provider: 'codex', models: await providerModels('codex') } : undefined,
-      isCopilotInstalled() ? { provider: 'copilot', models: await providerModels('copilot') } : undefined
-    ].filter((provider): provider is { provider: string; models: string[] } => provider !== undefined);
-    sendChatEvent(0, '', 'gateway.providers', { clientId, providers });
-  };
+  const chatHandler = new ChatHandler({
+    chatRegistry,
+    relaySender,
+    sessionCatalog,
+    subscriptions,
+    runnerForProvider,
+    sendError
+  });
 
   const sendSessions = async () => {
-    relaySender.sessions((await listRelaySessions()).map(toRelaySession));
+    relaySender.sessions((await sessionCatalog.listRelaySessions()).map(toRelaySession));
   };
 
   const handleFrame = (frame: RelayServerToGatewayFrame) => {
@@ -340,14 +329,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         void sendSessions();
         return;
       case 'gateway.sessions-restore':
-        for (const relaySession of frame.sessions) {
-          const pid = 'pid' in relaySession && typeof relaySession.pid === 'number' ? relaySession.pid : undefined;
-          const status = pid ? (isPidAlive(pid) ? 'running' : 'lost') : relaySession.status;
-          options.ptySessions?.restoreSession({
-            ...relaySession,
-            status
-          });
-        }
+        sessionCatalog.restoreRelaySessions(frame.sessions);
         void sendSessions();
         return;
       case 'gateway.auth.failed':
@@ -361,13 +343,13 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         void subscribeClient(frame.clientId, frame.sessionId, frame.after ?? 0, frame.mode, frame.tail, frame.cols, frame.rows);
         return;
       case 'client.input':
-        void writeInput(frame.clientId, frame.sessionId, frame.data);
+        void ptyHandler.writeInput(frame.clientId, frame.sessionId, frame.data);
         return;
       case 'client.resize':
-        void resizePty(frame.clientId, frame.sessionId, frame.cols, frame.rows);
+        void ptyHandler.resizePty(frame.clientId, frame.sessionId, frame.cols, frame.rows);
         return;
       case 'client.stop':
-        void stopPty(frame.clientId, frame.sessionId);
+        void ptyHandler.stopPty(frame.clientId, frame.sessionId);
         return;
       case 'client.unsubscribe':
         removeSubscription(frame.clientId, frame.sessionId);
@@ -375,164 +357,25 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       case 'client.detach':
         removeSubscription(frame.clientId, frame.sessionId);
         return;
-      case 'client.chat': {
-        if (frame.sessionId === null) {
-          const runner = runnerForProvider(frame.provider);
-          if (!runner) {
-            relaySender.error(frame.clientId, '', 'provider_not_supported', `provider is not supported: ${frame.provider}`);
-            return;
-          }
-          void runner.run({
-            clientId: frame.clientId,
-            sessionId: null,
-            provider: frame.provider,
-            model: frame.model,
-            cwd: frame.cwd,
-            message: frame.message,
-            accountId: frame.accountId,
-            userId: frame.userId
-          });
-          return;
-        }
-        if (chatInFlight.has(frame.sessionId)) {
-          sendError(frame.clientId, frame.sessionId, 'chat_in_progress', '当前会话正在回复中');
-          return;
-        }
-        if (!frame.session) {
-          relaySender.error(frame.clientId, frame.sessionId, 'missing_session_metadata', 'trusted session metadata is missing from relay frame');
-          return;
-        }
-        const now = Date.now();
-        chatSessions.set(frame.sessionId, {
-          id: frame.session.id,
-          provider: frame.session.provider,
-          title: frame.session.title ?? frame.session.provider,
-          projectPath: frame.session.projectPath,
-          accountId: frame.session.accountId,
-          userId: frame.session.userId,
-          gatewayId: frame.session.gatewayId,
-          status: 'running',
-          attachState: 'detached',
-          tmuxSessionName: '',
-          command: frame.session.provider,
-          transport: 'chat',
-          agentSessionId: frame.session.agentSessionId,
-          createdAt: now,
-          updatedAt: now,
-          lastActiveAt: now
-        });
-        const runner = runnerForProvider(frame.session.provider);
-        if (!runner) {
-          relaySender.error(frame.clientId, frame.sessionId, 'provider_not_supported', `provider is not supported: ${frame.session.provider}`);
-          return;
-        }
-        chatInFlight.add(frame.sessionId);
-        void runner.run({
-          clientId: frame.clientId,
-          sessionId: frame.sessionId,
-          message: frame.message,
-          model: frame.model,
-          session: frame.session
-        }).catch((err: unknown) => {
-          chatInFlight.delete(frame.sessionId);
-          sendError(frame.clientId, frame.sessionId, 'chat_runner_failed', String(err));
-        });
+      case 'client.chat':
+        chatHandler.handleChat(frame);
         return;
-      }
       case 'client.list-providers':
-        void sendProviders(frame.clientId);
+        void chatHandler.sendProviders(frame.clientId);
         return;
       case 'client.cwd-suggest':
-        void sendCwdSuggestions(frame.clientId, frame.cwd);
+        void chatHandler.sendCwdSuggestions(frame.clientId, frame.cwd);
         return;
       case 'client.switch-model':
-        relaySender.chatCatchup(frame.clientId, frame.sessionId, '模型切换功能将在后续版本中实现');
-        relaySender.error(frame.clientId, frame.sessionId, 'switch_not_implemented', '模型切换功能将在后续版本中实现');
+        chatHandler.handleSwitchModel(frame.clientId, frame.sessionId);
         return;
-      case 'client.permission_response': {
-        const session = getStoredSession(frame.sessionId);
-        if (session) {
-          runnerForProvider(session.provider)?.respondToPermission(frame.sessionId, frame.requestId, frame.decision);
-        }
+      case 'client.permission_response':
+        chatHandler.handlePermissionResponse(frame);
         return;
-      }
       case 'client.new-pty-session':
-        if (!options.onNewPtySession) {
-          relaySender.error(frame.clientId, '', 'session_create_not_supported', 'gateway cannot create PTY sessions over relay');
-          return;
-        }
-        void options.onNewPtySession({
-          clientId: frame.clientId,
-          provider: frame.provider,
-          command: frame.command,
-          cwd: frame.cwd,
-          cols: frame.cols,
-          rows: frame.rows,
-          title: frame.title,
-          providerArgs: frame.providerArgs
-        }).then(({ sessionId }) => {
-          relaySender.sessionCreated(frame.clientId, sessionId);
-          void sendSessions();
-        }).catch((error: unknown) => {
-          relaySender.error(frame.clientId, '', 'session_create_failed', error instanceof Error ? error.message : String(error));
-        });
+        ptyHandler.handleNewSession(frame);
         return;
       }
-  };
-
-  const listRelaySessions = async (): Promise<Session[]> => {
-    const ptyList = (options.ptySessions?.listSessions() ?? []).filter(s => !chatSessions.has(s.id));
-    const sessions = [...chatSessions.values(), ...ptyList];
-    const result: Session[] = [];
-    for (const session of sessions) {
-      if (session.status === 'lost') {
-        continue;
-      }
-      if (session.transport === 'chat') {
-        result.push(session);
-        continue;
-      }
-      if (options.ptySessions?.isRestoredSession(session.id)) {
-        result.push(session);
-        continue;
-      }
-      if (session.status !== 'running' || session.transport !== 'pty-event-stream') {
-        continue;
-      }
-      const alive = await isLiveSession(session);
-      if (alive) {
-        result.push(session);
-        continue;
-      }
-      markSessionLost(session.id);
-      const updated = getStoredSession(session.id);
-      result.push(updated ?? { ...session, status: 'lost' });
-    }
-    return result;
-  };
-
-  const sendCwdSuggestions = async (clientId: string, cwd: string) => {
-    sendChatEvent(0, '', 'gateway.cwd-suggestions', {
-      clientId,
-      cwd,
-      suggestions: await directorySuggestions(cwd)
-    });
-  };
-
-  const isLiveSession = async (session: Session): Promise<boolean> => {
-    const runnerClient = options.runnerClientForSession?.(session);
-    if (runnerClient?.ping) {
-      try {
-        const pong = await runnerClient.ping();
-        return pong?.sessionId === session.id;
-      } catch {
-        return false;
-      }
-    }
-    if (options.ptySessions) {
-      return options.ptySessions.hasLiveSession(session.id);
-    }
-    return true;
   };
 
   const subscribeClient = async (
@@ -549,17 +392,16 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       sendError(clientId, sessionId, 'session_not_found', 'session not found');
       return;
     }
-    const key = subscriptionKey(clientId, sessionId);
-    const previousSubscription = subscriptions.get(key);
+    const previousSubscription = subscriptions.get(clientId, sessionId);
     if (previousSubscription) {
       await previousSubscription.unsubscribe?.();
-      subscriptions.delete(key);
+      subscriptions.delete(clientId, sessionId);
     }
     if (session.transport === 'pty-event-stream' && session.status !== 'running') {
       deferLostError(clientId, sessionId);
       return;
     }
-    subscriptions.set(key, { mode });
+    subscriptions.set(clientId, sessionId, { mode });
     if (session.transport === 'chat') {
       const catchupText = runnerForProvider(session.provider)?.getCatchup(sessionId);
       if (catchupText !== undefined) {
@@ -575,20 +417,20 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         const resized = await runnerClient.resize(nextCols, nextRows, clientId).then(
           () => true,
           () => {
-            markSessionLost(sessionId);
+            sessionCatalog.markSessionLost(sessionId);
             return false;
           }
         );
         if (!resized) {
-          subscriptions.delete(key);
+          subscriptions.delete(clientId, sessionId);
           deferLostError(clientId, sessionId);
           return;
         }
       } else {
         const ok = options.ptySessions?.resize(sessionId, clientId, nextCols, nextRows) ?? false;
         if (!ok) {
-          markSessionLost(sessionId);
-          subscriptions.delete(key);
+          sessionCatalog.markSessionLost(sessionId);
+          subscriptions.delete(clientId, sessionId);
           deferLostError(clientId, sessionId);
           return;
         }
@@ -650,8 +492,8 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
           detectAndEmitRelaySelect(frame.event);
         }, replayCursor);
       } catch {
-        markSessionLost(sessionId);
-        subscriptions.delete(key);
+        sessionCatalog.markSessionLost(sessionId);
+        subscriptions.delete(clientId, sessionId);
         deferLostError(clientId, sessionId);
         return;
       }
@@ -665,19 +507,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       clearTimeout(relaySelectDebounceTimer);
       await unsubscribe?.();
     };
-    subscriptions.set(key, { mode, unsubscribe: wrappedUnsubscribe });
-  };
-
-  const markSessionLost = (sessionId: string): void => {
-    const session = getStoredSession(sessionId);
-    if (session?.status === 'running') {
-      options.ptySessions?.updateSessionStatus(sessionId, 'lost');
-      const event = createSessionEvent(sessionId, 'session.error', {
-        code: 'session_lost',
-        message: 'Gateway relay client lost the session runner'
-      });
-      relaySender.event(toRelayEvent(event));
-    }
+    subscriptions.set(clientId, sessionId, { mode, unsubscribe: wrappedUnsubscribe });
   };
 
   const replayEvents = (clientId: string, sessionId: string, after: number, tail?: number): number => {
@@ -686,105 +516,11 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     return after;
   };
 
-  const writeInput = async (clientId: string, sessionId: string, data: string) => {
-    const subscription = subscriptions.get(subscriptionKey(clientId, sessionId));
-    if (!subscription) {
-      sendError(clientId, sessionId, 'not_subscribed', 'client is not subscribed to this session');
-      return;
-    }
-    if (subscription.mode !== 'control') {
-      sendError(clientId, sessionId, 'observe_only', 'observer clients cannot send input');
-      return;
-    }
-    const session = getStoredSession(sessionId);
-    const runnerClient = session ? options.runnerClientForSession?.(session) : undefined;
-    if (runnerClient) {
-      await runnerClient.write(data, clientId).catch(() => {
-        sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
-      });
-      return;
-    }
-    const ok = options.ptySessions?.write(sessionId, { clientId, data }) ?? false;
-    if (!ok) {
-      sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
-    }
-  };
-
-  const resizePty = async (clientId: string, sessionId: string, cols: number, rows: number) => {
-    const subscription = subscriptions.get(subscriptionKey(clientId, sessionId));
-    if (!subscription) {
-      sendError(clientId, sessionId, 'not_subscribed', 'client is not subscribed to this session');
-      return;
-    }
-    if (subscription.mode !== 'control') {
-      sendError(clientId, sessionId, 'observe_only', 'observer clients cannot resize');
-      return;
-    }
-    if (!isValidTerminalSize(cols, rows)) {
-      sendError(clientId, sessionId, 'bad_resize', 'resize requires positive terminal dimensions');
-      return;
-    }
-    const session = getStoredSession(sessionId);
-    const runnerClient = session ? options.runnerClientForSession?.(session) : undefined;
-    if (runnerClient) {
-      await runnerClient.resize(cols, rows, clientId).catch(() => {
-        sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
-      });
-      return;
-    }
-    const ok = options.ptySessions?.resize(sessionId, clientId, cols, rows) ?? false;
-    if (!ok) {
-      sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
-    }
-  };
-
-  const stopPty = async (clientId: string, sessionId: string) => {
-    const subscription = subscriptions.get(subscriptionKey(clientId, sessionId));
-    if (!subscription) {
-      sendError(clientId, sessionId, 'not_subscribed', 'client is not subscribed to this session');
-      return;
-    }
-    if (subscription.mode !== 'control') {
-      sendError(clientId, sessionId, 'observe_only', 'observer clients cannot stop sessions');
-      return;
-    }
-    const session = getStoredSession(sessionId);
-    const runnerClient = session ? options.runnerClientForSession?.(session) : undefined;
-    if (runnerClient) {
-      await runnerClient.stop('relay-stop').catch(() => {
-        options.ptySessions?.updateSessionStatus(sessionId, 'lost');
-        sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
-      });
-      return;
-    }
-    const ok = options.ptySessions?.stop(sessionId) ?? false;
-    if (!ok) {
-      options.ptySessions?.updateSessionStatus(sessionId, 'lost');
-      sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
-    }
-  };
-
-  const sendError = (clientId: string, sessionId: string, code: string, message: string) => {
-    relaySender.error(clientId, sessionId, code, message);
-  };
-
-  const deferLostError = (clientId: string, sessionId: string) => {
-    setTimeout(() => {
-      sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
-    }, 0);
-  };
-
   const removeSubscription = async (clientId: string, sessionId: string) => {
-    const key = subscriptionKey(clientId, sessionId);
-    const subscription = subscriptions.get(key);
-    await subscription?.unsubscribe?.();
-    subscriptions.delete(key);
+    await subscriptions.remove(clientId, sessionId);
   };
 
   const clearSubscriptions = () => {
-    for (const subscription of subscriptions.values()) {
-      void subscription.unsubscribe?.();
-    }
     subscriptions.clear();
   };
 
@@ -846,10 +582,6 @@ function parseFrame(data: WebSocket.RawData): RelayServerToGatewayFrame | undefi
   return undefined;
 }
 
-function subscriptionKey(clientId: string, sessionId: string): string {
-  return `${clientId}:${sessionId}`;
-}
-
 function isPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -857,200 +589,6 @@ function isPidAlive(pid: number): boolean {
   } catch {
     return false;
   }
-}
-
-function toRelaySession(session: Session): RelaySession {
-  return {
-    id: session.id,
-    provider: session.provider,
-    title: session.title,
-    projectPath: session.projectPath,
-    accountId: session.accountId,
-    gatewayId: undefined,
-    userId: session.userId,
-    agentSessionId: session.agentSessionId,
-    status: session.status,
-    transport: session.transport,
-    lastActiveAt: session.lastActiveAt
-  };
-}
-
-async function providerModels(provider: string): Promise<string[]> {
-  const env = providerEffectiveEnv(provider, process.cwd());
-  switch (provider) {
-    case 'claude':
-      return claudeModels();
-    case 'codex':
-      return codexModels(env);
-    case 'copilot':
-      return copilotModels(env);
-    default:
-      return [];
-  }
-}
-
-function codexModels(env: NodeJS.ProcessEnv): string[] {
-  return uniqueStrings([
-    env.CODEX_MODEL,
-    readCodexConfiguredModel(env),
-    ...readCodexCachedModels(env),
-    'gpt-5.5',
-    'gpt-5.4',
-    'gpt-5.4-mini',
-    'gpt-5.3-codex',
-    'gpt-5.3-codex-spark',
-    'gpt-5.2'
-  ]);
-}
-
-function readCodexConfiguredModel(env: NodeJS.ProcessEnv): string | undefined {
-  const configDir = env.CODEX_HOME ? resolveHomePath(env.CODEX_HOME) : path.join(os.homedir(), '.codex');
-  try {
-    const content = readFileSync(path.join(configDir, 'config.toml'), 'utf8');
-    const match = content.match(/(?:^|\n)\s*model\s*=\s*["']([^"'\n]+)["']/);
-    return match?.[1];
-  } catch {
-    return undefined;
-  }
-}
-
-function readCodexCachedModels(env: NodeJS.ProcessEnv): string[] {
-  const configDir = env.CODEX_HOME ? resolveHomePath(env.CODEX_HOME) : path.join(os.homedir(), '.codex');
-  try {
-    const parsed = JSON.parse(readFileSync(path.join(configDir, 'models_cache.json'), 'utf8')) as { models?: unknown };
-    if (!Array.isArray(parsed.models)) {
-      return [];
-    }
-    return parsed.models.flatMap((model) => {
-      if (!model || typeof model !== 'object') {
-        return [];
-      }
-      const slug = (model as { slug?: unknown }).slug;
-      return typeof slug === 'string' ? [slug] : [];
-    });
-  } catch {
-    return [];
-  }
-}
-
-function copilotModels(env: NodeJS.ProcessEnv): string[] {
-  return uniqueStrings([
-    env.COPILOT_MODEL,
-    env.COPILOT_PROVIDER_MODEL_ID,
-    readCopilotConfiguredModel(),
-    ...copilotModelsFromHelp(),
-    'gpt-5.5',
-    'gpt-5.4',
-    'gpt-5.2',
-    'claude-sonnet-4'
-  ]);
-}
-
-function readCopilotConfiguredModel(): string | undefined {
-  try {
-    const parsed = JSON.parse(readFileSync(path.join(os.homedir(), '.copilot', 'settings.json'), 'utf8')) as { model?: unknown };
-    return typeof parsed.model === 'string' ? parsed.model : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function copilotModelsFromHelp(): string[] {
-  const result = spawnSync('gh', ['copilot', 'help', 'config'], { encoding: 'utf8', timeout: 2000 });
-  const help = typeof result.stdout === 'string' ? result.stdout : '';
-  const models: string[] = [];
-  for (const line of help.split('\n')) {
-    const match = line.match(/^\s*-\s+"([^"]+)"/);
-    if (match?.[1]) {
-      models.push(match[1]);
-    }
-  }
-  return models;
-}
-
-async function claudeModels(): Promise<string[]> {
-  const env = providerEffectiveEnv('claude', process.cwd());
-  const envModels = claudeModelsFromEnv(env);
-  if (envModels.length > 0) {
-    return envModels;
-  }
-  const gatewayModels = await claudeModelsFromGateway(env);
-  if (gatewayModels.length > 0) {
-    return gatewayModels;
-  }
-  return claudeModelAliases(env);
-}
-
-function claudeModelsFromEnv(env: NodeJS.ProcessEnv): string[] {
-  return uniqueStrings([
-    env.ANTHROPIC_DEFAULT_SONNET_MODEL,
-    env.ANTHROPIC_DEFAULT_OPUS_MODEL,
-    env.ANTHROPIC_DEFAULT_HAIKU_MODEL
-  ]);
-}
-
-async function claudeModelsFromGateway(env: NodeJS.ProcessEnv): Promise<string[]> {
-  const baseUrl = env.ANTHROPIC_BASE_URL?.trim();
-  if (!baseUrl || env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY !== '1') {
-    return [];
-  }
-  let url: URL;
-  try {
-    url = new URL(baseUrl);
-    url.pathname = `${url.pathname.replace(/\/$/, '')}/v1/models`;
-    url.search = 'limit=1000';
-  } catch {
-    return [];
-  }
-  const headers: Record<string, string> = {};
-  if (env.ANTHROPIC_API_KEY) {
-    headers['x-api-key'] = env.ANTHROPIC_API_KEY;
-  }
-  try {
-    const response = await fetch(url, { headers, signal: AbortSignal.timeout(2000) });
-    if (!response.ok) {
-      return [];
-    }
-    const json = (await response.json()) as { data?: unknown };
-    if (!Array.isArray(json.data)) {
-      return [];
-    }
-    return uniqueStrings(
-      json.data.flatMap((item) => {
-        if (!item || typeof item !== 'object') {
-          return [];
-        }
-        const id = (item as { id?: unknown }).id;
-        return typeof id === 'string' ? [id] : [];
-      })
-    );
-  } catch {
-    return [];
-  }
-}
-
-function claudeModelAliases(env: NodeJS.ProcessEnv): string[] {
-  const result = spawnSync('claude', ['--help'], { encoding: 'utf8', timeout: 2000, env });
-  const help = typeof result.stdout === 'string' ? result.stdout : '';
-  const modelLine = help.split('\n').find((line) => line.includes('--model'));
-  if (!modelLine) {
-    return ['sonnet', 'opus', 'haiku'];
-  }
-  const aliasExample = modelLine.match(/alias[^()]*\(e\.g\.\s*([^)]+)\)/i)?.[1] ?? modelLine;
-  const aliases = Array.from(aliasExample.matchAll(/'([^']+)'/g))
-    .map((match) => match[1])
-    .filter((model): model is string => Boolean(model && /^[a-z][a-z0-9_-]*$/i.test(model) && !model.startsWith('claude-')));
-  const normalized = uniqueStrings([...aliases, 'haiku']);
-  return normalized.length > 0 ? normalized : ['sonnet', 'opus', 'haiku'];
-}
-
-function uniqueStrings(values: Array<string | undefined>): string[] {
-  return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
-}
-
-function isInstalled(command: string): boolean {
-  const result = spawnSync(command, ['--version'], { stdio: 'ignore' });
-  return result.status === 0 || result.error === undefined;
 }
 
 function resolvePackageVersion(startUrl: string, packageNames: string[]): string | undefined {
@@ -1076,46 +614,6 @@ function resolvePackageVersion(startUrl: string, packageNames: string[]): string
     current = next;
   }
   return undefined;
-}
-
-function isCopilotInstalled(): boolean {
-  const result = spawnSync('gh', ['copilot', '--help'], { stdio: 'ignore', timeout: 2000 });
-  return result.status === 0;
-}
-
-async function directorySuggestions(input: string): Promise<string[]> {
-  const trimmed = input.trim();
-  const expanded = resolveInputPath(trimmed);
-  const shouldListChildren = !trimmed || trimmed.endsWith('/') || trimmed === '~';
-  const baseDir = shouldListChildren ? expanded : path.dirname(expanded);
-  const prefix = shouldListChildren ? '' : path.basename(expanded).toLowerCase();
-  const showHidden = prefix.startsWith('.') || path.basename(baseDir).startsWith('.');
-  try {
-    const entries = await readdir(baseDir, { withFileTypes: true });
-    return entries
-      .filter((entry) => entry.isDirectory())
-      .filter((entry) => showHidden || !entry.name.startsWith('.'))
-      .filter((entry) => !prefix || entry.name.toLowerCase().startsWith(prefix))
-      .sort((left, right) => left.name.localeCompare(right.name))
-      .slice(0, 20)
-      .map((entry) => path.join(baseDir, entry.name));
-  } catch {
-    return [];
-  }
-}
-
-function resolveInputPath(input: string): string {
-  if (!input) {
-    return os.homedir();
-  }
-  return path.resolve(resolveHomePath(input));
-}
-
-function resolveHomePath(value: string): string {
-  if (value === '~') {
-    return os.homedir();
-  }
-  return value.startsWith('~/') ? path.join(os.homedir(), value.slice(2)) : value;
 }
 
 function toRelayEvent(event: SessionEvent): RelayTerminalEvent {

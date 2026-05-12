@@ -20,4 +20,10 @@ export default (app: Application): void => {
   router.get('/api/admin/gateways', requireManagementAccess, controller.admin.gateways.index);
   router.delete('/api/admin/gateways/:id/unlink', requireManagementAccess, controller.admin.gateways.unlink);
   router.get('/api/admin/audit', requireManagementAccess, controller.admin.audit.index);
+
+  router.get('/api/admin/sessions', requireManagementAccess, controller.admin.sessions.index);
+  router.get('/api/admin/sessions/:id', requireManagementAccess, controller.admin.sessions.show);
+  router.get('/api/admin/sessions/:id/messages', requireManagementAccess, controller.admin.sessions.messages);
+  router.get('/api/admin/sessions/:id/events', requireManagementAccess, controller.admin.sessions.events);
+  router.get('/api/admin/sessions/:id/chat-events', requireManagementAccess, controller.admin.sessions.chatEvents);
 };

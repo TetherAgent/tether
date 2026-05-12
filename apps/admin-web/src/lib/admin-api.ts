@@ -185,3 +185,119 @@ export async function createAdmin(token: string, data: {
     throw normalizeRequestError(error);
   }
 }
+
+export type AdminSession = {
+  id: string;
+  accountId: string;
+  gatewayId: string;
+  userId: string | null;
+  userEmail: string | null;
+  provider: string;
+  title: string | null;
+  projectPath: string | null;
+  agentSessionId: string | null;
+  status: string;
+  transport: string;
+  lastActiveAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type AdminChatMessage = {
+  id: number;
+  sessionId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  usageJson: Record<string, unknown>;
+  createdAt: number;
+};
+
+export type AdminRuntimeEvent = {
+  eventId: number;
+  sessionId: string;
+  eventType: string;
+  payloadJson: Record<string, unknown>;
+  createdAt: number;
+};
+
+export type AdminChatEvent = {
+  id: number;
+  sessionId: string;
+  eventId: number;
+  eventType: string;
+  createdAt: number;
+};
+
+export async function listSessions(token: string, params: {
+  page?: number;
+  limit?: number;
+  userId?: string;
+  gatewayId?: string;
+  transport?: string;
+  status?: string;
+} = {}) {
+  try {
+    return await http.get<{ sessions: AdminSession[]; total: number }>(
+      '/api/admin/sessions',
+      {
+        page: params.page ?? 1,
+        limit: params.limit ?? 20,
+        userId: params.userId,
+        gatewayId: params.gatewayId,
+        transport: params.transport,
+        status: params.status,
+      },
+      { token }
+    );
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
+}
+
+export async function getSession(token: string, sessionId: string) {
+  try {
+    return await http.get<AdminSession>(
+      `/api/admin/sessions/${encodeURIComponent(sessionId)}`,
+      undefined,
+      { token }
+    );
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
+}
+
+export async function listSessionMessages(token: string, sessionId: string, page = 1) {
+  try {
+    return await http.get<{ messages: AdminChatMessage[]; total: number }>(
+      `/api/admin/sessions/${encodeURIComponent(sessionId)}/messages`,
+      { page, limit: 50 },
+      { token }
+    );
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
+}
+
+export async function listSessionRuntimeEvents(token: string, sessionId: string, page = 1) {
+  try {
+    return await http.get<{ events: AdminRuntimeEvent[]; total: number }>(
+      `/api/admin/sessions/${encodeURIComponent(sessionId)}/events`,
+      { page, limit: 50 },
+      { token }
+    );
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
+}
+
+export async function listSessionChatEvents(token: string, sessionId: string, page = 1) {
+  try {
+    return await http.get<{ events: AdminChatEvent[]; total: number }>(
+      `/api/admin/sessions/${encodeURIComponent(sessionId)}/chat-events`,
+      { page, limit: 50 },
+      { token }
+    );
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
+}

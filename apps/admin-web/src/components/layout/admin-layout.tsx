@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Badge, Button, Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@tether/design';
-import { LayoutGrid, LogOut, Menu, Router, ScanSearch, Shield, Users, Waypoints } from 'lucide-react';
+import { LayoutGrid, LogOut, Menu, Router, ScanSearch, Shield, SquareTerminal, Users, Waypoints } from 'lucide-react';
 import { useAdminAuth } from '../../hooks/use-admin-auth.js';
 
 const NAV_ITEMS = [
@@ -35,6 +35,12 @@ const NAV_ITEMS = [
     path: '/admin/audit',
     icon: ScanSearch,
   },
+  {
+    label: '会话',
+    hint: '消息与事件流',
+    path: '/admin/sessions',
+    icon: SquareTerminal,
+  },
 ] as const;
 
 const PAGE_META = [
@@ -43,6 +49,7 @@ const PAGE_META = [
   { match: '/admin/devices', title: 'Device Access', description: '管理终端接入状态，快速执行吊销操作。' },
   { match: '/admin/gateways', title: 'Gateway Health', description: '监控节点在线性与链接关系。' },
   { match: '/admin/audit', title: 'Audit Ledger', description: '按用户、动作和时间筛查关键事件。' },
+  { match: '/admin/sessions', title: 'Session Explorer', description: '查看 Gateway 会话的消息历史和事件流。' },
 ] as const;
 
 export function AdminLayout() {
