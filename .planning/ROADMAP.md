@@ -423,6 +423,21 @@ Plans:
   - **Wave 2** *(blocked on Plans 01 + 02)*:
     - [x] `17-03-PLAN.md` — 测试：relay.test.ts 追加 T1~T7 + relay-client.test.ts 追加 GW-T1~GW-T5
 
+### Phase 18: 去掉本地 SQLite
+
+**Goal:** 从 Gateway 彻底移除本地 SQLite（tether.db）：PTY 事件只走 relay→MySQL，session 元数据改内存 Map，relay 推 gateway.sessions-restore 启动恢复，PTY 创建改 relay WS 帧，删掉 store.ts / better-sqlite3 所有残留。
+**Requirements**: SQLITE-01, SQLITE-02, SQLITE-03
+**Depends on:** Phase 17
+**Plans:** 3 plans across 3 waves
+
+Plans:
+  - **Wave 1** (no deps):
+    - [ ] `18-01-PLAN.md` — 删 PTY 事件写入（appendEvent→createSessionEvent+publishEvent）+ session 元数据改内存 Map（PtySessionManager 新增 getSession/listSessions）
+  - **Wave 2** *(blocked on Plan 01)*:
+    - [ ] `18-02-PLAN.md` — relay 加 gateway.sessions-restore 推送 + client.new-pty-session WS 帧 + CLI 命令改 WS
+  - **Wave 3** *(blocked on Plan 02)*:
+    - [ ] `18-03-PLAN.md` — 删 store.ts、better-sqlite3、所有残留引用，清理 apps/cli 中 Store 使用（D-09 验收）
+
 ---
 *Roadmap created: 2026-05-01*
 *Milestone reordered: 2026-05-01 — personal Relay MVP moved to Phase 1*
@@ -439,4 +454,5 @@ Plans:
 *Scope update: 2026-05-11 — Phase 16 Chat Runtime Raw Events added: gateway_runtime_chats_events 新表 + gateway_chat_messages.raw_json + Relay delta sync*
 *Scope update: 2026-05-11 — Phase 17 Chat Multi-client Realtime Sync planned: 3 plans across 2 waves; chatSessionOwners→chatSessionSubscribers + chatInFlight 锁*
 *Execution update: 2026-05-12 — Phase 17 complete; Relay multi-client broadcast + Gateway chatInFlight lock verified by relay/gateway tests*
+*Scope update: 2026-05-12 — Phase 18 去掉本地 SQLite planned: 3 plans across 3 waves; PTY 事件改内存+relay，sessions-restore WS 恢复，store.ts 删除*
 *Coverage: 40/40 v1 requirements mapped*
