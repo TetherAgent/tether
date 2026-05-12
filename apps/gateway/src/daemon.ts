@@ -195,8 +195,54 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     return options.ptySessions?.hasLiveSession(session.id) ?? false;
   };
 
+  const getSession = (sessionId: string): Session | undefined => {
+    return options.ptySessions?.getSession(sessionId) ?? options.store.getSession(sessionId);
+  };
+
+  const listSessions = (): Session[] => {
+    const storeSessions = options.store.listSessions();
+    if (!options.ptySessions) {
+      return storeSessions;
+    }
+    const ptySessions = options.ptySessions.listSessions();
+    const ptyIds = new Set(ptySessions.map((session) => session.id));
+    return [...storeSessions.filter((session) => !ptyIds.has(session.id)), ...ptySessions];
+  };
+
+  const updateSessionStatus = (sessionId: string, status: Session['status'], now = Date.now()): void => {
+    if (options.ptySessions?.getSession(sessionId)) {
+      options.ptySessions.updateSessionStatus(sessionId, status);
+      const session = options.ptySessions.getSession(sessionId);
+      if (session) {
+        session.lastActiveAt = now;
+      }
+      return;
+    }
+    options.store.updateSessionStatus(sessionId, status, now);
+  };
+
+  const touchSession = (sessionId: string, now = Date.now()): void => {
+    const session = options.ptySessions?.getSession(sessionId);
+    if (session) {
+      session.updatedAt = now;
+      session.lastActiveAt = now;
+      return;
+    }
+    options.store.touchSession(sessionId, now);
+  };
+
+  const updateAttachState = (sessionId: string, attachState: Session['attachState'], now = Date.now()): void => {
+    const session = options.ptySessions?.getSession(sessionId);
+    if (session) {
+      session.attachState = attachState;
+      session.updatedAt = now;
+      return;
+    }
+    options.store.updateAttachState(sessionId, attachState, now);
+  };
+
   const markSessionLost = (session: Session, message: string): void => {
-    options.store.updateSessionStatus(session.id, 'lost');
+    updateSessionStatus(session.id, 'lost');
     options.store.appendEvent(session.id, 'session.error', {
       code: 'session_lost',
       message
@@ -220,7 +266,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!mode) {
       return c.json({ error: 'mode is required' }, 400);
     }
-    const session = options.store.getSession(request.sessionId);
+    const session = getSession(request.sessionId);
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
@@ -248,7 +294,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   });
 
   app.get('/api/status', async (c) => {
-    const ptySessions = options.store.listSessions().filter(
+    const ptySessions = listSessions().filter(
       (session) => session.transport === 'pty-event-stream' && session.status === 'running'
     );
     let runnerReachableCount = 0;
@@ -297,7 +343,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       return c.json({ error: actor.error }, actor.status);
     }
     const includeStopped = c.req.query('all') === '1';
-    const sessions = options.store.listSessions();
+    const sessions = listSessions();
     const liveSessions = [];
     for (const session of sessions) {
       const alive =
@@ -305,14 +351,14 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           ? await isLivePtySession(session)
           : await sessionExists(session.tmuxSessionName);
       if (!alive && session.status === 'running' && session.transport === 'tmux') {
-        options.store.updateSessionStatus(session.id, 'stopped');
+        updateSessionStatus(session.id, 'stopped');
         session.status = 'stopped';
       }
       if (!alive && session.status === 'running' && session.transport === 'pty-event-stream') {
         markSessionLost(session, 'Gateway no longer has a live runner for this session');
       }
       if (alive && session.status === 'stopped' && session.transport === 'tmux') {
-        options.store.updateSessionStatus(session.id, 'running');
+        updateSessionStatus(session.id, 'running');
         session.status = 'running';
       }
       if (alive || includeStopped) {
@@ -414,7 +460,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!actor.ok) {
       return c.json({ error: actor.error }, actor.status);
     }
-    const session = options.store.getSession(c.req.param('id'));
+    const session = getSession(c.req.param('id'));
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
@@ -429,7 +475,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     }
 
     if (!(await sessionExists(session.tmuxSessionName))) {
-      options.store.updateSessionStatus(session.id, 'stopped');
+      updateSessionStatus(session.id, 'stopped');
       return c.json({ error: 'tmux session is no longer running' }, 410);
     }
 
@@ -443,7 +489,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!actor.ok) {
       return c.json({ error: actor.error }, actor.status);
     }
-    const session = options.store.getSession(c.req.param('id'));
+    const session = getSession(c.req.param('id'));
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
@@ -486,7 +532,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     }
 
     await sendKeys(session.tmuxSessionName, body.text);
-    options.store.touchSession(session.id);
+    touchSession(session.id);
     return c.json({ ok: true });
   });
 
@@ -495,7 +541,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!actor.ok) {
       return c.json({ error: actor.error }, actor.status);
     }
-    const session = options.store.getSession(c.req.param('id'));
+    const session = getSession(c.req.param('id'));
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
@@ -517,7 +563,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!actor.ok) {
       return c.json({ error: actor.error }, actor.status);
     }
-    const session = options.store.getSession(c.req.param('id'));
+    const session = getSession(c.req.param('id'));
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
@@ -537,7 +583,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!actor.ok) {
       return c.json({ error: actor.error }, actor.status);
     }
-    const session = options.store.getSession(c.req.param('id'));
+    const session = getSession(c.req.param('id'));
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
@@ -575,7 +621,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!actor.ok) {
       return c.json({ error: actor.error }, actor.status);
     }
-    const session = options.store.getSession(c.req.param('id'));
+    const session = getSession(c.req.param('id'));
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
@@ -613,7 +659,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (!actor.ok) {
       return c.json({ error: actor.error }, actor.status);
     }
-    const session = options.store.getSession(c.req.param('id'));
+    const session = getSession(c.req.param('id'));
     if (!session) {
       return c.json({ error: 'session not found' }, 404);
     }
@@ -656,7 +702,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       return c.json({ ok: true });
     }
     if (!(await sessionExists(session.tmuxSessionName))) {
-      options.store.updateSessionStatus(session.id, 'stopped');
+      updateSessionStatus(session.id, 'stopped');
       return c.json({ error: 'tmux session is no longer running' }, 410);
     }
     return c.json({ error: 'tmux stop is not implemented in this endpoint' }, 501);
@@ -693,7 +739,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   }) as ServerType;
 
   const livePtyIds = new Set(options.ptySessions?.liveSessionIds() ?? []);
-  for (const session of options.store.listSessions()) {
+  for (const session of listSessions()) {
     if (session.status !== 'running' || session.transport !== 'pty-event-stream') {
       continue;
     }
@@ -701,7 +747,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (live) {
       livePtyIds.add(session.id);
       if (session.attachState !== 'detached') {
-        options.store.updateAttachState(session.id, 'detached');
+        updateAttachState(session.id, 'detached');
         session.attachState = 'detached';
       }
       continue;
@@ -718,7 +764,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       return;
     }
     const sessionId = decodeURIComponent(match[1]);
-    const session = options.store.getSession(sessionId);
+    const session = getSession(sessionId);
     if (!session || session.transport !== 'pty-event-stream') {
       socket.close(1008, 'session not found');
       return;
@@ -768,7 +814,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       lastSeenAt: Date.now()
     };
     sessionClients.set(clientId, client);
-    options.store.updateAttachState(session.id, 'attached');
+    updateAttachState(session.id, 'attached');
     socket.send(JSON.stringify({
       type: 'hello',
       sessionId,
@@ -973,7 +1019,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       }
       options.store.appendEvent(session.id, 'client.detached', { clientId, reason: 'disconnect' });
       if ((sessionClients?.size ?? 0) === 0) {
-        options.store.updateAttachState(session.id, 'detached');
+        updateAttachState(session.id, 'detached');
       }
     });
   });
