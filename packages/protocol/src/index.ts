@@ -100,7 +100,9 @@ export type RelayServerToGatewayFrame =
   | { type: 'client.chat'; clientId: string; sessionId: string; message: string; model?: string; session: TrustedChatSessionMetadata }
   | { type: 'client.cwd-suggest'; clientId: string; cwd: string }
   | { type: 'client.list-providers'; clientId: string }
-  | { type: 'client.switch-model'; clientId: string; sessionId: string; provider: string; model: string };
+  | { type: 'client.switch-model'; clientId: string; sessionId: string; provider: string; model: string }
+  | { type: 'gateway.sessions-restore'; gatewayId: string; sessions: RelaySession[] }
+  | { type: 'client.new-pty-session'; clientId: string; provider: string; command: string; cwd: string; cols: number; rows: number };
 
 export type RelayClientToServerFrame =
   // `secret` is retained only for the personal-relay bootstrap fallback path.
@@ -117,7 +119,8 @@ export type RelayClientToServerFrame =
   | { type: 'client.cwd-suggest'; cwd: string; gatewayId: string }
   | { type: 'client.list-providers'; gatewayId: string }
   | { type: 'client.switch-model'; sessionId: string; provider: string; model: string }
-  | { type: 'client.permission_response'; sessionId: string; requestId: string; decision: 'allow' | 'deny' };
+  | { type: 'client.permission_response'; sessionId: string; requestId: string; decision: 'allow' | 'deny' }
+  | { type: 'client.new-pty-session'; provider: string; command: string; cwd: string; cols: number; rows: number; gatewayId: string };
 
 export type RelayServerToClientFrame =
   | { type: 'client.auth.ok'; clientId: string }
