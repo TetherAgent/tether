@@ -1586,14 +1586,6 @@ export function ChatPanel({
                 </SelectContent>
               </Select>
             )}
-            {activeSessionProjectPath && (
-              <span
-                title={activeSessionProjectPath}
-                className="chat-session-path-chip flex h-7 max-w-[260px] min-w-0 items-center rounded-full bg-muted px-3 font-mono text-[12px] font-medium text-muted-foreground"
-              >
-                <span className="truncate">{compactProjectPath(activeSessionProjectPath)}</span>
-              </span>
-            )}
             <div className="flex-1" />
             {usageStats && (
               <UsageStatsChip contextPct={usageStats.contextPct} rateLimitResetsAt={usageStats.rateLimitResetsAt} rateLimitType={usageStats.rateLimitType} />
@@ -1784,8 +1776,8 @@ export function ChatPanel({
                   {displayModel && <span className="font-medium">{displayModel}</span>}
                   {activeSessionProjectPath && (
                     <>
-                      <span className="opacity-40">·</span>
-                      <span className="max-w-[200px] truncate font-mono">{compactPathLabel(activeSessionProjectPath)}</span>
+                      <span className="hidden opacity-40 md:inline">·</span>
+                      <span className="hidden max-w-[200px] truncate font-mono md:inline">{compactPathLabel(activeSessionProjectPath)}</span>
                     </>
                   )}
                   {usageStats?.contextPct !== undefined && (
