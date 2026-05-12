@@ -9,7 +9,7 @@ const mainSource = () => readFileSync(new URL('../src/main.ts', import.meta.url)
 test('does not include command-shaped fields in forwarded create payload', () => {
   const payload = buildCreateSessionPayload(
     PROVIDERS.codex,
-    { project: '.', providerArgs: ['--resume', '99acd804-8250-43db-9503-884c1e7ca450'] },
+    { providerArgs: ['--resume', '99acd804-8250-43db-9503-884c1e7ca450'] },
     { columns: 100, rows: 30 }
   );
 
@@ -27,7 +27,6 @@ test('session title is Tether metadata and is not forwarded as provider args', (
   const payload = buildCreateSessionPayload(
     PROVIDERS.codex,
     {
-      project: '.',
       title: '登录问题',
       providerArgs: ['--resume', '99acd804-8250-43db-9503-884c1e7ca450']
     },
@@ -142,7 +141,7 @@ test('pty attach maps Ctrl-C to session stop and Ctrl-A to local detach', () => 
   const source = mainSource();
   assert.match(source, /Press Ctrl-C to stop, Ctrl-A to detach/);
   assert.match(source, /const stopAttachedSession = \(\) =>/);
-  assert.match(source, /stopPtySessionViaGateway\(id, `http:\/\/\$\{options\.host\}:\$\{options\.port\}`\)/);
+  assert.match(source, /stopSessionViaRelay\(id, _relay\.url, _auth\.accessToken\)/);
   assert.match(source, /chunk\.includes\(0x03\)/);
   assert.match(source, /const LOCAL_DETACH_KEY = '\\x01'/);
   assert.match(source, /chunk\.includes\(LOCAL_DETACH_KEY\.charCodeAt\(0\)\)/);
@@ -158,11 +157,11 @@ test('pty attach prints explicit terminal closeout for stop, exit, detach and lo
   assert.match(source, /if \(result === 'detached'\)/);
 });
 
-test('stop prints success and uses gateway HTTP only', () => {
+test('stop prints success and uses relay only', () => {
   const source = mainSource();
-  assert.match(source, /console\.log\(result === 'already-stopped'/);
   assert.match(source, /已关闭 \$\{id\}/);
-  assert.match(source, /stopPtySessionViaGateway/);
+  assert.match(source, /stopSessionViaRelay/);
+  assert.doesNotMatch(source, /stopPtySessionViaGateway/);
   assert.doesNotMatch(source, /stopPtySessionViaRunner/);
   assert.doesNotMatch(source, /SessionRunnerClient/);
 });

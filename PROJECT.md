@@ -96,34 +96,26 @@ pnpm install
 pnpm typecheck
 pnpm test
 pnpm tether --help
+pnpm tether login
+pnpm tether logout
+pnpm tether start
 pnpm tether gateway
-pnpm tether gateway init
-pnpm tether gateway install
 pnpm tether gateway start
 pnpm tether gateway stop
 pnpm tether gateway restart
 pnpm tether gateway status
-pnpm tether gateway providers
 pnpm tether debug
-pnpm tether debug
-pnpm tether gateway verify --provider codex
-pnpm tether gateway uninstall
 pnpm tether run codex
-pnpm tether run codex --no-attach
-pnpm tether attach <id> --control
-pnpm tether attach <id> --observe
-pnpm tether debug
 pnpm tether stop <id>
 pnpm tether stop --all
-pnpm tether run codex --project /path/to/project
-pnpm tether run codex --no-attach
-pnpm tether run codex -- --resume <codex-session-id>
+pnpm tether run codex --resume <codex-session-id>
 ```
 
 `tether run codex` / `tether run claude` / `tether run opencode` 只解析 Tether 自己的
-`--project` 和 `--no-attach`。其他 provider 原生命令参数放在 `--` 后透传，例如
-`tether run codex -- --resume <codex-session-id>`。Gateway 仍只允许 provider 白名单，
-不能接受任意 command/env/shell。
+`--title`、`--no-reconnect`。session 工作目录固定为执行 `tether run` 时的当前目录。
+其他 provider 原生命令参数可以
+直接跟在 provider 后面，例如 `tether run codex --resume <codex-session-id>`。Gateway
+仍只允许 provider 白名单，不能接受任意 command/env/shell。
 
 ## 编辑器/AI 工具配套
 

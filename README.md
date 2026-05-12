@@ -134,15 +134,11 @@ npm install -g @tether-labs/cli
 ### Usage
 
 ```bash
-# (One-time) Set default mode and write config to ~/.tether/config.json
-# Modes:
-#   local  — localhost only, no account needed
-#   direct — LAN access, requires tether account
-#   relay  — remote access from anywhere, requires tether account
-tether gateway init
+# (One-time) sign in and bind this local Gateway
+tether login
 
 # Start the background Gateway as a system service (auto-installs LaunchAgent)
-tether gateway start
+tether start
 
 # Or run in foreground (useful for debugging)
 tether gateway
@@ -152,22 +148,16 @@ tether run codex
 tether run claude
 
 # Common options:
-#   --project <path>   working directory (default: current directory)
 #   --title <title>    session label shown in the web UI
-#   --no-attach        start session without attaching to the terminal
 #   --no-reconnect     do not auto-reconnect if local attach drops
 #   [providerArgs...]  extra args passed through to the underlying CLI
 
 # Examples:
-tether run codex --title "fix auth bug" --project ~/myrepo
-tether run codex --no-attach                   # run in background, attach later
-tether run codex -- --model o3                 # pass flags to codex itself
+tether run codex --title "fix auth bug"
+tether run codex --model o3                    # pass flags to codex itself
 
 # List sessions
 tether ls
-
-# Attach to a running session
-tether attach <session-id>
 
 # Stop a session
 tether stop <session-id>
@@ -179,15 +169,8 @@ By default, the Gateway only listens on localhost:
 127.0.0.1:4789
 ```
 
-For a trusted LAN demo, explicitly expose it:
-
-```bash
-tether run codex --host 0.0.0.0
-tether run claude --host 0.0.0.0
-```
-
-LAN mode currently has one-time WebSocket tickets but does not yet have full
-device-token pairing. Use it only on a trusted network.
+Remote access goes through the signed-in Gateway / Relay path; provider launch
+commands no longer take `--host`.
 
 ### Diagnostics
 
@@ -203,11 +186,6 @@ pnpm install
 pnpm tether --help
 pnpm tether run codex
 ```
-
-Current local limitation: multiple `run --no-attach` sessions are supported,
-but each PTY session is still owned by the CLI/Gateway process that created it.
-Until the full Gateway supervisor lands, run concurrent detached sessions on
-separate ports, or keep the creating process alive.
 
 ## Surfaces
 
@@ -348,8 +326,8 @@ release.
 
 - **Strict by default**: the Gateway binds only to `127.0.0.1`. It does not
   listen on any external interface unless you say so.
-- **Exposure must be explicit**: sharing on the LAN requires `--host 0.0.0.0`
-  by hand. Nothing leaks because of a stray default.
+- **Exposure must be explicit**: LAN sharing requires explicit Gateway
+  configuration. Nothing leaks because of a stray default.
 - **Writes require credentials**: from Phase 2.5 onward, every client write
   action requires a device token.
 - **Clients can send input, never get a shell**: phone and web clients can

@@ -200,7 +200,7 @@ export const WEB_MESSAGES = {
     authQuickStartSteps: [
       { label: '安装 CLI', cmd: 'npm install -g @tether-labs/cli@latest' },
       { label: '登录绑定', cmd: 'tether login' },
-      { label: '启动 Gateway', cmd: 'tether gateway start' },
+      { label: '启动 Gateway', cmd: 'tether start' },
     ],
     authHeroTitle: 'AI 会话，本机托管',
     authHeroSub: '从浏览器或手机随时接回本机 Gateway 托管的 AI 对话。',
@@ -492,7 +492,7 @@ export const WEB_MESSAGES = {
     authQuickStartSteps: [
       { label: 'Install CLI', cmd: 'npm i -g @tether-labs/cli' },
       { label: 'Login & bind', cmd: 'tether login' },
-      { label: 'Start Gateway', cmd: 'tether gateway start' },
+      { label: 'Start Gateway', cmd: 'tether start' },
     ],
     authHeroTitle: 'AI sessions, locally owned',
     authHeroSub: 'Connect back to your local Gateway-managed AI sessions from any browser or device.',

@@ -27,13 +27,13 @@ tether login
 如果需要指定 Server 地址：
 
 ```bash
-tether login 
+tether login
 ```
 
 ### 2. 启动 Gateway
 
 ```bash
-tether gateway start
+tether start
 ```
 
 Gateway 会作为后台服务运行。电脑重启后也会由系统服务拉起。
@@ -62,6 +62,7 @@ tether gateway restart
 | --- | --- |
 | `tether login` | 登录并绑定本机 Gateway |
 | `tether login --env local` | 登录本地开发环境 |
+| `tether start` | 启动后台 Gateway |
 | `tether gateway start` | 启动后台 Gateway |
 | `tether gateway stop` | 停止后台 Gateway |
 | `tether gateway restart` | 重启后台 Gateway |

@@ -75,9 +75,7 @@ program
   .addHelpCommand('help [command]', '显示指定命令的帮助');
 
 type StartOptions = {
-  project: string;
   title?: string;
-  attach: boolean;
   reconnect?: boolean;
   providerArgs?: string[];
 };
@@ -228,9 +226,7 @@ program
   .argument('<provider>')
   .argument('[providerArgs...]')
   .description('为指定 provider 启动一个 PTY event-stream session')
-  .option('--project <path>', '项目目录', process.cwd())
   .option('--title <title>', '前端展示的 session 标题')
-  .option('--no-attach', '只启动 session，不接入当前终端')
   .option('--no-reconnect', '本地 attach 断开后不自动重连')
   .allowUnknownOption(true)
   .action((providerName: string, providerArgs: string[], options: StartOptions) => {
@@ -257,17 +253,15 @@ async function startProviderSession(provider: ProviderDefinition, options: Start
   const remoteUrl = `${gatewayUrl}/remote/session/${session.id}`;
   console.log(`Tether session: ${session.id}`);
   console.log(`Remote URL: ${remoteUrl}`);
-  if (options.attach) {
-    const gateway = new URL(gatewayUrl);
-    const result = await attachPtySession(session.id, {
-      host: gateway.hostname,
-      port: Number(gateway.port),
-      mode: 'control',
-      reconnect: options.reconnect
-    });
-    if (result === 'detached') {
-      console.error(`已断开本地 attach。常驻 Gateway 仍在托管 ${remoteUrl}`);
-    }
+  const gateway = new URL(gatewayUrl);
+  const result = await attachPtySession(session.id, {
+    host: gateway.hostname,
+    port: Number(gateway.port),
+    mode: 'control',
+    reconnect: options.reconnect
+  });
+  if (result === 'detached') {
+    console.error(`已断开本地 attach。常驻 Gateway 仍在托管 ${remoteUrl}`);
   }
 }
 
@@ -353,9 +347,48 @@ async function listSessionsViaRelay(relayUrl: string, accessToken: string): Prom
   });
 }
 
+async function stopSessionViaRelay(id: string, relayUrl: string, accessToken: string): Promise<void> {
+  const ws = new WebSocket(relayClientUrl(relayUrl));
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      ws.removeAllListeners();
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+      if (error) reject(error);
+      else resolve();
+    };
+    const timer = setTimeout(() => finish(new Error('relay stop timeout')), 5_000);
+    ws.once('error', (err) => finish(err instanceof Error ? err : new Error(String(err))));
+    ws.once('open', () => ws.send(JSON.stringify({ type: 'client.auth', token: accessToken })));
+    ws.on('message', (raw) => {
+      const frame = JSON.parse(raw.toString()) as Record<string, unknown>;
+      if (frame.type === 'client.auth.failed') {
+        finish(new Error(`relay auth failed: ${String(frame.message ?? 'unknown error')}`));
+        return;
+      }
+      if (frame.type === 'client.auth.ok') {
+        // relay sets subscription synchronously before forwarding to gateway,
+        // so subscribe+stop can be sent back-to-back
+        ws.send(JSON.stringify({ type: 'client.subscribe', sessionId: id, mode: 'control' }));
+        ws.send(JSON.stringify({ type: 'client.stop', sessionId: id }));
+        setTimeout(() => finish(), 300);
+        return;
+      }
+      if (frame.type === 'error' || frame.type === 'gateway_unavailable') {
+        finish(new Error(String(frame.message ?? frame.code ?? 'relay error')));
+      }
+    });
+  });
+}
+
 async function createSessionViaRelay(
   provider: ProviderDefinition,
-  options: Pick<StartOptions, 'project' | 'title' | 'providerArgs'>,
+  options: Pick<StartOptions, 'title' | 'providerArgs'>,
   relayUrl: string,
   accessToken: string,
   gatewayId: string
@@ -405,7 +438,7 @@ async function createSessionViaRelay(
           type: 'client.new-pty-session',
           provider: provider.name,
           command: provider.command,
-          cwd: path.resolve(options.project ?? process.cwd()),
+          cwd: process.cwd(),
           cols: process.stdout.columns ?? 120,
           rows: process.stdout.rows ?? 40,
           gatewayId,
@@ -449,16 +482,18 @@ program
   .command('stop')
   .argument('[id]')
   .option('--all', '停止所有运行中的 session')
-  .option('--host <host>', 'Gateway 地址', '127.0.0.1')
-  .option('--port <port>', 'Gateway 端口', parsePort, 4789)
   .description('停止运行中的 session')
-  .action(async (id: string | undefined, options: { all?: boolean; host: string; port: number }) => {
+  .action(async (id: string | undefined, options: { all?: boolean }) => {
+    const relay = resolveRelayConfig({ file: readTetherConfig() });
+    if (!relay) {
+      throw new Error('当前 Gateway 未配置 Relay，无法停止 session。');
+    }
+    const auth = await readFreshGatewayAuthState();
     if (options.all) {
-      const gatewayUrl = await stopGatewayUrl(options);
-      const sessions = await fetchGatewaySessions(gatewayUrl);
+      const sessions = await listSessionsViaRelay(relay.url, auth.accessToken);
       const ids = runningSessionIds(sessions);
       for (const sessionId of ids) {
-        await stopSession(sessionId, gatewayUrl);
+        await stopSessionViaRelay(sessionId, relay.url, auth.accessToken);
         console.log(`已关闭 ${sessionId}`);
       }
       console.log(`已关闭 ${ids.length} 个 session。`);
@@ -467,8 +502,8 @@ program
     if (!id) {
       throw new Error('missing session id; use `tether stop <id>` or `tether stop --all`');
     }
-    const result = await stopSession(id, await stopGatewayUrl(options));
-    console.log(result === 'already-stopped' ? `${id} 已经不是 running 状态。` : `已关闭 ${id}`);
+    await stopSessionViaRelay(id, relay.url, auth.accessToken);
+    console.log(`已关闭 ${id}`);
   });
 
 program.parseAsync().catch((error: unknown) => {
@@ -512,10 +547,8 @@ async function runDebugMenu(): Promise<void> {
   console.log('Debug 工具');
   console.log('1. 全面诊断环境');
   console.log('2. 查看 Gateway 日志');
-  console.log('3. 查看 session 客户端');
-  console.log('4. 打印 session URL');
-  console.log('5. 向 session 发文本');
-  const answer = await promptLine('请选择 1/2/3/4/5: ');
+  console.log('3. 打印 session URL');
+  const answer = await promptLine('请选择 1/2/3: ');
   switch (answer) {
     case '1':
     case 'doctor':
@@ -528,22 +561,9 @@ async function runDebugMenu(): Promise<void> {
       return;
     }
     case '3':
-    case 'clients': {
-      const id = await promptRequiredLine('session id: ');
-      await debugPrintSessionClients(id);
-      return;
-    }
-    case '4':
     case 'url': {
       const id = await promptRequiredLine('session id: ');
       debugPrintSessionUrl(id);
-      return;
-    }
-    case '5':
-    case 'send': {
-      const id = await promptRequiredLine('session id: ');
-      const text = await promptRequiredLine('text: ');
-      await debugSendSessionInput(id, text);
       return;
     }
     default:
@@ -551,93 +571,10 @@ async function runDebugMenu(): Promise<void> {
   }
 }
 
-async function debugPrintSessionClients(id: string, host = '127.0.0.1', port = 4789): Promise<void> {
-  const response = await fetch(`http://${host}:${port}/api/sessions/${encodeURIComponent(id)}/clients`);
-  if (!response.ok) {
-    throw new Error(`clients failed: HTTP ${response.status}`);
-  }
-  const data = (await response.json()) as {
-    controllerClientId: string | null;
-    clients: Array<{ clientId: string; surface: string; mode: string; deviceName: string; lastSeenAt: number }>;
-  };
-  console.log(`controller\t${data.controllerClientId ?? '-'}`);
-  for (const client of data.clients) {
-    console.log(`${client.clientId}\t${client.mode}\t${client.surface}\t${client.deviceName}\t${new Date(client.lastSeenAt).toLocaleTimeString()}`);
-  }
-}
-
 function debugPrintSessionUrl(id: string, host = localLanAddress() ?? '127.0.0.1', port = 4789): void {
   console.log(`http://${host}:${port}/remote/session/${id}`);
 }
 
-async function debugSendSessionInput(id: string, text: string): Promise<void> {
-  const gatewayUrl = await findPersistentGateway();
-  if (!gatewayUrl) {
-    throw new Error('未检测到常驻 Gateway。\n请先运行：tether start');
-  }
-  const response = await fetch(`${gatewayUrl}/api/sessions/${encodeURIComponent(id)}/input`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...(await gatewayAuthHeaders()) },
-    body: JSON.stringify({ data: `${text}\r` })
-  });
-  if (!response.ok) {
-    throw new Error(`send failed: HTTP ${response.status}`);
-  }
-}
-
-async function stopGatewayUrl(options: { host: string; port: number }): Promise<string> {
-  return await findPersistentGateway().catch(() => undefined) ?? `http://${options.host}:${options.port}`;
-}
-
-async function stopSession(id: string, gatewayUrl: string): Promise<'stopped' | 'already-stopped'> {
-  const sessions = await fetchGatewaySessions(gatewayUrl);
-  const session = sessions.find((item) => item.id === id);
-  if (!session) {
-    throw new Error(`unknown session: ${id}`);
-  }
-  if (session.status !== 'running') {
-    return 'already-stopped';
-  }
-  const gatewayStopped = await stopPtySessionViaGateway(id, gatewayUrl);
-  if (!gatewayStopped) {
-    throw new Error(`stop failed: ${id}`);
-  }
-  return 'stopped';
-}
-
-async function stopPtySessionViaGateway(id: string, gatewayUrl: string): Promise<boolean> {
-  let response: Response;
-  try {
-    response = await fetch(`${gatewayUrl}/api/sessions/${encodeURIComponent(id)}/stop`, {
-      method: 'POST',
-      headers: await gatewayAuthHeaders()
-    });
-  } catch {
-    return false;
-  }
-  if (response.ok) {
-    return true;
-  }
-  if ([404, 410, 503].includes(response.status)) {
-    return false;
-  }
-  throw new Error(`stop failed: HTTP ${response.status}`);
-}
-
-async function fetchGatewaySessions(gatewayUrl?: string): Promise<CliSession[]> {
-  const url = gatewayUrl ?? await findPersistentGateway();
-  if (!url) {
-    throw new Error('missing gateway');
-  }
-  const response = await fetch(`${url}/api/sessions?all=1`, {
-    headers: await gatewayAuthHeaders()
-  });
-  if (!response.ok) {
-    throw new Error(`gateway sessions failed: HTTP ${response.status}`);
-  }
-  const body = (await response.json()) as { sessions?: CliSession[] };
-  return Array.isArray(body.sessions) ? body.sessions : [];
-}
 
 function parsePort(value: string): number {
   const port = Number(value);
@@ -1073,7 +1010,7 @@ async function verifyGatewaySession(providerName: string): Promise<void> {
   if (!gatewayId) {
     throw new Error('gateway access token 缺少 gatewayId，请重新执行 tether login。');
   }
-  const session = await createSessionViaRelay(PROVIDERS[providerName], { project: process.cwd() }, relay.url, auth.accessToken, gatewayId);
+  const session = await createSessionViaRelay(PROVIDERS[providerName], {}, relay.url, auth.accessToken, gatewayId);
   if (!session) {
     throw new Error('无法通过 Relay 创建 session，请确认 Gateway 已连接 Relay');
   }
@@ -1327,13 +1264,12 @@ async function attachPtySessionOnce(
     result = { status: 'stopped', latestEventId: result.latestEventId, message: `Session 已停止：${id}` };
     cleanupTerminal();
     console.error('\n正在停止 Tether session...');
-    stopPromise = stopPtySessionViaGateway(id, `http://${options.host}:${options.port}`)
-      .then((stopped) => {
-        if (!stopped) {
-          throw new Error('Gateway stop endpoint unavailable');
-        }
-      })
-      .catch((error: unknown) => {
+    const _relay = resolveRelayConfig({ file: readTetherConfig() });
+    stopPromise = (_relay
+      ? readFreshGatewayAuthState()
+        .then((_auth) => stopSessionViaRelay(id, _relay.url, _auth.accessToken))
+      : Promise.reject(new Error('relay not configured'))
+    ).catch((error: unknown) => {
         result = {
           status: 'lost',
           latestEventId: result.latestEventId,
