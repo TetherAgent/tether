@@ -7,6 +7,7 @@ import * as pty from 'node-pty';
 import type { AuthScopePayload } from '@tether/core';
 import { createSessionEvent } from './events.js';
 import { maskSensitiveOutput } from './mask.js';
+import { providerEffectiveEnv } from './provider-env.js';
 import { isValidTerminalSize } from './pty.js';
 import { AgentStatusPublisher } from './session-status-deriver.js';
 import type { Session, SessionEvent } from './types.js';
@@ -50,7 +51,6 @@ export type CreateSessionRunnerOptions = {
   provider: string;
   command: string;
   providerArgs?: string[];
-  providerEnv?: Record<string, string>;
   projectPath: string;
   title?: string;
   cols: number;
@@ -87,7 +87,7 @@ export class SessionRunner {
       cols: this.options.cols,
       rows: this.options.rows,
       cwd: this.options.projectPath,
-      env: this.options.providerEnv ? { ...process.env, ...this.options.providerEnv } : process.env
+      env: providerEffectiveEnv(this.options.provider, this.options.projectPath)
     });
     this.term = term;
     const now = Date.now();

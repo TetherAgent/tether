@@ -1,9 +1,8 @@
-import { exec } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
-import { promisify } from 'node:util';
 import type { Server as HttpServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -19,7 +18,6 @@ import { createSessionId } from './ids.js';
 import { maskSensitiveOutput } from './mask.js';
 import { createSessionEvent } from './events.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
-import { providerChildEnv } from './provider-env.js';
 import { listGateways, registerGateway, touchGateway, unregisterGateway } from './registry.js';
 import { detectSelectOptions } from './agent-select-detect.js';
 import { startRelayClient, type RunningRelayClient } from './relay-client.js';
@@ -127,12 +125,10 @@ export function localLanAddress(): string | undefined {
   return undefined;
 }
 
-const execAsync = promisify(exec);
-
 async function captureShellEnv(): Promise<void> {
   const shell = process.env.SHELL ?? '/bin/zsh';
   try {
-    const { stdout } = await execAsync(`${shell} -l -c env`, { timeout: 5000 });
+    const stdout = await captureCommandOutput(shell, ['-l', '-c', 'env'], 5000);
     for (const line of stdout.split('\n')) {
       const eq = line.indexOf('=');
       if (eq > 0) {
@@ -142,6 +138,33 @@ async function captureShellEnv(): Promise<void> {
   } catch {
     // Non-fatal: continue with existing env
   }
+}
+
+function captureCommandOutput(command: string, args: string[], timeoutMs: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'ignore'] });
+    let stdout = '';
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM');
+      reject(new Error('command timed out'));
+    }, timeoutMs);
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
+      stdout += chunk;
+    });
+    child.once('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve(stdout);
+      } else {
+        reject(new Error(`command exited with code ${code ?? 1}`));
+      }
+    });
+  });
 }
 
 export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon> {
@@ -415,7 +438,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         provider,
         command,
         providerArgs,
-        providerEnv: providerEnv(provider),
         projectPath,
         title,
         cols,
@@ -1031,7 +1053,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             provider,
             command: providerCommand(provider, options.config),
             providerArgs,
-            providerEnv: providerEnv(provider),
             projectPath: path.resolve(cwd),
             title,
             cols,
@@ -1115,10 +1136,6 @@ function providerCommand(provider: string, config = readTetherConfig()): string 
   const configCommand = (config.providers as Record<string, { command?: string } | undefined>)?.[provider]?.command;
   if (configCommand && configCommand.length > 0) return configCommand;
   return isProviderName(provider) ? PROVIDERS[provider].command : provider;
-}
-
-function providerEnv(provider: string): Record<string, string> | undefined {
-  return providerChildEnv(provider);
 }
 
 function pathListIncludes(value: string | undefined, needle: string): boolean {

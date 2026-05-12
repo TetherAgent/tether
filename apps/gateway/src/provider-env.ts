@@ -65,7 +65,9 @@ export function providerEffectiveEnv(provider: string, cwd?: string): NodeJS.Pro
   const preSettingsEnv = { ...process.env, ...shellPathEnv, ...childEnv };
   const settingsEnv = provider === 'claude' ? readClaudeSettingsEnv(cwd, preSettingsEnv.CLAUDE_CONFIG_DIR) : {};
   const baseEnv = { ...process.env, ...shellPathEnv, ...settingsEnv };
-  const envFile = readEnvFile(({ ...baseEnv, ...childEnv }).CLAUDE_ENV_FILE);
+  const envFile = provider === 'claude'
+    ? readEnvFile(({ ...baseEnv, ...childEnv }).CLAUDE_ENV_FILE)
+    : {};
   return {
     ...baseEnv,
     ...envFile,

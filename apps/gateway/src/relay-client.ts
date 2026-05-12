@@ -552,7 +552,8 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   };
 
   const listRelaySessions = async (): Promise<Session[]> => {
-    const sessions = [...chatSessions.values(), ...(options.ptySessions?.listSessions() ?? [])];
+    const ptyList = (options.ptySessions?.listSessions() ?? []).filter(s => !chatSessions.has(s.id));
+    const sessions = [...chatSessions.values(), ...ptyList];
     const result: Session[] = [];
     for (const session of sessions) {
       if (session.status === 'lost') {
