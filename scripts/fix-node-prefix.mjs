@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 // 修补 tsup 输出，恢复 node: 协议前缀。
-// tsup 内部的 nodeProtocolPlugin 会把 `node:sqlite` 编译成 `sqlite`，
-// 这在 Node 22+ 不安全（sqlite 也是合法 npm 包名，会被解析到第三方包）。
+// 这能避免内置模块名被误解析成同名第三方包。
 // 此脚本扫描指定文件，把所有内置模块的 import/require 前缀加回去。
 
 import { readFile, writeFile } from 'node:fs/promises';

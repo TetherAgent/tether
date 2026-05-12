@@ -28,11 +28,14 @@ function record(id, name, status, detail) {
 
 function run(cmd, args, opts = {}) {
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], ...opts });
+    const child = spawn(cmd, args, { stdio: [opts.input ? 'pipe' : 'ignore', 'pipe', 'pipe'], ...opts });
     let stdout = '';
     let stderr = '';
     child.stdout?.on('data', (d) => { stdout += d.toString(); });
     child.stderr?.on('data', (d) => { stderr += d.toString(); });
+    if (opts.input && child.stdin) {
+      child.stdin.end(opts.input);
+    }
     child.on('close', (code) => resolve({ code: code ?? 0, stdout, stderr }));
     child.on('error', (err) => resolve({ code: -1, stdout, stderr: String(err) }));
   });
@@ -85,10 +88,10 @@ async function checkV4BinExecutable() {
 }
 
 async function checkV7NodeSqliteOk() {
-  const r = await run(releaseLauncher, ['doctor']);
-  const ok = /OK\s+node:sqlite/.test(r.stdout);
-  record('V7', 'doctor 显示 node:sqlite ok', ok ? 'PASS' : 'FAIL',
-    ok ? 'in-memory db 工作' : `输出未含 OK node:sqlite\n${r.stdout.slice(0, 200)}`);
+  const r = await run(releaseLauncher, ['debug'], { input: '1\n' });
+  const ok = r.stdout.includes('Gateway 状态存储') && r.stdout.includes('本地 SQLite 已移除');
+  record('V7', 'doctor 显示无本地 SQLite 状态', ok ? 'PASS' : 'FAIL',
+    ok ? '确认本地 SQLite 已移除' : `输出未含本地 SQLite 移除状态\n${r.stdout.slice(0, 200)}`);
 }
 
 async function checkV8HistoryDb() {
@@ -122,21 +125,22 @@ async function checkV19PlistPath() {
 }
 
 async function checkV20Providers() {
-  const r = await run(releaseLauncher, ['gateway', 'providers']);
-  const lines = r.stdout.split('\n').filter(Boolean);
-  if (lines.length >= 3 && lines.every((l) => /^\w+\s+\S+\s+\S+/.test(l))) {
-    record('V20', 'gateway providers 输出', 'PASS', `${lines.length} 个 provider`);
+  const r = await run(releaseLauncher, ['debug'], { input: '1\n' });
+  const expected = ['claude 命令', 'codex 命令', 'copilot 命令', 'shell 命令'];
+  const missing = expected.filter((item) => !r.stdout.includes(item));
+  if (missing.length === 0) {
+    record('V20', 'doctor provider 检查输出', 'PASS', `${expected.length} 个 provider`);
   } else {
-    record('V20', 'gateway providers 输出', 'FAIL', `输出异常：${r.stdout.slice(0, 200)}`);
+    record('V20', 'doctor provider 检查输出', 'FAIL', `缺失：${missing.join(', ')}`);
   }
 }
 
 async function checkV23DoctorOutput() {
-  const r = await run(releaseLauncher, ['doctor']);
-  const expected = ['Node 版本', 'runtime 模式', 'node:sqlite', 'node-pty', 'plist nodePath', 'plist launcher', 'Gateway DB'];
+  const r = await run(releaseLauncher, ['debug'], { input: '1\n' });
+  const expected = ['Node 版本', 'runtime 模式', 'node-pty', 'plist nodePath', 'plist launcher', 'Gateway 状态存储'];
   const missing = expected.filter((e) => !r.stdout.includes(e));
   record('V23', 'doctor 输出完整', missing.length === 0 ? 'PASS' : 'FAIL',
-    missing.length === 0 ? '7 项 runtime 检查全部输出' : `缺失：${missing.join(', ')}`);
+    missing.length === 0 ? '6 项 runtime 检查全部输出' : `缺失：${missing.join(', ')}`);
 }
 
 async function checkV24Sourcemap() {

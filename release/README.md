@@ -24,11 +24,6 @@ tether login
 默认登录生产环境。命令会打开浏览器授权，并把本机 Gateway 绑定到你的账号。
 
 
-如果需要指定 Server 地址：
-
-```bash
-tether login
-```
 
 ### 2. 启动 Gateway
 
