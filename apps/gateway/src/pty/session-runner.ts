@@ -9,6 +9,7 @@ import { createSessionEvent } from '../utils/events.js';
 import { maskSensitiveOutput } from '../utils/mask.js';
 import { providerEffectiveEnv } from '../utils/provider-env.js';
 import { isValidTerminalSize } from './manager.js';
+import { replayEvents as selectReplayEvents } from './replay.js';
 import { AgentStatusPublisher } from './session-status-deriver.js';
 import type { Session, SessionEvent } from '../types.js';
 
@@ -64,6 +65,8 @@ type RunnerClientConnection = {
   subscribed: boolean;
 };
 
+const MAX_REPLAY_EVENTS_PER_SESSION = 1000;
+
 export class SessionRunner {
   private server?: net.Server;
   private term?: IPty;
@@ -71,6 +74,7 @@ export class SessionRunner {
   private session?: Session;
   private statusPublisher?: AgentStatusPublisher;
   private readonly clients = new Set<RunnerClientConnection>();
+  private readonly eventHistory: SessionEvent[] = [];
   readonly socketPath: string;
 
   constructor(private readonly options: CreateSessionRunnerOptions) {
@@ -226,6 +230,7 @@ export class SessionRunner {
     if (request.type === 'subscribeEvents') {
       client.subscribed = true;
       sendFrame(client.socket, { id: request.id, ok: true, result: { sessionId: this.options.id } });
+      this.replayEvents(client, request.after ?? 0);
       return;
     }
     if (request.type === 'unsubscribeEvents') {
@@ -311,6 +316,10 @@ export class SessionRunner {
   }
 
   private publishEvent(event: SessionEvent): void {
+    this.eventHistory.push(event);
+    if (this.eventHistory.length > MAX_REPLAY_EVENTS_PER_SESSION) {
+      this.eventHistory.splice(0, this.eventHistory.length - MAX_REPLAY_EVENTS_PER_SESSION);
+    }
     const frame: RunnerEventFrame = {
       type: 'event',
       eventId: event.id,
@@ -321,6 +330,20 @@ export class SessionRunner {
       if (client.subscribed && client.socket.writable) {
         sendFrame(client.socket, frame);
       }
+    }
+  }
+
+  private replayEvents(client: RunnerClientConnection, after: number): void {
+    if (!client.socket.writable) {
+      return;
+    }
+    for (const event of selectReplayEvents(this.eventHistory, after)) {
+      sendFrame(client.socket, {
+        type: 'event',
+        eventId: event.id,
+        sessionId: event.sessionId,
+        event
+      });
     }
   }
 }

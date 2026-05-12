@@ -4,6 +4,7 @@ import path from 'node:path';
 import { claudeModels, isClaudeInstalled } from './providers/claude.js';
 import { codexModels, isCodexInstalled } from './providers/codex.js';
 import { copilotModels, isCopilotInstalled } from './providers/copilot.js';
+import { resolveHomePath } from './provider-utils.js';
 
 export type ChatProviderInfo = {
   provider: string;
@@ -37,17 +38,6 @@ export async function directorySuggestions(input: string): Promise<string[]> {
   } catch {
     return [];
   }
-}
-
-export function resolveHomePath(value: string): string {
-  if (value === '~') {
-    return os.homedir();
-  }
-  return value.startsWith('~/') ? path.join(os.homedir(), value.slice(2)) : value;
-}
-
-export function uniqueStrings(values: Array<string | undefined>): string[] {
-  return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
 }
 
 function resolveInputPath(input: string): string {

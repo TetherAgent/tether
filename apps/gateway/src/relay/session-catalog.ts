@@ -17,7 +17,7 @@ export class SessionCatalog {
   constructor(private readonly options: SessionCatalogOptions) {}
 
   get(sessionId: string): Session | undefined {
-    return this.options.ptySessions?.getSession(sessionId) ?? this.options.chatRegistry.get(sessionId);
+    return this.options.chatRegistry.get(sessionId) ?? this.options.ptySessions?.getSession(sessionId);
   }
 
   async listRelaySessions(): Promise<Session[]> {
@@ -98,7 +98,7 @@ export function toRelaySession(session: Session): RelaySession {
     title: session.title,
     projectPath: session.projectPath,
     accountId: session.accountId,
-    gatewayId: undefined,
+    gatewayId: session.gatewayId,
     userId: session.userId,
     agentSessionId: session.agentSessionId,
     status: session.status,

@@ -4,6 +4,7 @@ import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createSessionId } from '../utils/ids.js';
+import { nextEventId } from '../utils/events.js';
 import { providerEffectiveEnv } from '../utils/provider-env.js';
 import type { ChatEvent, ChatEventType } from '../types.js';
 import type { TrustedChatSessionMetadata } from '@tether/protocol';
@@ -74,7 +75,6 @@ export type ChatRunnerOptions = {
   onAgentIdUpdate: (sessionId: string, agentSessionId: string) => void;
 };
 
-let chatEventSequence = 0;
 const CHAT_TITLE_MAX_LENGTH = 64;
 
 function titleFromFirstMessage(message: string): string | undefined {
@@ -95,9 +95,8 @@ function createChatEvent<TPayload extends Record<string, unknown>>(
   payload: TPayload,
   ts = Date.now()
 ): ChatEvent<TPayload> {
-  chatEventSequence = (chatEventSequence + 1) % 1000;
   return {
-    id: (ts * 1000) + chatEventSequence,
+    id: nextEventId(ts),
     sessionId,
     type,
     ts,
@@ -210,12 +209,18 @@ function isIgnorableCodexStderr(message: string): boolean {
   );
 }
 
+function trimStderrMessage(message: string): string {
+  const normalized = message.replace(/\s+/g, ' ').trim();
+  return normalized.length > 500 ? `${normalized.slice(0, 500)}...` : normalized;
+}
+
 type ActiveSubprocess = {
   process: ChildProcess;
   accumulatedText: string;
   startedAt: number;
   clientId: string;
   cwd: string;
+  lastStderr?: string;
   lastUsage: ChatUsage;
   agentSessionId?: string;
   lineBuffer: string;
@@ -278,7 +283,7 @@ class CliChatRunner implements IChatRunner {
 
     const child = spawn(this.adapter.command, args, {
       cwd,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
       env: providerEffectiveEnv(this.adapter.provider, cwd)
     });
 
@@ -291,6 +296,7 @@ class CliChatRunner implements IChatRunner {
       startedAt: Date.now(),
       clientId: params.clientId,
       cwd,
+      lastStderr: undefined,
       lastUsage: ZERO_USAGE,
       agentSessionId: session.agentSessionId,
       lineBuffer: '',
@@ -320,7 +326,7 @@ class CliChatRunner implements IChatRunner {
     child.stderr?.on('data', (chunk: Buffer | string) => {
       const message = chunk.toString().trim();
       if (this.adapter.provider === 'codex' && isIgnorableCodexStderr(message)) return;
-      if (message) emit.error('chat_runner_stderr', message);
+      if (message) active.lastStderr = trimStderrMessage(message);
     });
 
     child.on('error', (error) => {
@@ -338,7 +344,10 @@ class CliChatRunner implements IChatRunner {
         }
         emit.error(
           'chat_runner_exit',
-          `${this.adapter.provider} exited before producing a result${typeof code === 'number' ? ` (${code})` : ''}`
+          [
+            `${this.adapter.provider} exited before producing a result${typeof code === 'number' ? ` (${code})` : ''}`,
+            current.lastStderr
+          ].filter(Boolean).join(': ')
         );
       }
       this.activeSubprocesses.delete(sessionId);

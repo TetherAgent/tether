@@ -19,6 +19,7 @@ export class ChatSessionRegistry {
 
   upsertFromMetadata(metadata: TrustedChatSessionMetadata): Session {
     const now = Date.now();
+    const existing = this.sessions.get(metadata.id);
     const session: Session = {
       id: metadata.id,
       provider: metadata.provider,
@@ -33,7 +34,7 @@ export class ChatSessionRegistry {
       command: metadata.provider,
       transport: 'chat',
       agentSessionId: metadata.agentSessionId,
-      createdAt: now,
+      createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       lastActiveAt: now
     };

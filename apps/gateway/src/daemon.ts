@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,7 +8,7 @@ import { Hono } from 'hono';
 import type { ServerType } from '@hono/node-server';
 import { readTetherConfig, type TetherConfig } from '@tether/config';
 import { isProviderName, PROVIDERS } from '@tether/core';
-import { ResponseCode, type AuthScopePayload, type AuthTokenClass } from '@tether/core';
+import type { AuthScopePayload } from '@tether/core';
 import { createSessionId } from './utils/ids.js';
 import { createSessionEvent } from './utils/events.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty/manager.js';
@@ -19,6 +18,8 @@ import { startRelayClient, type RunningRelayClient } from './relay-client.js';
 import { SessionRunnerClient } from './pty/session-runner-client.js';
 import { spawnSessionRunnerProcess } from './pty/session-runner-spawn.js';
 import type { Session } from './types.js';
+import { decodeGatewayToken, loadGatewayAuthState, type GatewayAuthState } from './utils/gateway-auth.js';
+import { resolvePackageVersion } from './utils/package-version.js';
 
 export type DaemonOptions = {
   host: string;
@@ -32,27 +33,6 @@ export type RunningDaemon = {
   url: string;
   close: () => Promise<void>;
 };
-
-type GatewayAuthState = {
-  serverUrl: string;
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: number;
-};
-
-const GATEWAY_TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
-
-function decodeGatewayToken(token: string): Record<string, unknown> | undefined {
-  const parts = token.split('.');
-  if (parts.length !== 3) {
-    return undefined;
-  }
-  try {
-    return JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf8')) as Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
-}
 
 function getGatewayIdentity(authState: GatewayAuthState): { gatewayId: string; accountId: string; userId: string } | undefined {
   const payload = decodeGatewayToken(authState.accessToken);
@@ -79,23 +59,8 @@ function getGatewayIdentity(authState: GatewayAuthState): { gatewayId: string; a
       userId: legacy.userId
     };
   }
-  if (typeof legacy.gatewayId === 'string') {
-    return {
-      gatewayId: legacy.gatewayId,
-      accountId: typeof legacy.accountId === 'string' ? legacy.accountId : '',
-      userId: typeof legacy.userId === 'string' ? legacy.userId : ''
-    };
-  }
   return undefined;
 }
-
-type AuthenticatedActor = AuthScopePayload;
-
-type ServerApiResponse<T> = {
-  code: number;
-  msg?: string;
-  data?: T | null;
-};
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webDistDir = path.resolve(__dirname, '../../web/dist');
@@ -368,6 +333,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           throw new Error(authState.error);
         }
         const identity = getGatewayIdentity(authState.value);
+        if (!identity) {
+          throw new Error('gateway auth identity is incomplete; run: tether login');
+        }
         const id = createSessionId();
         const session = await spawnSessionRunnerProcess({
           options: {
@@ -379,11 +347,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             title,
             cols,
             rows,
-            owner: identity ? {
+            owner: {
               accountId: identity.accountId,
               userId: identity.userId,
               gatewayId: identity.gatewayId
-            } : undefined
+            }
           }
         });
         options.ptySessions.restoreSession(session);
@@ -467,224 +435,4 @@ function providerCommand(provider: string, config = readTetherConfig()): string 
 
 function pathListIncludes(value: string | undefined, needle: string): boolean {
   return (value ?? '').split(path.delimiter).includes(needle);
-}
-
-function parseIntegerQuery(value: string | undefined, fallback: number): number {
-  if (!value) {
-    return fallback;
-  }
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    return fallback;
-  }
-  return parsed;
-}
-
-function parseClientFrame(raw: string): { type?: unknown; data?: unknown; message?: unknown; cols?: unknown; rows?: unknown } | undefined {
-  try {
-    return JSON.parse(raw) as { type?: unknown; data?: unknown; message?: unknown; cols?: unknown; rows?: unknown };
-  } catch {
-    return undefined;
-  }
-}
-
-async function authorizeRequest(
-  authorization: string | undefined,
-  allowedTokenClasses: AuthTokenClass[]
-): Promise<
-  | { ok: true; payload: AuthenticatedActor; gatewayId?: string }
-  | { ok: false; status: 401 | 403 | 500; error: string }
-> {
-  const token = bearerTokenFromHeader(authorization);
-  if (!token) {
-    return { ok: false, status: 401, error: 'missing_token' };
-  }
-  const authState = await loadGatewayAuthState();
-  if (!authState.ok) {
-    return authState;
-  }
-  const payload = await validateAccessToken(authState.value.serverUrl, token);
-  if (!payload) {
-    return { ok: false, status: 401, error: 'invalid_token' };
-  }
-  if (!allowedTokenClasses.includes(payload.tokenClass)) {
-    return { ok: false, status: 403, error: 'wrong_token_class' };
-  }
-  const identity = getGatewayIdentity(authState.value);
-  return { ok: true, payload, gatewayId: identity?.gatewayId };
-}
-
-function authorizeSessionAccess(
-  session: Session,
-  actor: AuthenticatedActor,
-  currentGatewayId?: string
-): { ok: true } | { ok: false; status: 403; error: string } {
-  if (session.accountId && session.accountId !== actor.accountId) {
-    return { ok: false, status: 403, error: 'forbidden_account' };
-  }
-  if (session.userId && actor.userId && session.userId !== actor.userId) {
-    return { ok: false, status: 403, error: 'forbidden_owner' };
-  }
-  const effectiveGatewayId = actor.gatewayId ?? currentGatewayId;
-  if (session.gatewayId && effectiveGatewayId && session.gatewayId !== effectiveGatewayId) {
-    return { ok: false, status: 403, error: 'forbidden_gateway' };
-  }
-  if (session.userId && !actor.userId) {
-    return { ok: false, status: 403, error: 'forbidden_owner' };
-  }
-  return { ok: true };
-}
-
-function bearerTokenFromHeader(headerValue: string | undefined): string | undefined {
-  if (!headerValue || !headerValue.startsWith('Bearer ')) {
-    return undefined;
-  }
-  return headerValue.slice(7).trim();
-}
-
-async function loadGatewayAuthState(): Promise<
-  | { ok: true; value: GatewayAuthState }
-  | { ok: false; status: 500 | 401; error: string }
-> {
-  const raw = await readFile(gatewayAuthPath(), 'utf8').catch(() => undefined);
-  if (!raw) {
-    return { ok: false, status: 401, error: 'gateway_auth_missing' };
-  }
-  const parsed = parseGatewayAuthState(raw);
-  if (!parsed) {
-    return { ok: false, status: 500, error: 'gateway_auth_invalid' };
-  }
-  if (parsed.expiresAt <= Date.now() + GATEWAY_TOKEN_REFRESH_SKEW_MS) {
-    const refreshed = await refreshGatewayAuthState(parsed).catch(() => undefined);
-    if (refreshed) {
-      return { ok: true, value: refreshed };
-    }
-  }
-  if (parsed.expiresAt <= Date.now()) {
-    return { ok: false, status: 401, error: 'gateway_auth_expired' };
-  }
-  return { ok: true, value: parsed };
-}
-
-function gatewayAuthPath(): string {
-  return process.env.TETHER_AUTH_PATH ?? path.join(os.homedir(), '.tether', 'auth.json');
-}
-
-function parseGatewayAuthState(raw: string): GatewayAuthState | undefined {
-  try {
-    const value = JSON.parse(raw) as Partial<GatewayAuthState>;
-    if (
-      typeof value.serverUrl === 'string' &&
-      typeof value.accessToken === 'string' &&
-      typeof value.refreshToken === 'string' &&
-      typeof value.expiresAt === 'number'
-    ) {
-      return value as GatewayAuthState;
-    }
-  } catch {
-    return undefined;
-  }
-  return undefined;
-}
-
-async function refreshGatewayAuthState(state: GatewayAuthState): Promise<GatewayAuthState | undefined> {
-  const response = await fetch(`${state.serverUrl}/api/relay/gateway/refresh`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ refreshToken: state.refreshToken })
-  });
-  if (!response.ok) {
-    return undefined;
-  }
-  const body = await response.json().catch(() => undefined);
-  const data = unwrapServerApiData<{ accessToken?: unknown; refreshToken?: unknown }>(body);
-  if (typeof data?.accessToken !== 'string' || typeof data.refreshToken !== 'string') {
-    return undefined;
-  }
-  const payload = decodeGatewayToken(data.accessToken);
-  if (typeof payload?.expiresAt !== 'number') {
-    return undefined;
-  }
-  const next: GatewayAuthState = {
-    serverUrl: state.serverUrl,
-    accessToken: data.accessToken,
-    refreshToken: data.refreshToken,
-    expiresAt: payload.expiresAt
-  };
-  await mkdir(path.dirname(gatewayAuthPath()), { recursive: true });
-  await writeFile(gatewayAuthPath(), `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
-  return next;
-}
-
-function resolvePackageVersion(startUrl: string, packageNames: string[]): string | undefined {
-  let current = path.dirname(fileURLToPath(startUrl));
-  for (let depth = 0; depth < 8; depth += 1) {
-    const packageJsonPath = path.join(current, 'package.json');
-    if (existsSync(packageJsonPath)) {
-      try {
-        const parsed = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { name?: unknown; version?: unknown };
-        if (
-          typeof parsed.name === 'string' &&
-          packageNames.includes(parsed.name) &&
-          typeof parsed.version === 'string'
-        ) {
-          return parsed.version;
-        }
-      } catch {
-        return undefined;
-      }
-    }
-    const next = path.dirname(current);
-    if (next === current) {
-      break;
-    }
-    current = next;
-  }
-  return undefined;
-}
-
-async function validateAccessToken(serverUrl: string, token: string): Promise<AuthenticatedActor | undefined> {
-  const response = await fetch(`${serverUrl}/api/server/token/validate`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ token })
-  }).catch(() => undefined);
-  if (!response?.ok) {
-    return undefined;
-  }
-  const body = await response.json().catch(() => undefined);
-  const payload = unwrapServerApiData<Partial<AuthenticatedActor>>(body);
-  if (payload && isAuthenticatedActor(payload)) {
-    return payload;
-  }
-  return undefined;
-}
-
-function unwrapServerApiData<T>(body: unknown): T | undefined {
-  if (!body || typeof body !== 'object') {
-    return undefined;
-  }
-  if ('code' in body) {
-    const payload = body as ServerApiResponse<T>;
-    return payload.code === ResponseCode.SUCCESS && payload.data ? payload.data : undefined;
-  }
-  return body as T;
-}
-
-function isAuthenticatedActor(payload: Partial<AuthenticatedActor>): payload is AuthenticatedActor {
-  return (
-    typeof payload.accountId === 'string' &&
-    typeof payload.tokenClass === 'string' &&
-    typeof payload.expiresAt === 'number' &&
-    typeof payload.jti === 'string'
-  );
-}
-
-function stripAnsi(value: string): string {
-  return value.replace(
-    // Covers common ANSI CSI/OSC control sequences. This is a temporary fallback
-    // for the pre-based snapshot UI; the event-stream UI should render with xterm.js.
-    /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g,
-    ''
-  );
 }

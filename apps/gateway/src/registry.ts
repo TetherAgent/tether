@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -78,8 +78,11 @@ async function readRegistry(): Promise<GatewayRecord[]> {
 }
 
 async function writeRegistry(records: GatewayRecord[]): Promise<void> {
-  await mkdir(path.dirname(registryPath), { recursive: true });
-  await writeFile(registryPath, `${JSON.stringify(records, null, 2)}\n`);
+  const dir = path.dirname(registryPath);
+  await mkdir(dir, { recursive: true });
+  const tmpPath = path.join(dir, `.gateways.${process.pid}.${Date.now()}.tmp`);
+  await writeFile(tmpPath, `${JSON.stringify(records, null, 2)}\n`);
+  await rename(tmpPath, registryPath);
 }
 
 function isGatewayRecord(value: unknown): value is GatewayRecord {

@@ -47,7 +47,7 @@ export class PtyHandler {
     }
     const ok = this.options.ptySessions?.write(sessionId, { clientId, data }) ?? false;
     if (!ok) {
-      this.options.sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
+      this.markLostAndSendError(clientId, sessionId);
     }
   }
 
@@ -70,7 +70,7 @@ export class PtyHandler {
     }
     const ok = this.options.ptySessions?.resize(sessionId, clientId, cols, rows) ?? false;
     if (!ok) {
-      this.options.sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
+      this.markLostAndSendError(clientId, sessionId);
     }
   }
 

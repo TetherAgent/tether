@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { providerEffectiveEnv } from '../../utils/provider-env.js';
-import { uniqueStrings } from '../provider-registry.js';
+import { uniqueStrings } from '../provider-utils.js';
 
 export function isClaudeInstalled(): boolean {
   return isInstalled('claude');

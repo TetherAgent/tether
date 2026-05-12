@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { providerEffectiveEnv } from '../../utils/provider-env.js';
-import { resolveHomePath, uniqueStrings } from '../provider-registry.js';
+import { resolveHomePath, uniqueStrings } from '../provider-utils.js';
 
 export function isCodexInstalled(): boolean {
   const result = spawnSync('codex', ['--version'], { stdio: 'ignore' });

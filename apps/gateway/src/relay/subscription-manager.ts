@@ -46,10 +46,8 @@ export class SubscriptionManager {
     this.subscriptions.delete(key);
   }
 
-  clear(): void {
-    for (const subscription of this.subscriptions.values()) {
-      void subscription.unsubscribe?.();
-    }
+  async clear(): Promise<void> {
+    await Promise.allSettled([...this.subscriptions.values()].map((subscription) => subscription.unsubscribe?.()));
     this.subscriptions.clear();
   }
 
@@ -236,13 +234,14 @@ export class SubscriptionHandler {
     await this.options.subscriptions.remove(clientId, sessionId);
   }
 
-  clearSubscriptions(): void {
-    this.options.subscriptions.clear();
+  async clearSubscriptions(): Promise<void> {
+    await this.options.subscriptions.clear();
   }
 
   private replayEvents(clientId: string, sessionId: string, after: number, tail?: number): number {
-    void tail;
-    this.options.relaySender.replay(clientId, sessionId, [], after);
-    return after;
+    const events = this.options.ptySessions?.eventsAfter(sessionId, after, tail).map(this.options.toRelayEvent) ?? [];
+    const latestEventId = events.at(-1)?.id ?? after;
+    this.options.relaySender.replay(clientId, sessionId, events, latestEventId);
+    return latestEventId;
   }
 }

@@ -1,6 +1,11 @@
 import type { SessionEvent, SessionEventType } from '../types.js';
 
-let sessionEventSequence = 0;
+let eventSequence = 0;
+
+export function nextEventId(ts = Date.now()): number {
+  eventSequence = (eventSequence + 1) % 1000;
+  return (ts * 1000) + eventSequence;
+}
 
 export function createSessionEvent<TPayload extends Record<string, unknown>>(
   sessionId: string,
@@ -8,9 +13,8 @@ export function createSessionEvent<TPayload extends Record<string, unknown>>(
   payload: TPayload,
   ts = Date.now()
 ): SessionEvent<TPayload> {
-  sessionEventSequence = (sessionEventSequence + 1) % 1000;
   return {
-    id: (ts * 1000) + sessionEventSequence,
+    id: nextEventId(ts),
     sessionId,
     type,
     ts,

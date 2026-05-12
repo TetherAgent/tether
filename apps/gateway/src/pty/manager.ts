@@ -4,7 +4,9 @@ import * as pty from 'node-pty';
 import type { AuthScopePayload } from '@tether/core';
 import { createSessionEvent } from '../utils/events.js';
 import { maskSensitiveOutput } from '../utils/mask.js';
+import { providerEffectiveEnv } from '../utils/provider-env.js';
 import type { Session, SessionEvent, SessionStatus } from '../types.js';
+import { replayEvents } from './replay.js';
 
 export type CreatePtySessionOptions = {
   id: string;
@@ -27,6 +29,7 @@ type EventListener = (event: SessionEvent) => void;
 
 export const MAX_TERMINAL_COLS = 500;
 export const MAX_TERMINAL_ROWS = 200;
+const MAX_REPLAY_EVENTS_PER_SESSION = 1000;
 
 export function isValidTerminalSize(cols: unknown, rows: unknown): cols is number {
   return (
@@ -50,6 +53,7 @@ export class PtySessionManager {
   private readonly sessions = new Map<string, LivePtySession>();
   private readonly restoredSessions = new Map<string, Session>();
   private readonly listeners = new Map<string, Set<EventListener>>();
+  private readonly eventHistory = new Map<string, SessionEvent[]>();
 
   create(options: CreatePtySessionOptions): Session {
     const title = options.title ?? path.basename(options.projectPath);
@@ -59,7 +63,7 @@ export class PtySessionManager {
       cols: options.cols,
       rows: options.rows,
       cwd: options.projectPath,
-      env: process.env
+      env: providerEffectiveEnv(options.provider, options.projectPath)
     });
     const now = Date.now();
     const session: Session = {
@@ -195,6 +199,10 @@ export class PtySessionManager {
     this.publish(event);
   }
 
+  eventsAfter(sessionId: string, after: number, tail?: number): SessionEvent[] {
+    return replayEvents(this.eventHistory.get(sessionId) ?? [], after, tail);
+  }
+
   getSession(id: string): Session | undefined {
     return this.sessions.get(id)?.session ?? this.restoredSessions.get(id);
   }
@@ -258,6 +266,12 @@ export class PtySessionManager {
   }
 
   private publish(event: SessionEvent): void {
+    const history = this.eventHistory.get(event.sessionId) ?? [];
+    history.push(event);
+    if (history.length > MAX_REPLAY_EVENTS_PER_SESSION) {
+      history.splice(0, history.length - MAX_REPLAY_EVENTS_PER_SESSION);
+    }
+    this.eventHistory.set(event.sessionId, history);
     const listeners = this.listeners.get(event.sessionId);
     if (!listeners) {
       return;

@@ -122,7 +122,8 @@ test('gateway relay client registers sessions', async () => {
     client.send(JSON.stringify({ type: 'client.list' }));
     const sessions = await waitForFrame(client, (frame) => frame.type === 'sessions');
     assert.equal(sessions.type, 'sessions');
-    assert.equal(sessions.sessions.some((session) => session.id === 'tth_relay_registered'), true);
+    const registered = sessions.sessions.find((session) => session.id === 'tth_relay_registered');
+    assert.equal(registered?.gatewayId, 'gw_test_register');
   } finally {
     client.close();
     await relayClient.close();
@@ -316,30 +317,24 @@ test('gateway relay client replays and forwards output', async () => {
   }
 });
 
-test('gateway relay client returns an empty replay stub before live subscription cursor', async () => {
+test('gateway relay client replays buffered local PTY events before live subscription cursor', async () => {
   const { store, cleanup } = tempStore();
+  const ptySessions = store.ptySessions;
   const sessionId = createSessionId();
   const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   const port = await waitForWebSocketServerPort(fakeRelay);
   const gatewaySocketPromise = waitForGatewaySocket(fakeRelay);
-  const now = Date.now();
-  store.insertSession({
+  ptySessions.create({
     id: sessionId,
     provider: 'codex',
-    title: 'paged replay',
-    projectPath: process.cwd(),
-    accountId: 'acct_test',
-    userId: 'user_test',
-    gatewayId: 'gw_test_paged_replay',
-    status: 'running',
-    attachState: 'detached',
-    tmuxSessionName: '',
     command: '/bin/cat',
-    transport: 'pty-event-stream',
-    createdAt: now,
-    updatedAt: now,
-    lastActiveAt: now
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24,
+    owner: testOwner('gw_test_paged_replay')
   });
+  assert.equal(ptySessions.write(sessionId, { clientId: 'local-test', data: 'from replay\r' }), true);
+  await waitFor(() => ptySessions.eventsAfter(sessionId, 0).some((event) => event.type === 'terminal.output'), 1000);
   const relayClient = startRelayClient({
     url: `ws://127.0.0.1:${port}`,
     secret: SECRET,
@@ -359,10 +354,11 @@ test('gateway relay client returns an empty replay stub before live subscription
       (frame) => frame.type === 'gateway.replay' && frame.sessionId === sessionId
     );
     assert.equal(replayFrame.type, 'gateway.replay');
-    assert.equal(replayFrame.events.length, 0);
+    assert.equal(replayFrame.events.some((event) => event.type === 'terminal.output'), true);
     assert.equal(replayFrame.done, true);
-    assert.equal(replayFrame.latestEventId, 0);
+    assert.equal(typeof replayFrame.latestEventId === 'number' && replayFrame.latestEventId > 0, true);
   } finally {
+    ptySessions.stop(sessionId);
     await relayClient.close();
     await closeWebSocketServer(fakeRelay);
     cleanup();

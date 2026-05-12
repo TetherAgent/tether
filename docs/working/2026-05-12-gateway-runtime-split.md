@@ -129,7 +129,7 @@ apps/gateway/src/
 - 管理 `clientId + sessionId -> mode/unsubscribe`。
 - 处理 `client.subscribe`、`client.unsubscribe`、`client.detach`。
 - Chat session：发送 Gateway 侧 catchup；Relay/Server 历史 catchup 仍由 Relay 服务端负责。
-- PTY session：发送 replay stub，订阅 runner live events 或 `PtySessionManager` events。
+- PTY session：发送进程内 replay 事件，订阅 runner live events 或 `PtySessionManager` events。
 - PTY live events 中调用 `agent-select-detector` 派生 `agent.select`。
 - 暴露 `requireControlSession(clientId, sessionId, action)` 给 `pty-handler` 使用。
 
@@ -321,7 +321,7 @@ apps/gateway/src/
 - [x] 迁出 `client.unsubscribe`。
 - [x] 迁出 `client.detach`。
 - [x] 迁出 chat catchup。
-- [x] 迁出 PTY replay stub。
+- [x] 迁出 PTY replay，并替换原空 stub 为进程内事件回放。
 - [x] 迁出 runner live event subscribe。
 - [x] 迁出 `agent.select` 检测调用。
 - [x] 关闭 Relay client 时仍清理所有 unsubscribe 和 debounce timer。
@@ -407,7 +407,6 @@ pnpm tether stop <session-id>
 
 本方案只定义 runtime 分层拆分。以下清理属于相邻任务，不混入结构拆分：
 
-- 根 `package.json` 中残留的 `--experimental-sqlite` 启动参数清理。
 - `apps/cli/src/main.ts` 中 `verifyGatewaySession()` 仍尝试调用本地
   `/api/sessions/:id/stop` 的残留修复。
 - `docs/working/2026-05-12-remove-local-sqlite.md` 的 TODO 状态回填。

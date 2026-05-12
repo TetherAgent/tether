@@ -1,8 +1,3 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { existsSync, readFileSync } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import type {
   RelayAuthScope,
@@ -21,6 +16,8 @@ import { SessionCatalog, toRelaySession } from './relay/session-catalog.js';
 import { SubscriptionHandler, SubscriptionManager } from './relay/subscription-manager.js';
 import type { SessionRunnerClient } from './pty/session-runner-client.js';
 import type { Session, SessionEvent } from './types.js';
+import { decodeGatewayToken, loadGatewayAuthState } from './utils/gateway-auth.js';
+import { resolvePackageVersion } from './utils/package-version.js';
 
 const TETHER_VERSION = resolvePackageVersion(import.meta.url, ['@tether-labs/cli', '@tether/gateway']) ?? '0.0.0-dev';
 
@@ -53,9 +50,7 @@ const MIN_RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_DELAY_MS = 5000;
 const RELAY_HEARTBEAT_INTERVAL_MS = 15_000;
 const RELAY_HEARTBEAT_TIMEOUT_MS = 10_000;
-const RELAY_FORBIDDEN_KEYS = new Set(['command', 'args', 'argv', 'env', 'providerCommand']);
-const GATEWAY_TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
-
+const RELAY_FORBIDDEN_KEYS = new Set(['command', 'args', 'argv', 'env', 'providerArgs', 'providerCommand']);
 export function startRelayClient(options: RelayClientOptions): RunningRelayClient {
   let closed = false;
   let socket: WebSocket | undefined;
@@ -70,6 +65,12 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   let connectionState: RelayConnectionStatus['state'] = 'connecting';
   let lastChangedAt = Date.now();
   let effectiveGatewayId = options.gatewayId;
+  const send = (frame: RelayGatewayToServerFrame) => {
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(frame));
+    }
+  };
+  let sendSessions: () => Promise<void> = async () => undefined;
   const relaySender = new RelaySender((frame) => send(frame), () => effectiveGatewayId);
   const sessionCatalog = new SessionCatalog({
     chatRegistry,
@@ -146,7 +147,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     socket.on('close', () => {
       clearHeartbeat();
       socket = undefined;
-      subscriptionHandler.clearSubscriptions();
+      void subscriptionHandler.clearSubscriptions();
       if (connectionState !== 'auth_failed') {
         setConnectionState('disconnected');
       }
@@ -216,12 +217,6 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     ping();
   };
 
-  const send = (frame: RelayGatewayToServerFrame) => {
-    if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify(frame));
-    }
-  };
-
   const chatHandler = new ChatHandler({
     chatRegistry,
     relaySender,
@@ -242,7 +237,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     deferLostError
   });
 
-  const sendSessions = async () => {
+  sendSessions = async () => {
     relaySender.sessions((await sessionCatalog.listRelaySessions()).map(toRelaySession));
   };
 
@@ -310,7 +305,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         reconnectTimer = undefined;
       }
       clearHeartbeat();
-      subscriptionHandler.clearSubscriptions();
+      await subscriptionHandler.clearSubscriptions();
       const closingSocket = socket;
       socket = undefined;
       if (!closingSocket || closingSocket.readyState === WebSocket.CLOSED) {
@@ -367,31 +362,6 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
-function resolvePackageVersion(startUrl: string, packageNames: string[]): string | undefined {
-  let current = path.dirname(fileURLToPath(startUrl));
-  for (let depth = 0; depth < 8; depth += 1) {
-    const packageJsonPath = path.join(current, 'package.json');
-    if (existsSync(packageJsonPath)) {
-      try {
-        const parsed = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { name?: unknown; version?: unknown };
-        if (
-          typeof parsed.name === 'string' &&
-          packageNames.includes(parsed.name) &&
-          typeof parsed.version === 'string'
-        ) {
-          return parsed.version;
-        }
-      } catch {
-        return undefined;
-      }
-    }
-    const next = path.dirname(current);
-    if (next === current) break;
-    current = next;
-  }
-  return undefined;
-}
-
 function toRelayEvent(event: SessionEvent): RelayTerminalEvent {
   return {
     id: event.id,
@@ -423,18 +393,6 @@ function sanitizeRelayValue(value: unknown): unknown {
   return sanitizeRelayPayload(value as Record<string, unknown>);
 }
 
-function decodeGatewayToken(token: string): Record<string, unknown> | undefined {
-  const parts = token.split('.');
-  if (parts.length !== 3) {
-    return undefined;
-  }
-  try {
-    return JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf8')) as Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
-}
-
 async function resolveRelayAuth(
   options: RelayClientOptions
 ): Promise<{ gatewayId: string; token?: string; scope: RelayAuthScope } | undefined> {
@@ -446,34 +404,11 @@ async function resolveRelayAuth(
     };
   }
 
-  const raw = await readFile(process.env.TETHER_AUTH_PATH ?? path.join(os.homedir(), '.tether', 'auth.json'), 'utf8').catch(() => undefined);
-  if (!raw) {
+  const authState = await loadGatewayAuthState();
+  if (!authState.ok) {
     return undefined;
   }
-  let parsed = JSON.parse(raw) as {
-    serverUrl?: unknown;
-    gatewayId?: unknown;
-    accountId?: unknown;
-    accessToken?: unknown;
-    refreshToken?: unknown;
-    expiresAt?: unknown;
-  };
-  if (
-    typeof parsed.accessToken !== 'string' ||
-    typeof parsed.expiresAt !== 'number'
-  ) {
-    return undefined;
-  }
-  if (parsed.expiresAt <= Date.now() + GATEWAY_TOKEN_REFRESH_SKEW_MS) {
-    parsed = await refreshGatewayAuthState(parsed).catch(() => parsed);
-  }
-  if (
-    typeof parsed.expiresAt !== 'number' ||
-    typeof parsed.accessToken !== 'string' ||
-    parsed.expiresAt <= Date.now()
-  ) {
-    return undefined;
-  }
+  const parsed = authState.value;
   const payload = decodeGatewayToken(parsed.accessToken);
   const gatewayId = typeof payload?.gatewayId === 'string'
     ? payload.gatewayId
@@ -496,55 +431,4 @@ async function resolveRelayAuth(
       jti: 'relay-auth-local'
     }
   };
-}
-
-async function refreshGatewayAuthState(state: {
-  serverUrl?: unknown;
-  accessToken?: unknown;
-  refreshToken?: unknown;
-  expiresAt?: unknown;
-}): Promise<{
-  serverUrl?: unknown;
-  accessToken?: unknown;
-  refreshToken?: unknown;
-  expiresAt?: unknown;
-}> {
-  if (typeof state.serverUrl !== 'string' || typeof state.refreshToken !== 'string') {
-    return state;
-  }
-  const response = await fetch(`${state.serverUrl}/api/relay/gateway/refresh`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ refreshToken: state.refreshToken })
-  });
-  if (!response.ok) {
-    return state;
-  }
-  const body = await response.json().catch(() => undefined);
-  const data = unwrapServerApiData(body) as { accessToken?: unknown; refreshToken?: unknown } | undefined;
-  if (typeof data?.accessToken !== 'string' || typeof data.refreshToken !== 'string') {
-    return state;
-  }
-  const payload = decodeGatewayToken(data.accessToken);
-  if (typeof payload?.expiresAt !== 'number') {
-    return state;
-  }
-  const next = {
-    serverUrl: state.serverUrl,
-    accessToken: data.accessToken,
-    refreshToken: data.refreshToken,
-    expiresAt: payload.expiresAt
-  };
-  const authPath = process.env.TETHER_AUTH_PATH ?? path.join(os.homedir(), '.tether', 'auth.json');
-  await mkdir(path.dirname(authPath), { recursive: true });
-  await writeFile(authPath, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
-  return next;
-}
-
-function unwrapServerApiData(body: unknown): unknown {
-  if (!body || typeof body !== 'object' || !('code' in body)) {
-    return body;
-  }
-  const payload = body as { code?: unknown; data?: unknown };
-  return payload.code === 200 ? payload.data : undefined;
 }

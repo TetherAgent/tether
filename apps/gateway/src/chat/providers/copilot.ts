@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { providerEffectiveEnv } from '../../utils/provider-env.js';
-import { uniqueStrings } from '../provider-registry.js';
+import { uniqueStrings } from '../provider-utils.js';
 
 export function isCopilotInstalled(): boolean {
   const result = spawnSync('gh', ['copilot', '--help'], { stdio: 'ignore', timeout: 2000 });

@@ -80,7 +80,6 @@ export class ChatHandler {
   }
 
   handleSwitchModel(clientId: string, sessionId: string): void {
-    this.options.relaySender.chatCatchup(clientId, sessionId, '模型切换功能将在后续版本中实现');
     this.options.relaySender.error(clientId, sessionId, 'switch_not_implemented', '模型切换功能将在后续版本中实现');
   }
 
@@ -90,9 +89,11 @@ export class ChatHandler {
       return;
     }
     const session = this.options.sessionCatalog.get(frame.sessionId);
-    if (session) {
-      this.options.runnerForProvider(session.provider)?.respondToPermission(frame.sessionId, frame.requestId, frame.decision);
+    if (!session) {
+      this.options.sendError(frame.clientId, frame.sessionId, 'session_not_found', 'session not found');
+      return;
     }
+    this.options.runnerForProvider(session.provider)?.respondToPermission(frame.sessionId, frame.requestId, frame.decision);
   }
 
   private sendChatEvent(id: number, sessionId: string, type: string, payload: Record<string, unknown>): void {
