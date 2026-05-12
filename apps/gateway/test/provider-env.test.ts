@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { providerEffectiveEnv } from '../src/provider-env.js';
+import { providerEffectiveEnv } from '../src/utils/provider-env.js';
 
 test('CLAUDE_ENV_FILE is only loaded for Claude provider env', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'tether-provider-env-'));

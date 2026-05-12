@@ -5,12 +5,12 @@ import path from 'node:path';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
 import type { AuthScopePayload } from '@tether/core';
-import { createSessionEvent } from './events.js';
-import { maskSensitiveOutput } from './mask.js';
-import { providerEffectiveEnv } from './provider-env.js';
-import { isValidTerminalSize } from './pty.js';
+import { createSessionEvent } from '../utils/events.js';
+import { maskSensitiveOutput } from '../utils/mask.js';
+import { providerEffectiveEnv } from '../utils/provider-env.js';
+import { isValidTerminalSize } from './manager.js';
 import { AgentStatusPublisher } from './session-status-deriver.js';
-import type { Session, SessionEvent } from './types.js';
+import type { Session, SessionEvent } from '../types.js';
 
 export const RUNNER_MAX_FRAME_BYTES = 1024 * 1024;
 export const RUNNER_HEARTBEAT_INTERVAL_MS = 10_000;

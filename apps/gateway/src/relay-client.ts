@@ -10,17 +10,16 @@ import type {
   RelayServerToGatewayFrame,
   RelayTerminalEvent
 } from '@tether/protocol';
-import { detectSelectOptions } from './agent-select-detect.js';
 import { ChatSessionRegistry } from './chat/chat-session-registry.js';
-import { ChatSessionRunner, CodexChatRunner, CopilotChatRunner, type ChatRunnerOptions, type IChatRunner } from './chat-session-runner.js';
-import { createSessionEvent } from './events.js';
-import { isValidTerminalSize, type PtySessionManager } from './pty.js';
+import { ChatRuntime } from './chat/chat-runtime.js';
+import type { PtySessionManager } from './pty/manager.js';
 import { ChatHandler } from './relay/chat-handler.js';
+import { FrameRouter } from './relay/frame-router.js';
 import { PtyHandler, type NewPtySessionHandler } from './relay/pty-handler.js';
 import { RelaySender } from './relay/relay-sender.js';
 import { SessionCatalog, toRelaySession } from './relay/session-catalog.js';
-import { SubscriptionManager } from './relay/subscription-manager.js';
-import type { SessionRunnerClient } from './session-runner-client.js';
+import { SubscriptionHandler, SubscriptionManager } from './relay/subscription-manager.js';
+import type { SessionRunnerClient } from './pty/session-runner-client.js';
 import type { Session, SessionEvent } from './types.js';
 
 const TETHER_VERSION = resolvePackageVersion(import.meta.url, ['@tether-labs/cli', '@tether/gateway']) ?? '0.0.0-dev';
@@ -79,7 +78,6 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     emitEvent: (event) => relaySender.event(toRelayEvent(event)),
     isPidAlive
   });
-  const getStoredSession = (sessionId: string) => sessionCatalog.get(sessionId);
   const sendError = (clientId: string, sessionId: string, code: string, message: string) => {
     relaySender.error(clientId, sessionId, code, message);
   };
@@ -98,74 +96,12 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     sendSessions: () => sendSessions(),
     sendError
   });
-  const chatRunnerOptions: ChatRunnerOptions = {
+  const chatRuntime = new ChatRuntime({
     gatewayId: () => effectiveGatewayId,
-    onSessionCreated: (clientId, sessionId) => {
-      relaySender.sessionCreated(clientId, sessionId);
-      void sendSessions();
-    },
-    onChatSessionCreated: (clientId, metadata) => {
-      chatRegistry.upsertFromMetadata(metadata);
-      relaySender.chatSessionCreated(clientId, metadata);
-    },
-    onUserMessage: ({ clientId, sessionId, event }) => {
-      sendChatEvent(event.id, sessionId, 'user.message', {
-        clientId,
-        message: event.payload.message
-      });
-    },
-    onDelta: ({ clientId, sessionId, text, deltaEventId }) => {
-      sendChatEvent(deltaEventId, sessionId, 'agent.delta', { clientId, text });
-    },
-    onResult: ({ clientId, sessionId, event, text, usage, stopReason, contextWindow, rateLimitInfo, contextInputTokens, nextSuggestions }) => {
-      chatRegistry.releaseInFlight(sessionId);
-      sendChatEvent(event.id, sessionId, 'agent.result', {
-        clientId,
-        text,
-        usage,
-        ...(stopReason ? { stop_reason: stopReason } : {}),
-        ...(contextWindow !== undefined ? { contextWindow } : {}),
-        ...(rateLimitInfo ? { rateLimitInfo } : {}),
-        ...(contextInputTokens !== undefined ? { contextInputTokens } : {}),
-        ...(nextSuggestions && nextSuggestions.length > 0 ? { nextSuggestions } : {})
-      });
-    },
-    onPermissionRequest: ({ clientId, sessionId, requestId, toolName, input }) => {
-      sendChatEvent(Date.now(), sessionId, 'agent.permission_request', {
-        clientId,
-        requestId,
-        toolName,
-        input
-      });
-    },
-    onTool: ({ clientId, sessionId, event, name, input, result, isError }) => {
-      sendChatEvent(event.id, sessionId, 'agent.tool', {
-        clientId,
-        name,
-        input,
-        ...(result ? { result } : {}),
-        ...(isError !== undefined ? { isError } : {})
-      });
-    },
-    onError: ({ clientId, sessionId, code, message, event }) => {
-      chatRegistry.releaseInFlight(sessionId);
-      if (event) {
-        sendChatEvent(event.id, sessionId, 'session.error', {
-          clientId,
-          code,
-          message
-        });
-      }
-      relaySender.error(clientId, sessionId, code, message);
-    },
-    onAgentIdUpdate: (sessionId, agentSessionId) => {
-      chatRegistry.updateAgentSessionId(sessionId, agentSessionId);
-      sendChatEvent(Date.now(), sessionId, 'session.agent-id-updated', { sessionId, agentSessionId });
-    }
-  };
-  const chatRunner = new ChatSessionRunner(chatRunnerOptions);
-  const codexChatRunner = new CodexChatRunner(chatRunnerOptions);
-  const copilotChatRunner = new CopilotChatRunner(chatRunnerOptions);
+    chatRegistry,
+    relaySender,
+    sendSessions: () => sendSessions()
+  });
 
   const setConnectionState = (state: RelayConnectionStatus['state']) => {
     if (connectionState === state) {
@@ -204,13 +140,13 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       if (!frame) {
         return;
       }
-      handleFrame(frame);
+      frameRouter.route(frame);
     });
 
     socket.on('close', () => {
       clearHeartbeat();
       socket = undefined;
-      clearSubscriptions();
+      subscriptionHandler.clearSubscriptions();
       if (connectionState !== 'auth_failed') {
         setConnectionState('disconnected');
       }
@@ -286,243 +222,83 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     }
   };
 
-  const sendChatEvent = (id: number, sessionId: string, type: string, payload: Record<string, unknown>) => {
-    relaySender.event({
-      id,
-      sessionId,
-      type,
-      ts: Date.now(),
-      payload
-    });
-  };
-
-  const runnerForProvider = (provider: string): IChatRunner | undefined => {
-    switch (provider) {
-      case 'claude':
-        return chatRunner;
-      case 'codex':
-        return codexChatRunner;
-      case 'copilot':
-        return copilotChatRunner;
-      default:
-        return undefined;
-    }
-  };
-
   const chatHandler = new ChatHandler({
     chatRegistry,
     relaySender,
     sessionCatalog,
     subscriptions,
-    runnerForProvider,
+    runnerForProvider: provider => chatRuntime.runnerForProvider(provider),
     sendError
+  });
+  const subscriptionHandler = new SubscriptionHandler({
+    sessionCatalog,
+    subscriptions,
+    relaySender,
+    ptySessions: options.ptySessions,
+    runnerClientForSession: options.runnerClientForSession,
+    runnerForProvider: provider => chatRuntime.runnerForProvider(provider),
+    toRelayEvent,
+    sendError,
+    deferLostError
   });
 
   const sendSessions = async () => {
     relaySender.sessions((await sessionCatalog.listRelaySessions()).map(toRelaySession));
   };
 
-  const handleFrame = (frame: RelayServerToGatewayFrame) => {
-    switch (frame.type) {
-      case 'gateway.auth.ok':
-        setConnectionState('connected');
-        void sendSessions();
-        return;
-      case 'gateway.sessions-restore':
-        sessionCatalog.restoreRelaySessions(frame.sessions);
-        void sendSessions();
-        return;
-      case 'gateway.auth.failed':
-        setConnectionState('auth_failed');
-        socket?.close();
-        return;
-      case 'client.list':
-        void sendSessions();
-        return;
-      case 'client.subscribe':
-        void subscribeClient(frame.clientId, frame.sessionId, frame.after ?? 0, frame.mode, frame.tail, frame.cols, frame.rows);
-        return;
-      case 'client.input':
-        void ptyHandler.writeInput(frame.clientId, frame.sessionId, frame.data);
-        return;
-      case 'client.resize':
-        void ptyHandler.resizePty(frame.clientId, frame.sessionId, frame.cols, frame.rows);
-        return;
-      case 'client.stop':
-        void ptyHandler.stopPty(frame.clientId, frame.sessionId);
-        return;
-      case 'client.unsubscribe':
-        removeSubscription(frame.clientId, frame.sessionId);
-        return;
-      case 'client.detach':
-        removeSubscription(frame.clientId, frame.sessionId);
-        return;
-      case 'client.chat':
-        chatHandler.handleChat(frame);
-        return;
-      case 'client.list-providers':
-        void chatHandler.sendProviders(frame.clientId);
-        return;
-      case 'client.cwd-suggest':
-        void chatHandler.sendCwdSuggestions(frame.clientId, frame.cwd);
-        return;
-      case 'client.switch-model':
-        chatHandler.handleSwitchModel(frame.clientId, frame.sessionId);
-        return;
-      case 'client.permission_response':
-        chatHandler.handlePermissionResponse(frame);
-        return;
-      case 'client.new-pty-session':
-        ptyHandler.handleNewSession(frame);
-        return;
-      }
-  };
-
-  const subscribeClient = async (
-    clientId: string,
-    sessionId: string,
-    after: number,
-    mode: 'control' | 'observe',
-    tail?: number,
-    cols?: number,
-    rows?: number
-  ) => {
-    const session = getStoredSession(sessionId);
-    if (!session) {
-      sendError(clientId, sessionId, 'session_not_found', 'session not found');
-      return;
+  const frameRouter = new FrameRouter({
+    onAuthOk: () => {
+      setConnectionState('connected');
+      void sendSessions();
+    },
+    onSessionsRestore: (frame) => {
+      sessionCatalog.restoreRelaySessions(frame.sessions);
+      void sendSessions();
+    },
+    onAuthFailed: () => {
+      setConnectionState('auth_failed');
+      socket?.close();
+    },
+    onList: () => {
+      void sendSessions();
+    },
+    onSubscribe: (frame) => {
+      void subscriptionHandler.subscribeClient(frame.clientId, frame.sessionId, frame.after ?? 0, frame.mode, frame.tail, frame.cols, frame.rows);
+    },
+    onInput: (frame) => {
+      void ptyHandler.writeInput(frame.clientId, frame.sessionId, frame.data);
+    },
+    onResize: (frame) => {
+      void ptyHandler.resizePty(frame.clientId, frame.sessionId, frame.cols, frame.rows);
+    },
+    onStop: (frame) => {
+      void ptyHandler.stopPty(frame.clientId, frame.sessionId);
+    },
+    onUnsubscribe: (frame) => {
+      void subscriptionHandler.removeSubscription(frame.clientId, frame.sessionId);
+    },
+    onDetach: (frame) => {
+      void subscriptionHandler.removeSubscription(frame.clientId, frame.sessionId);
+    },
+    onChat: (frame) => {
+      chatHandler.handleChat(frame);
+    },
+    onListProviders: (frame) => {
+      void chatHandler.sendProviders(frame.clientId);
+    },
+    onCwdSuggest: (frame) => {
+      void chatHandler.sendCwdSuggestions(frame.clientId, frame.cwd);
+    },
+    onSwitchModel: (frame) => {
+      chatHandler.handleSwitchModel(frame.clientId, frame.sessionId);
+    },
+    onPermissionResponse: (frame) => {
+      chatHandler.handlePermissionResponse(frame);
+    },
+    onNewPtySession: (frame) => {
+      ptyHandler.handleNewSession(frame);
     }
-    const previousSubscription = subscriptions.get(clientId, sessionId);
-    if (previousSubscription) {
-      await previousSubscription.unsubscribe?.();
-      subscriptions.delete(clientId, sessionId);
-    }
-    if (session.transport === 'pty-event-stream' && session.status !== 'running') {
-      deferLostError(clientId, sessionId);
-      return;
-    }
-    subscriptions.set(clientId, sessionId, { mode });
-    if (session.transport === 'chat') {
-      const catchupText = runnerForProvider(session.provider)?.getCatchup(sessionId);
-      if (catchupText !== undefined) {
-        relaySender.chatCatchup(clientId, sessionId, catchupText);
-      }
-      return;
-    }
-    if (isValidTerminalSize(cols, rows) && mode === 'control') {
-      const nextCols = cols;
-      const nextRows = Number(rows);
-      const runnerClient = options.runnerClientForSession?.(session);
-      if (runnerClient) {
-        const resized = await runnerClient.resize(nextCols, nextRows, clientId).then(
-          () => true,
-          () => {
-            sessionCatalog.markSessionLost(sessionId);
-            return false;
-          }
-        );
-        if (!resized) {
-          subscriptions.delete(clientId, sessionId);
-          deferLostError(clientId, sessionId);
-          return;
-        }
-      } else {
-        const ok = options.ptySessions?.resize(sessionId, clientId, nextCols, nextRows) ?? false;
-        if (!ok) {
-          sessionCatalog.markSessionLost(sessionId);
-          subscriptions.delete(clientId, sessionId);
-          deferLostError(clientId, sessionId);
-          return;
-        }
-      }
-    }
-
-    // agent.select detection state (per relay subscription)
-    let relayRecentOutputBuf = '';
-    let relaySelectEmitted = false;
-    let relaySelectDebounceTimer: NodeJS.Timeout | undefined;
-    const detectAndEmitRelaySelect = (event: SessionEvent) => {
-      if (
-        event.type !== 'terminal.output' ||
-        session.provider !== 'claude'
-      ) {
-        return;
-      }
-      if (relaySelectEmitted) {
-        relaySelectEmitted = false;
-      }
-      const data = (event.payload as { data?: string }).data ?? '';
-      relayRecentOutputBuf += data.replace(/\x1b\[[0-9;]*m/g, '');
-      const bufLines = relayRecentOutputBuf.split('\n');
-      if (bufLines.length > 50) {
-        relayRecentOutputBuf = bufLines.slice(-50).join('\n');
-      }
-      clearTimeout(relaySelectDebounceTimer);
-      relaySelectDebounceTimer = setTimeout(() => {
-        if (relaySelectEmitted) {
-          return;
-        }
-        const lines = relayRecentOutputBuf.split('\n');
-        const matchedOptions = detectSelectOptions(lines);
-        if (!matchedOptions) {
-          return;
-        }
-        const subSession = getStoredSession(session.id);
-        if (!subSession) {
-          return;
-        }
-        const raw = lines.filter((line) => /^\s*\d+\.\s+/.test(line)).join('\n');
-        const selectEvent = createSessionEvent(subSession.id, 'agent.select', {
-          options: matchedOptions,
-          raw
-        });
-        relaySender.event(toRelayEvent(selectEvent));
-        relaySelectEmitted = true;
-      }, 300);
-    };
-
-    const replayCursor = replayEvents(clientId, sessionId, after, tail);
-
-    const runnerClient = options.runnerClientForSession?.(session);
-    let unsubscribe: (() => void | Promise<void>) | undefined;
-    if (runnerClient) {
-      try {
-        unsubscribe = await runnerClient.subscribeEvents((frame) => {
-          relaySender.event(toRelayEvent(frame.event));
-          detectAndEmitRelaySelect(frame.event);
-        }, replayCursor);
-      } catch {
-        sessionCatalog.markSessionLost(sessionId);
-        subscriptions.delete(clientId, sessionId);
-        deferLostError(clientId, sessionId);
-        return;
-      }
-    } else {
-      unsubscribe = options.ptySessions?.subscribe(sessionId, (event) => {
-        relaySender.event(toRelayEvent(event));
-        detectAndEmitRelaySelect(event);
-      });
-    }
-    const wrappedUnsubscribe = async () => {
-      clearTimeout(relaySelectDebounceTimer);
-      await unsubscribe?.();
-    };
-    subscriptions.set(clientId, sessionId, { mode, unsubscribe: wrappedUnsubscribe });
-  };
-
-  const replayEvents = (clientId: string, sessionId: string, after: number, tail?: number): number => {
-    void tail;
-    relaySender.replay(clientId, sessionId, [], after);
-    return after;
-  };
-
-  const removeSubscription = async (clientId: string, sessionId: string) => {
-    await subscriptions.remove(clientId, sessionId);
-  };
-
-  const clearSubscriptions = () => {
-    subscriptions.clear();
-  };
+  });
 
   connect();
 
@@ -534,7 +310,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         reconnectTimer = undefined;
       }
       clearHeartbeat();
-      clearSubscriptions();
+      subscriptionHandler.clearSubscriptions();
       const closingSocket = socket;
       socket = undefined;
       if (!closingSocket || closingSocket.readyState === WebSocket.CLOSED) {

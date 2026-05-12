@@ -63,6 +63,7 @@ apps/gateway/src/
     replay.ts
 
   chat/
+    chat-runtime.ts
     chat-session-runner.ts
     chat-session-registry.ts
     provider-registry.ts
@@ -70,6 +71,12 @@ apps/gateway/src/
       claude.ts
       codex.ts
       copilot.ts
+
+  utils/
+    events.ts
+    ids.ts
+    mask.ts
+    provider-env.ts
 ```
 
 ## 职责边界
@@ -200,12 +207,7 @@ apps/gateway/src/
 
 它不负责订阅，也不负责发送 frame；只接收 event buffer，返回需要发送的派生事件。
 
-当前文件名是 `agent-select-detect.ts`。拆分时需要明确二选一：
-
-- 保持现名并放到 `pty/agent-select-detect.ts`。
-- 或重命名为 `pty/agent-select-detector.ts`，并同步更新所有 import。
-
-不要在文档和实际文件名之间长期保留两套叫法。
+已选择重命名为 `pty/agent-select-detector.ts`，并同步更新 import。不要再新增旧名 `agent-select-detect.ts`。
 
 ## 分阶段 TODO
 
@@ -226,124 +228,124 @@ apps/gateway/src/
 
 ### Wave 2：抽 chat-session-registry
 
-- [ ] 新增 `apps/gateway/src/chat/chat-session-registry.ts`。
-- [ ] 迁出 `chatSessions`。
-- [ ] 迁出 `chatInFlight`。
-- [ ] 迁出 `agentSessionId` 更新逻辑。
-- [ ] 保持 Chat session 不写本地 SQLite。
+- [x] 新增 `apps/gateway/src/chat/chat-session-registry.ts`。
+- [x] 迁出 `chatSessions`。
+- [x] 迁出 `chatInFlight`。
+- [x] 迁出 `agentSessionId` 更新逻辑。
+- [x] 保持 Chat session 不写本地 SQLite。
 
 验收：
 
-- [ ] 同一 chat session 第二个请求仍返回 `chat_in_progress`。
-- [ ] `agent.result` 后锁释放。
-- [ ] `session.error` 后锁释放。
-- [ ] `session.agent-id-updated` 仍发送。
+- [x] 同一 chat session 第二个请求仍返回 `chat_in_progress`。
+- [x] `agent.result` 后锁释放。
+- [x] `session.error` 后锁释放。
+- [x] `session.agent-id-updated` 仍发送。
 
 ### Wave 3：抽 session-catalog
 
-- [ ] 新增 `apps/gateway/src/relay/session-catalog.ts`。
-- [ ] 迁出 `getStoredSession()`。
-- [ ] 迁出 `listRelaySessions()`。
-- [ ] 迁出 `toRelaySession()`。
-- [ ] 迁出 `gateway.sessions-restore` 处理。
-- [ ] 迁出 `isLiveSession()` / `markSessionLost()` 或提供等价接口。
-- [ ] 保持 restored PTY session 可见。
+- [x] 新增 `apps/gateway/src/relay/session-catalog.ts`。
+- [x] 迁出 `getStoredSession()`。
+- [x] 迁出 `listRelaySessions()`。
+- [x] 迁出 `toRelaySession()`。
+- [x] 迁出 `gateway.sessions-restore` 处理。
+- [x] 迁出 `isLiveSession()` / `markSessionLost()` 或提供等价接口。
+- [x] 保持 restored PTY session 可见。
 
 验收：
 
-- [ ] `client.list` 返回 chat + PTY 合并列表。
-- [ ] `gateway.sessions-restore` 后 PTY session 进入内存 registry。
-- [ ] runner socket 丢失时 session 标记 `lost`，并发送 `session.error`。
+- [x] `client.list` 返回 chat + PTY 合并列表。
+- [x] `gateway.sessions-restore` 后 PTY session 进入内存 registry。
+- [x] runner socket 丢失时 session 标记 `lost`，并发送 `session.error`。
 
 ### Wave 4：抽 subscription-manager 最小版
 
-- [ ] 新增 `apps/gateway/src/relay/subscription-manager.ts`。
-- [ ] 先迁出订阅 Map 和 `subscriptionKey()`。
-- [ ] 暴露 `requireControlSession(clientId, sessionId, action)`。
-- [ ] `pty-handler` 前置依赖这个接口，不复制订阅判断。
+- [x] 新增 `apps/gateway/src/relay/subscription-manager.ts`。
+- [x] 先迁出订阅 Map 和 `subscriptionKey()`。
+- [x] 暴露 `requireControlSession(clientId, sessionId, action)`。
+- [x] `pty-handler` 前置依赖这个接口，不复制订阅判断。
 
 验收：
 
-- [ ] 未订阅时 input/resize/stop 仍返回 `not_subscribed`。
-- [ ] observe 模式 input/resize/stop 仍返回 `observe_only`。
-- [ ] session 不存在仍返回 `session_not_found`。
+- [x] 未订阅时 input/resize/stop 仍返回 `not_subscribed`。
+- [x] observe 模式 input/resize/stop 仍返回 `observe_only`。
+- [x] session 不存在仍返回 `session_not_found`。
 
 ### Wave 5：抽 pty-handler
 
-- [ ] 新增 `apps/gateway/src/relay/pty-handler.ts`。
-- [ ] 迁出 `writeInput()`。
-- [ ] 迁出 `resizePty()`。
-- [ ] 迁出 `stopPty()`。
-- [ ] 迁出 `client.new-pty-session` 处理。
-- [ ] `client.new-pty-session` 只调用注入的 `onNewPtySession()`，不直接 spawn。
-- [ ] 从 `RelayClientOptions.onNewPtySession` 类型中删除 `command` 字段。
-- [ ] `relay-client` 转发 `client.new-pty-session` 给 `onNewPtySession()` 时不再传 `frame.command`。
-- [ ] `daemon` 继续只用 `providerCommand(provider, options.config)` 决定可执行命令。
-- [ ] 保持 runner socket 优先，`PtySessionManager` 作为 legacy/local fallback。
-- [ ] runner socket 写入 / resize / stop 失败时统一走 lost 标记路径，并发送 `gateway.event` 包装的 `session.error`，不能只发给当前 client 一个 `gateway.error`。
+- [x] 新增 `apps/gateway/src/relay/pty-handler.ts`。
+- [x] 迁出 `writeInput()`。
+- [x] 迁出 `resizePty()`。
+- [x] 迁出 `stopPty()`。
+- [x] 迁出 `client.new-pty-session` 处理。
+- [x] `client.new-pty-session` 只调用注入的 `onNewPtySession()`，不直接 spawn。
+- [x] 从 `RelayClientOptions.onNewPtySession` 类型中删除 `command` 字段。
+- [x] `relay-client` 转发 `client.new-pty-session` 给 `onNewPtySession()` 时不再传 `frame.command`。
+- [x] `daemon` 继续只用 `providerCommand(provider, options.config)` 决定可执行命令。
+- [x] 保持 runner socket 优先，`PtySessionManager` 作为 legacy/local fallback。
+- [x] runner socket 写入 / resize / stop 失败时统一走 lost 标记路径，并发送 `gateway.event` 包装的 `session.error`，不能只发给当前 client 一个 `gateway.error`。
 
 验收：
 
-- [ ] control 模式可 input。
-- [ ] control 模式可 resize。
-- [ ] control 模式可 stop。
-- [ ] observe 模式不能 input / resize / stop。
-- [ ] runner socket 不可达时返回 `session_lost`。
-- [ ] runner socket stop 失败时，当前 client 收到错误，其他订阅者也能收到 `session.error`。
-- [ ] `client.new-pty-session` 成功后发送 `gateway.session-created` 并刷新 sessions。
-- [ ] `client.new-pty-session` 传入恶意 `command` 字段不会影响实际启动命令。
+- [x] control 模式可 input。
+- [x] control 模式可 resize。
+- [x] control 模式可 stop。
+- [x] observe 模式不能 input / resize / stop。
+- [x] runner socket 不可达时返回 `session_lost`。
+- [x] runner socket stop 失败时，当前 client 收到错误，其他订阅者也能收到 `session.error`。
+- [x] `client.new-pty-session` 成功后发送 `gateway.session-created` 并刷新 sessions。
+- [x] `client.new-pty-session` 传入恶意 `command` 字段不会影响实际启动命令。
 
 ### Wave 6：抽 chat-handler
 
-- [ ] 新增 `apps/gateway/src/relay/chat-handler.ts`。
-- [ ] 迁出 `client.chat` 新建和续聊处理。
-- [ ] 迁出 `client.list-providers`。
-- [ ] 迁出 `client.cwd-suggest`。
-- [ ] 迁出 `client.switch-model` 当前未实现响应。
-- [ ] 迁出 `client.permission_response`。
-- [ ] `client.permission_response` 必须先确认该 client 已订阅对应 session。
-- [ ] 未订阅 client 发送 `permission_response` 时返回 `not_subscribed`，不得转发给 provider runner。
-- [ ] 续聊必须使用 Relay 注入的 trusted metadata。
+- [x] 新增 `apps/gateway/src/relay/chat-handler.ts`。
+- [x] 迁出 `client.chat` 新建和续聊处理。
+- [x] 迁出 `client.list-providers`。
+- [x] 迁出 `client.cwd-suggest`。
+- [x] 迁出 `client.switch-model` 当前未实现响应。
+- [x] 迁出 `client.permission_response`。
+- [x] `client.permission_response` 必须先确认该 client 已订阅对应 session。
+- [x] 未订阅 client 发送 `permission_response` 时返回 `not_subscribed`，不得转发给 provider runner。
+- [x] 续聊必须使用 Relay 注入的 trusted metadata。
 
 验收：
 
-- [ ] 非白名单 provider 仍返回 `provider_not_supported`。
-- [ ] existing chat 缺少 trusted metadata 仍返回 `missing_session_metadata`。
-- [ ] 同 session 并发仍返回 `chat_in_progress`。
-- [ ] `permission_response` 能转给对应 provider runner。
-- [ ] 未订阅 client 不能发送 `permission_response`。
+- [x] 非白名单 provider 仍返回 `provider_not_supported`。
+- [x] existing chat 缺少 trusted metadata 仍返回 `missing_session_metadata`。
+- [x] 同 session 并发仍返回 `chat_in_progress`。
+- [x] `permission_response` 能转给对应 provider runner。
+- [x] 未订阅 client 不能发送 `permission_response`。
 
 ### Wave 7：抽 subscription-manager 完整版
 
-- [ ] 迁出 `client.subscribe`。
-- [ ] 迁出 `client.unsubscribe`。
-- [ ] 迁出 `client.detach`。
-- [ ] 迁出 chat catchup。
-- [ ] 迁出 PTY replay stub。
-- [ ] 迁出 runner live event subscribe。
-- [ ] 迁出 `agent.select` 检测调用。
-- [ ] 关闭 Relay client 时仍清理所有 unsubscribe 和 debounce timer。
+- [x] 迁出 `client.subscribe`。
+- [x] 迁出 `client.unsubscribe`。
+- [x] 迁出 `client.detach`。
+- [x] 迁出 chat catchup。
+- [x] 迁出 PTY replay stub。
+- [x] 迁出 runner live event subscribe。
+- [x] 迁出 `agent.select` 检测调用。
+- [x] 关闭 Relay client 时仍清理所有 unsubscribe 和 debounce timer。
 
 验收：
 
-- [ ] Chat session subscribe 仍返回 catchup。
-- [ ] PTY session subscribe 仍能 replay done。
-- [ ] PTY live output 仍转发到 Relay。
-- [ ] `agent.select` 仍能从 Claude PTY 输出派生。
-- [ ] reconnect / close 时订阅清理不泄漏。
+- [x] Chat session subscribe 仍返回 catchup。
+- [x] PTY session subscribe 仍能 replay done。
+- [x] PTY live output 仍转发到 Relay。
+- [x] `agent.select` 仍能从 Claude PTY 输出派生。
+- [x] reconnect / close 时订阅清理不泄漏。
 
 ### Wave 8：收敛 relay-client.ts
 
-- [ ] `relay-client.ts` 只保留 transport 和 wiring。
-- [ ] 删除已经迁走的业务 helper。
-- [ ] 保留 `relayGatewayUrl()`、auth resolve、heartbeat、reconnect、close、status。
-- [ ] 确认无 Chat / PTY 业务逻辑回流。
+- [x] `relay-client.ts` 只保留 transport 和 wiring。
+- [x] 删除已经迁走的业务 helper。
+- [x] 保留 `relayGatewayUrl()`、auth resolve、heartbeat、reconnect、close、status。
+- [x] 确认无 Chat / PTY 业务逻辑回流。
 
 验收：
 
-- [ ] `relay-client.ts` 不直接 import `ChatSessionRunner`。
-- [ ] `relay-client.ts` 不直接 import `PtySessionManager` 的运行时方法，除类型注入外。
-- [ ] `relay-client.ts` 不直接实现 `client.chat` / `client.input` / `client.subscribe` 分支细节。
+- [x] `relay-client.ts` 不直接 import `ChatSessionRunner`。
+- [x] `relay-client.ts` 不直接 import `PtySessionManager` 的运行时方法，除类型注入外。
+- [x] `relay-client.ts` 不直接实现 `client.chat` / `client.input` / `client.subscribe` 分支细节。
 
 ## 必须保持的行为
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PtySessionManager } from '../src/pty.js';
+import { PtySessionManager } from '../src/pty/manager.js';
 import type { SessionEvent } from '../src/types.js';
 
 test('pty sessions emit output and mask stored input', async () => {

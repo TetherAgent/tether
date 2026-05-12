@@ -1,6 +1,6 @@
 import type { RelayServerToGatewayFrame } from '@tether/protocol';
-import { isValidTerminalSize, type PtySessionManager } from '../pty.js';
-import type { SessionRunnerClient } from '../session-runner-client.js';
+import { isValidTerminalSize, type PtySessionManager } from '../pty/manager.js';
+import type { SessionRunnerClient } from '../pty/session-runner-client.js';
 import type { Session } from '../types.js';
 import type { RelaySender } from './relay-sender.js';
 import type { SessionCatalog } from './session-catalog.js';

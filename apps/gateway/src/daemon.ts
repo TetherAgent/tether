@@ -10,14 +10,14 @@ import type { ServerType } from '@hono/node-server';
 import { readTetherConfig, type TetherConfig } from '@tether/config';
 import { isProviderName, PROVIDERS } from '@tether/core';
 import { ResponseCode, type AuthScopePayload, type AuthTokenClass } from '@tether/core';
-import { createSessionId } from './ids.js';
-import { createSessionEvent } from './events.js';
-import { isValidTerminalSize, type PtySessionManager } from './pty.js';
+import { createSessionId } from './utils/ids.js';
+import { createSessionEvent } from './utils/events.js';
+import { isValidTerminalSize, type PtySessionManager } from './pty/manager.js';
 import { registerGateway, touchGateway, unregisterGateway } from './registry.js';
-import { detectSelectOptions } from './agent-select-detect.js';
+import { detectSelectOptions } from './pty/agent-select-detector.js';
 import { startRelayClient, type RunningRelayClient } from './relay-client.js';
-import { SessionRunnerClient } from './session-runner-client.js';
-import { spawnSessionRunnerProcess } from './session-runner-spawn.js';
+import { SessionRunnerClient } from './pty/session-runner-client.js';
+import { spawnSessionRunnerProcess } from './pty/session-runner-spawn.js';
 import type { Session } from './types.js';
 
 export type DaemonOptions = {

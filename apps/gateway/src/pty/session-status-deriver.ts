@@ -1,4 +1,4 @@
-import type { SessionEventType } from './types.js';
+import type { SessionEventType } from '../types.js';
 
 export type AgentRuntimeStatus =
   | 'idle'

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createSessionEvent } from '../src/events.js';
-import { AgentStatusPublisher } from '../src/session-status-deriver.js';
+import { createSessionEvent } from '../src/utils/events.js';
+import { AgentStatusPublisher } from '../src/pty/session-status-deriver.js';
 import type { SessionEvent } from '../src/types.js';
 
 test('AgentStatusPublisher emits submitted then running for PTY input/output', () => {

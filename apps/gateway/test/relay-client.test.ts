@@ -6,11 +6,11 @@ import test from 'node:test';
 import WebSocket, { WebSocketServer } from 'ws';
 import type { RelayAuthScope, RelayGatewayToServerFrame, RelayServerToClientFrame } from '@tether/protocol';
 import { startRelayServer } from '../../relay/src/relay.js';
-import { createSessionId } from '../src/ids.js';
-import { PtySessionManager } from '../src/pty.js';
+import { createSessionId } from '../src/utils/ids.js';
+import { PtySessionManager } from '../src/pty/manager.js';
 import { relayGatewayUrl, startRelayClient } from '../src/relay-client.js';
-import { CodexChatRunner } from '../src/chat-session-runner.js';
-import type { SessionRunnerClient } from '../src/session-runner-client.js';
+import { CodexChatRunner } from '../src/chat/chat-session-runner.js';
+import type { SessionRunnerClient } from '../src/pty/session-runner-client.js';
 import { tempSessionState, type TestSessionState } from './helpers/test-session-state.js';
 
 const SECRET = 'relay-client-test-secret';
@@ -228,6 +228,7 @@ test('gateway relay client creates PTY sessions from forwarded relay frames', as
   const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   const port = await waitForWebSocketServerPort(fakeRelay);
   const gatewaySocketPromise = waitForGatewaySocket(fakeRelay);
+  let newPtyParams: unknown;
   const relayClient = startRelayClient({
     url: `ws://127.0.0.1:${port}`,
     secret: SECRET,
@@ -235,7 +236,10 @@ test('gateway relay client creates PTY sessions from forwarded relay frames', as
     token: 'gateway-token',
     scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_create_runtime' },
     ptySessions: store.ptySessions,
-    onNewPtySession: async () => ({ sessionId: 'tth_created_from_relay' })
+    onNewPtySession: async (params) => {
+      newPtyParams = params;
+      return { sessionId: 'tth_created_from_relay' };
+    }
   });
 
   try {
@@ -257,6 +261,9 @@ test('gateway relay client creates PTY sessions from forwarded relay frames', as
       (frame) => frame.type === 'gateway.session-created' && frame.sessionId === 'tth_created_from_relay'
     );
     assert.equal(created.type, 'gateway.session-created');
+    assert.equal(Boolean(newPtyParams && typeof newPtyParams === 'object'), true);
+    const params = newPtyParams as Record<string, unknown>;
+    assert.equal('command' in params, false);
   } finally {
     await relayClient.close();
     await closeWebSocketServer(fakeRelay);
@@ -1092,6 +1099,7 @@ test('Phase15-A8: relay-client rejects new chat with non-whitelisted provider', 
 // ─── Phase 17: Chat Multi-client Realtime Sync ──────────────────────────────
 
 type CodexRun = typeof CodexChatRunner.prototype.run;
+type CodexRespondToPermission = typeof CodexChatRunner.prototype.respondToPermission;
 
 function phase17TrustedSession(sessionId: string) {
   return {
@@ -1148,6 +1156,14 @@ function patchCodexRun(run: CodexRun): () => void {
   CodexChatRunner.prototype.run = run;
   return () => {
     CodexChatRunner.prototype.run = original;
+  };
+}
+
+function patchCodexRespondToPermission(respondToPermission: CodexRespondToPermission): () => void {
+  const original = CodexChatRunner.prototype.respondToPermission;
+  CodexChatRunner.prototype.respondToPermission = respondToPermission;
+  return () => {
+    CodexChatRunner.prototype.respondToPermission = original;
   };
 }
 
@@ -1263,6 +1279,81 @@ test('Phase17-GW-T5: missing session metadata does not leak chat lock', async ()
     assert.equal(runCount, 1);
   } finally {
     restore();
+    await harness.close();
+  }
+});
+
+test('Phase17-GW-T6: subscribed client can send permission_response', async () => {
+  let runCount = 0;
+  let responseCount = 0;
+  const restoreRun = patchCodexRun(function () {
+    runCount += 1;
+    return new Promise<void>(() => {});
+  } as CodexRun);
+  const restoreRespond = patchCodexRespondToPermission(function (sessionId, requestId, decision) {
+    responseCount += 1;
+    assert.equal(sessionId, 'tth_phase17_permission_ok');
+    assert.equal(requestId, 'req-ok');
+    assert.equal(decision, 'allow');
+  } as CodexRespondToPermission);
+  const harness = await startPhase17RelayClient();
+  try {
+    sendPhase17Chat(harness.gatewaySocket, 'client-1', 'tth_phase17_permission_ok', 'first');
+    await waitFor(() => runCount === 1);
+    harness.gatewaySocket.send(JSON.stringify({
+      type: 'client.subscribe',
+      clientId: 'client-1',
+      sessionId: 'tth_phase17_permission_ok',
+      after: 0,
+      mode: 'control'
+    }));
+    harness.gatewaySocket.send(JSON.stringify({
+      type: 'client.permission_response',
+      clientId: 'client-1',
+      sessionId: 'tth_phase17_permission_ok',
+      requestId: 'req-ok',
+      decision: 'allow'
+    }));
+    await waitFor(() => responseCount === 1);
+    assert.equal(responseCount, 1);
+  } finally {
+    restoreRespond();
+    restoreRun();
+    await harness.close();
+  }
+});
+
+test('Phase17-GW-T7: unsubscribed client cannot send permission_response', async () => {
+  let runCount = 0;
+  let responseCount = 0;
+  const restoreRun = patchCodexRun(function () {
+    runCount += 1;
+    return new Promise<void>(() => {});
+  } as CodexRun);
+  const restoreRespond = patchCodexRespondToPermission(function () {
+    responseCount += 1;
+  } as CodexRespondToPermission);
+  const harness = await startPhase17RelayClient();
+  try {
+    sendPhase17Chat(harness.gatewaySocket, 'client-1', 'tth_phase17_permission_blocked', 'first');
+    await waitFor(() => runCount === 1);
+    harness.gatewaySocket.send(JSON.stringify({
+      type: 'client.permission_response',
+      clientId: 'client-2',
+      sessionId: 'tth_phase17_permission_blocked',
+      requestId: 'req-blocked',
+      decision: 'allow'
+    }));
+    const error = await waitForGatewayFrame(
+      harness.gatewaySocket,
+      (frame) => frame.type === 'gateway.error' && frame.code === 'not_subscribed'
+    );
+    assert.equal(error.type, 'gateway.error');
+    assert.equal(error.clientId, 'client-2');
+    assert.equal(responseCount, 0);
+  } finally {
+    restoreRespond();
+    restoreRun();
     await harness.close();
   }
 });

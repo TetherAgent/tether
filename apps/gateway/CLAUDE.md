@@ -27,12 +27,20 @@ docs/working/2026-05-12-gateway-runtime-split.md
 ```text
 daemon.ts                  本地 Hono HTTP 壳、status、web dist、Relay client 启动、
                            Gateway auth heartbeat、onNewPtySession 注入
-relay-client.ts            当前仍承载 Relay transport + frame 分发 + 部分 Chat/PTY 逻辑；
-                           后续目标是只保留 transport
-pty.ts                     PtySessionManager，内存 session registry + legacy/local PTY path
-session-runner*.ts         detached per-session runner，持有真实 PTY 和 provider child
-chat-session-runner.ts     Chat CLI runner，处理 claude/codex/copilot chat 模式
-agent-select-detect.ts     Claude PTY 输出中的 select prompt 检测
+relay-client.ts            Relay WS transport：连接、认证、心跳、重连、send/parse frame
+relay/frame-router.ts      按 frame.type 分发到 handler
+relay/*-handler.ts         Chat / PTY 业务 frame 处理
+relay/session-catalog.ts   chat + PTY session 合并、restore、lost、list
+relay/subscription-manager.ts
+                           订阅状态、chat catchup、PTY replay/live subscribe
+pty/manager.ts             PtySessionManager，内存 session registry + legacy/local PTY path
+pty/session-runner*.ts     detached per-session runner，持有真实 PTY 和 provider child
+pty/agent-select-detector.ts
+                           Claude PTY 输出中的 select prompt 检测
+chat/chat-session-runner.ts
+                           Chat CLI runner，处理 claude/codex/copilot chat 模式
+chat/provider-registry.ts  provider 列表、model discovery、cwd suggestion
+utils/                    Gateway 共享工具：events、ids、mask、provider-env
 events.ts                  Gateway session event 构造
 types.ts                   Gateway runtime 类型
 ```
@@ -49,7 +57,7 @@ src/pty/                   PTY manager、runner、runner client、spawn、agent.
 src/chat/                  Chat runner、chat session registry、provider registry、provider adapters
 ```
 
-不要把目标目录当作一次性大迁移要求。拆分必须小步进行，每一步保持行为不变并跑验证。
+目录已经按 `docs/working/2026-05-12-gateway-runtime-split.md` 的目标结构落地。后续改动继续保持行为不变并跑验证。
 
 ## Relay 边界
 

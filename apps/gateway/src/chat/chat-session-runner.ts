@@ -3,9 +3,9 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createSessionId } from './ids.js';
-import { providerEffectiveEnv } from './provider-env.js';
-import type { ChatEvent, ChatEventType } from './types.js';
+import { createSessionId } from '../utils/ids.js';
+import { providerEffectiveEnv } from '../utils/provider-env.js';
+import type { ChatEvent, ChatEventType } from '../types.js';
 import type { TrustedChatSessionMetadata } from '@tether/protocol';
 
 // ─── Public types ────────────────────────────────────────────────────────────

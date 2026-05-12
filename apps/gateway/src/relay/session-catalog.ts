@@ -1,7 +1,7 @@
 import type { RelaySession } from '@tether/protocol';
-import { createSessionEvent } from '../events.js';
-import type { PtySessionManager } from '../pty.js';
-import type { SessionRunnerClient } from '../session-runner-client.js';
+import { createSessionEvent } from '../utils/events.js';
+import type { PtySessionManager } from '../pty/manager.js';
+import type { SessionRunnerClient } from '../pty/session-runner-client.js';
 import type { Session, SessionEvent } from '../types.js';
 import type { ChatSessionRegistry } from '../chat/chat-session-registry.js';
 

@@ -1,9 +1,9 @@
-export { createSessionId } from './ids.js';
+export { createSessionId } from './utils/ids.js';
 export { localLanAddress, startDaemon } from './daemon.js';
-export { PtySessionManager } from './pty.js';
-export { SessionRunner, defaultRunnerSocketDir, isSafeSessionId, runnerSocketPath } from './session-runner.js';
-export { SessionRunnerClient } from './session-runner-client.js';
-export { spawnSessionRunnerProcess } from './session-runner-spawn.js';
+export { PtySessionManager } from './pty/manager.js';
+export { SessionRunner, defaultRunnerSocketDir, isSafeSessionId, runnerSocketPath } from './pty/session-runner.js';
+export { SessionRunnerClient } from './pty/session-runner-client.js';
+export { spawnSessionRunnerProcess } from './pty/session-runner-spawn.js';
 export { startRelayClient } from './relay-client.js';
 export type { RelayClientOptions, RelayConnectionStatus, RunningRelayClient } from './relay-client.js';
 export { listGateways } from './registry.js';
@@ -16,7 +16,7 @@ export type {
   RunnerFrame,
   RunnerRequest,
   RunnerResponse
-} from './session-runner.js';
+} from './pty/session-runner.js';
 export {
   assertTmuxAvailable,
   attachSession,

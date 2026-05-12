@@ -5,8 +5,8 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { startDaemon } from '../src/daemon.js';
-import { createSessionId } from '../src/ids.js';
-import { PtySessionManager } from '../src/pty.js';
+import { createSessionId } from '../src/utils/ids.js';
+import { PtySessionManager } from '../src/pty/manager.js';
 import { tempSessionState, type TestSessionState } from './helpers/test-session-state.js';
 
 const TOKEN_GATEWAY = 'gateway-test-token';
@@ -205,5 +205,3 @@ test('daemon marks running pty sessions lost when no live handle exists', async 
     cleanup();
   }
 });
-
-

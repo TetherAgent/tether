@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ChatSessionRunner, CodexChatRunner } from '../src/chat-session-runner.js';
+import { ChatSessionRunner, CodexChatRunner } from '../src/chat/chat-session-runner.js';
 import { tempSessionState, type TestSessionState } from './helpers/test-session-state.js';
 
 function tempStore(): { store: TestSessionState; cleanup: () => void } {

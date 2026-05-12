@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createSessionEvent } from '../../src/events.js';
-import { PtySessionManager } from '../../src/pty.js';
+import { createSessionEvent } from '../../src/utils/events.js';
+import { PtySessionManager } from '../../src/pty/manager.js';
 import type { Session, SessionEvent, SessionEventType, SessionStatus } from '../../src/types.js';
 
 export type TestSessionState = {

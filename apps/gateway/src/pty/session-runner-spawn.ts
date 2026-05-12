@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { NODE_RUNTIME_FLAGS } from './node-flags.js';
 import { runnerSocketPath, type CreateSessionRunnerOptions } from './session-runner.js';
 import { SessionRunnerClient } from './session-runner-client.js';
-import type { Session } from './types.js';
+import type { Session } from '../types.js';
 
 export type SpawnSessionRunnerOptions = {
   options: CreateSessionRunnerOptions;
@@ -49,10 +49,11 @@ function runnerExecArgv(): string[] {
 
 function resolveRunnerEntry(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
-  // dev: here = apps/gateway/src/, entry = ./session-runner-process.ts
-  // prod (tsup bundle): here = dist/cli/, entry = ../gateway/session-runner-process.js
+  // dev: here = apps/gateway/src/pty/, entry = ./session-runner-process.ts
+  // prod (tsup bundle): here = dist/cli/pty/, entry = ./session-runner-process.js
   const candidates = [
     path.join(here, 'session-runner-process.ts'),
+    path.join(here, 'session-runner-process.js'),
     path.join(here, '..', 'gateway', 'session-runner-process.js')
   ];
   for (const candidate of candidates) {

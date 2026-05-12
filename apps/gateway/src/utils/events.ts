@@ -1,4 +1,4 @@
-import type { SessionEvent, SessionEventType } from './types.js';
+import type { SessionEvent, SessionEventType } from '../types.js';
 
 let sessionEventSequence = 0;
 
