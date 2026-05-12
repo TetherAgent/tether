@@ -42,7 +42,7 @@ pnpm tether gateway config --host 127.0.0.1 --port 4789 \
   --relay-secret dev-secret \
   --allow-api-session-create
 pnpm tether gateway start
-pnpm tether codex
+pnpm tether run codex
 
 # 终端 3：Web
 pnpm dev:web
@@ -140,13 +140,13 @@ pnpm tether gateway
 Gateway 账号绑定单独由 `gateway login` 完成。默认登录生产远程 Server：
 
 ```bash
-pnpm tether gateway login
+pnpm tether login
 ```
 
 本地开发才显式切到本地 Server：
 
 ```bash
-pnpm tether gateway login --env local
+pnpm tether login --env local
 ```
 
 登录 Server 解析优先级是 `--server-url`、`TETHER_SERVER_URL`、`--env local/prod`、
@@ -456,7 +456,7 @@ pnpm tether gateway status
 以后每天开 agent：
 
 ```bash
-pnpm tether codex
+pnpm tether run codex
 ```
 
 或者：
@@ -469,16 +469,16 @@ pnpm tether run opencode
 如果只是调试旧模式：
 
 ```bash
-pnpm tether codex --inline
+pnpm tether run codex --inline
 ```
 
 本机启动后的判断顺序：
 
 ```bash
-pnpm tether gateway doctor
+pnpm tether debug
 pnpm tether gateway status
 pnpm tether gateway providers
-pnpm tether codex --no-attach
+pnpm tether run codex --no-attach
 pnpm tether ls
 ```
 
@@ -531,9 +531,9 @@ Mac 上：
 ```bash
 pnpm tether gateway status
 pnpm tether gateway providers
-pnpm tether gateway logs
-pnpm tether gateway logs --stderr
-pnpm tether gateway doctor
+pnpm tether debug
+pnpm tether debug
+pnpm tether debug
 pnpm tether gateway verify --provider codex
 pnpm tether ls
 pnpm tether stop <session-id>
@@ -608,7 +608,7 @@ WebSocket 支持，或者先让 DNS 直连源站验证。
 pnpm tether gateway
 
 # 终端 2：创建远程可见 session，但不占住当前终端
-pnpm tether codex --no-attach
+pnpm tether run codex --no-attach
 ```
 
 然后打开：
@@ -630,7 +630,7 @@ pnpm tether gateway config \
 pnpm tether gateway install
 pnpm tether gateway start
 pnpm tether gateway status
-pnpm tether codex --no-attach
+pnpm tether run codex --no-attach
 ```
 
 如果你希望后台 Gateway 不依赖 PATH 查找 `codex`，先写 provider 绝对路径：
@@ -659,7 +659,7 @@ pnpm tether gateway restart
 - `curl http://127.0.0.1:4889/healthz` 返回 `ok` 只能说明 Relay 进程活着；公网还要单独
   验证 `https://域名/gateway` 和 `https://域名/client` 是否能返回
   `101 Switching Protocols`。
-- `pnpm tether codex --no-attach` 返回 shell 是正常的；session 仍在 Gateway 后台跑。
+- `pnpm tether run codex --no-attach` 返回 shell 是正常的；session 仍在 Gateway 后台跑。
 - Web 页面上可以点单个 session 的“停止”，也可以点顶部“全部停止”；Relay 模式下会通过
   `/client` WebSocket 发停止请求到本机 Gateway。
 - 终端里打印的 `http://127.0.0.1:4789/remote/session/...` 是本机 URL，不是公网 URL。
@@ -672,7 +672,7 @@ pnpm tether gateway restart
 - 阿里云代理层返回头里如果有 `Via: ens-cache...`、`Server: Tengine`、
   `x-alicdn-da-ups-status`，说明请求经过了 CDN/全球加速。WebSocket 入口要确认代理层
   也开启并转发了 `/gateway` 和 `/client`。
-- `pnpm tether gateway doctor` 里没配置、也没安装的可选 provider 会显示 `WARN`。例如你
+- `pnpm tether debug` 里没配置、也没安装的可选 provider 会显示 `WARN`。例如你
   只用 `codex`，没有安装 `opencode`，这不是阻塞问题；如果你显式配置过某个 provider
   命令但找不到，才会显示 `FAIL`。
 - `pnpm tether ls | head` 这种管道命令提前关闭输出时，CLI 会安静退出，不应该再打印
@@ -697,7 +697,7 @@ pnpm tether gateway restart
 4. 云服务器：nginx serve apps/web/dist，并代理 /gateway /client 到 127.0.0.1:4889
 5. Mac：pnpm tether gateway config --relay-url wss://你的域名 --relay-secret <secret> --allow-api-session-create
 6. Mac：pnpm tether gateway start
-7. Mac：pnpm tether codex
+7. Mac：pnpm tether run codex
 8. 浏览器：https://你的域名，Relay URL 填 wss://你的域名，Secret 填同一个 secret
 ```
 
@@ -709,9 +709,9 @@ pnpm tether gateway restart
 1. 云服务器：curl http://127.0.0.1:4889/healthz 是否 ok
 2. 云服务器：pm2 status / pm2 logs tether-relay 是否正常
 3. 公网：/gateway 和 /client WebSocket upgrade 是否返回 101
-4. Mac：pnpm tether gateway doctor 是否只有 OK/WARN，没有 FAIL
+4. Mac：pnpm tether debug 是否只有 OK/WARN，没有 FAIL
 5. Mac：pnpm tether gateway status 是否 Relay connected
-6. Mac：pnpm tether codex --no-attach 是否创建 session
+6. Mac：pnpm tether run codex --no-attach 是否创建 session
 7. Mac：pnpm tether ls 是否能看到 running session
 8. Web：Connection 选 Relay，Relay URL 填 wss://域名，Secret 和服务器一致
 ```

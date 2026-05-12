@@ -88,7 +88,6 @@ type GatewayStatus = {
   url?: unknown;
   host?: unknown;
   port?: unknown;
-  allowApiSessionCreate?: unknown;
   relay?: {
     configured?: unknown;
     state?: unknown;
@@ -154,45 +153,7 @@ class NonTetherGatewayError extends Error {
   }
 }
 
-function addProviderCommand(provider: ProviderDefinition): void {
-  program
-    .command(provider.name)
-    .description(`启动由 Tether 托管的 ${provider.name} 会话`)
-    .option('--project <path>', '项目目录', process.cwd())
-    .option('--title <title>', '前端展示的 session 标题')
-    .option('--no-attach', '只启动 session，不接入当前终端')
-    .option('--no-reconnect', '本地 attach 断开后不自动重连')
-    .argument('[providerArgs...]')
-    .allowUnknownOption(true)
-    .action((providerArgs: string[], options: StartOptions) => {
-      return startProviderSession(provider, { ...options, providerArgs });
-    });
-}
-
-for (const provider of Object.values(PROVIDERS)) {
-  addProviderCommand(provider);
-}
-
-const gatewayCommand = program
-  .command('gateway')
-  .description('管理 Tether Gateway')
-  .helpOption('-h, --help', '显示帮助')
-  .addHelpCommand('help [command]', '显示指定 Gateway 命令的帮助')
-  .action(async () => {
-    const launchdProfile = gatewayProfileFromEnv();
-    if (launchdProfile) {
-      await startGatewayForeground(launchdProfile);
-      return;
-    }
-    const answer = await promptLine('运行模式：1. 前台  2. 后台（launchd）[默认 1]: ');
-    if (answer === '2' || answer === 'background' || answer === '后台') {
-      await startGatewayBackground();
-    } else {
-      await startGatewayForeground('relay');
-    }
-  });
-
-gatewayCommand
+program
   .command('login')
   .description('在浏览器中授权，将本机 Gateway 绑定到远程 Server，并写入 auth.json')
   .option('--server-url <url>', 'Server 基础地址；默认读取 TETHER_SERVER_URL')
@@ -201,11 +162,27 @@ gatewayCommand
     await performGatewayLogin({ ...options, env: parseGatewayLoginEnvOption(options.env) });
   });
 
-gatewayCommand
+program
   .command('logout')
   .description('删除本机 Gateway 登录凭据，不解绑服务端 Gateway')
   .action(async () => {
     await logoutGateway();
+  });
+
+program
+  .command('start')
+  .description('通过 launchd 在后台启动 Gateway（无配置时自动初始化）')
+  .action(async () => {
+    await startGatewayBackground();
+  });
+
+const gatewayCommand = program
+  .command('gateway')
+  .description('管理 Tether Gateway')
+  .helpOption('-h, --help', '显示帮助')
+  .addHelpCommand('help [command]', '显示指定 Gateway 命令的帮助')
+  .action(async () => {
+    await runGatewayMenu();
   });
 
 gatewayCommand
@@ -239,21 +216,11 @@ gatewayCommand
     await printGatewayStatus();
   });
 
-gatewayCommand
-  .command('logs')
-  .description('查看 Gateway launchd 日志')
-  .option('-f, --follow', '持续跟随日志输出')
-  .option('--stderr', '只显示 stderr 日志')
-  .option('--stdout', '只显示 stdout 日志')
-  .action(async (options: { follow?: boolean; stderr?: boolean; stdout?: boolean }) => {
-    await showGatewayLogs(options);
-  });
-
 program
-  .command('doctor')
-  .description('全面诊断 Tether 运行环境（Node、node-pty、launchd、Gateway、provider）')
+  .command('debug')
+  .description('打开 Debug 交互菜单')
   .action(async () => {
-    await runGatewayDoctor();
+    await runDebugMenu();
   });
 
 program
@@ -274,7 +241,7 @@ program
 async function startProviderSession(provider: ProviderDefinition, options: StartOptions): Promise<void> {
   const gatewayUrl = await findPersistentGateway();
   if (!gatewayUrl) {
-    throw new Error('未检测到常驻 Gateway。\n请先运行：tether gateway start');
+    throw new Error('未检测到常驻 Gateway。\n请先运行：tether start');
   }
   const relay = resolveRelayConfig({ file: readTetherConfig() });
   if (!relay) {
@@ -284,7 +251,7 @@ async function startProviderSession(provider: ProviderDefinition, options: Start
   const payload = decodeTokenPayload(auth.accessToken);
   const gatewayId = typeof payload?.gatewayId === 'string' ? payload.gatewayId : undefined;
   if (!gatewayId) {
-    throw new Error('gateway access token 缺少 gatewayId，请重新执行 tether gateway login。');
+    throw new Error('gateway access token 缺少 gatewayId，请重新执行 tether login。');
   }
   const session = await createSessionViaRelay(provider, options, relay.url, auth.accessToken, gatewayId);
   const remoteUrl = `${gatewayUrl}/remote/session/${session.id}`;
@@ -479,58 +446,6 @@ program
   });
 
 program
-  .command('clients')
-  .argument('<id>')
-  .option('--host <host>', 'Gateway 地址', '127.0.0.1')
-  .option('--port <port>', 'Gateway 端口', parsePort, 4789)
-  .description('列出接入某个 PTY event-stream session 的客户端')
-  .action(async (id: string, options: { host: string; port: number }) => {
-    const response = await fetch(`http://${options.host}:${options.port}/api/sessions/${encodeURIComponent(id)}/clients`);
-    if (!response.ok) {
-      throw new Error(`clients failed: HTTP ${response.status}`);
-    }
-    const data = (await response.json()) as {
-      controllerClientId: string | null;
-      clients: Array<{ clientId: string; surface: string; mode: string; deviceName: string; lastSeenAt: number }>;
-    };
-    console.log(`controller\t${data.controllerClientId ?? '-'}`);
-    for (const client of data.clients) {
-      console.log(`${client.clientId}\t${client.mode}\t${client.surface}\t${client.deviceName}\t${new Date(client.lastSeenAt).toLocaleTimeString()}`);
-    }
-  });
-
-program
-  .command('url')
-  .argument('<id>')
-  .option('--host <host>', 'URL 中展示的 host；默认使用局域网地址')
-  .option('--port <port>', 'Gateway 端口', parsePort, 4789)
-  .description('打印某个 session 的远程访问 URL')
-  .action((id: string, options: { host?: string; port: number }) => {
-    const host = options.host ?? localLanAddress() ?? '127.0.0.1';
-    console.log(`http://${host}:${options.port}/remote/session/${id}`);
-  });
-
-program
-  .command('send')
-  .argument('<id>')
-  .argument('<text>')
-  .description('向已有 session 发送文本')
-  .action(async (id: string, text: string) => {
-    const gatewayUrl = await findPersistentGateway();
-    if (!gatewayUrl) {
-      throw new Error('未检测到常驻 Gateway。\n请先运行：tether gateway start');
-    }
-    const response = await fetch(`${gatewayUrl}/api/sessions/${encodeURIComponent(id)}/input`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...(await gatewayAuthHeaders()) },
-      body: JSON.stringify({ data: `${text}\r` })
-    });
-    if (!response.ok) {
-      throw new Error(`send failed: HTTP ${response.status}`);
-    }
-  });
-
-program
   .command('stop')
   .argument('[id]')
   .option('--all', '停止所有运行中的 session')
@@ -560,6 +475,115 @@ program.parseAsync().catch((error: unknown) => {
   console.error(formatTmuxError(error));
   process.exitCode = 1;
 });
+
+async function runGatewayMenu(): Promise<void> {
+  console.log('Gateway 管理');
+  console.log('1. 后台启动 Gateway');
+  console.log('2. 查看 Gateway 状态');
+  console.log('3. 重启 Gateway');
+  console.log('4. 停止 Gateway');
+  const answer = await promptLine('请选择 1/2/3/4: ');
+  switch (answer) {
+    case '1':
+    case 'start':
+      await startGatewayBackground();
+      return;
+    case '2':
+    case 'status':
+      await printGatewayStatus();
+      return;
+    case '3':
+    case 'restart':
+      await stopGatewayBackground();
+      await startGatewayBackground();
+      terminal.success('Gateway 已重启。');
+      return;
+    case '4':
+    case 'stop':
+      await stopGatewayBackground();
+      terminal.success('Gateway 已停止。');
+      return;
+    default:
+      throw new Error(`未知 Gateway 管理选项：${answer || '-'}`);
+  }
+}
+
+async function runDebugMenu(): Promise<void> {
+  console.log('Debug 工具');
+  console.log('1. 全面诊断环境');
+  console.log('2. 查看 Gateway 日志');
+  console.log('3. 查看 session 客户端');
+  console.log('4. 打印 session URL');
+  console.log('5. 向 session 发文本');
+  const answer = await promptLine('请选择 1/2/3/4/5: ');
+  switch (answer) {
+    case '1':
+    case 'doctor':
+      await runGatewayDoctor();
+      return;
+    case '2':
+    case 'logs': {
+      const follow = await promptLine('是否持续跟随日志？y/N: ');
+      await showGatewayLogs({ follow: follow === 'y' || follow === 'Y' || follow === 'yes' });
+      return;
+    }
+    case '3':
+    case 'clients': {
+      const id = await promptRequiredLine('session id: ');
+      await debugPrintSessionClients(id);
+      return;
+    }
+    case '4':
+    case 'url': {
+      const id = await promptRequiredLine('session id: ');
+      debugPrintSessionUrl(id);
+      return;
+    }
+    case '5':
+    case 'send': {
+      const id = await promptRequiredLine('session id: ');
+      const text = await promptRequiredLine('text: ');
+      await debugSendSessionInput(id, text);
+      return;
+    }
+    default:
+      throw new Error(`未知 Debug 选项：${answer || '-'}`);
+  }
+}
+
+async function debugPrintSessionClients(id: string, host = '127.0.0.1', port = 4789): Promise<void> {
+  const response = await fetch(`http://${host}:${port}/api/sessions/${encodeURIComponent(id)}/clients`);
+  if (!response.ok) {
+    throw new Error(`clients failed: HTTP ${response.status}`);
+  }
+  const data = (await response.json()) as {
+    controllerClientId: string | null;
+    clients: Array<{ clientId: string; surface: string; mode: string; deviceName: string; lastSeenAt: number }>;
+  };
+  console.log(`controller\t${data.controllerClientId ?? '-'}`);
+  for (const client of data.clients) {
+    console.log(`${client.clientId}\t${client.mode}\t${client.surface}\t${client.deviceName}\t${new Date(client.lastSeenAt).toLocaleTimeString()}`);
+  }
+}
+
+function debugPrintSessionUrl(id: string, host = localLanAddress() ?? '127.0.0.1', port = 4789): void {
+  console.log(`http://${host}:${port}/remote/session/${id}`);
+}
+
+async function debugSendSessionInput(id: string, text: string): Promise<void> {
+  const gatewayUrl = await findPersistentGateway();
+  if (!gatewayUrl) {
+    throw new Error('未检测到常驻 Gateway。\n请先运行：tether start');
+  }
+  const response = await fetch(`${gatewayUrl}/api/sessions/${encodeURIComponent(id)}/input`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(await gatewayAuthHeaders()) },
+    body: JSON.stringify({ data: `${text}\r` })
+  });
+  if (!response.ok) {
+    throw new Error(`send failed: HTTP ${response.status}`);
+  }
+}
 
 async function stopGatewayUrl(options: { host: string; port: number }): Promise<string> {
   return await findPersistentGateway().catch(() => undefined) ?? `http://${options.host}:${options.port}`;
@@ -663,7 +687,6 @@ async function startGatewayForeground(profile?: GatewayProfileName): Promise<voi
     host: resolved.gateway.host,
     port: resolved.gateway.port,
     ptySessions,
-    allowApiSessionCreate: resolved.gateway.allowApiSessionCreate,
     relay: relayConfig(file, resolved.profile),
     config: file
   });
@@ -737,8 +760,8 @@ async function ensureGatewayAuthForProfile(profile: GatewayProfileName): Promise
   }
   throw new Error(
     `${profile === 'relay' ? 'Relay' : 'Direct'} 模式需要先绑定 Gateway 账号。\n` +
-    '请先执行：tether gateway login\n' +
-    '登录成功后再执行：tether gateway start'
+    '请先执行：tether login\n' +
+    '登录成功后再执行：tether start'
   );
 }
 
@@ -853,7 +876,7 @@ async function waitForStartedGateway(profile: GatewayProfileName): Promise<Gatew
     : `无法连接 Gateway HTTP：${url}`;
   throw new Error(
     `${reason}。\n` +
-    '请查看日志：pnpm tether gateway logs --stderr\n' +
+    '请查看日志：pnpm tether debug\n' +
     '当前未确认启动成功，未打印“Gateway 已在后台启动”。'
   );
 }
@@ -970,7 +993,6 @@ async function runGatewayDoctor(): Promise<void> {
   pushCheck('LaunchAgent 已安装', launchd.installed, launchd.path);
   pushCheck('LaunchAgent 已加载', launchd.loaded, launchd.error ?? `PID ${launchd.pid ?? '-'}`);
   pushCheck('Gateway API 可连接', Boolean(api), gatewayUrl);
-  pushCheck('API session creation', gateway.allowApiSessionCreate, gateway.allowApiSessionCreate ? '已开启' : '未开启');
   pushCheck('Relay 配置', Boolean(relay), relay ? relay.url : '未配置');
   pushCheck('Relay 连接', stringValue(api?.relay?.state) === 'connected', formatRelayConnectionState(stringValue(api?.relay?.state)));
   for (const provider of Object.values(PROVIDERS)) {
@@ -1018,7 +1040,7 @@ function checkGatewayRuntimeInfo(): Array<{ name: string; status: 'ok' | 'warn' 
     return [{
       name: 'gateway-runtime.json',
       status: 'warn',
-      detail: `未找到 ${gatewayRuntimeJsonPath()}（运行 tether gateway install 后会写入）`
+      detail: `未找到 ${gatewayRuntimeJsonPath()}（运行 tether start 后会写入）`
     }];
   }
   return [
@@ -1049,7 +1071,7 @@ async function verifyGatewaySession(providerName: string): Promise<void> {
   const payload = decodeTokenPayload(auth.accessToken);
   const gatewayId = typeof payload?.gatewayId === 'string' ? payload.gatewayId : undefined;
   if (!gatewayId) {
-    throw new Error('gateway access token 缺少 gatewayId，请重新执行 tether gateway login。');
+    throw new Error('gateway access token 缺少 gatewayId，请重新执行 tether login。');
   }
   const session = await createSessionViaRelay(PROVIDERS[providerName], { project: process.cwd() }, relay.url, auth.accessToken, gatewayId);
   if (!session) {
@@ -1449,7 +1471,7 @@ async function requestWsTicket(
     body: JSON.stringify({ sessionId, mode })
   });
   if (!response.ok) {
-    throw new Error(`ticket failed: HTTP ${response.status}。如凭据已过期，请重新执行 tether gateway login。`);
+    throw new Error(`ticket failed: HTTP ${response.status}。如凭据已过期，请重新执行 tether login。`);
   }
   const body = (await response.json()) as { ticket?: unknown };
   if (typeof body.ticket !== 'string') {
@@ -1510,7 +1532,7 @@ async function performGatewayLogin(options: {
 }): Promise<void> {
   const serverUrl = resolveGatewayLoginServerUrl(options);
   if (!serverUrl) {
-    throw new Error('缺少 Server URL。请先执行 tether gateway init，或传 --server-url');
+    throw new Error('缺少 Server URL。请传 --server-url，或设置 TETHER_SERVER_URL');
   }
   const port = await findAvailablePort();
   const hostname = os.hostname();
@@ -1533,7 +1555,7 @@ async function performGatewayLogin(options: {
   terminal.success(`Gateway 登录成功，凭据已写入：${gatewayAuthPath()}`);
   terminal.line('已绑定 Gateway ID', result.gatewayId);
   terminal.line('Account ID', result.accountId);
-  terminal.line('下一步', 'tether gateway start');
+  terminal.line('下一步', 'tether start');
   terminal.line('查看状态', 'tether gateway status');
 }
 
@@ -1602,7 +1624,7 @@ async function waitForGatewayAuthCallback(port: number, timeoutMs: number): Prom
       if (!gatewayId || !accountId || !gatewayAccessToken || !gatewayRefreshToken) {
         const errorHtml = `<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8"><title>授权失败 · Tether</title>
 <style>*{box-sizing:border-box;margin:0;padding:0}body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse 80% 60% at 50% -10%,#2a0d0d 0%,#0a0a0a 70%);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e5e5e5}.card{background:rgba(18,18,18,.92);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:40px 36px;width:100%;max-width:380px;text-align:center}h1{font-size:20px;font-weight:600;color:#f5f5f5;margin-bottom:8px}p{font-size:14px;color:#a3a3a3;line-height:1.6}</style>
-</head><body><div class="card"><h1>授权失败</h1><p>回调参数缺失，请重新运行 tether gateway login。</p></div></body></html>`;
+</head><body><div class="card"><h1>授权失败</h1><p>回调参数缺失，请重新运行 tether login。</p></div></body></html>`;
         res.writeHead(400, { 'content-type': 'text/html; charset=utf-8', connection: 'close' })
           .end(errorHtml, () => {
             req.socket.destroy();
@@ -1693,7 +1715,7 @@ async function readFreshGatewayAuthState(): Promise<GatewayAuthState> {
     return refreshed;
   }
   if (auth.expiresAt <= Date.now()) {
-    throw new Error('本地 auth.json 已过期，且 refresh 失败。请重新执行 tether gateway login。');
+    throw new Error('本地 auth.json 已过期，且 refresh 失败。请重新执行 tether login。');
   }
   return auth;
 }
@@ -1701,7 +1723,7 @@ async function readFreshGatewayAuthState(): Promise<GatewayAuthState> {
 async function readGatewayAuthState(): Promise<GatewayAuthState> {
   const raw = await readFile(gatewayAuthPath(), 'utf8').catch(() => undefined);
   if (!raw) {
-    throw new Error('缺少 ~/.tether/auth.json，请先执行 tether gateway login。');
+    throw new Error('缺少 ~/.tether/auth.json，请先执行 tether login。');
   }
   const parsed = JSON.parse(raw) as Partial<GatewayAuthState>;
   if (
@@ -1710,7 +1732,7 @@ async function readGatewayAuthState(): Promise<GatewayAuthState> {
     typeof parsed.refreshToken !== 'string' ||
     typeof parsed.expiresAt !== 'number'
   ) {
-    throw new Error('auth.json 格式无效，请重新执行 tether gateway login。');
+    throw new Error('auth.json 格式无效，请重新执行 tether login。');
   }
   return parsed as GatewayAuthState;
 }
@@ -1831,6 +1853,14 @@ async function promptLine(prompt: string): Promise<string> {
   } finally {
     rl.close();
   }
+}
+
+async function promptRequiredLine(prompt: string): Promise<string> {
+  const answer = await promptLine(prompt);
+  if (!answer) {
+    throw new Error(`${prompt.replace(/:\s*$/, '')} 不能为空`);
+  }
+  return answer;
 }
 
 function parseGatewayLoginEnvOption(env: string | undefined): GatewayLoginEnv | undefined {

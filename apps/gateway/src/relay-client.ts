@@ -209,7 +209,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       void (async () => {
         const auth = await resolveRelayAuth(options);
         if (!auth) {
-          console.error('Relay auth failed: missing ~/.tether/auth.json or invalid gateway token. Run: tether gateway login');
+          console.error('Relay auth failed: missing ~/.tether/auth.json or invalid gateway token. Run: tether login');
           setConnectionState('auth_failed');
           socket?.close();
           return;
@@ -1293,7 +1293,7 @@ async function resolveRelayAuth(
     ? payload.accountId
     : typeof parsed.accountId === 'string' ? parsed.accountId : undefined;
   if (!gatewayId || !accountId) {
-    console.error('auth.json accessToken 缺少 gatewayId/accountId，请重新运行 tether gateway login');
+    console.error('auth.json accessToken 缺少 gatewayId/accountId，请重新运行 tether login');
     return undefined;
   }
   return {

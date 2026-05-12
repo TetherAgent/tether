@@ -104,25 +104,25 @@ pnpm tether gateway stop
 pnpm tether gateway restart
 pnpm tether gateway status
 pnpm tether gateway providers
-pnpm tether gateway logs
-pnpm tether gateway doctor
+pnpm tether debug
+pnpm tether debug
 pnpm tether gateway verify --provider codex
 pnpm tether gateway uninstall
-pnpm tether codex
+pnpm tether run codex
 pnpm tether run codex --no-attach
 pnpm tether attach <id> --control
 pnpm tether attach <id> --observe
-pnpm tether clients <id>
+pnpm tether debug
 pnpm tether stop <id>
 pnpm tether stop --all
-pnpm tether codex --project /path/to/project
-pnpm tether codex --no-attach
-pnpm tether codex -- --resume <codex-session-id>
+pnpm tether run codex --project /path/to/project
+pnpm tether run codex --no-attach
+pnpm tether run codex -- --resume <codex-session-id>
 ```
 
-`tether codex` / `tether claude` / `tether opencode` 只解析 Tether 自己的
+`tether run codex` / `tether run claude` / `tether run opencode` 只解析 Tether 自己的
 `--project` 和 `--no-attach`。其他 provider 原生命令参数放在 `--` 后透传，例如
-`tether codex -- --resume <codex-session-id>`。Gateway 仍只允许 provider 白名单，
+`tether run codex -- --resume <codex-session-id>`。Gateway 仍只允许 provider 白名单，
 不能接受任意 command/env/shell。
 
 ## 编辑器/AI 工具配套

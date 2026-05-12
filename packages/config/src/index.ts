@@ -18,7 +18,6 @@ export type GatewayProfileConfig = {
   gateway?: {
     host?: string;
     port?: number;
-    allowApiSessionCreate?: boolean;
   };
   relay?: {
     url?: string;
@@ -35,7 +34,6 @@ export type TetherConfig = {
   gateway?: {
     host?: string;
     port?: number;
-    allowApiSessionCreate?: boolean;
   };
   relay?: {
     url?: string;
@@ -50,7 +48,6 @@ export type GatewayConfigInput = {
   cli?: {
     host?: string;
     port?: number;
-    allowApiSessionCreate?: boolean;
   };
   env?: NodeJS.ProcessEnv;
   file?: TetherConfig;
@@ -61,13 +58,11 @@ export type GatewayConfigInput = {
 export type ResolvedGatewayConfig = {
   host: string;
   port: number;
-  allowApiSessionCreate: boolean;
 };
 
 export const DEFAULT_GATEWAY_CONFIG = {
   host: DEFAULT_GATEWAY_HOST,
-  port: DEFAULT_GATEWAY_PORT,
-  allowApiSessionCreate: false
+  port: DEFAULT_GATEWAY_PORT
 } satisfies ResolvedGatewayConfig;
 
 export type RelayConfigInput = {
@@ -130,13 +125,7 @@ export function resolveGatewayConfig(input: GatewayConfigInput = {}): ResolvedGa
   const profileConfig = profileDefaults(profile, file);
   return {
     host: input.cli?.host ?? env.TETHER_GATEWAY_HOST ?? profileConfig?.gateway?.host ?? file.gateway?.host ?? DEFAULT_GATEWAY_CONFIG.host,
-    port: input.cli?.port ?? parseOptionalPort(env.TETHER_GATEWAY_PORT, 'TETHER_GATEWAY_PORT') ?? profileConfig?.gateway?.port ?? file.gateway?.port ?? DEFAULT_GATEWAY_CONFIG.port,
-    allowApiSessionCreate:
-      input.cli?.allowApiSessionCreate ??
-      parseOptionalBoolean(env.TETHER_GATEWAY_ALLOW_API_SESSION_CREATE, 'TETHER_GATEWAY_ALLOW_API_SESSION_CREATE') ??
-      profileConfig?.gateway?.allowApiSessionCreate ??
-      file.gateway?.allowApiSessionCreate ??
-      DEFAULT_GATEWAY_CONFIG.allowApiSessionCreate
+    port: input.cli?.port ?? parseOptionalPort(env.TETHER_GATEWAY_PORT, 'TETHER_GATEWAY_PORT') ?? profileConfig?.gateway?.port ?? file.gateway?.port ?? DEFAULT_GATEWAY_CONFIG.port
   };
 }
 
@@ -188,22 +177,19 @@ export function defaultTetherConfig(profile: GatewayProfileName = 'direct'): Tet
         },
         gateway: {
           host: '127.0.0.1',
-          port: DEFAULT_GATEWAY_PORT,
-          allowApiSessionCreate: true
+          port: DEFAULT_GATEWAY_PORT
         }
       },
       direct: {
         gateway: {
           host: '0.0.0.0',
-          port: DEFAULT_GATEWAY_PORT,
-          allowApiSessionCreate: true
+          port: DEFAULT_GATEWAY_PORT
         }
       },
       relay: {
         gateway: {
           host: '127.0.0.1',
-          port: DEFAULT_GATEWAY_PORT,
-          allowApiSessionCreate: true
+          port: DEFAULT_GATEWAY_PORT
         },
         relay: {
           url: DEFAULT_RELAY_URL
@@ -263,19 +249,6 @@ function parseOptionalPort(value: string | undefined, name: string): number | un
     throw new Error(`${name} must be a valid TCP port`);
   }
   return port;
-}
-
-function parseOptionalBoolean(value: string | undefined, name: string): boolean | undefined {
-  if (value === undefined || value === '') {
-    return undefined;
-  }
-  if (value === 'true' || value === '1') {
-    return true;
-  }
-  if (value === 'false' || value === '0') {
-    return false;
-  }
-  throw new Error(`${name} must be true, false, 1, or 0`);
 }
 
 function stripTrailingSlashes(value: string): string {

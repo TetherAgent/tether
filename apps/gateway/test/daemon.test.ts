@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -149,7 +149,7 @@ test('status reports gateway runtime details', async () => {
     cols: 80,
     rows: 24
   });
-  const daemon = await startDaemon({ host: '127.0.0.1', port: 4898, ptySessions, allowApiSessionCreate: true });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4898, ptySessions });
 
   try {
     const response = await fetch('http://127.0.0.1:4898/api/status');
@@ -160,7 +160,6 @@ test('status reports gateway runtime details', async () => {
       url?: unknown;
       host?: unknown;
       port?: unknown;
-      allowApiSessionCreate?: unknown;
       relay?: { configured?: unknown };
       liveSessionIds?: unknown[];
     };
@@ -169,83 +168,10 @@ test('status reports gateway runtime details', async () => {
     assert.equal(body.url, 'http://127.0.0.1:4898');
     assert.equal(body.host, '127.0.0.1');
     assert.equal(body.port, 4898);
-    assert.equal(body.allowApiSessionCreate, true);
     assert.deepEqual(body.relay, { configured: false });
     assert.deepEqual(body.liveSessionIds, [sessionId]);
   } finally {
     ptySessions.stop(sessionId);
-    await daemon.close();
-    cleanup();
-  }
-});
-
-test('session creation is disabled by default', async () => {
-  const { store, cleanup } = tempStore();
-  const daemon = await startDaemon({ host: '127.0.0.1', port: 4899, ptySessions: new PtySessionManager() });
-
-  try {
-    const response = await fetch('http://127.0.0.1:4899/api/sessions', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ provider: 'codex' })
-    });
-    assert.equal(response.status, 403);
-    assert.deepEqual(await response.json(), { error: 'session creation is disabled' });
-  } finally {
-    await daemon.close();
-    cleanup();
-  }
-});
-
-test('session creation rejects command-shaped payloads', async () => {
-  const { store, cleanup } = tempStore();
-  const daemon = await startDaemon({
-    host: '127.0.0.1',
-    port: 4900,
-    ptySessions: new PtySessionManager(),
-    allowApiSessionCreate: true
-  });
-
-  try {
-    await withAuthFixture(async ({ authHeaders }) => {
-      const response = await fetch('http://127.0.0.1:4900/api/sessions', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({
-          provider: 'codex',
-          projectPath: process.cwd(),
-          cols: 120,
-          rows: 40,
-          nested: { env: { SECRET: 'blocked' } }
-        })
-      });
-      assert.equal(response.status, 400);
-      assert.deepEqual(await response.json(), { error: 'command-shaped session creation is not allowed' });
-    });
-  } finally {
-    await daemon.close();
-    cleanup();
-  }
-});
-
-test('session creation rejects missing token', async () => {
-  const { store, cleanup } = tempStore();
-  const daemon = await startDaemon({
-    host: '127.0.0.1',
-    port: 4909,
-    ptySessions: new PtySessionManager(),
-    allowApiSessionCreate: true
-  });
-
-  try {
-    const response = await fetch('http://127.0.0.1:4909/api/sessions', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ provider: 'codex', projectPath: process.cwd(), cols: 120, rows: 40 })
-    });
-    assert.equal(response.status, 401);
-    assert.deepEqual(await response.json(), { error: 'missing_token' });
-  } finally {
     await daemon.close();
     cleanup();
   }
@@ -285,270 +211,9 @@ test('direct read endpoints require auth and enforce session ownership', async (
       const listBody = (await list.json()) as { sessions?: Array<{ id: string }> };
       assert.deepEqual(listBody.sessions?.map((session) => session.id), [sessionId]);
 
-      const forbidden = await fetch(`${baseUrl}/api/sessions/${sessionId}/events`, {
-        headers: authHeaders(TOKEN_NORMAL_OTHER)
-      });
-      assert.equal(forbidden.status, 403);
-      assert.deepEqual(await forbidden.json(), { error: 'forbidden_owner' });
-
-      const events = await fetch(`${baseUrl}/api/sessions/${sessionId}/events`, {
-        headers: authHeaders(TOKEN_NORMAL)
-      });
-      assert.equal(events.status, 200);
-      assert.equal(Array.isArray(((await events.json()) as { events?: unknown[] }).events), true);
     });
   } finally {
     ptySessions.stop(sessionId);
-    await daemon.close();
-    cleanup();
-  }
-});
-
-test('session creation rejects management token', async () => {
-  const { store, cleanup } = tempStore();
-  const daemon = await startDaemon({
-    host: '127.0.0.1',
-    port: 4910,
-    ptySessions: new PtySessionManager(),
-    allowApiSessionCreate: true
-  });
-
-  try {
-    await withAuthFixture(async ({ authHeaders }) => {
-      const response = await fetch('http://127.0.0.1:4910/api/sessions', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...authHeaders(TOKEN_MANAGEMENT) },
-        body: JSON.stringify({ provider: 'codex', projectPath: process.cwd(), cols: 120, rows: 40 })
-      });
-      assert.equal(response.status, 403);
-      assert.deepEqual(await response.json(), { error: 'wrong_token_class' });
-    });
-  } finally {
-    await daemon.close();
-    cleanup();
-  }
-});
-
-test('session creation accepts whitelisted provider when enabled', async () => {
-  const { store, cleanup } = tempStore();
-  const binDir = mkdtempSync(path.join(tmpdir(), 'tether-daemon-bin-'));
-  const originalPath = process.env.PATH;
-  const fakeCodex = path.join(binDir, 'codex');
-  writeFileSync(fakeCodex, '#!/bin/sh\nsleep 2\n', 'utf8');
-  chmodSync(fakeCodex, 0o755);
-  process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ''}`;
-  const ptySessions = new PtySessionManager();
-  const daemon = await startDaemon({ host: '127.0.0.1', port: 4901, ptySessions, allowApiSessionCreate: true, config: {} });
-
-  try {
-    await withAuthFixture(async ({ authHeaders }) => {
-      const response = await fetch('http://127.0.0.1:4901/api/sessions', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ provider: 'codex', projectPath: binDir, cols: 100, rows: 30 })
-      });
-      assert.equal(response.status, 201);
-      const body = (await response.json()) as { session?: { id?: string; provider?: string; command?: string; projectPath?: string } };
-      assert.equal(body.session?.provider, 'codex');
-      assert.equal(body.session?.command, 'codex');
-      assert.equal(body.session?.projectPath, path.resolve(binDir));
-      const createdId = body.session?.id;
-      assert.equal(typeof createdId, 'string');
-      if (!createdId) {
-        throw new Error('created session id missing');
-      }
-      assert.equal(typeof ptySessions.getSession(createdId)?.runnerSocketPath, 'string');
-      await fetch(`http://127.0.0.1:4901/api/sessions/${encodeURIComponent(createdId)}/stop`, {
-        method: 'POST',
-        headers: authHeaders()
-      });
-    });
-  } finally {
-    process.env.PATH = originalPath;
-    await daemon.close();
-    cleanup();
-    rmSync(binDir, { recursive: true, force: true });
-  }
-});
-
-test('session creation forwards provider arguments to whitelisted provider', async () => {
-  const { store, cleanup } = tempStore();
-  const binDir = mkdtempSync(path.join(tmpdir(), 'tether-daemon-provider-args-'));
-  const fakeCodex = path.join(binDir, 'codex-custom');
-  writeFileSync(fakeCodex, '#!/bin/sh\nsleep 2\n', 'utf8');
-  chmodSync(fakeCodex, 0o755);
-  const ptySessions = new PtySessionManager();
-  const port = 5500 + Math.floor(Math.random() * 1000);
-  const daemon = await startDaemon({
-    host: '127.0.0.1',
-    port,
-    ptySessions,
-    allowApiSessionCreate: true,
-    config: { providers: { codex: { command: fakeCodex } } }
-  });
-
-  try {
-    await withAuthFixture(async ({ authHeaders }) => {
-      const response = await fetch(`http://127.0.0.1:${port}/api/sessions`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({
-          provider: 'codex',
-          projectPath: binDir,
-          cols: 100,
-          rows: 30,
-          providerArgs: ['--resume', '99acd804-8250-43db-9503-884c1e7ca450']
-        })
-      });
-      assert.equal(response.status, 201);
-      const body = (await response.json()) as { session?: { id?: string } };
-      const createdId = body.session?.id;
-      assert.equal(typeof createdId, 'string');
-      if (!createdId) {
-        throw new Error('created session id missing');
-      }
-      assert.equal(typeof ptySessions.getSession(createdId)?.runnerSocketPath, 'string');
-      await fetch(`http://127.0.0.1:${port}/api/sessions/${encodeURIComponent(createdId)}/stop`, {
-        method: 'POST',
-        headers: authHeaders()
-      });
-    });
-  } finally {
-    await daemon.close();
-    cleanup();
-    rmSync(binDir, { recursive: true, force: true });
-  }
-});
-
-test('session creation rejects invalid provider arguments', async () => {
-  const { store, cleanup } = tempStore();
-  const port = 5500 + Math.floor(Math.random() * 1000);
-  const daemon = await startDaemon({
-    host: '127.0.0.1',
-    port,
-    ptySessions: new PtySessionManager(),
-    allowApiSessionCreate: true
-  });
-
-  try {
-    await withAuthFixture(async ({ authHeaders }) => {
-      const response = await fetch(`http://127.0.0.1:${port}/api/sessions`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({
-          provider: 'codex',
-          projectPath: process.cwd(),
-          cols: 100,
-          rows: 30,
-          providerArgs: ['--resume', 123]
-        })
-      });
-      assert.equal(response.status, 400);
-      assert.deepEqual(await response.json(), { error: 'providerArgs must be a string array' });
-    });
-  } finally {
-    await daemon.close();
-    cleanup();
-  }
-});
-
-test('session creation uses configured provider command path', async () => {
-  const { store, cleanup } = tempStore();
-  const binDir = mkdtempSync(path.join(tmpdir(), 'tether-daemon-provider-bin-'));
-  const fakeCodex = path.join(binDir, 'codex-custom');
-  writeFileSync(fakeCodex, '#!/bin/sh\nsleep 2\n', 'utf8');
-  chmodSync(fakeCodex, 0o755);
-  const ptySessions = new PtySessionManager();
-  const daemon = await startDaemon({
-    host: '127.0.0.1',
-    port: 4908,
-    ptySessions,
-    allowApiSessionCreate: true,
-    config: { providers: { codex: { command: fakeCodex } } }
-  });
-
-  try {
-    await withAuthFixture(async ({ authHeaders }) => {
-      const response = await fetch('http://127.0.0.1:4908/api/sessions', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ provider: 'codex', projectPath: binDir, cols: 100, rows: 30 })
-      });
-      assert.equal(response.status, 201);
-      const body = (await response.json()) as { session?: { id?: string; command?: string } };
-      assert.equal(body.session?.command, fakeCodex);
-      const createdId = body.session?.id;
-      assert.equal(typeof createdId, 'string');
-      if (createdId) {
-        await fetch(`http://127.0.0.1:4908/api/sessions/${encodeURIComponent(createdId)}/stop`, {
-          method: 'POST',
-          headers: authHeaders()
-        });
-      }
-    });
-  } finally {
-    await daemon.close();
-    cleanup();
-    rmSync(binDir, { recursive: true, force: true });
-  }
-});
-
-test('session creation accepts display name as session title', async () => {
-  const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager();
-  const daemon = await startDaemon({
-    host: '127.0.0.1',
-    port: 4909,
-    ptySessions,
-    allowApiSessionCreate: true,
-    config: { providers: { codex: { command: '/bin/cat' } } }
-  });
-
-  try {
-    await withAuthFixture(async ({ authHeaders }) => {
-      const response = await fetch('http://127.0.0.1:4909/api/sessions', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ provider: 'codex', projectPath: process.cwd(), title: '登录问题', cols: 100, rows: 30 })
-      });
-      assert.equal(response.status, 201);
-      const body = (await response.json()) as { session?: { id?: string; title?: string } };
-      assert.equal(body.session?.title, '登录问题');
-      const createdId = body.session?.id;
-      assert.equal(typeof createdId, 'string');
-      if (createdId) {
-        await fetch(`http://127.0.0.1:4909/api/sessions/${encodeURIComponent(createdId)}/stop`, {
-          method: 'POST',
-          headers: authHeaders()
-        });
-      }
-    });
-  } finally {
-    await daemon.close();
-    cleanup();
-  }
-});
-
-test('session creation rejects invalid display name', async () => {
-  const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager();
-  const daemon = await startDaemon({
-    host: '127.0.0.1',
-    port: 4910,
-    ptySessions,
-    allowApiSessionCreate: true
-  });
-
-  try {
-    await withAuthFixture(async ({ authHeaders }) => {
-      const response = await fetch('http://127.0.0.1:4910/api/sessions', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ provider: 'codex', projectPath: process.cwd(), title: 'bad\nname', cols: 100, rows: 30 })
-      });
-      assert.equal(response.status, 400);
-    });
-  } finally {
     await daemon.close();
     cleanup();
   }
@@ -578,73 +243,6 @@ test('daemon marks running pty sessions lost when no live handle exists', async 
   try {
     assert.equal(store.getSession('tth_lost_test')?.status, 'lost');
     assert.equal(store.listEvents('tth_lost_test').some((event) => event.type === 'session.error'), true);
-  } finally {
-    await daemon.close();
-    cleanup();
-  }
-});
-
-test('daemon restart keeps runner-backed session controllable', async () => {
-  const { store, cleanup } = tempStore();
-  const port = 5500 + Math.floor(Math.random() * 1000);
-  let daemon = await startDaemon({
-    host: '127.0.0.1',
-    port,
-    ptySessions: store.ptySessions,
-    allowApiSessionCreate: true,
-    config: { providers: { codex: { command: '/bin/cat' } } }
-  });
-
-  try {
-    await withAuthFixture(async ({ authHeaders }) => {
-      const createResponse = await fetch(`http://127.0.0.1:${port}/api/sessions`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ provider: 'codex', projectPath: process.cwd(), cols: 80, rows: 24 })
-      });
-      assert.equal(createResponse.status, 201);
-      const createBody = (await createResponse.json()) as { session?: { id?: string; runnerSocketPath?: string } };
-      const sessionId = createBody.session?.id;
-      assert.equal(typeof sessionId, 'string');
-      assert.equal(typeof createBody.session?.runnerSocketPath, 'string');
-      if (!sessionId) {
-        throw new Error('created session id missing');
-      }
-
-      await daemon.close();
-      daemon = await startDaemon({
-        host: '127.0.0.1',
-        port,
-        ptySessions: store.ptySessions,
-        allowApiSessionCreate: true,
-        config: { providers: { codex: { command: '/bin/cat' } } }
-      });
-
-      const sessionsResponse = await fetch(`http://127.0.0.1:${port}/api/sessions`, {
-        headers: authHeaders()
-      });
-      assert.equal(sessionsResponse.status, 200);
-      const sessionsBody = (await sessionsResponse.json()) as { sessions?: Array<{ id?: string; status?: string }> };
-      assert.deepEqual(sessionsBody.sessions?.map((session) => [session.id, session.status]), [[sessionId, 'running']]);
-
-      const ticket = await requestTicket(port, sessionId, 'observe', authHeaders());
-      const ws = new WebSocket(`ws://127.0.0.1:${port}/api/sessions/${sessionId}/stream?mode=observe&surface=test`, [`tether-ticket.${ticket}`]);
-      await waitForMessage(ws, (text) => text.includes('replay.done'));
-      const inputResponse = await fetch(`http://127.0.0.1:${port}/api/sessions/${encodeURIComponent(sessionId)}/input`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ data: 'after restart\r' })
-      });
-      assert.equal(inputResponse.status, 200);
-      await waitForMessage(ws, (text) => text.includes('after restart'));
-
-      const stopResponse = await fetch(`http://127.0.0.1:${port}/api/sessions/${encodeURIComponent(sessionId)}/stop`, {
-        method: 'POST',
-        headers: authHeaders()
-      });
-      assert.equal(stopResponse.status, 200);
-      ws.close();
-    });
   } finally {
     await daemon.close();
     cleanup();

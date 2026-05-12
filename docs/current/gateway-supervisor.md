@@ -1,12 +1,12 @@
 # Gateway Supervisor 使用说明
 
 本文记录当前本机 Gateway 日常使用方式。常规路径是先让常驻 Gateway 在 Mac 上运行，
-再用 `tether codex` / `tether run codex` 请求这个 Gateway 创建 session。Gateway 会为
+再用 `tether run codex` / `tether run codex` 请求这个 Gateway 创建 session。Gateway 会为
 每个 session 启动 detached session runner；runner 持有 PTY 和 provider child，Gateway
 负责控制面、状态对账和 UI/Relay 转发。CLI 只负责发起请求和 attach，关闭 CLI 不应杀掉
 session。
 
-当前 `tether codex` 不再内置启动 Gateway，也不再提供 `--host`、`--port`、`--inline`、
+当前 `tether run codex` 不再内置启动 Gateway，也不再提供 `--host`、`--port`、`--inline`、
 `--transport`、`--relay-url`、`--relay-secret`。找不到常驻 Gateway 时会直接提示先运行
 `tether gateway start`。
 
@@ -15,7 +15,7 @@ session。
 如果你只是自己在这台 Mac 上用，记住这条主线：
 
 ```text
-先让 Gateway 在后台跑着，然后平时直接 tether codex。
+先让 Gateway 在后台跑着，然后平时直接 tether run codex。
 ```
 
 第一次配置本机后台 Gateway：
@@ -29,7 +29,7 @@ pnpm tether gateway status
 以后每天正常用：
 
 ```bash
-pnpm tether codex
+pnpm tether run codex
 ```
 
 这时 `codex` session 是由后台 Gateway 创建的，真正持有 PTY 的是单独的 session runner。
@@ -45,7 +45,7 @@ pnpm tether gateway
 然后另开一个终端：
 
 ```bash
-pnpm tether codex
+pnpm tether run codex
 ```
 
 `gateway start/restart` 写入 launchd plist 时会记录当前 `HOME` 和 `PATH`，让后台
@@ -56,8 +56,8 @@ Gateway 继承常见用户命令目录。
 ```bash
 pnpm tether gateway status    # 看后台 Gateway 有没有跑、PID、端口、Relay 状态
 pnpm tether gateway providers # 看 codex/claude/opencode 实际用哪个命令启动
-pnpm tether gateway logs      # 看后台 Gateway 的 launchd 日志
-pnpm tether gateway doctor    # 一次性诊断后台 Gateway、Relay、provider 命令
+pnpm tether debug      # 看后台 Gateway 的 launchd 日志
+pnpm tether debug    # 一次性诊断后台 Gateway、Relay、provider 命令
 pnpm tether gateway verify --provider codex # 创建并停止一个验证 session
 pnpm tether ls                # 看当前 sessions
 pnpm tether stop <id>         # 关闭单个 session
@@ -69,7 +69,7 @@ pnpm tether gateway uninstall # 删除登录启动
 一句话区分：
 
 - `pnpm tether gateway start`：让后台 Gateway 跑起来。
-- `pnpm tether codex`：开一个由后台 Gateway 管理、runner 持有 PTY 的 Codex session。
+- `pnpm tether run codex`：开一个由后台 Gateway 管理、runner 持有 PTY 的 Codex session。
 - `pnpm tether gateway status`：看现在到底跑没跑。
 
 ## 你现在该敲哪个命令
@@ -80,13 +80,13 @@ pnpm tether gateway uninstall # 删除登录启动
 # 第一次在这台 Mac 上长期使用
 pnpm tether gateway init
 pnpm tether gateway start
-pnpm tether gateway doctor
+pnpm tether debug
 
 # 平时开一个远程可见的 Codex
-pnpm tether codex
+pnpm tether run codex
 
 # 只创建 session，不占住当前终端
-pnpm tether codex --no-attach
+pnpm tether run codex --no-attach
 
 # 看当前有哪些 session
 pnpm tether ls
@@ -99,10 +99,10 @@ pnpm tether stop --all
 
 # 看后台 Gateway 是否健康
 pnpm tether gateway status
-pnpm tether gateway doctor
+pnpm tether debug
 
 # 看后台日志
-pnpm tether gateway logs --stderr
+pnpm tether debug
 
 # 代码更新后让后台 Gateway 重新加载
 pnpm tether gateway restart
@@ -125,14 +125,14 @@ tether gateway stop
 tether gateway restart
 tether gateway status
 tether gateway providers
-tether gateway logs
-tether gateway doctor
+tether debug
+tether debug
 tether gateway verify --provider codex
 tether gateway uninstall
-tether codex
-tether codex --project /path/to/project
-tether codex --no-attach
-tether codex -- --resume 99acd804-8250-43db-9503-884c1e7ca450
+tether run codex
+tether run codex --project /path/to/project
+tether run codex --no-attach
+tether run codex -- --resume 99acd804-8250-43db-9503-884c1e7ca450
 tether ls
 tether stop <id>
 tether stop --all
@@ -147,19 +147,19 @@ tether stop --all
   Port、Relay 配置、Relay 连接、后台 PATH、Provider 命令和 LaunchAgent 状态。
 - `tether gateway providers`：列出 `codex`、`claude`、`opencode` 的命令来源和实际命令；
   来源是 `配置` 表示来自 `~/.tether/config.json`，来源是 `PATH` 表示启动时再查 PATH。
-- `tether gateway logs`：查看后台 Gateway 的 launchd stdout/stderr 日志。可加
+- `tether debug`：查看后台 Gateway 的 launchd stdout/stderr 日志。可加
   `--stderr`、`--stdout` 或 `-f` 持续跟随。
-- `tether gateway doctor`：诊断配置文件、LaunchAgent、Gateway API、Relay、provider
+- `tether debug`：诊断配置文件、LaunchAgent、Gateway API、Relay、provider
   命令和后台 PATH。未配置且未安装的可选 provider 会显示 `WARN`，不会让诊断失败；
   已显式配置但找不到的 provider 会显示 `FAIL`。
 - `tether gateway verify --provider codex`：通过常驻 Gateway 创建一个短 session，再立即
   停止，用来验证 API session creation、provider 命令和 stop 链路。
 - `tether gateway uninstall`：停止后台 Gateway 并移除 LaunchAgent。
-- `tether codex`：请求常驻 Gateway 创建 Codex session；实际 PTY 由 detached runner 持有，找不到 Gateway 会提示先运行 `tether gateway start`。
-- `tether codex --project /path/to/project`：让 Gateway 在指定项目目录创建 session。
-- `tether codex --no-attach`：只创建 session，不接入当前终端。
-- `tether codex -- <codex 参数...>`：`--` 后面的内容不再由 Tether 解析，会作为
-  Codex 原生命令参数透传。例如 `tether codex -- --resume <session-id>`。
+- `tether run codex`：请求常驻 Gateway 创建 Codex session；实际 PTY 由 detached runner 持有，找不到 Gateway 会提示先运行 `tether gateway start`。
+- `tether run codex --project /path/to/project`：让 Gateway 在指定项目目录创建 session。
+- `tether run codex --no-attach`：只创建 session，不接入当前终端。
+- `tether run codex -- <codex 参数...>`：`--` 后面的内容不再由 Tether 解析，会作为
+  Codex 原生命令参数透传。例如 `tether run codex -- --resume <session-id>`。
 - `tether ls`：列出已知 session。常见状态包括 `running`、`stopped`、`completed`、
   `failed`、`lost`。优先通过 Gateway 获取 runner-aware 状态；Gateway 不可用时才退回
   本地历史记录，并提示这些状态可能未对账。
@@ -170,7 +170,7 @@ tether stop --all
 
 ```bash
 pnpm tether gateway status
-pnpm tether codex --no-attach
+pnpm tether run codex --no-attach
 ```
 
 ## 配置文件
@@ -269,7 +269,7 @@ pnpm tether gateway
 pnpm tether run codex --no-attach
 pnpm tether gateway status
 pnpm tether ls
-pnpm tether codex --inline --no-attach
+pnpm tether run codex --inline --no-attach
 ```
 
 Gateway 重启恢复验证：
@@ -280,7 +280,7 @@ pnpm tether gateway config --allow-api-session-create
 pnpm tether gateway restart
 
 # 创建一个不占住当前终端的 Codex session
-pnpm tether codex --no-attach
+pnpm tether run codex --no-attach
 pnpm tether ls
 
 # 从上一条输出里复制 session id
@@ -294,7 +294,7 @@ pnpm tether gateway restart
 pnpm tether ls
 
 # 继续控制同一个 session
-pnpm tether send "$SESSION_ID" "你还在吗"
+pnpm tether debug
 pnpm tether attach "$SESSION_ID" --control
 ```
 
@@ -336,7 +336,7 @@ pnpm tether gateway config \
 pnpm tether gateway
 
 # 终端 2
-pnpm tether codex --no-attach
+pnpm tether run codex --no-attach
 pnpm tether gateway status
 pnpm tether ls
 ```
@@ -361,7 +361,7 @@ Secret: <personal-secret>
 ```bash
 pnpm install
 pnpm tether gateway restart
-pnpm tether gateway doctor
+pnpm tether debug
 ```
 
 如果只是改了 Web 前端，还要重新 build 并让 nginx serve 新的 `apps/web/dist`。
@@ -381,7 +381,7 @@ pnpm tether gateway uninstall
 
 ## 故障排查
 
-- `tether codex` 提示未检测到常驻 Gateway：先运行 `tether gateway status`，必要时用
+- `tether run codex` 提示未检测到常驻 Gateway：先运行 `tether gateway status`，必要时用
   `tether gateway start` 启动后台 Gateway，或用 `tether gateway` 前台观察日志。
 - 提示 API session creation 未启用：运行
   `tether gateway config --allow-api-session-create` 后重启 Gateway。
@@ -391,12 +391,12 @@ pnpm tether gateway uninstall
   里的 Relay 连接状态；Relay 断开不应阻止本地 session 创建。
 - launchd 状态异常：运行 `tether gateway stop` 后再 `tether gateway start`；如果需要
   重建 plist，运行 `tether gateway uninstall` 再 `tether gateway install`。
-- 后台 Gateway 能启动，但 `tether codex --no-attach` 创建后马上失败：先运行
+- 后台 Gateway 能启动，但 `tether run codex --no-attach` 创建后马上失败：先运行
   `tether gateway status` 看 `后台 PATH` 和 `Provider 命令`。如果 PATH 不包含
   `/opt/homebrew/bin` 或 `/usr/local/bin`，运行 `tether gateway restart` 让 plist 重写
   当前 PATH；更稳妥的方式是运行
   `tether gateway config --codex-command "$(command -v codex)"` 后重启 Gateway。
-- `tether codex --no-attach` 打印 session 后立刻回到 shell：这是正常行为。它只创建
+- `tether run codex --no-attach` 打印 session 后立刻回到 shell：这是正常行为。它只创建
   session，不 attach 当前终端。用 `tether ls` 看状态，用 `tether attach <id> --control`
   接回本地控制，用 Web 远程控制。
 - Web 页面看不到 session，但本机 `gateway status` 是 `Relay 连接: connected`：优先检查
@@ -476,7 +476,7 @@ HOME=/tmp/tether-0605-smoke.jIuAGE PATH=/tmp/tether-0605-smoke.jIuAGE/bin:$PATH 
   pnpm tether ls
 
 HOME=/tmp/tether-0605-smoke.jIuAGE PATH=/tmp/tether-0605-smoke.jIuAGE/bin:$PATH \
-  pnpm tether codex --inline --port 4916 --project /tmp/tether-0605-smoke.jIuAGE/project --no-attach
+  pnpm tether run codex --inline --port 4916 --project /tmp/tether-0605-smoke.jIuAGE/project --no-attach
 ```
 
 结果：
@@ -489,7 +489,7 @@ HOME=/tmp/tether-0605-smoke.jIuAGE PATH=/tmp/tether-0605-smoke.jIuAGE/bin:$PATH 
 - `pnpm tether gateway status` 输出中文状态，显示运行中、PID、URL、配置文件、Host、
   Port、Relay 配置、Relay 连接和 LaunchAgent。
 - `pnpm tether ls` 显示 session 为 `running pty-event-stream`。
-- `pnpm tether codex --inline --no-attach` 输出“已启用 inline 模式”，并在 4916 端口启动
+- `pnpm tether run codex --inline --no-attach` 输出“已启用 inline 模式”，并在 4916 端口启动
   debug fallback session。
 - 本次没有配置 Relay 服务，因此 Web/Relay session list 未重复人工验证；风险限于 Relay
   UI 列表路径未在本 smoke 中点击确认，Relay frame 路径已有既有自动测试覆盖。

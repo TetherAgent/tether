@@ -9,7 +9,7 @@
 > Persistent. Observable. Approvable. Orchestratable.
 
 **Current status**: PTY-backed event stream is now the default transport.
-`tether codex`, `tether claude`, and `tether opencode` run inside a
+`tether run codex`, `tether run claude`, and `tether run opencode` run inside a
 Gateway-owned PTY session with append-only events, WebSocket attach, Web
 xterm rendering, and a tmux fallback for migration.
 
@@ -27,13 +27,13 @@ agents.
 
 ```text
 Before: codex
-After:  tether codex
+After:  tether run codex
 
 Before: claude
-After:  tether claude
+After:  tether run claude
 ```
 
-Run `tether codex` or `tether claude` on your computer. Tether wraps the agent
+Run `tether run codex` or `tether run claude` on your computer. Tether wraps the agent
 into a managed session and prints a URL. Open it on your phone and you are
 looking at the same live work — every keystroke from the desktop appears, every
 character you type on the phone reaches the agent. Code keeps executing on your
@@ -84,7 +84,7 @@ Tether has been built around that bet from day one:
 
 Working today:
 
-- `tether codex` / `tether claude` — wrap an agent into a managed session in
+- `tether run codex` / `tether run claude` — wrap an agent into a managed session in
   one command
 - Local Gateway / daemon on `127.0.0.1:4789`
 - Gateway-owned `node-pty` sessions with append-only `session_events`
@@ -148,8 +148,8 @@ tether gateway start
 tether gateway
 
 # Run an agent session
-tether codex
-tether claude
+tether run codex
+tether run claude
 
 # Common options:
 #   --project <path>   working directory (default: current directory)
@@ -159,9 +159,9 @@ tether claude
 #   [providerArgs...]  extra args passed through to the underlying CLI
 
 # Examples:
-tether codex --title "fix auth bug" --project ~/myrepo
-tether codex --no-attach                   # run in background, attach later
-tether codex -- --model o3                 # pass flags to codex itself
+tether run codex --title "fix auth bug" --project ~/myrepo
+tether run codex --no-attach                   # run in background, attach later
+tether run codex -- --model o3                 # pass flags to codex itself
 
 # List sessions
 tether ls
@@ -182,8 +182,8 @@ By default, the Gateway only listens on localhost:
 For a trusted LAN demo, explicitly expose it:
 
 ```bash
-tether codex --host 0.0.0.0
-tether claude --host 0.0.0.0
+tether run codex --host 0.0.0.0
+tether run claude --host 0.0.0.0
 ```
 
 LAN mode currently has one-time WebSocket tickets but does not yet have full
@@ -192,7 +192,7 @@ device-token pairing. Use it only on a trusted network.
 ### Diagnostics
 
 ```bash
-tether doctor          # check runtime environment
+tether debug          # check runtime environment
 tether gateway status  # check Gateway status
 ```
 
@@ -201,7 +201,7 @@ tether gateway status  # check Gateway status
 ```bash
 pnpm install
 pnpm tether --help
-pnpm tether codex
+pnpm tether run codex
 ```
 
 Current local limitation: multiple `run --no-attach` sessions are supported,

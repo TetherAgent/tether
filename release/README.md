@@ -18,7 +18,7 @@ npm install -g @tether-labs/cli@latest
 ### 1. 登录
 
 ```bash
-tether gateway login
+tether login
 ```
 
 默认登录生产环境。命令会打开浏览器授权，并把本机 Gateway 绑定到你的账号。
@@ -27,7 +27,7 @@ tether gateway login
 如果需要指定 Server 地址：
 
 ```bash
-tether gateway login 
+tether login 
 ```
 
 ### 2. 启动 Gateway
@@ -60,8 +60,8 @@ tether gateway restart
 
 | 命令 | 用途 |
 | --- | --- |
-| `tether gateway login` | 登录并绑定本机 Gateway |
-| `tether gateway login --env local` | 登录本地开发环境 |
+| `tether login` | 登录并绑定本机 Gateway |
+| `tether login --env local` | 登录本地开发环境 |
 | `tether gateway start` | 启动后台 Gateway |
 | `tether gateway stop` | 停止后台 Gateway |
 | `tether gateway restart` | 重启后台 Gateway |

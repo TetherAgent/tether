@@ -29,7 +29,7 @@
 | Phase 4 | IDE 化（控制台之上） | 在事件流上加 diff / 文件树 / 权限 UI |
 
 **Phase 1 → Phase 2 是架构换血**：tmux 包装层、capture-pane 轮询、send-keys
-注入正在被 PTY-backed event stream 替换。当前默认 `tether codex` / `tether claude`
+注入正在被 PTY-backed event stream 替换。当前默认 `tether run codex` / `tether run claude`
 已走 PTY event stream；tmux 仅作为 `--transport tmux` 迁移期 fallback。
 
 当前 v0.3 里程碑已从 **Personal Relay Access** 调整为 **Multi-account Relay
@@ -222,12 +222,12 @@ user input、client attach/detach、resize、control change 都走 append-only e
 
 | 行为 | 命令 |
 |---|---|
-| 创建并 attach | `tether codex` / `tether claude` / `tether opencode` |
+| 创建并 attach | `tether run codex` / `tether run claude` / `tether run opencode` |
 | 显式创建 | `tether run codex` |
 | 后台创建 | `tether run codex --no-attach` |
 | 本地 attach | `tether attach <id> --control` 或 `--observe` |
-| 查看 client | `tether clients <id>` |
-| 发送输入 | `tether send <id> "text"` 或 Web 输入框 |
+| 查看 client | `tether debug` |
+| 发送输入 | `tether debug` 或 Web 输入框 |
 | 停止 | `tether stop <id>` |
 
 WebSocket 使用 HTTP 换一次性 ticket，再通过 query 连接 stream；浏览器不依赖
@@ -261,14 +261,14 @@ Gateway/runner 会从 `user.input`、`terminal.output`、agent JSONL / transcrip
 当前实现限制：
 
 - Phase 6 后，常驻 Gateway 是正常路径：`tether gateway` 前台运行，或
-  `tether gateway start` 通过 launchd 后台运行；`tether codex` /
+  `tether gateway start` 通过 launchd 后台运行；`tether run codex` /
   `tether run <provider>` 会先探测常驻 Gateway，请求它创建 session。Gateway 会为每个
   session 启动 detached session runner 进程，由 runner 持有 PTY 和 provider child；
   CLI 只 attach 到该 session。
 - session runner 通过 Unix domain socket 暴露本机控制面，socket 路径记录在
   `sessions.runner_socket_path`。Gateway 重启后会按 store 中的 runner metadata 重新 ping
   runner；runner 可连接时 session 保持 `running`，不可连接时标记为 `lost`。
-- `tether codex --inline` / `tether run <provider> --inline` 是调试 fallback，用于强制
+- `tether run codex --inline` / `tether run <provider> --inline` 是调试 fallback，用于强制
   使用旧的单次 CLI 内联 Gateway。未检测到常驻 Gateway 时，CLI 会用中文提示并回退
   inline。
 - 常驻 Gateway 的 `POST /api/sessions` 默认关闭，必须通过

@@ -40,20 +40,20 @@ test('session title is Tether metadata and is not forwarded as provider args', (
   assert.equal(payload.providerArgs?.includes('登录问题'), false);
 });
 
-test('provider command declares --title before provider args passthrough', () => {
+test('run command declares --title before provider args passthrough', () => {
   const source = mainSource();
-  assert.match(source, /\.option\('--title <title>', '前端展示的 session 标题'\)[\s\S]*\.argument\('\[providerArgs\.\.\.\]'\)/);
+  assert.match(source, /command\('run'\)[\s\S]*\.argument\('\[providerArgs\.\.\.\]'\)[\s\S]*\.option\('--title <title>', '前端展示的 session 标题'\)/);
 });
 
-test('gateway login wiring is present in main.ts', () => {
+test('top-level login wiring is present in main.ts', () => {
   const source = mainSource();
-  assert.match(source, /gateway'\)\s*[\s\S]*command\('login'\)/);
+  assert.match(source, /program\s*[\s\S]*command\('login'\)/);
   assert.match(source, /TETHER_SERVER_URL/);
   assert.match(source, /auth\.json/);
   assert.match(source, /0o600/);
 });
 
-test('gateway login defaults to prod and keeps local as an explicit environment', () => {
+test('top-level login defaults to prod and keeps local as an explicit environment', () => {
   const source = mainSource();
   assert.match(source, /\.option\('--env <env>'/);
   assert.match(source, /process\.env\.TETHER_SERVER_URL/);
@@ -78,11 +78,27 @@ test('foreground gateway checks port before prompting for auth', () => {
   assert.match(source, /pnpm tether gateway stop/);
 });
 
-test('launchd gateway profile skips interactive prompt', () => {
+test('top-level start uses launchd gateway profile wiring', () => {
   const source = mainSource();
   assert.match(source, /gatewayProfileFromEnv/);
   assert.match(source, /process\.env\.TETHER_GATEWAY_PROFILE/);
-  assert.match(source, /startGatewayForeground\(launchdProfile\)/);
+  assert.match(source, /command\('start'\)[\s\S]*startGatewayBackground\(\)/);
+});
+
+test('debug-only commands are not exposed as top-level commands', () => {
+  const source = mainSource();
+  assert.match(source, /command\('debug'\)/);
+  assert.doesNotMatch(source, /program\s*\n\s*\.command\('doctor'\)/);
+  assert.doesNotMatch(source, /program\s*\n\s*\.command\('clients'\)/);
+  assert.doesNotMatch(source, /program\s*\n\s*\.command\('url'\)/);
+  assert.doesNotMatch(source, /program\s*\n\s*\.command\('send'\)/);
+  assert.doesNotMatch(source, /gatewayCommand\s*\n\s*\.command\('logs'\)/);
+});
+
+test('provider shortcut commands are not registered as top-level commands', () => {
+  const source = mainSource();
+  assert.doesNotMatch(source, /function addProviderCommand/);
+  assert.doesNotMatch(source, /for \(const provider of Object\.values\(PROVIDERS\)\)\s*\{[\s\S]*addProviderCommand/);
 });
 
 test('gateway restart reuses background startup profile wiring', () => {

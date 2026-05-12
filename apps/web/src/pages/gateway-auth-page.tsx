@@ -34,7 +34,7 @@ export function GatewayAuthPage() {
 
   if (!port) {
     return (
-      <WebAuthShell title="授权 Gateway" description="参数无效，请重新运行 tether gateway login。">
+      <WebAuthShell title="授权 Gateway" description="参数无效，请重新运行 tether login。">
         <div />
       </WebAuthShell>
     );
@@ -42,7 +42,7 @@ export function GatewayAuthPage() {
 
   if (!deviceKey) {
     return (
-      <WebAuthShell title="授权 Gateway" description="缺少设备标识，请重新运行 tether gateway login。">
+      <WebAuthShell title="授权 Gateway" description="缺少设备标识，请重新运行 tether login。">
         <div />
       </WebAuthShell>
     );

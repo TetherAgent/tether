@@ -15,23 +15,21 @@ import { readTetherConfig, type TetherConfig } from '@tether/config';
 import { isProviderName, PROVIDERS } from '@tether/core';
 import { ResponseCode, type AuthScopePayload, type AuthTokenClass, type SessionAccessMode } from '@tether/core';
 import { createSessionId } from './ids.js';
-import { maskSensitiveOutput } from './mask.js';
 import { createSessionEvent } from './events.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
-import { listGateways, registerGateway, touchGateway, unregisterGateway } from './registry.js';
+import { registerGateway, touchGateway, unregisterGateway } from './registry.js';
 import { detectSelectOptions } from './agent-select-detect.js';
 import { startRelayClient, type RunningRelayClient } from './relay-client.js';
 import { SessionRunnerClient } from './session-runner-client.js';
 import { spawnSessionRunnerProcess } from './session-runner-spawn.js';
 import type { Session } from './types.js';
-import { capturePane, sendKeys, sessionExists } from './tmux.js';
+import { sessionExists } from './tmux.js';
 
 export type DaemonOptions = {
   host: string;
   port: number;
   ptySessions: PtySessionManager;
   relay?: { url: string; secret: string; gatewayId?: string };
-  allowApiSessionCreate?: boolean;
   config?: TetherConfig;
 };
 
@@ -326,7 +324,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       url,
       host: options.host,
       port: options.port,
-      allowApiSessionCreate: Boolean(options.allowApiSessionCreate),
       relay: relayClient ? relayClient.status() : { configured: false },
       serverAuth: await gatewayServerAuthStatus(),
       serverHeartbeat: {
@@ -380,191 +377,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     return c.json({ sessions: liveSessions });
   });
 
-  app.post('/api/sessions', async (c) => {
-    if (options.allowApiSessionCreate !== true) {
-      return c.json({ error: 'session creation is disabled' }, 403);
-    }
-    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
-    if (!actor.ok) {
-      return c.json({ error: actor.error }, actor.status);
-    }
-
-    const body = await c.req.json<unknown>().catch(() => undefined);
-    if (!body || typeof body !== 'object') {
-      return c.json({ error: 'invalid JSON body' }, 400);
-    }
-
-    if (containsForbiddenSessionCreateKey(body)) {
-      return c.json({ error: 'command-shaped session creation is not allowed' }, 400);
-    }
-
-    const request = body as Record<string, unknown>;
-    const unsupportedKey = Object.keys(request).find((key) => !SESSION_CREATE_ALLOWED_KEYS.has(key));
-    if (unsupportedKey) {
-      return c.json({ error: 'unsupported session creation field' }, 400);
-    }
-
-    if (typeof request.provider !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(request.provider)) {
-      return c.json({ error: 'provider is required' }, 400);
-    }
-    const provider = request.provider;
-    const command = providerCommand(provider, options.config);
-
-    if (request.projectPath !== undefined && typeof request.projectPath !== 'string') {
-      return c.json({ error: 'projectPath must be a string' }, 400);
-    }
-    const projectPath = path.resolve(request.projectPath ?? process.cwd());
-    const title = normalizeSessionTitle(request.title);
-    if (request.title !== undefined && !title) {
-      return c.json({ error: 'title must be a non-empty string with at most 64 characters' }, 400);
-    }
-
-    const providerArgs = request.providerArgs ?? [];
-    if (!isValidProviderArgs(providerArgs)) {
-      return c.json({ error: 'providerArgs must be a string array' }, 400);
-    }
-
-    const cols = request.cols ?? 120;
-    const rows = request.rows ?? 40;
-    if (!isValidTerminalSize(cols, rows)) {
-      return c.json({ error: 'invalid terminal size' }, 400);
-    }
-    const terminalRows = rows as number;
-
-    const id = createSessionId();
-    const session = await spawnSessionRunnerProcess({
-      options: {
-        id,
-        provider,
-        command,
-        providerArgs,
-        projectPath,
-        title,
-        cols,
-        rows: terminalRows,
-        owner: {
-          accountId: actor.payload.accountId,
-          userId: actor.payload.userId,
-          deviceId: actor.payload.deviceId,
-          gatewayId: actor.payload.gatewayId ?? actor.gatewayId
-        }
-      }
-    });
-    options.ptySessions.restoreSession(session);
-    return c.json({ session }, 201);
-  });
-
-  app.get('/api/gateways', async (c) => {
-    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
-    if (!actor.ok) {
-      return c.json({ error: actor.error }, actor.status);
-    }
-    return c.json({ gateways: await listGateways() });
-  });
-
-  app.get('/api/sessions/:id/snapshot', async (c) => {
-    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
-    if (!actor.ok) {
-      return c.json({ error: actor.error }, actor.status);
-    }
-    const session = getSession(c.req.param('id'));
-    if (!session) {
-      return c.json({ error: 'session not found' }, 404);
-    }
-    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
-    if (!ownership.ok) {
-      return c.json({ error: ownership.error }, ownership.status);
-    }
-
-    if (session.transport === 'pty-event-stream') {
-      const text = '';
-      return c.json({ session, text, capturedAt: Date.now() });
-    }
-
-    if (!(await sessionExists(session.tmuxSessionName))) {
-      updateSessionStatus(session.id, 'stopped');
-      return c.json({ error: 'tmux session is no longer running' }, 410);
-    }
-
-    const raw = await capturePane(session.tmuxSessionName);
-    const text = maskSensitiveOutput(raw);
-    return c.json({ session, text, capturedAt: Date.now() });
-  });
-
-  app.post('/api/sessions/:id/send', async (c) => {
-    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
-    if (!actor.ok) {
-      return c.json({ error: actor.error }, actor.status);
-    }
-    const session = getSession(c.req.param('id'));
-    if (!session) {
-      return c.json({ error: 'session not found' }, 404);
-    }
-    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
-    if (!ownership.ok) {
-      return c.json({ error: ownership.error }, ownership.status);
-    }
-
-    const body = await c.req.json<{ text?: unknown }>().catch(() => undefined);
-    if (!body || typeof body.text !== 'string' || body.text.length === 0) {
-      return c.json({ error: 'text is required' }, 400);
-    }
-
-    if (body.text.length > 4000) {
-      return c.json({ error: 'text is too long' }, 400);
-    }
-
-    if (session.transport === 'pty-event-stream') {
-      const runnerClient = getRunnerClient(session);
-      if (runnerClient) {
-        try {
-          await runnerClient.write(`${body.text}\r`, 'http-send');
-          return c.json({ ok: true });
-        } catch {
-          markSessionLost(session, 'Gateway could not write to this session runner');
-          return c.json({ error: 'pty session is no longer running' }, 410);
-        }
-      }
-      const ok = options.ptySessions?.write(session.id, { clientId: 'http-send', data: `${body.text}\r` }) ?? false;
-      if (!ok) {
-        markSessionLost(session, 'Gateway no longer has a live PTY handle for this session');
-        return c.json({ error: 'pty session is no longer running' }, 410);
-      }
-      return c.json({ ok: true });
-    }
-
-    if (!(await sessionExists(session.tmuxSessionName))) {
-      updateSessionStatus(session.id, 'stopped');
-      return c.json({ error: 'tmux session is no longer running' }, 410);
-    }
-
-    await sendKeys(session.tmuxSessionName, body.text);
-    touchSession(session.id);
-    return c.json({ ok: true });
-  });
-
-  app.get('/api/sessions/:id/events', async (c) => {
-    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
-    if (!actor.ok) {
-      return c.json({ error: actor.error }, actor.status);
-    }
-    const session = getSession(c.req.param('id'));
-    if (!session) {
-      return c.json({ error: 'session not found' }, 404);
-    }
-    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
-    if (!ownership.ok) {
-      return c.json({ error: ownership.error }, ownership.status);
-    }
-    const after = parseIntegerQuery(c.req.query('after'), 0);
-    const limit = parseIntegerQuery(c.req.query('limit'), 1000);
-    const tail = parseIntegerQuery(c.req.query('tail'), 0);
-    void tail;
-    void after;
-    void limit;
-    return c.json({ events: [] });
-  });
-
   app.get('/api/sessions/:id/clients', async (c) => {
     const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
     if (!actor.ok) {
@@ -616,44 +428,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       }
     }
     const ok = options.ptySessions?.write(session.id, { clientId: 'http-input', data: body.data }) ?? false;
-    if (!ok) {
-      markSessionLost(session, 'Gateway no longer has a live PTY handle for this session');
-      return c.json({ error: 'pty session is no longer running' }, 410);
-    }
-    return c.json({ ok: true });
-  });
-
-  app.post('/api/sessions/:id/resize', async (c) => {
-    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
-    if (!actor.ok) {
-      return c.json({ error: actor.error }, actor.status);
-    }
-    const session = getSession(c.req.param('id'));
-    if (!session) {
-      return c.json({ error: 'session not found' }, 404);
-    }
-    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
-    if (!ownership.ok) {
-      return c.json({ error: ownership.error }, ownership.status);
-    }
-    if (session.transport !== 'pty-event-stream') {
-      return c.json({ error: 'session is not pty-backed' }, 409);
-    }
-    const body = await c.req.json<{ cols?: unknown; rows?: unknown }>().catch(() => undefined);
-    if (!body || typeof body.cols !== 'number' || typeof body.rows !== 'number' || !isValidTerminalSize(body.cols, body.rows)) {
-      return c.json({ error: 'invalid terminal size' }, 400);
-    }
-    const runnerClient = getRunnerClient(session);
-    if (runnerClient) {
-      try {
-        await runnerClient.resize(body.cols, body.rows, 'http-resize');
-        return c.json({ ok: true });
-      } catch {
-        markSessionLost(session, 'Gateway could not resize this session runner');
-        return c.json({ error: 'pty session is no longer running' }, 410);
-      }
-    }
-    const ok = options.ptySessions?.resize(session.id, 'http-resize', body.cols, body.rows) ?? false;
     if (!ok) {
       markSessionLost(session, 'Gateway no longer has a live PTY handle for this session');
       return c.json({ error: 'pty session is no longer running' }, 410);
@@ -1169,49 +943,6 @@ type ClientInfo = {
   attachedAt: number;
   lastSeenAt: number;
 };
-
-const SESSION_CREATE_ALLOWED_KEYS = new Set(['provider', 'projectPath', 'title', 'cols', 'rows', 'providerArgs']);
-const SESSION_CREATE_FORBIDDEN_KEYS = new Set(['command', 'args', 'argv', 'env', 'shell', 'providerCommand']);
-const MAX_SESSION_NAME_LENGTH = 64;
-const MAX_PROVIDER_ARGS = 64;
-const MAX_PROVIDER_ARG_LENGTH = 4096;
-
-function normalizeSessionTitle(value: unknown): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  if (!trimmed || trimmed.length > MAX_SESSION_NAME_LENGTH || /[\r\n]/.test(trimmed)) {
-    return undefined;
-  }
-  return trimmed;
-}
-
-function isValidProviderArgs(value: unknown): value is string[] {
-  return (
-    Array.isArray(value) &&
-    value.length <= MAX_PROVIDER_ARGS &&
-    value.every((item) => typeof item === 'string' && item.length <= MAX_PROVIDER_ARG_LENGTH)
-  );
-}
-
-function containsForbiddenSessionCreateKey(value: unknown): boolean {
-  if (Array.isArray(value)) {
-    return value.some(containsForbiddenSessionCreateKey);
-  }
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  for (const [key, nested] of Object.entries(value)) {
-    if (SESSION_CREATE_FORBIDDEN_KEYS.has(key) || containsForbiddenSessionCreateKey(nested)) {
-      return true;
-    }
-  }
-  return false;
-}
 
 async function authorizeRequest(
   authorization: string | undefined,
