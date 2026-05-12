@@ -1,47 +1,55 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PtySessionManager } from '../src/pty.js';
-import { Store } from '../src/store.js';
-
-function tempStore(): { store: Store; cleanup: () => void } {
-  const dir = mkdtempSync(path.join(tmpdir(), 'tether-pty-'));
-  return {
-    store: new Store(path.join(dir, 'tether.db')),
-    cleanup: () => rmSync(dir, { recursive: true, force: true })
-  };
-}
+import type { SessionEvent } from '../src/store.js';
 
 test('pty sessions emit output and mask stored input', async () => {
-  const { store, cleanup } = tempStore();
+  const manager = new PtySessionManager();
+  const events: SessionEvent[] = [];
+  let stop = false;
+  const cleanup = () => {
+    if (!stop) {
+      manager.stop(session.id);
+      stop = true;
+    }
+  };
+  const session = manager.create({
+    id: 'tth_pty_test',
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24
+  });
+  const unsubscribe = manager.subscribe(session.id, (event) => events.push(event));
   try {
-    const manager = new PtySessionManager(store);
-    const session = manager.create({
-      id: 'tth_pty_test',
-      provider: 'codex',
-      command: '/bin/cat',
-      projectPath: process.cwd(),
-      cols: 80,
-      rows: 24
-    });
-
     assert.equal(session.status, 'running');
     assert.equal(manager.hasLiveSession(session.id), true);
+    assert.equal(manager.getSession(session.id)?.id, session.id);
+    assert.equal(manager.listSessions().map((item) => item.id), [session.id]);
 
     manager.write(session.id, {
       clientId: 'test-client',
       data: 'hello sk-1234567890abcdef1234567890abcdef1234567890abcdef\r'
     });
 
-    await waitFor(() => store.transcript(session.id).includes('hello'), 1000);
-    const input = store.listEvents(session.id).find((event) => event.type === 'user.input');
+    await waitFor(
+      () => events.some((event) => event.type === 'terminal.output' && String(event.payload.data).includes('hello')),
+      1000
+    );
+    const input = events.find((event) => event.type === 'user.input');
     assert.ok(input);
     assert.match(String(input.payload.data), /\[REDACTED/);
+    const started = events.find((event) => event.type === 'session.started');
+    assert.ok(started);
+    assert.equal(started.id > 0, true);
+    manager.updateSessionStatus(session.id, 'lost');
+    assert.equal(manager.getSession(session.id)?.status, 'lost');
 
-    manager.stop(session.id);
+    cleanup();
+    unsubscribe();
   } finally {
+    unsubscribe();
     cleanup();
   }
 });
