@@ -35,7 +35,6 @@ import {
   type TetherConfig
 } from '@tether/config';
 import {
-  formatTmuxError,
   listGateways,
   localLanAddress,
   PtySessionManager,
@@ -510,7 +509,7 @@ program
   });
 
 program.parseAsync().catch((error: unknown) => {
-  console.error(formatTmuxError(error));
+  console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });
 

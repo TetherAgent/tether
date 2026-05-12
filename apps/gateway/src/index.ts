@@ -17,13 +17,3 @@ export type {
   RunnerRequest,
   RunnerResponse
 } from './pty/session-runner.js';
-export {
-  assertTmuxAvailable,
-  attachSession,
-  createAgentSession,
-  formatTmuxError,
-  sendKeys,
-  sessionExists,
-  sessionName,
-  showStatusMessage
-} from './tmux.js';
