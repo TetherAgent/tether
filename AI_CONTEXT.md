@@ -267,8 +267,8 @@ Gateway/runner 会从 `user.input`、`terminal.output`、agent JSONL / transcrip
 
 当前实现限制：
 
-- Phase 6 后，常驻 Gateway 是正常路径：`tether gateway` 前台运行，或
-  `tether gateway start` 通过 launchd 后台运行；`tether run codex` /
+- Phase 6 后，常驻 Gateway 是正常路径：`tether start` 通过 launchd 后台运行；
+  `tether run codex` /
   `tether run <provider>` 会先探测常驻 Gateway，请求它创建 session。Gateway 会为每个
   session 启动 detached session runner 进程，由 runner 持有 PTY 和 provider child；
   CLI 只 attach 到该 session。

@@ -99,11 +99,9 @@ pnpm tether --help
 pnpm tether login
 pnpm tether logout
 pnpm tether start
-pnpm tether gateway
-pnpm tether gateway start
-pnpm tether gateway stop
-pnpm tether gateway restart
-pnpm tether gateway status
+pnpm tether stop
+pnpm tether restart
+pnpm tether status
 pnpm tether debug
 pnpm tether run codex
 pnpm tether run shell

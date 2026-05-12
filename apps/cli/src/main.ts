@@ -50,7 +50,6 @@ import {
   readGatewayRuntimeInfo,
   startLaunchAgent,
   stopLaunchAgent,
-  uninstallLaunchAgent,
   type LaunchAgentStatus
 } from './launchd.js';
 import { runningSessionIds } from './session-stop.js';
@@ -172,38 +171,14 @@ program
     await startGatewayBackground();
   });
 
-const gatewayCommand = program
-  .command('gateway')
-  .description('管理 Tether Gateway')
-  .helpOption('-h, --help', '显示帮助')
-  .addHelpCommand('help [command]', '显示指定 Gateway 命令的帮助')
-  .action(async () => {
-    await runGatewayMenu();
-  });
-
-gatewayCommand
-  .command('start')
-  .description('通过 launchd 在后台启动 Gateway（无配置时自动初始化）')
-  .action(async () => {
-    await startGatewayBackground();
-  });
-
-gatewayCommand
-  .command('serve')
+program
+  .command('serve', { hidden: true })
   .description('以前台 daemon 模式运行 Gateway（供 launchd 调用）')
   .action(async () => {
     await startGatewayForeground(gatewayProfileFromEnv());
   });
 
-gatewayCommand
-  .command('stop')
-  .description('通过 launchd 停止 Gateway')
-  .action(async () => {
-    await stopGatewayBackground();
-    terminal.success('Gateway 已停止。');
-  });
-
-gatewayCommand
+program
   .command('restart')
   .description('通过 launchd 重启 Gateway')
   .action(async () => {
@@ -212,7 +187,7 @@ gatewayCommand
     terminal.success('Gateway 已重启。');
   });
 
-gatewayCommand
+program
   .command('status')
   .description('打印 Gateway 状态')
   .action(async () => {
@@ -491,8 +466,13 @@ program
   .command('stop')
   .argument('[id]')
   .option('--all', '停止所有运行中的 session')
-  .description('停止运行中的 session')
+  .description('停止 Gateway 或运行中的 session')
   .action(async (id: string | undefined, options: { all?: boolean }) => {
+    if (!id && !options.all) {
+      await stopGatewayBackground();
+      terminal.success('Gateway 已停止。');
+      return;
+    }
     const relay = resolveRelayConfig({ file: readTetherConfig() });
     if (!relay) {
       throw new Error('当前 Gateway 未配置 Relay，无法停止 session。');
@@ -509,7 +489,7 @@ program
       return;
     }
     if (!id) {
-      throw new Error('missing session id; use `tether stop <id>` or `tether stop --all`');
+      throw new Error('missing session id; use `tether stop <id>` or `tether stop --all`; use `tether stop` to stop Gateway');
     }
     await stopSessionViaRelay(id, relay.url, auth.accessToken);
     console.log(`已关闭 ${id}`);
@@ -519,38 +499,6 @@ program.parseAsync().catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });
-
-async function runGatewayMenu(): Promise<void> {
-  console.log('Gateway 管理');
-  console.log('1. 后台启动 Gateway');
-  console.log('2. 查看 Gateway 状态');
-  console.log('3. 重启 Gateway');
-  console.log('4. 停止 Gateway');
-  const answer = await promptLine('请选择 1/2/3/4: ');
-  switch (answer) {
-    case '1':
-    case 'start':
-      await startGatewayBackground();
-      return;
-    case '2':
-    case 'status':
-      await printGatewayStatus();
-      return;
-    case '3':
-    case 'restart':
-      await stopGatewayBackground();
-      await startGatewayBackground();
-      terminal.success('Gateway 已重启。');
-      return;
-    case '4':
-    case 'stop':
-      await stopGatewayBackground();
-      terminal.success('Gateway 已停止。');
-      return;
-    default:
-      throw new Error(`未知 Gateway 管理选项：${answer || '-'}`);
-  }
-}
 
 async function runDebugMenu(): Promise<void> {
   console.log('Debug 工具');
@@ -584,14 +532,6 @@ function debugPrintSessionUrl(id: string, host = localLanAddress() ?? '127.0.0.1
   console.log(`http://${host}:${port}/remote/session/${id}`);
 }
 
-
-function parsePort(value: string): number {
-  const port = Number(value);
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    throw new Error(`invalid port: ${value}`);
-  }
-  return port;
-}
 
 async function startGatewayBackground(): Promise<void> {
   terminal.section('Gateway 启动');
@@ -743,8 +683,8 @@ async function assertGatewayPortAvailable(host: string, port: number): Promise<v
       if (error.code === 'EADDRINUSE') {
         reject(new Error(
           `Gateway 启动失败：${host}:${port} 已被占用。\n` +
-          '通常是已有 Gateway 正在运行。先执行：pnpm tether gateway status\n' +
-          '如果确认要重启，执行：pnpm tether gateway stop，然后再启动。'
+          '通常是已有 Gateway 正在运行。先执行：pnpm tether status\n' +
+          '如果确认要重启，执行：pnpm tether stop，然后再启动。'
         ));
         return;
       }
@@ -1522,7 +1462,7 @@ async function performGatewayLogin(options: {
   terminal.line('已绑定 Gateway ID', result.gatewayId);
   terminal.line('Account ID', result.accountId);
   terminal.line('下一步', 'tether start');
-  terminal.line('查看状态', 'tether gateway status');
+  terminal.line('查看状态', 'tether status');
 }
 
 async function logoutGateway(): Promise<void> {

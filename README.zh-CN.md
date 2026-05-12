@@ -113,9 +113,6 @@ tether login
 # 以系统服务方式启动后台 Gateway（首次运行自动安装 LaunchAgent）
 tether start
 
-# 或在前台运行（适合调试）
-tether gateway
-
 # 启动 agent session
 tether run codex
 tether run claude
@@ -136,6 +133,11 @@ tether ls
 
 # 停止 session
 tether stop <session-id>
+
+# 管理后台 Gateway
+tether status
+tether restart
+tether stop
 ```
 
 默认情况下，Gateway 只监听本机：
@@ -149,8 +151,8 @@ tether stop <session-id>
 ### 诊断
 
 ```bash
-tether debug          # 检查运行环境
-tether gateway status  # 查看 Gateway 状态
+tether debug   # 检查运行环境
+tether status  # 查看 Gateway 状态
 ```
 
 ### 开发者模式

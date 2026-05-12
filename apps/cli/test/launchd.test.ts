@@ -13,7 +13,8 @@ test('plist uses absolute node and launcher paths', () => {
   assert.match(plist, /<key>ProgramArguments<\/key>/);
   assert.match(plist, /<string>\/usr\/local\/bin\/node<\/string>/);
   assert.match(plist, /<string>\/Users\/test\/tether\/bin\/tether<\/string>/);
-  assert.match(plist, /<string>gateway<\/string>/);
+  assert.match(plist, /<string>serve<\/string>/);
+  assert.doesNotMatch(plist, /<string>gateway<\/string>/);
 });
 
 test('plist does not depend on pnpm, tsx, dist or HOME expansion', () => {

@@ -32,11 +32,10 @@ Gateway 启动时认证并绑定 account/workspace，Relay 的 `/gateway` 和 `/
 
   终端 2：配置并启动常驻 Gateway，让 Gateway 连 Relay
 
-  pnpm tether gateway config --host 127.0.0.1 --port 4789 \
-    --relay-url ws://127.0.0.1:4889 \
-    --relay-secret dev-secret \
-    --allow-api-session-create
-  pnpm tether gateway start
+  TETHER_RELAY_URL=ws://127.0.0.1:4889 \
+  TETHER_RELAY_SECRET=dev-secret \
+  TETHER_GATEWAY_PROFILE=relay \
+  pnpm tether start
   pnpm tether run codex
 
   终端 3：启动 Web
@@ -85,24 +84,15 @@ relay frame 转发职责保持分离。
 Gateway 当前使用 relay URL 和 secret 主动连到 relay：
 
 ```bash
-pnpm tether gateway config \
-  --relay-url wss://relay.example.com \
-  --relay-secret <personal-secret> \
-  --allow-api-session-create
-pnpm tether gateway start
+TETHER_RELAY_URL=wss://relay.example.com \
+TETHER_RELAY_SECRET=<personal-secret> \
+TETHER_GATEWAY_PROFILE=relay \
+pnpm tether start
 pnpm tether run codex
 ```
 
-也可以通过环境变量提供：
-
-```bash
-TETHER_RELAY_URL=wss://relay.example.com \
-TETHER_RELAY_SECRET=<personal-secret> \
-pnpm tether gateway
-```
-
-日常使用推荐持久化到 `~/.tether/config.json` 后通过 `pnpm tether gateway start` 管理
-Gateway；环境变量更适合一次性前台验证。`pnpm tether run codex` 默认会优先
+日常使用推荐持久化到 `~/.tether/config.json` 后通过 `pnpm tether start` 管理
+Gateway；环境变量更适合一次性验证。`pnpm tether run codex` 默认会优先
 转发给常驻 Gateway 创建 session，只有未检测到常驻 Gateway 或显式 `--inline` 时才回到
 单次 CLI 内联 Gateway。
 
@@ -157,11 +147,10 @@ ok
 Terminal 2：
 
 ```bash
-pnpm tether gateway config --host 127.0.0.1 --port 4789 \
-  --relay-url ws://127.0.0.1:4889 \
-  --relay-secret dev-secret \
-  --allow-api-session-create
-pnpm tether gateway start
+TETHER_RELAY_URL=ws://127.0.0.1:4889 \
+TETHER_RELAY_SECRET=dev-secret \
+TETHER_GATEWAY_PROFILE=relay \
+pnpm tether start
 pnpm tether run codex
 ```
 
@@ -246,11 +235,10 @@ pnpm dev:relay
 本机 Gateway 使用公网 relay base URL：
 
 ```bash
-pnpm tether gateway config \
-  --relay-url wss://relay.example.com \
-  --relay-secret <personal-secret> \
-  --allow-api-session-create
-pnpm tether gateway start
+TETHER_RELAY_URL=wss://relay.example.com \
+TETHER_RELAY_SECRET=<personal-secret> \
+TETHER_GATEWAY_PROFILE=relay \
+pnpm tether start
 pnpm tether run codex
 ```
 

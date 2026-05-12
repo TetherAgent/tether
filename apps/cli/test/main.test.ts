@@ -74,7 +74,7 @@ test('foreground gateway checks port before prompting for auth', () => {
   const source = mainSource();
   assert.match(source, /assertGatewayPortAvailable\(resolved\.gateway\.host, resolved\.gateway\.port\);[\s\S]*ensureGatewayAuthForProfile/);
   assert.match(source, /EADDRINUSE/);
-  assert.match(source, /pnpm tether gateway stop/);
+  assert.match(source, /pnpm tether stop/);
 });
 
 test('top-level start uses launchd gateway profile wiring', () => {
@@ -84,14 +84,20 @@ test('top-level start uses launchd gateway profile wiring', () => {
   assert.match(source, /command\('start'\)[\s\S]*startGatewayBackground\(\)/);
 });
 
-test('debug-only commands are not exposed as top-level commands', () => {
+test('top-level stop without id stops gateway', () => {
+  const source = mainSource();
+  assert.match(source, /if \(!id && !options\.all\) \{[\s\S]*stopGatewayBackground\(\)/);
+  assert.match(source, /Gateway 已停止。/);
+});
+
+test('gateway namespace is removed and debug-only commands are not exposed as top-level commands', () => {
   const source = mainSource();
   assert.match(source, /command\('debug'\)/);
+  assert.doesNotMatch(source, /command\('gateway'\)/);
   assert.doesNotMatch(source, /program\s*\n\s*\.command\('doctor'\)/);
   assert.doesNotMatch(source, /program\s*\n\s*\.command\('clients'\)/);
   assert.doesNotMatch(source, /program\s*\n\s*\.command\('url'\)/);
   assert.doesNotMatch(source, /program\s*\n\s*\.command\('send'\)/);
-  assert.doesNotMatch(source, /gatewayCommand\s*\n\s*\.command\('logs'\)/);
 });
 
 test('provider shortcut commands are not registered as top-level commands', () => {
@@ -108,20 +114,20 @@ test('run command rejects unknown providers and disallows shell args', () => {
   assert.match(source, /shell provider 不接受额外参数/);
 });
 
-test('gateway restart reuses background startup profile wiring', () => {
+test('top-level restart reuses background startup profile wiring', () => {
   const source = mainSource();
   assert.match(source, /command\('restart'\)[\s\S]*stopGatewayBackground\(\);[\s\S]*startGatewayBackground\(\);/);
   assert.doesNotMatch(source, /command\('restart'\)[\s\S]{0,240}restartLaunchAgent\(\);/);
 });
 
-test('background gateway start verifies daemon and relay readiness before success', () => {
+test('background start verifies daemon and relay readiness before success', () => {
   const source = mainSource();
   assert.match(source, /waitForStartedGateway\(profile\)/);
   assert.match(source, /profile !== 'relay' \|\| stringValue\(status\.relay\?\.state\) === 'connected'/);
   assert.match(source, /当前未确认启动成功，未打印/);
 });
 
-test('background gateway start is idempotent when gateway is already running', () => {
+test('background start is idempotent when gateway is already running', () => {
   const source = mainSource();
   assert.match(source, /const existing = await fetchGatewayStatusBody/);
   assert.match(source, /Gateway 状态', `已运行/);
@@ -177,6 +183,7 @@ test('stop prints success and uses relay only', () => {
   const source = mainSource();
   assert.match(source, /已关闭 \$\{id\}/);
   assert.match(source, /stopSessionViaRelay/);
+  assert.match(source, /--all/);
   assert.doesNotMatch(source, /stopPtySessionViaGateway/);
   assert.doesNotMatch(source, /stopPtySessionViaRunner/);
   assert.doesNotMatch(source, /SessionRunnerClient/);

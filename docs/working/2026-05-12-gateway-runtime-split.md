@@ -389,7 +389,7 @@ pnpm --filter @tether-labs/cli typecheck
 涉及真实 PTY / runner 行为时，必须做一次人工 UAT：
 
 ```bash
-pnpm tether gateway restart
+pnpm tether restart
 pnpm tether run shell
 pnpm tether ls
 pnpm tether stop <session-id>

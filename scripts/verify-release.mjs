@@ -114,7 +114,7 @@ async function checkV16NoExperimentalWarning() {
 async function checkV19PlistPath() {
   const plistPath = path.join(process.env.HOME ?? '', 'Library/LaunchAgents/sh.tether.gateway.plist');
   if (!existsSync(plistPath)) {
-    record('V19', 'plist PATH 含 brew/local', 'SKIP', `plist 不存在，先 tether gateway install`);
+    record('V19', 'plist PATH 含 brew/local', 'SKIP', `plist 不存在，先运行 tether start`);
     return;
   }
   const plist = readFileSync(plistPath, 'utf8');
@@ -221,7 +221,7 @@ async function main() {
   await checkV20Providers();
   await checkV23DoctorOutput();
 
-  console.log('\n--- LaunchAgent (依赖之前 tether gateway install) ---');
+  console.log('\n--- LaunchAgent (依赖之前 tether start) ---');
   await checkV19PlistPath();
 
   // 总结

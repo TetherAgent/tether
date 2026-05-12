@@ -167,7 +167,7 @@ export async function launchAgentStatus(): Promise<LaunchAgentStatus> {
 function gatewayProgramArguments(options: GatewayPlistOptions): string[] {
   const nodePath = path.resolve(options.nodePath ?? process.execPath);
   const launcherPath = resolveLauncherPath(options.launcherPath);
-  return [nodePath, launcherPath, 'gateway', 'serve'];
+  return [nodePath, launcherPath, 'serve'];
 }
 
 function resolveWorkingDirectory(override?: string, launcherPathOverride?: string): string {

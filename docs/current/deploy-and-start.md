@@ -1,7 +1,7 @@
 # 部署与启动
 
-本文只记录当前有效的 Tether CLI 启动方式。历史命令如 `tether gateway login`、
-`tether codex`、`tether doctor`、`tether gateway logs` 已不再作为正式入口暴露。
+本文只记录当前有效的 Tether CLI 启动方式。旧的 Gateway 命名空间入口、provider
+快捷入口和零散 debug 命令已不再作为正式入口暴露。
 
 ## 本机最短路径
 
@@ -26,7 +26,7 @@ tether start
 查看 Gateway 状态：
 
 ```bash
-tether gateway status
+tether status
 ```
 
 启动 agent session：
@@ -56,18 +56,19 @@ tether stop --all
 ## Gateway 管理
 
 ```bash
-tether gateway
-tether gateway start
-tether gateway status
-tether gateway restart
-tether gateway stop
+tether start
+tether status
+tether restart
+tether stop
 ```
 
-- `tether gateway`：打开 Gateway 管理交互菜单。
-- `tether gateway start`：启动后台 Gateway。
-- `tether gateway status`：查看 Gateway 状态。
-- `tether gateway restart`：重启后台 Gateway。
-- `tether gateway stop`：停止后台 Gateway。
+- `tether start`：启动后台 Gateway。
+- `tether status`：查看 Gateway 状态。
+- `tether restart`：重启后台 Gateway。
+- `tether stop`：停止后台 Gateway。
+
+`tether stop <id>` 和 `tether stop --all` 用于停止 session；不带参数的 `tether stop`
+只停止后台 Gateway。
 
 ## 登录与环境
 
@@ -113,11 +114,10 @@ tether debug
 5. 向 session 发文本
 ```
 
-这些旧命令已经收进 `tether debug`，不要再写进新文档：
+这些旧 debug 命令已经收进 `tether debug`，不要再写进新文档：
 
 ```bash
 tether doctor
-tether gateway logs
 tether clients <id>
 tether url <id>
 tether send <id> <text>
@@ -143,6 +143,8 @@ tether login
 tether logout
 
 tether start
+tether status
+tether restart
 tether run codex [codexArgs...]
 tether run claude [claudeArgs...]
 tether run opencode [opencodeArgs...]
@@ -151,12 +153,6 @@ tether run shell
 tether ls
 tether stop <id>
 tether stop --all
-
-tether gateway
-tether gateway start
-tether gateway status
-tether gateway restart
-tether gateway stop
 
 tether debug
 ```

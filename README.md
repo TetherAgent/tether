@@ -140,9 +140,6 @@ tether login
 # Start the background Gateway as a system service (auto-installs LaunchAgent)
 tether start
 
-# Or run in foreground (useful for debugging)
-tether gateway
-
 # Run an agent session
 tether run codex
 tether run claude
@@ -163,6 +160,11 @@ tether ls
 
 # Stop a session
 tether stop <session-id>
+
+# Manage the background Gateway
+tether status
+tether restart
+tether stop
 ```
 
 By default, the Gateway only listens on localhost:
@@ -177,8 +179,8 @@ commands no longer take `--host`.
 ### Diagnostics
 
 ```bash
-tether debug          # check runtime environment
-tether gateway status  # check Gateway status
+tether debug   # check runtime environment
+tether status  # check Gateway status
 ```
 
 ### Development

@@ -36,19 +36,19 @@ Gateway 会作为后台服务运行。电脑重启后也会由系统服务拉起
 ### 3. 停止 Gateway
 
 ```bash
-tether gateway stop
+tether stop
 ```
 
 ### 4. 重启 Gateway
 
 ```bash
-tether gateway restart
+tether restart
 ```
 
 改了配置、重新登录后，通常执行一次重启即可：
 
 ```bash
-tether gateway restart
+tether restart
 ```
 
 ## 常用命令
@@ -58,9 +58,9 @@ tether gateway restart
 | `tether login` | 登录并绑定本机 Gateway |
 | `tether login --env local` | 登录本地开发环境 |
 | `tether start` | 启动后台 Gateway |
-| `tether gateway start` | 启动后台 Gateway |
-| `tether gateway stop` | 停止后台 Gateway |
-| `tether gateway restart` | 重启后台 Gateway |
+| `tether stop` | 停止后台 Gateway |
+| `tether restart` | 重启后台 Gateway |
+| `tether status` | 查看 Gateway 状态 |
 
 ## 卸载
 

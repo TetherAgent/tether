@@ -13,7 +13,7 @@ Gateway 负责控制面、状态对账和 UI / Relay 转发；每个 session 由
 ```bash
 tether login
 tether start
-tether gateway status
+tether status
 ```
 
 日常启动 Codex：
@@ -48,20 +48,19 @@ tether stop --all
 ## Gateway 管理
 
 ```bash
-tether gateway
-tether gateway start
-tether gateway status
-tether gateway restart
-tether gateway stop
+tether start
+tether status
+tether restart
+tether stop
 ```
 
-- `tether gateway`：打开 Gateway 管理交互菜单。
-- `tether gateway start`：启动后台 Gateway。
-- `tether gateway status`：查看 Gateway 状态。
-- `tether gateway restart`：重启后台 Gateway。
-- `tether gateway stop`：停止后台 Gateway。
+- `tether start`：启动后台 Gateway。
+- `tether status`：查看 Gateway 状态。
+- `tether restart`：重启后台 Gateway。
+- `tether stop`：停止后台 Gateway。
 
-`tether start` 是日常启动后台 Gateway 的短入口，等价于走后台启动路径。
+`tether stop <id>` 和 `tether stop --all` 用于停止 session；不带参数的 `tether stop`
+只停止后台 Gateway。
 
 ## 登录
 
@@ -103,11 +102,10 @@ tether debug
 5. 向 session 发文本
 ```
 
-以下入口不再作为正式命令暴露：
+以下入口不再作为正式命令暴露，统一收进 `tether debug` 或顶层 Gateway 命令：
 
 ```bash
 tether doctor
-tether gateway logs
 tether clients <id>
 tether url <id>
 tether send <id> <text>
@@ -120,6 +118,8 @@ tether login
 tether logout
 
 tether start
+tether status
+tether restart
 tether run codex [codexArgs...]
 tether run claude [claudeArgs...]
 tether run opencode [opencodeArgs...]
@@ -128,12 +128,6 @@ tether run shell
 tether ls
 tether stop <id>
 tether stop --all
-
-tether gateway
-tether gateway start
-tether gateway status
-tether gateway restart
-tether gateway stop
 
 tether debug
 ```
@@ -149,12 +143,7 @@ tether opencode
 tether copilot
 ```
 
-以下 Gateway 登录入口也已经删除：
-
-```bash
-tether gateway login
-tether gateway logout
-```
+旧的 Gateway 命名空间入口已经删除；登录、启动、状态、重启、停止都使用顶层命令。
 
 ## 仓库内开发
 
