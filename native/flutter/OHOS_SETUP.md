@@ -12,9 +12,7 @@
 ```bash
 cd native/flutter
 fvm flutter pub get
-fvm flutter gen-l10n
 fvm flutter analyze --no-pub
-fvm flutter test --no-pub
 fvm flutter build apk --debug
 ./scripts/assemble-debug-apk.sh
 ```
@@ -47,3 +45,7 @@ flutter build hap
 ## pnpm 隔离
 
 `native/flutter/` 不在 `pnpm-workspace.yaml` 的 workspace globs 中；根目录 TypeScript 验证继续使用 `pnpm typecheck`，Flutter 侧单独运行 `flutter analyze` / `flutter test`。
+
+## 当前 Flutter 范围
+
+当前 Flutter 客户端已降级为最小 demo 页面。旧的 Relay、登录、会话、终端、l10n 和测试代码已移除；OHOS 验证文档只保留平台环境和打包链路说明。

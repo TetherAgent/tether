@@ -335,6 +335,57 @@ async function gatewayCandidateUrls(): Promise<string[]> {
   return [...candidates];
 }
 
+async function listSessionsViaRelay(relayUrl: string, accessToken: string): Promise<CliSession[]> {
+  const ws = new WebSocket(relayClientUrl(relayUrl));
+  return await new Promise<CliSession[]>((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error, sessions?: CliSession[]) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      ws.removeAllListeners();
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+      if (error) {
+        reject(error);
+      } else {
+        resolve(sessions ?? []);
+      }
+    };
+    const timer = setTimeout(() => {
+      finish(new Error('relay auth timeout'));
+    }, 5_000);
+    ws.once('error', (err) => {
+      finish(err instanceof Error ? err : new Error(String(err)));
+    });
+    ws.once('open', () => {
+      ws.send(JSON.stringify({ type: 'client.auth', token: accessToken }));
+    });
+    ws.on('message', (raw) => {
+      const frame = JSON.parse(raw.toString()) as Record<string, unknown>;
+      if (frame.type === 'client.auth.failed') {
+        finish(new Error(`relay auth failed: ${String(frame.message ?? 'unknown error')}`));
+        return;
+      }
+      if (frame.type === 'client.auth.ok') {
+        clearTimeout(timer);
+        const listTimer = setTimeout(() => finish(new Error('relay list timeout')), 5_000);
+        ws.once('close', () => clearTimeout(listTimer));
+        ws.send(JSON.stringify({ type: 'client.list' }));
+        return;
+      }
+      if (frame.type === 'sessions') {
+        finish(undefined, Array.isArray(frame.sessions) ? frame.sessions as CliSession[] : []);
+        return;
+      }
+      if (frame.type === 'error') {
+        finish(new Error(String(frame.message ?? frame.code ?? 'relay error')));
+      }
+    });
+  });
+}
+
 async function createSessionViaRelay(
   provider: ProviderDefinition,
   options: Pick<StartOptions, 'project' | 'title' | 'providerArgs'>,
@@ -414,8 +465,13 @@ program
   .command('ls')
   .description('列出已知 session')
   .action(async () => {
-    const sessions = await fetchGatewaySessions().catch((error: unknown) => {
-      throw new Error(`无法连接 Gateway：${String(error)}`);
+    const relay = resolveRelayConfig({ file: readTetherConfig() });
+    if (!relay) {
+      throw new Error('当前 Gateway 未配置 Relay，无法列出 session。');
+    }
+    const auth = await readFreshGatewayAuthState();
+    const sessions = await listSessionsViaRelay(relay.url, auth.accessToken).catch((error: unknown) => {
+      throw new Error(`无法连接 Relay：${String(error)}`);
     });
     for (const session of sessions) {
       console.log(`${session.id}\t${session.status}\t${session.transport}\t${session.projectPath}`);
