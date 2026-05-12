@@ -158,19 +158,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     }
   };
 
-  const isLivePtySession = async (session: Session): Promise<boolean> => {
-    if (session.transport !== 'pty-event-stream') {
-      return false;
-    }
-    if (session.runnerSocketPath) {
-      return pingRunner(session);
-    }
-    return options.ptySessions.hasLiveSession(session.id);
-  };
 
-  const getSession = (sessionId: string): Session | undefined => {
-    return options.ptySessions.getSession(sessionId);
-  };
 
   const listSessions = (): Session[] => {
     return options.ptySessions.listSessions();
@@ -184,13 +172,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     }
   };
 
-  const touchSession = (sessionId: string, now = Date.now()): void => {
-    const session = options.ptySessions.getSession(sessionId);
-    if (session) {
-      session.updatedAt = now;
-      session.lastActiveAt = now;
-    }
-  };
 
   const updateAttachState = (sessionId: string, attachState: Session['attachState'], now = Date.now()): void => {
     const session = options.ptySessions.getSession(sessionId);

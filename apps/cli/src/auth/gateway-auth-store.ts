@@ -1,10 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { unwrapServerApiData } from '../utils/server-api.js';
+import { logger } from '../utils/logger.js';
 import { decodeTokenPayload } from './token.js';
-
-const GATEWAY_TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
 
 export type GatewayAuthState = {
   serverUrl: string;
@@ -24,15 +22,9 @@ export async function gatewayAuthHeaders(): Promise<Record<string, string>> {
 
 export async function readFreshGatewayAuthState(): Promise<GatewayAuthState> {
   const auth = await readGatewayAuthState();
-  if (auth.expiresAt > Date.now() + GATEWAY_TOKEN_REFRESH_SKEW_MS) {
-    return auth;
-  }
-  const refreshed = await refreshGatewayAuthState(auth).catch(() => undefined);
-  if (refreshed) {
-    return refreshed;
-  }
   if (auth.expiresAt <= Date.now()) {
-    throw new Error('本地 auth.json 已过期，且 refresh 失败。请重新执行 tether login。');
+    logger.warn('auth', 'token expired', { expiresAt: auth.expiresAt });
+    throw new Error('本地 auth.json 已过期，请重新执行 tether login。');
   }
   return auth;
 }
@@ -59,33 +51,6 @@ export async function writeGatewayAuthState(state: GatewayAuthState): Promise<vo
   await writeFile(gatewayAuthPath(), `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
 }
 
-export async function refreshGatewayAuthState(state: GatewayAuthState): Promise<GatewayAuthState | undefined> {
-  const response = await fetch(`${state.serverUrl}/api/relay/gateway/refresh`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ refreshToken: state.refreshToken })
-  });
-  if (!response.ok) {
-    return undefined;
-  }
-  const data = unwrapServerApiData(await response.json().catch(() => undefined)) as { accessToken?: unknown; refreshToken?: unknown } | undefined;
-  if (typeof data?.accessToken !== 'string' || typeof data.refreshToken !== 'string') {
-    return undefined;
-  }
-  const payload = decodeTokenPayload(data.accessToken);
-  if (!payload || typeof payload.expiresAt !== 'number') {
-    return undefined;
-  }
-  const next: GatewayAuthState = {
-    serverUrl: state.serverUrl,
-    accessToken: data.accessToken,
-    refreshToken: data.refreshToken,
-    expiresAt: payload.expiresAt
-  };
-  await writeGatewayAuthState(next);
-  return next;
-}
-
 export async function gatewayAuthSummary(): Promise<{
   state: string;
   gatewayId?: string;
@@ -110,11 +75,11 @@ export async function gatewayAuthSummary(): Promise<{
   ) {
     return { state: 'auth.json 无效' };
   }
-  const refreshed = await readFreshGatewayAuthState().catch(() => undefined);
-  const auth = refreshed ?? (parsed as GatewayAuthState);
+  const auth = parsed as GatewayAuthState;
+  const expired = auth.expiresAt <= Date.now();
   const payload = decodeTokenPayload(auth.accessToken);
   return {
-    state: refreshed ? '已登录' : auth.expiresAt > Date.now() ? '已登录（refresh 未确认）' : '已过期',
+    state: expired ? '已过期' : '已登录',
     gatewayId: typeof payload?.gatewayId === 'string' ? payload.gatewayId : undefined,
     accountId: typeof payload?.accountId === 'string' ? payload.accountId : undefined,
     expiresAt: auth.expiresAt
