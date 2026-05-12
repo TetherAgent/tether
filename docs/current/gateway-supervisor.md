@@ -28,6 +28,7 @@ tether run codex
 tether run claude
 tether run opencode
 tether run copilot
+tether run shell
 ```
 
 直接透传 provider 参数：
@@ -123,6 +124,7 @@ tether run codex [codexArgs...]
 tether run claude [claudeArgs...]
 tether run opencode [opencodeArgs...]
 tether run copilot [copilotArgs...]
+tether run shell
 tether ls
 tether stop <id>
 tether stop --all
@@ -162,5 +164,6 @@ tether gateway logout
 pnpm tether login
 pnpm tether start
 pnpm tether run codex --resume <codex-session-id>
+pnpm tether run shell --title "Terminal"
 pnpm tether debug
 ```

@@ -53,7 +53,7 @@ developer tools.
 Tether has been built around that bet from day one:
 
 - agents are background processes, not chat sessions
-- the Gateway owns sessions; arbitrary shell access is never on the table
+- the Gateway owns sessions; arbitrary command execution is never on the table
 - any screen can become an attach point for the same work
 - execution stays local; supervision goes anywhere
 - event streams, approvals, handoffs, and verification loops are first-class —
@@ -146,6 +146,7 @@ tether gateway
 # Run an agent session
 tether run codex
 tether run claude
+tether run shell
 
 # Common options:
 #   --title <title>    session label shown in the web UI
@@ -155,6 +156,7 @@ tether run claude
 # Examples:
 tether run codex --title "fix auth bug"
 tether run codex --model o3                    # pass flags to codex itself
+tether run shell --title "Terminal"            # start a real login shell
 
 # List sessions
 tether ls
@@ -255,9 +257,10 @@ Control plane principles — local first, cloud later:
   control.
 - Session plaintext does not leave your machine by default.
 - The phone can request a whitelist of local actions: open a desktop web UI,
-  attach an existing session, send input to the agent. That is the entire menu.
+  attach an existing session, send input to an agent, or attach an explicitly
+  created `shell` session. That is the entire menu.
 - The phone **cannot** ask the Gateway to execute arbitrary shell commands.
-  This is a hard architectural boundary, not a feature toggle.
+  `shell` is only a whitelisted provider that starts a fixed login shell.
 
 ## Roadmap
 
@@ -309,7 +312,7 @@ Drawing the boundaries clearly so nobody shows up with the wrong map.
   code is not Tether's business.
 - **Not a code editor.** No syntax tree, no completions.
 - **Not a generic remote shell.** The Gateway will not accept arbitrary
-  command execution. This is a design hard line.
+  command execution; `shell` is an explicit whitelisted provider.
 - **Not `codex_manager`**: that project reads existing Codex JSONL files for
   post-hoc observability. Tether wraps live agent processes so they can be
   controlled from anywhere.
@@ -330,9 +333,9 @@ release.
   configuration. Nothing leaks because of a stray default.
 - **Writes require credentials**: from Phase 2.5 onward, every client write
   action requires a device token.
-- **Clients can send input, never get a shell**: phone and web clients can
-  message an existing agent session — they cannot gain arbitrary command
-  execution.
+- **Clients only attach to whitelisted sessions**: phone and web clients can
+  send input to existing agent or `shell` sessions; they cannot gain arbitrary
+  command execution.
 - **Secrets do not belong on screen**: terminal output forwarded to clients
   is masked for common tokens and credentials.
 - **Relay only moves bytes**: command execution always happens on the local

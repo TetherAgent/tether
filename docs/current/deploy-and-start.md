@@ -36,6 +36,7 @@ tether run codex
 tether run claude
 tether run opencode
 tether run copilot
+tether run shell
 ```
 
 provider 参数直接跟在 provider 后面：
@@ -146,6 +147,7 @@ tether run codex [codexArgs...]
 tether run claude [claudeArgs...]
 tether run opencode [opencodeArgs...]
 tether run copilot [copilotArgs...]
+tether run shell
 tether ls
 tether stop <id>
 tether stop --all

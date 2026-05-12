@@ -30,6 +30,7 @@
 
 **Phase 1 → Phase 2 是架构换血**：tmux 包装层、capture-pane 轮询、send-keys
 注入正在被 PTY-backed event stream 替换。当前默认 `tether run codex` / `tether run claude`
+以及 `tether run shell`
 已走 PTY event stream；tmux 仅作为 `--transport tmux` 迁移期 fallback。
 
 当前 v0.3 里程碑已从 **Personal Relay Access** 调整为 **Multi-account Relay
@@ -222,7 +223,7 @@ user input、client attach/detach、resize、control change 都走 append-only e
 
 | 行为 | 命令 |
 |---|---|
-| 创建并接入当前终端 | `tether run codex` / `tether run claude` / `tether run opencode` |
+| 创建并接入当前终端 | `tether run codex` / `tether run claude` / `tether run opencode` / `tether run shell` |
 | 工作目录 | 执行 `tether run` 时的当前目录 |
 | 查看 client | `tether debug` 交互菜单 |
 | 发送输入 | `tether debug` 交互菜单或 Web 输入框 |

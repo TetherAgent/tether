@@ -1,4 +1,4 @@
-export type ProviderName = 'codex' | 'claude' | 'opencode' | 'copilot';
+export type ProviderName = 'codex' | 'claude' | 'opencode' | 'copilot' | 'shell';
 
 export type ProviderDefinition = {
   name: string;
@@ -10,7 +10,8 @@ export const PROVIDERS: Record<ProviderName, ProviderDefinition> = {
   codex: { name: 'codex', command: 'codex' },
   claude: { name: 'claude', command: 'claude' },
   opencode: { name: 'opencode', command: 'opencode' },
-  copilot: { name: 'copilot', command: 'gh' }
+  copilot: { name: 'copilot', command: 'gh' },
+  shell: { name: 'shell', command: 'shell' }
 };
 
 export function isProviderName(value: string): value is ProviderName {

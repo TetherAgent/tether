@@ -1,19 +1,15 @@
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { createHmac, timingSafeEqual } from 'node:crypto';
-import { randomUUID } from 'node:crypto';
-import type { Server as HttpServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import type { ServerType } from '@hono/node-server';
-import { WebSocketServer } from 'ws';
 import { readTetherConfig, type TetherConfig } from '@tether/config';
 import { isProviderName, PROVIDERS } from '@tether/core';
-import { ResponseCode, type AuthScopePayload, type AuthTokenClass, type SessionAccessMode } from '@tether/core';
+import { ResponseCode, type AuthScopePayload, type AuthTokenClass } from '@tether/core';
 import { createSessionId } from './ids.js';
 import { createSessionEvent } from './events.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
@@ -101,12 +97,6 @@ type ServerApiResponse<T> = {
   data?: T | null;
 };
 
-type WsTicketPayload = AuthScopePayload & {
-  tokenClass: 'ws_ticket';
-  sessionId: string;
-  mode: SessionAccessMode;
-};
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const webDistDir = path.resolve(__dirname, '../../web/dist');
 const TETHER_VERSION = resolvePackageVersion(import.meta.url, ['@tether-labs/cli', '@tether/gateway']) ?? '0.0.0-dev';
@@ -169,9 +159,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   const app = new Hono();
   const displayHost = options.host === '0.0.0.0' ? localLanAddress() ?? '127.0.0.1' : options.host;
   const url = `http://${displayHost}:${options.port}`;
-  const consumedTicketJtis = new Set<string>();
-  const clients = new Map<string, Map<string, ClientInfo>>();
-  const controllers = new Map<string, string>();
   const runnerClients = new Map<string, SessionRunnerClient>();
   let relayClient: RunningRelayClient | undefined;
   let lastServerHeartbeatAt: number | undefined;
@@ -254,50 +241,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     }));
     session.status = 'lost';
   };
-  app.post('/api/ws-ticket', async (c) => {
-    const actor = await authorizeRequest(c.req.header('authorization'), ['normal_client_access', 'gateway_access']);
-    if (!actor.ok) {
-      return c.json({ error: actor.error }, actor.status);
-    }
-    const body = await c.req.json<unknown>().catch(() => undefined);
-    if (!body || typeof body !== 'object') {
-      return c.json({ error: 'invalid JSON body' }, 400);
-    }
-    const request = body as Record<string, unknown>;
-    if (typeof request.sessionId !== 'string') {
-      return c.json({ error: 'sessionId is required' }, 400);
-    }
-    const mode = request.mode === 'observe' ? 'observe' : request.mode === 'control' ? 'control' : undefined;
-    if (!mode) {
-      return c.json({ error: 'mode is required' }, 400);
-    }
-    const session = getSession(request.sessionId);
-    if (!session) {
-      return c.json({ error: 'session not found' }, 404);
-    }
-    const ownership = authorizeSessionAccess(session, actor.payload, actor.gatewayId);
-    if (!ownership.ok) {
-      return c.json({ error: ownership.error }, ownership.status);
-    }
-    const authState = await loadGatewayAuthState();
-    if (!authState.ok) {
-      return c.json({ error: authState.error }, authState.status);
-    }
-    const identity = getGatewayIdentity(authState.value);
-    const ticket = issueWsTicket({
-      accountId: actor.payload.accountId,
-      gatewayId: actor.payload.gatewayId ?? identity?.gatewayId,
-      userId: actor.payload.userId,
-      deviceId: actor.payload.deviceId,
-      sessionId: session.id,
-      mode,
-      tokenClass: 'ws_ticket',
-      expiresAt: Date.now() + 60_000,
-      jti: `wst_${randomUUID().replace(/-/g, '')}`
-    }, authState.value.refreshToken);
-    return c.json({ ticket, expiresInMs: 60_000 });
-  });
-
   app.get('/api/status', async (c) => {
     const ptySessions = listSessions().filter(
       (session) => session.transport === 'pty-event-stream' && session.status === 'running'
@@ -388,256 +331,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     markSessionLost(session, 'Gateway restarted without a live PTY runner');
   }
 
-  const wss = new WebSocketServer({ server: server as unknown as HttpServer });
-  wss.on('connection', async (socket, request) => {
-    const parsedUrl = new URL(request.url ?? '/', url);
-    const match = /^\/api\/sessions\/([^/]+)\/stream$/.exec(parsedUrl.pathname);
-    if (!match) {
-      socket.close(1008, 'unsupported path');
-      return;
-    }
-    const sessionId = decodeURIComponent(match[1]);
-    const session = getSession(sessionId);
-    if (!session || session.transport !== 'pty-event-stream') {
-      socket.close(1008, 'session not found');
-      return;
-    }
-    if (!(await isLivePtySession(session))) {
-      socket.close(1008, 'session_lost');
-      return;
-    }
-    const ticket = wsTicketFromRequest(request, parsedUrl);
-    const mode = parsedUrl.searchParams.get('mode') === 'observe' ? 'observe' : 'control';
-    const authState = await loadGatewayAuthState();
-    if (!authState.ok) {
-      socket.close(1008, authState.error);
-      return;
-    }
-    const ticketPayload = consumeTicket(consumedTicketJtis, ticket, sessionId, mode, authState.value.refreshToken);
-    if (!ticketPayload.ok) {
-      socket.close(1008, ticketPayload.error);
-      return;
-    }
-    const identity = getGatewayIdentity(authState.value);
-    const ticketOwnership = authorizeSessionAccess(session, ticketPayload.payload, identity?.gatewayId);
-    if (!ticketOwnership.ok) {
-      socket.close(1008, ticketOwnership.error);
-      return;
-    }
-
-    const clientId = `cli_${randomUUID()}`;
-    const after = parseIntegerQuery(parsedUrl.searchParams.get('after') ?? undefined, 0);
-    const tail = parseIntegerQuery(parsedUrl.searchParams.get('tail') ?? undefined, 0);
-    const requestedCols = parseIntegerQuery(parsedUrl.searchParams.get('cols') ?? undefined, 0);
-    const requestedRows = parseIntegerQuery(parsedUrl.searchParams.get('rows') ?? undefined, 0);
-    let sessionClients = clients.get(session.id);
-    if (!sessionClients) {
-      sessionClients = new Map();
-      clients.set(session.id, sessionClients);
-    }
-    if (mode === 'control') {
-      controllers.set(session.id, clientId);
-    }
-    const client: ClientInfo = {
-      clientId,
-      deviceName: parsedUrl.searchParams.get('device') ?? 'websocket-client',
-      surface: parsedUrl.searchParams.get('surface') ?? 'web',
-      mode,
-      attachedAt: Date.now(),
-      lastSeenAt: Date.now()
-    };
-    sessionClients.set(clientId, client);
-    updateAttachState(session.id, 'attached');
-    socket.send(JSON.stringify({
-      type: 'hello',
-      sessionId,
-      clientId,
-      latestEventId: after,
-      controllerClientId: controllers.get(session.id) ?? null
-    }));
-    if (mode === 'control' && isValidTerminalSize(requestedCols, requestedRows)) {
-      const runnerClient = getRunnerClient(session);
-      if (runnerClient) {
-        try {
-          await runnerClient.resize(requestedCols, requestedRows, clientId);
-        } catch {
-          markSessionLost(session, 'Gateway could not resize this session runner before replay');
-          socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));
-          socket.close(1008, 'session_lost');
-          return;
-        }
-      } else {
-        const ok = options.ptySessions?.resize(sessionId, clientId, requestedCols, requestedRows) ?? false;
-        if (!ok) {
-          markSessionLost(session, 'Gateway could not resize this PTY session before replay');
-          socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));
-          socket.close(1008, 'session_lost');
-          return;
-        }
-      }
-    }
-    void tail;
-    socket.send(JSON.stringify({ type: 'replay.done', latestEventId: after }));
-    const replayCursor = after;
-    const attached = createSessionEvent(session.id, 'client.attached', {
-      clientId,
-      deviceName: client.deviceName,
-      surface: client.surface,
-      mode
-    });
-    options.ptySessions.publishEvent(attached);
-    socket.send(JSON.stringify({ type: 'event', event: attached }));
-
-    const runnerClient = getRunnerClient(session);
-    let unsubscribe: (() => void | Promise<void>) | undefined;
-    // agent.select detection state (per WS connection)
-    let recentOutputBuf = '';
-    let selectEmitted = false;
-    let selectDebounceTimer: NodeJS.Timeout | undefined;
-    const detectAndEmitAgentSelect = (event: { type: string; payload: Record<string, unknown> }) => {
-      if (
-        event.type !== 'terminal.output' ||
-        session.provider !== 'claude'
-      ) {
-        return;
-      }
-      if (selectEmitted) {
-        selectEmitted = false;
-      }
-      const data = (event.payload as { data?: string }).data ?? '';
-      recentOutputBuf += stripAnsi(data);
-      const bufLines = recentOutputBuf.split('\n');
-      if (bufLines.length > 50) {
-        recentOutputBuf = bufLines.slice(-50).join('\n');
-      }
-      clearTimeout(selectDebounceTimer);
-      selectDebounceTimer = setTimeout(() => {
-        if (selectEmitted) {
-          return;
-        }
-        const lines = recentOutputBuf.split('\n');
-        const matchedOptions = detectSelectOptions(lines);
-        if (!matchedOptions) {
-          return;
-        }
-        const raw = lines.filter((line) => /^\s*\d+\.\s+/.test(line)).join('\n');
-        const selectEvent = createSessionEvent(session.id, 'agent.select', {
-          options: matchedOptions,
-          raw
-        });
-        if (socket.readyState === socket.OPEN) {
-          socket.send(JSON.stringify({ type: 'event', event: selectEvent }));
-        }
-        selectEmitted = true;
-      }, 300);
-    };
-    if (runnerClient) {
-      try {
-        unsubscribe = await runnerClient.subscribeEvents((frame) => {
-          if (socket.readyState === socket.OPEN) {
-            socket.send(JSON.stringify({ type: 'event', event: frame.event }));
-            detectAndEmitAgentSelect(frame.event);
-          }
-        }, replayCursor);
-      } catch {
-        markSessionLost(session, 'Gateway could not subscribe to this session runner');
-        socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));
-        socket.close(1008, 'session_lost');
-        return;
-      }
-    } else {
-      unsubscribe = options.ptySessions?.subscribe(sessionId, (event) => {
-        if (socket.readyState === socket.OPEN) {
-          socket.send(JSON.stringify({ type: 'event', event }));
-          detectAndEmitAgentSelect(event);
-        }
-      });
-    }
-
-    socket.on('message', (data) => {
-      const frame = parseClientFrame(data.toString());
-      if (!frame) {
-        socket.send(JSON.stringify({ type: 'error', code: 'bad_frame', message: 'invalid client frame' }));
-        return;
-      }
-      if (frame.type === 'input' && typeof frame.data === 'string') {
-        client.lastSeenAt = Date.now();
-        if (client.mode === 'observe' || controllers.get(session.id) !== clientId) {
-          socket.send(JSON.stringify({
-            type: 'error',
-            code: client.mode === 'observe' ? 'observe_only' : 'not_controller',
-            message: client.mode === 'observe' ? 'observer clients cannot send input' : 'client is not the active controller'
-          }));
-          return;
-        }
-        if (runnerClient) {
-          runnerClient.write(frame.data, clientId).catch(() => {
-            socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));
-          });
-          return;
-        }
-        const ok = options.ptySessions?.write(sessionId, { clientId, data: frame.data }) ?? false;
-        if (!ok) {
-          socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));
-        }
-        return;
-      }
-      if (
-        frame.type === 'resize' &&
-        typeof frame.cols === 'number' &&
-        typeof frame.rows === 'number'
-      ) {
-        client.lastSeenAt = Date.now();
-        if (client.mode === 'observe' || controllers.get(session.id) !== clientId) {
-          socket.send(JSON.stringify({
-            type: 'error',
-            code: client.mode === 'observe' ? 'observe_only' : 'not_controller',
-            message: client.mode === 'observe' ? 'observer clients cannot resize' : 'client is not the active controller'
-          }));
-          return;
-        }
-        if (!isValidTerminalSize(frame.cols, frame.rows)) {
-          socket.send(JSON.stringify({ type: 'error', code: 'bad_resize', message: 'resize requires positive terminal dimensions' }));
-          return;
-        }
-        if (runnerClient) {
-          runnerClient.resize(frame.cols, frame.rows, clientId).catch(() => {
-            socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));
-          });
-          return;
-        }
-        const ok = options.ptySessions?.resize(sessionId, clientId, frame.cols, frame.rows) ?? false;
-        if (!ok) {
-          socket.send(JSON.stringify({ type: 'error', code: 'session_lost', message: 'PTY session is no longer running' }));
-        }
-        return;
-      }
-    });
-
-    socket.on('close', () => {
-      clearTimeout(selectDebounceTimer);
-      unsubscribe?.();
-      sessionClients?.delete(clientId);
-      if (controllers.get(session.id) === clientId) {
-        const nextController = [...(sessionClients?.values() ?? [])].find((candidate) => candidate.mode === 'control');
-        if (nextController) {
-          controllers.set(session.id, nextController.clientId);
-          options.ptySessions.publishEvent(createSessionEvent(session.id, 'client.control_changed', {
-            previousClientId: clientId,
-            nextClientId: nextController.clientId,
-            reason: 'disconnect'
-          }));
-        } else {
-          controllers.delete(session.id);
-        }
-      }
-      options.ptySessions.publishEvent(createSessionEvent(session.id, 'client.detached', { clientId, reason: 'disconnect' }));
-      if ((sessionClients?.size ?? 0) === 0) {
-        updateAttachState(session.id, 'detached');
-      }
-    });
-  });
-
   const gatewayId = options.relay?.gatewayId ?? `gw_${process.pid}_${options.port}`;
   const now = Date.now();
   await registerGateway({
@@ -667,6 +360,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       ptySessions: options.ptySessions,
       runnerClientForSession: getRunnerClient,
       onNewPtySession: async ({ provider, cwd, cols, rows, title, providerArgs }) => {
+        if (!isProviderName(provider)) {
+          throw new Error(`unsupported provider: ${provider}`);
+        }
         const authState = await loadGatewayAuthState();
         if (!authState.ok) {
           throw new Error(authState.error);
@@ -678,7 +374,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             id,
             provider,
             command: providerCommand(provider, options.config),
-            providerArgs,
+            providerArgs: provider === 'shell' ? ['-l'] : providerArgs,
             projectPath: path.resolve(cwd),
             title,
             cols,
@@ -706,7 +402,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         await client.close().catch(() => undefined);
       }
       runnerClients.clear();
-      wss.close();
       return new Promise<void>((resolve, reject) => {
         server.close((error) => {
           if (error) {
@@ -759,9 +454,15 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
 }
 
 function providerCommand(provider: string, config = readTetherConfig()): string {
+  if (provider === 'shell') {
+    return process.env.SHELL || '/bin/zsh';
+  }
   const configCommand = (config.providers as Record<string, { command?: string } | undefined>)?.[provider]?.command;
   if (configCommand && configCommand.length > 0) return configCommand;
-  return isProviderName(provider) ? PROVIDERS[provider].command : provider;
+  if (!isProviderName(provider)) {
+    throw new Error(`unsupported provider: ${provider}`);
+  }
+  return PROVIDERS[provider].command;
 }
 
 function pathListIncludes(value: string | undefined, needle: string): boolean {
@@ -786,15 +487,6 @@ function parseClientFrame(raw: string): { type?: unknown; data?: unknown; messag
     return undefined;
   }
 }
-
-type ClientInfo = {
-  clientId: string;
-  deviceName: string;
-  surface: string;
-  mode: 'control' | 'observe';
-  attachedAt: number;
-  lastSeenAt: number;
-};
 
 async function authorizeRequest(
   authorization: string | undefined,
@@ -986,83 +678,6 @@ function isAuthenticatedActor(payload: Partial<AuthenticatedActor>): payload is 
     typeof payload.expiresAt === 'number' &&
     typeof payload.jti === 'string'
   );
-}
-
-function wsTicketFromRequest(request: { headers: { 'sec-websocket-protocol'?: string | string[] | undefined } }, url: URL): string | null {
-  const protocolHeader = request.headers['sec-websocket-protocol'];
-  const protocols = Array.isArray(protocolHeader)
-    ? protocolHeader.flatMap((value) => value.split(','))
-    : (protocolHeader ?? '').split(',');
-  const ticketProtocol = protocols.map((value) => value.trim()).find((value) => value.startsWith('tether-ticket.'));
-  if (ticketProtocol) {
-    return ticketProtocol.slice('tether-ticket.'.length);
-  }
-  return url.searchParams.get('ticket');
-}
-
-function issueWsTicket(payload: WsTicketPayload, secret: string): string {
-  const encodedHeader = encodeSegment({ alg: 'HS256', typ: 'JWT' });
-  const encodedPayload = encodeSegment(payload);
-  const signature = signValue(`${encodedHeader}.${encodedPayload}`, secret);
-  return `${encodedHeader}.${encodedPayload}.${signature}`;
-}
-
-function consumeTicket(
-  consumedJtis: Set<string>,
-  ticket: string | null,
-  expectedSessionId: string,
-  expectedMode: SessionAccessMode,
-  secret: string
-): { ok: true; payload: WsTicketPayload } | { ok: false; error: string } {
-  if (!ticket) {
-    return { ok: false, error: 'invalid ticket' };
-  }
-  const parts = ticket.split('.');
-  if (parts.length !== 3) {
-    return { ok: false, error: 'invalid ticket' };
-  }
-  const [encodedHeader, encodedPayload, signature] = parts;
-  const expectedSignature = signValue(`${encodedHeader}.${encodedPayload}`, secret);
-  if (!safeEqual(signature, expectedSignature)) {
-    return { ok: false, error: 'invalid ticket' };
-  }
-  const payload = decodeSegment<WsTicketPayload>(encodedPayload);
-  if (payload.tokenClass !== 'ws_ticket') {
-    return { ok: false, error: 'invalid ticket' };
-  }
-  if (payload.expiresAt < Date.now()) {
-    return { ok: false, error: 'expired ticket' };
-  }
-  if (payload.sessionId !== expectedSessionId) {
-    return { ok: false, error: 'wrong session ticket' };
-  }
-  if (payload.mode !== expectedMode) {
-    return { ok: false, error: 'wrong mode ticket' };
-  }
-  if (consumedJtis.has(payload.jti)) {
-    return { ok: false, error: 'reused ticket' };
-  }
-  consumedJtis.add(payload.jti);
-  return { ok: true, payload };
-}
-
-function encodeSegment(payload: object): string {
-  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
-}
-
-function decodeSegment<T>(value: string): T {
-  return JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as T;
-}
-
-function signValue(value: string, secret: string): string {
-  return createHmac('sha256', secret).update(value).digest('base64url');
-}
-
-function safeEqual(left: string, right: string): boolean {
-  if (left.length !== right.length) {
-    return false;
-  }
-  return timingSafeEqual(Buffer.from(left), Buffer.from(right));
 }
 
 function stripAnsi(value: string): string {

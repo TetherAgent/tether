@@ -121,8 +121,7 @@ type CreatedGatewaySession = {
 type AttachMode = 'control' | 'observe';
 
 type AttachPtySessionOptions = {
-  host: string;
-  port: number;
+  relayUrl: string;
   mode?: AttachMode;
   reconnect?: boolean;
 };
@@ -230,7 +229,13 @@ program
   .option('--no-reconnect', '本地 attach 断开后不自动重连')
   .allowUnknownOption(true)
   .action((providerName: string, providerArgs: string[], options: StartOptions) => {
-    const provider = isProviderName(providerName) ? PROVIDERS[providerName] : { name: providerName, command: providerName };
+    if (!isProviderName(providerName)) {
+      throw new Error(`不支持的 provider：${providerName}`);
+    }
+    if (providerName === 'shell' && providerArgs.length > 0) {
+      throw new Error('shell provider 不接受额外参数；请直接运行：tether run shell');
+    }
+    const provider = PROVIDERS[providerName];
     return startProviderSession(provider, { ...options, providerArgs });
   });
 
@@ -253,10 +258,8 @@ async function startProviderSession(provider: ProviderDefinition, options: Start
   const remoteUrl = `${gatewayUrl}/remote/session/${session.id}`;
   console.log(`Tether session: ${session.id}`);
   console.log(`Remote URL: ${remoteUrl}`);
-  const gateway = new URL(gatewayUrl);
   const result = await attachPtySession(session.id, {
-    host: gateway.hostname,
-    port: Number(gateway.port),
+    relayUrl: relay.url,
     mode: 'control',
     reconnect: options.reconnect
   });
@@ -934,7 +937,9 @@ async function runGatewayDoctor(): Promise<void> {
   pushCheck('Relay 连接', stringValue(api?.relay?.state) === 'connected', formatRelayConnectionState(stringValue(api?.relay?.state)));
   for (const provider of Object.values(PROVIDERS)) {
     const configuredCommand = (file.providers as Record<string, { command?: string } | undefined> | undefined)?.[provider.name]?.command;
-    const command = configuredCommand ?? provider.command;
+    const command = provider.name === 'shell'
+      ? process.env.SHELL || '/bin/zsh'
+      : configuredCommand ?? provider.command;
     const available = commandAvailable(command);
     checks.push({
       name: `${provider.name} 命令`,
@@ -1210,30 +1215,56 @@ async function attachPtySession(
 
 async function attachPtySessionOnce(
   id: string,
-  options: Required<Pick<AttachPtySessionOptions, 'host' | 'port' | 'mode'>>,
+  options: Required<Pick<AttachPtySessionOptions, 'relayUrl' | 'mode'>>,
   after: number
 ): Promise<AttachAttemptResult> {
-  const ticket = await requestWsTicket(options, id, options.mode);
-  const params = new URLSearchParams({
-    surface: 'cli',
-    mode: options.mode
-  });
-  if (after > 0) {
-    params.set('after', String(after));
-  }
-  const url = `ws://${options.host}:${options.port}/api/sessions/${encodeURIComponent(id)}/stream?${params.toString()}`;
-  const ws = new WebSocket(url, [`tether-ticket.${ticket}`]);
+  const { accessToken } = await readFreshGatewayAuthState();
+  const ws = new WebSocket(relayClientUrl(options.relayUrl));
   let result: AttachAttemptResult = { status: 'reconnect', latestEventId: after };
   let localDetach = false;
   let localStop = false;
   let stopPromise: Promise<void> | undefined;
 
+  // Auth handshake: open → client.auth → client.auth.ok → client.subscribe
+  await new Promise<void>((resolve, reject) => {
+    let done = false;
+    const fail = (err: Error) => {
+      if (done) return;
+      done = true;
+      ws.removeAllListeners();
+      ws.close();
+      reject(err);
+    };
+    ws.once('error', (err) => fail(err instanceof Error ? err : new Error(String(err))));
+    ws.once('open', () => {
+      ws.send(JSON.stringify({ type: 'client.auth', token: accessToken }));
+    });
+    ws.on('message', (raw: RawData) => {
+      if (done) return;
+      const frame = JSON.parse(raw.toString()) as Record<string, unknown>;
+      if (frame.type === 'client.auth.failed') {
+        fail(new Error(`relay auth failed: ${String(frame.message ?? 'unknown')}`));
+      } else if (frame.type === 'error') {
+        fail(new Error(String(frame.message ?? frame.code ?? 'relay error')));
+      } else if (frame.type === 'client.auth.ok') {
+        ws.removeAllListeners();
+        ws.send(JSON.stringify({
+          type: 'client.subscribe',
+          sessionId: id,
+          mode: options.mode,
+          cols: process.stdout.columns || 120,
+          rows: process.stdout.rows || 40,
+          ...(after > 0 ? { after } : {})
+        }));
+        done = true;
+        resolve();
+      }
+    });
+    ws.once('close', () => fail(new Error('relay 连接在认证前关闭')));
+  });
+
   const previousRawMode = process.stdin.isRaw;
   const wasStdinPaused = process.stdin.isPaused();
-  await new Promise<void>((resolve, reject) => {
-    ws.once('open', () => resolve());
-    ws.once('error', reject);
-  });
 
   console.error('Attached to Tether PTY session. Press Ctrl-C to stop, Ctrl-A to detach.');
   process.stdin.setRawMode?.(true);
@@ -1264,18 +1295,10 @@ async function attachPtySessionOnce(
     result = { status: 'stopped', latestEventId: result.latestEventId, message: `Session 已停止：${id}` };
     cleanupTerminal();
     console.error('\n正在停止 Tether session...');
-    const _relay = resolveRelayConfig({ file: readTetherConfig() });
-    stopPromise = (_relay
-      ? readFreshGatewayAuthState()
-        .then((_auth) => stopSessionViaRelay(id, _relay.url, _auth.accessToken))
-      : Promise.reject(new Error('relay not configured'))
-    ).catch((error: unknown) => {
-        result = {
-          status: 'lost',
-          latestEventId: result.latestEventId,
-          message: `停止 session 失败：${error instanceof Error ? error.message : '未知错误'}`
-        };
-      })
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'client.stop', sessionId: id }));
+    }
+    stopPromise = new Promise<void>((r) => setTimeout(r, 300))
       .finally(() => {
         if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
           ws.close(1000, 'local stop');
@@ -1297,7 +1320,8 @@ async function attachPtySessionOnce(
   const resize = () => {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
-        type: 'resize',
+        type: 'client.resize',
+        sessionId: id,
         cols: process.stdout.columns || 120,
         rows: process.stdout.rows || 40
       }));
@@ -1311,11 +1335,12 @@ async function attachPtySessionOnce(
     if (chunk.includes(LOCAL_DETACH_KEY.charCodeAt(0))) {
       localDetach = true;
       result = { status: 'detached', latestEventId: result.latestEventId, message: `已退出本地 attach，session 继续运行：${id}` };
+      ws.send(JSON.stringify({ type: 'client.detach', sessionId: id }));
       ws.close(1000, 'local detach');
       return;
     }
     if (options.mode !== 'observe' && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'input', data: chunk.toString('utf8') }));
+      ws.send(JSON.stringify({ type: 'client.input', sessionId: id, data: chunk.toString('utf8') }));
     }
   };
   process.stdin.on('data', onData);
@@ -1329,7 +1354,9 @@ async function attachPtySessionOnce(
     ws.on('message', (raw: RawData) => {
       const frame = JSON.parse(raw.toString()) as {
         type?: string;
+        code?: string;
         latestEventId?: unknown;
+        sessionId?: unknown;
         event?: { id?: unknown; type?: string; payload?: { data?: unknown } };
       };
       if (typeof frame.latestEventId === 'number') {
@@ -1338,37 +1365,38 @@ async function attachPtySessionOnce(
       if (typeof frame.event?.id === 'number') {
         result.latestEventId = Math.max(result.latestEventId, frame.event.id);
       }
-      if (frame.type === 'event' && frame.event?.type === 'terminal.output') {
+      if (frame.type === 'gateway.event' && frame.event?.type === 'terminal.output') {
         const data = frame.event.payload?.data;
         if (typeof data === 'string') {
           process.stdout.write(data);
         }
         return;
       }
-      if (frame.type === 'event' && frame.event?.type === 'session.exited') {
+      if (frame.type === 'gateway.event' && frame.event?.type === 'session.exited') {
         result = { status: 'exited', latestEventId: result.latestEventId, message: `Session 已停止：${id}` };
         ws.close();
-      }
-    });
-    ws.once('close', (code, reasonBuffer) => {
-      if (result.status === 'exited' || result.status === 'stopped' || localDetach || localStop) {
-        resolve();
         return;
       }
-      const reason = reasonBuffer.toString();
-      if (reason.includes('session_lost')) {
+      if (frame.type === 'error' && frame.code === 'session_lost') {
         result = {
           status: 'lost',
           latestEventId: result.latestEventId,
           message: `Session 已失联：${id}。Gateway 已恢复，但这个 session runner 不可连接`
         };
-      } else {
-        result = {
-          status: 'reconnect',
-          latestEventId: result.latestEventId,
-          message: closeReasonMessage(code, reason)
-        };
+        ws.close();
       }
+    });
+    ws.once('close', (code, reasonBuffer) => {
+      if (result.status === 'exited' || result.status === 'stopped' || result.status === 'lost' || localDetach || localStop) {
+        resolve();
+        return;
+      }
+      const reason = reasonBuffer.toString();
+      result = {
+        status: 'reconnect',
+        latestEventId: result.latestEventId,
+        message: closeReasonMessage(code, reason)
+      };
       resolve();
     });
     ws.once('error', reject);
@@ -1393,27 +1421,7 @@ function closeReasonMessage(code: number, reason: string): string {
 }
 
 function isAttachAuthError(error: unknown): boolean {
-  return error instanceof Error && /ticket failed: HTTP (401|403)/.test(error.message);
-}
-
-async function requestWsTicket(
-  options: { host: string; port: number },
-  sessionId: string,
-  mode: 'control' | 'observe'
-): Promise<string> {
-  const response = await fetch(`http://${options.host}:${options.port}/api/ws-ticket`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...(await gatewayAuthHeaders()) },
-    body: JSON.stringify({ sessionId, mode })
-  });
-  if (!response.ok) {
-    throw new Error(`ticket failed: HTTP ${response.status}。如凭据已过期，请重新执行 tether login。`);
-  }
-  const body = (await response.json()) as { ticket?: unknown };
-  if (typeof body.ticket !== 'string') {
-    throw new Error('ticket response missing ticket');
-  }
-  return body.ticket;
+  return error instanceof Error && /relay auth failed/.test(error.message);
 }
 
 function gatewayAuthPath(): string {

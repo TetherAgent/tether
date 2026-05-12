@@ -100,6 +100,14 @@ test('provider shortcut commands are not registered as top-level commands', () =
   assert.doesNotMatch(source, /for \(const provider of Object\.values\(PROVIDERS\)\)\s*\{[\s\S]*addProviderCommand/);
 });
 
+test('run command rejects unknown providers and disallows shell args', () => {
+  const source = mainSource();
+  assert.match(source, /不支持的 provider：\$\{providerName\}/);
+  assert.doesNotMatch(source, /\{ name: providerName, command: providerName \}/);
+  assert.match(source, /providerName === 'shell' && providerArgs\.length > 0/);
+  assert.match(source, /shell provider 不接受额外参数/);
+});
+
 test('gateway restart reuses background startup profile wiring', () => {
   const source = mainSource();
   assert.match(source, /command\('restart'\)[\s\S]*stopGatewayBackground\(\);[\s\S]*startGatewayBackground\(\);/);
@@ -127,8 +135,9 @@ test('pty attach defaults to reconnect with fresh tickets and event cursor', () 
   assert.match(source, /\.option\('--no-reconnect'/);
   assert.match(source, /const reconnect = options\.reconnect !== false/);
   assert.match(source, /attempt = await attachPtySessionOnce/);
-  assert.match(source, /requestWsTicket\(options, id, options\.mode\)/);
-  assert.match(source, /params\.set\('after', String\(after\)\)/);
+  assert.match(source, /type: 'client\.auth'/);
+  assert.match(source, /type: 'client\.subscribe'/);
+  assert.match(source, /\.\.\.\(after > 0 \? \{ after \} : \{\}\)/);
   assert.match(source, /Gateway 连接断开/);
   assert.match(source, /当前输入不会发送/);
   assert.match(source, /Ctrl-C 停止 session/);
@@ -141,7 +150,7 @@ test('pty attach maps Ctrl-C to session stop and Ctrl-A to local detach', () => 
   const source = mainSource();
   assert.match(source, /Press Ctrl-C to stop, Ctrl-A to detach/);
   assert.match(source, /const stopAttachedSession = \(\) =>/);
-  assert.match(source, /stopSessionViaRelay\(id, _relay\.url, _auth\.accessToken\)/);
+  assert.match(source, /type: 'client\.stop', sessionId: id/);
   assert.match(source, /chunk\.includes\(0x03\)/);
   assert.match(source, /const LOCAL_DETACH_KEY = '\\x01'/);
   assert.match(source, /chunk\.includes\(LOCAL_DETACH_KEY\.charCodeAt\(0\)\)/);

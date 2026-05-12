@@ -106,16 +106,18 @@ pnpm tether gateway restart
 pnpm tether gateway status
 pnpm tether debug
 pnpm tether run codex
+pnpm tether run shell
 pnpm tether stop <id>
 pnpm tether stop --all
 pnpm tether run codex --resume <codex-session-id>
 ```
 
-`tether run codex` / `tether run claude` / `tether run opencode` 只解析 Tether 自己的
+`tether run codex` / `tether run claude` / `tether run opencode` / `tether run shell` 只解析 Tether 自己的
 `--title`、`--no-reconnect`。session 工作目录固定为执行 `tether run` 时的当前目录。
 其他 provider 原生命令参数可以
 直接跟在 provider 后面，例如 `tether run codex --resume <codex-session-id>`。Gateway
-仍只允许 provider 白名单，不能接受任意 command/env/shell。
+仍只允许 provider 白名单，不能接受任意 command/env。`shell` provider 固定启动
+`$SHELL -l`，不接受额外 shell 参数。
 
 ## 编辑器/AI 工具配套
 
