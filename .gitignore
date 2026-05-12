@@ -7,3 +7,6 @@ logs/
 .DS_Store
 
 env.sh
+
+packages/core/**/*.js
+packages/core/**/*.d.ts

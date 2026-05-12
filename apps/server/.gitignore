@@ -14,8 +14,11 @@ logs/
 package.lock.json
 
 app/**/*.js
+app/**/*.d.ts
 test/**/*.js
+test/**/*.d.ts
 config/**/*.js
+config/**/*.d.ts
 app/**/*.map
 test/**/*.map
 config/**/*.map
