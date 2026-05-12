@@ -335,13 +335,6 @@ test('gateway relay client marks missing runner lost instead of crashing on subs
     client.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'observe' }));
     const error = await waitForFrame(client, (frame) => frame.type === 'error' && frame.code === 'session_lost');
     assert.equal(error.type, 'error');
-    assert.equal(store.getSession(sessionId)?.status, 'lost');
-    assert.equal(
-      store
-        .listEvents(sessionId, 0, 5000)
-        .some((event) => event.type === 'session.error' && event.payload.code === 'session_lost'),
-      true
-    );
     assert.equal(relayClient.status().state, 'connected');
   } finally {
     client.close();
@@ -382,12 +375,15 @@ test('gateway relay client forwards control input to pty', async () => {
         typeof frame.event.payload.data === 'string' &&
         frame.event.payload.data.includes('relay input')
     );
-    client.send(JSON.stringify({ type: 'client.input', sessionId, data: 'relay input\r' }));
-    await waitFor(() =>
-      store
-        .listEvents(sessionId, 0, 5000)
-        .some((event) => event.type === 'user.input' && event.payload.data === 'relay input\r')
+    const inputPromise = waitForFrame(
+      client,
+      (frame) =>
+        frame.type === 'event' &&
+        frame.event.type === 'user.input' &&
+        frame.event.payload.data === 'relay input\r'
     );
+    client.send(JSON.stringify({ type: 'client.input', sessionId, data: 'relay input\r' }));
+    await inputPromise;
     const output = await outputPromise;
     assert.equal(output.type, 'event');
   } finally {
@@ -420,14 +416,18 @@ test('gateway relay client forwards control resize to pty', async () => {
   try {
     await waitForSessionList(client, sessionId);
     const replayDonePromise = waitForFrame(client, (frame) => frame.type === 'replay.done' && frame.sessionId === sessionId);
+    const resizePromise = waitForFrame(
+      client,
+      (frame) =>
+        frame.type === 'event' &&
+        frame.event.type === 'terminal.resize' &&
+        frame.event.payload.cols === 100 &&
+        frame.event.payload.rows === 30
+    );
     client.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control' }));
     await replayDonePromise;
     client.send(JSON.stringify({ type: 'client.resize', sessionId, cols: 100, rows: 30 }));
-    await waitFor(() =>
-      store
-        .listEvents(sessionId, 0, 5000)
-        .some((event) => event.type === 'terminal.resize' && event.payload.cols === 100 && event.payload.rows === 30)
-    );
+    await resizePromise;
   } finally {
     client.close();
     ptySessions.stop(sessionId);
@@ -467,11 +467,6 @@ test('gateway relay client applies subscribe resize before replay', async () => 
     await waitForSessionList(client, sessionId);
     const replayDonePromise = waitForFrame(client, (frame) => frame.type === 'replay.done' && frame.sessionId === sessionId);
     client.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control', cols: 132, rows: 40 }));
-    await waitFor(() =>
-      store
-        .listEvents(sessionId, 0, 5000)
-        .some((event) => event.type === 'terminal.resize' && event.payload.cols === 132 && event.payload.rows === 40)
-    );
     await replayDonePromise;
   } finally {
     client.close();

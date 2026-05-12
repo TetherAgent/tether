@@ -8,12 +8,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { latestNewCodexSessionId, readCodexSessionId, SessionRunner, runnerSocketPath } from '../src/session-runner.js';
 import { SessionRunnerClient } from '../src/session-runner-client.js';
-import { Store } from '../src/store.js';
 
-function tempRunnerFixture(): { store: Store; dir: string; socketDir: string; cleanup: () => void } {
+function tempRunnerFixture(): { dir: string; socketDir: string; cleanup: () => void } {
   const dir = mkdtempSync(path.join(tmpdir(), 'tether-runner-'));
   return {
-    store: new Store(path.join(dir, 'tether.db')),
     dir,
     socketDir: path.join(dir, 'sessions'),
     cleanup: () => rmSync(dir, { recursive: true, force: true })
@@ -68,11 +66,11 @@ test('detects newly created Codex session jsonl files', () => {
 });
 
 test('runner refuses to unlink non-socket paths', async () => {
-  const { store, socketDir, cleanup } = tempRunnerFixture();
+  const { socketDir, cleanup } = tempRunnerFixture();
   const sessionId = 'tth_runner_blocked';
   mkdirSync(socketDir, { recursive: true });
   writeFileSync(runnerSocketPath(sessionId, socketDir), 'not a socket');
-  const runner = new SessionRunner(store, {
+  const runner = new SessionRunner({
     id: sessionId,
     provider: 'codex',
     command: '/bin/cat',
@@ -90,8 +88,8 @@ test('runner refuses to unlink non-socket paths', async () => {
 });
 
 test('runner client can ping, write, subscribe events and stop', async () => {
-  const { store, socketDir, cleanup } = tempRunnerFixture();
-  const runner = new SessionRunner(store, {
+  const { socketDir, cleanup } = tempRunnerFixture();
+  const runner = new SessionRunner({
     id: 'tth_runner_test',
     provider: 'codex',
     command: '/bin/cat',
@@ -104,26 +102,27 @@ test('runner client can ping, write, subscribe events and stop', async () => {
   try {
     const session = await runner.start();
     assert.equal(session.runnerSocketPath, runner.socketPath);
-    assert.equal(store.getSession(session.id)?.runnerPid, process.pid);
 
     client = new SessionRunnerClient({ socketPath: runner.socketPath });
-    const ping = await client.ping();
+    const ping = await client.ping() as { sessionId?: string; session?: { runnerPid?: number } };
     assert.equal(ping?.sessionId, session.id);
+    assert.equal(ping?.session?.runnerPid, process.pid);
 
     const eventIds: number[] = [];
+    const eventTypes: string[] = [];
     const unsubscribe = await client.subscribeEvents((frame) => {
       eventIds.push(frame.eventId);
+      eventTypes.push(frame.event.type);
     });
     await client.write('hello runner\r', 'runner-test-client');
 
-    await waitFor(() => store.transcript(session.id).includes('hello runner'), 1500);
-    assert.equal(store.listEvents(session.id).some((event) => event.type === 'user.input'), true);
+    await waitFor(() => eventTypes.includes('user.input'), 1500);
+    await waitFor(() => eventTypes.includes('terminal.output'), 1500);
     assert.equal(eventIds.length > 0, true);
-    await unsubscribe();
 
     await client.stop('test-complete');
-    await waitFor(() => store.getSession(session.id)?.status !== 'running', 1500);
-    assert.equal(store.listEvents(session.id).some((event) => event.type === 'runner.exited'), true);
+    await waitFor(() => eventTypes.includes('session.exited'), 1500);
+    await unsubscribe();
   } finally {
     await client?.close().catch(() => undefined);
     await runner.close().catch(() => undefined);
@@ -132,10 +131,9 @@ test('runner client can ping, write, subscribe events and stop', async () => {
 });
 
 test('detached runner process survives parent process exit', async () => {
-  const { store, dir, socketDir, cleanup } = tempRunnerFixture();
+  const { socketDir, cleanup } = tempRunnerFixture();
   const fixture = fileURLToPath(new URL('../src/session-runner-detach-fixture.ts', import.meta.url));
   const payload = Buffer.from(JSON.stringify({
-    dbPath: path.join(dir, 'tether.db'),
     socketDir,
     projectPath: process.cwd()
   }), 'utf8').toString('base64url');
@@ -149,18 +147,23 @@ test('detached runner process survives parent process exit', async () => {
       parent.once('exit', (code) => code === 0 ? resolve() : reject(new Error(`fixture exited with code ${code}`)));
       parent.once('error', reject);
     });
-    const session = store.getSession('tth_detach_fixture');
-    assert.equal(typeof session?.runnerPid, 'number');
-    assert.notEqual(session?.runnerPid, parent.pid);
-    assert.notEqual(session?.runnerPid, process.pid);
 
     client = new SessionRunnerClient({ socketPath: runnerSocketPath('tth_detach_fixture', socketDir) });
-    const ping = await client.ping();
+    const ping = await client.ping() as { sessionId?: string; session?: { runnerPid?: number } };
     assert.equal(ping?.sessionId, 'tth_detach_fixture');
+    assert.equal(typeof ping?.session?.runnerPid, 'number');
+    assert.notEqual(ping?.session?.runnerPid, parent.pid);
+    assert.notEqual(ping?.session?.runnerPid, process.pid);
+
+    const eventTypes: string[] = [];
+    const unsubscribe = await client.subscribeEvents((frame) => {
+      eventTypes.push(frame.event.type);
+    });
     await client.write('detached hello\r', 'detach-test');
-    await waitFor(() => store.transcript('tth_detach_fixture').includes('detached hello'), 1500);
+    await waitFor(() => eventTypes.includes('terminal.output'), 1500);
     await client.stop('detach-test-complete');
-    await waitFor(() => store.getSession('tth_detach_fixture')?.status !== 'running', 1500);
+    await waitFor(() => eventTypes.includes('session.exited'), 1500);
+    await unsubscribe();
   } finally {
     await client?.close().catch(() => undefined);
     cleanup();

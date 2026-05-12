@@ -6,17 +6,21 @@ import { fileURLToPath } from 'node:url';
 import { NODE_RUNTIME_FLAGS } from './node-flags.js';
 import { runnerSocketPath, type CreateSessionRunnerOptions } from './session-runner.js';
 import { SessionRunnerClient } from './session-runner-client.js';
-import { Store, type Session } from './store.js';
+import type { Session } from './store.js';
 
 export type SpawnSessionRunnerOptions = {
-  store: Store;
   options: CreateSessionRunnerOptions;
   timeoutMs?: number;
 };
 
-export async function spawnSessionRunnerProcess({ store, options, timeoutMs = 5000 }: SpawnSessionRunnerOptions): Promise<Session> {
+type RunnerPingResult = {
+  sessionId?: string;
+  session?: Session | null;
+};
+
+export async function spawnSessionRunnerProcess({ options, timeoutMs = 5000 }: SpawnSessionRunnerOptions): Promise<Session> {
   const entry = resolveRunnerEntry();
-  const payload = Buffer.from(JSON.stringify({ dbPath: store.dbPath, options }), 'utf8').toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ options }), 'utf8').toString('base64url');
   const child = spawn(process.execPath, [...NODE_RUNTIME_FLAGS, ...runnerExecArgv(), entry, payload], {
     detached: true,
     stdio: 'ignore',
@@ -29,15 +33,14 @@ export async function spawnSessionRunnerProcess({ store, options, timeoutMs = 50
     requestTimeoutMs: timeoutMs
   });
   try {
-    await waitForRunner(client, options.id, timeoutMs);
+    const result = await waitForRunner(client, options.id, timeoutMs);
+    if (!result.session) {
+      throw new Error(`runner started but session metadata was unavailable: ${options.id}`);
+    }
+    return result.session;
   } finally {
     await client.close().catch(() => undefined);
   }
-  const session = store.getSession(options.id);
-  if (!session) {
-    throw new Error(`runner started but session was not stored: ${options.id}`);
-  }
-  return session;
 }
 
 function runnerExecArgv(): string[] {
@@ -58,13 +61,13 @@ function resolveRunnerEntry(): string {
   throw new Error(`session-runner entry 路径未找到，候选：${candidates.join(', ')}`);
 }
 
-async function waitForRunner(client: SessionRunnerClient, sessionId: string, timeoutMs: number): Promise<void> {
+async function waitForRunner(client: SessionRunnerClient, sessionId: string, timeoutMs: number): Promise<RunnerPingResult> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      const result = await client.ping();
+      const result = (await client.ping()) as RunnerPingResult | undefined;
       if (result?.sessionId === sessionId) {
-        return;
+        return result;
       }
     } catch {
       await new Promise((resolve) => setTimeout(resolve, 50));

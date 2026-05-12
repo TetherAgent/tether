@@ -5,10 +5,11 @@ import path from 'node:path';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
 import type { AuthScopePayload } from '@tether/core';
+import { createSessionEvent } from './events.js';
 import { maskSensitiveOutput } from './mask.js';
 import { isValidTerminalSize } from './pty.js';
 import { AgentStatusPublisher } from './session-status-deriver.js';
-import { Store, type Session, type SessionEvent } from './store.js';
+import type { Session, SessionEvent } from './store.js';
 
 export const RUNNER_MAX_FRAME_BYTES = 1024 * 1024;
 export const RUNNER_HEARTBEAT_INTERVAL_MS = 10_000;
@@ -29,6 +30,7 @@ export type RunnerEventFrame = {
   type: 'event';
   eventId: number;
   sessionId: string;
+  event: SessionEvent;
 };
 
 export type RunnerFrame = RunnerResponse | RunnerEventFrame;
@@ -65,13 +67,13 @@ type RunnerClientConnection = {
 export class SessionRunner {
   private server?: net.Server;
   private term?: IPty;
-  private heartbeat?: NodeJS.Timeout;
   private exited = false;
+  private session?: Session;
   private statusPublisher?: AgentStatusPublisher;
   private readonly clients = new Set<RunnerClientConnection>();
   readonly socketPath: string;
 
-  constructor(private readonly store: Store, private readonly options: CreateSessionRunnerOptions) {
+  constructor(private readonly options: CreateSessionRunnerOptions) {
     this.socketPath = runnerSocketPath(options.id, options.socketDir);
   }
 
@@ -112,24 +114,22 @@ export class SessionRunner {
       updatedAt: now,
       lastActiveAt: now
     };
-    this.store.insertSession(session);
-    this.statusPublisher = new AgentStatusPublisher(session.id, this.store, (event) => this.publishEvent(event));
+    this.session = session;
+    this.statusPublisher = new AgentStatusPublisher(session.id, (type, payload) => {
+      const event = createSessionEvent(session.id, type, payload);
+      this.publishEvent(event);
+    });
     this.statusPublisher.emit('idle', 'session_started', 'runner');
     pollAgentSessionId(
       this.options.provider,
       this.options.projectPath,
       term.pid,
       preSpawnSnapshot,
-      () => this.exited || Boolean(this.store.getSession(this.options.id)?.agentSessionId)
+      () => this.exited
     )
-      .then((agentSessionId) => {
-        if (agentSessionId) {
-          this.store.updateAgentSessionId(this.options.id, agentSessionId);
-        }
-      })
       .catch(() => { /* detection failure is non-fatal */ });
     this.publishEvent(
-      this.store.appendEvent(session.id, 'session.started', {
+      createSessionEvent(session.id, 'session.started', {
         provider: this.options.provider,
         command: this.options.command,
         providerArgs,
@@ -139,19 +139,16 @@ export class SessionRunner {
         rows: this.options.rows
       })
     );
-    this.publishEvent(
-      this.store.appendEvent(session.id, 'runner.started', {
-        pid: process.pid,
-        socketPath: this.socketPath
-      })
-    );
 
     term.onData((data) => {
-      const event = this.store.appendEvent(session.id, 'terminal.output', {
+      const event = createSessionEvent(session.id, 'terminal.output', {
         data: maskSensitiveOutput(data),
         encoding: 'utf8'
       });
-      this.store.touchSession(session.id);
+      if (this.session) {
+        this.session.updatedAt = event.ts;
+        this.session.lastActiveAt = event.ts;
+      }
       this.publishEvent(event);
       this.statusPublisher?.onTerminalOutput(data);
     });
@@ -168,12 +165,6 @@ export class SessionRunner {
         resolve();
       });
     });
-    this.heartbeat = setInterval(() => {
-      const heartbeatAt = Date.now();
-      this.store.touchRunnerHeartbeat(session.id, heartbeatAt);
-      this.publishEvent(this.store.appendEvent(session.id, 'runner.heartbeat', { pid: process.pid }, heartbeatAt));
-    }, RUNNER_HEARTBEAT_INTERVAL_MS);
-    this.heartbeat.unref();
     return session;
   }
 
@@ -223,7 +214,12 @@ export class SessionRunner {
       sendFrame(client.socket, {
         id: request.id,
         ok: true,
-        result: { sessionId: this.options.id, pid: process.pid, providerPid: this.term?.pid ?? null }
+        result: {
+          sessionId: this.options.id,
+          pid: process.pid,
+          providerPid: this.term?.pid ?? null,
+          session: this.session ?? null
+        }
       });
       return;
     }
@@ -247,7 +243,7 @@ export class SessionRunner {
       return;
     }
     if (request.type === 'write') {
-      const event = this.store.appendEvent(this.options.id, 'user.input', {
+      const event = createSessionEvent(this.options.id, 'user.input', {
         clientId: request.clientId,
         data: maskSensitiveOutput(request.data),
         encoding: 'utf8'
@@ -255,7 +251,10 @@ export class SessionRunner {
       this.publishEvent(event);
       this.statusPublisher?.onUserInput(request.data);
       this.term.write(request.data);
-      this.store.touchSession(this.options.id);
+      if (this.session) {
+        this.session.updatedAt = event.ts;
+        this.session.lastActiveAt = event.ts;
+      }
       sendFrame(client.socket, { id: request.id, ok: true, result: { sessionId: this.options.id } });
       return;
     }
@@ -265,11 +264,13 @@ export class SessionRunner {
         return;
       }
       this.term.resize(request.cols, request.rows);
-      this.publishEvent(this.store.appendEvent(this.options.id, 'terminal.resize', {
-        clientId: request.clientId,
-        cols: request.cols,
-        rows: request.rows
-      }));
+      this.publishEvent(
+        createSessionEvent(this.options.id, 'terminal.resize', {
+          clientId: request.clientId,
+          cols: request.cols,
+          rows: request.rows
+        })
+      );
       sendFrame(client.socket, { id: request.id, ok: true, result: { sessionId: this.options.id } });
       return;
     }
@@ -285,22 +286,18 @@ export class SessionRunner {
       return;
     }
     this.exited = true;
-    if (this.heartbeat) {
-      clearInterval(this.heartbeat);
-      this.heartbeat = undefined;
+    if (this.session) {
+      const exitedAt = Date.now();
+      this.session.status = exitCode === 0 ? 'completed' : 'failed';
+      this.session.updatedAt = exitedAt;
+      this.session.lastActiveAt = exitedAt;
     }
-    this.store.updateSessionStatus(sessionId, exitCode === 0 ? 'completed' : 'failed');
-    this.publishEvent(this.store.appendEvent(sessionId, 'session.exited', { exitCode, signal }));
+    this.publishEvent(createSessionEvent(sessionId, 'session.exited', { exitCode, signal }));
     this.statusPublisher?.onExited();
-    this.publishEvent(this.store.appendEvent(sessionId, 'runner.exited', { pid: process.pid, exitCode, signal }));
     this.closeServer().catch(() => undefined);
   }
 
   private async closeServer(): Promise<void> {
-    if (this.heartbeat) {
-      clearInterval(this.heartbeat);
-      this.heartbeat = undefined;
-    }
     for (const client of this.clients) {
       client.socket.destroy();
     }
@@ -314,7 +311,12 @@ export class SessionRunner {
   }
 
   private publishEvent(event: SessionEvent): void {
-    const frame: RunnerEventFrame = { type: 'event', eventId: event.id, sessionId: event.sessionId };
+    const frame: RunnerEventFrame = {
+      type: 'event',
+      eventId: event.id,
+      sessionId: event.sessionId,
+      event
+    };
     for (const client of this.clients) {
       if (client.subscribed && client.socket.writable) {
         sendFrame(client.socket, frame);

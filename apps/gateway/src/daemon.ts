@@ -379,7 +379,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
 
     const id = createSessionId();
     const session = await spawnSessionRunnerProcess({
-      store: options.store,
       options: {
         id,
         provider,
@@ -398,6 +397,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         }
       }
     });
+    options.store.insertSession(session);
     return c.json({ session }, 201);
   });
 
@@ -874,10 +874,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (runnerClient) {
       try {
         unsubscribe = await runnerClient.subscribeEvents((frame) => {
-          const event = options.store.listEvents(frame.sessionId, frame.eventId - 1, 1)[0];
-          if (event && socket.readyState === socket.OPEN) {
-            socket.send(JSON.stringify({ type: 'event', event }));
-            detectAndEmitAgentSelect(event);
+          if (socket.readyState === socket.OPEN) {
+            socket.send(JSON.stringify({ type: 'event', event: frame.event }));
+            detectAndEmitAgentSelect(frame.event);
           }
         }, replayCursor);
       } catch {

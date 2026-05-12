@@ -14,6 +14,7 @@ import type {
 } from '@tether/protocol';
 import { detectSelectOptions } from './agent-select-detect.js';
 import { ChatSessionRunner, CodexChatRunner, CopilotChatRunner, type ChatRunnerOptions, type IChatRunner } from './chat-session-runner.js';
+import { createSessionEvent } from './events.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
 import { replaySessionEvents } from './replay.js';
 import type { SessionRunnerClient } from './session-runner-client.js';
@@ -73,7 +74,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   let connectionState: RelayConnectionStatus['state'] = 'connecting';
   let lastChangedAt = Date.now();
   let effectiveGatewayId = options.gatewayId;
-  const getStoredSession = (sessionId: string) => options.store['getSession'](sessionId);
+  const getStoredSession = (sessionId: string) => options.ptySessions?.getSession(sessionId) ?? options.store['getSession'](sessionId);
   const chatRunnerOptions: ChatRunnerOptions = {
     store: options.store,
     gatewayId: () => effectiveGatewayId,
@@ -448,7 +449,9 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   };
 
   const listRelaySessions = async (): Promise<Session[]> => {
-    const sessions = options.store.listSessions();
+    const sessions = options.ptySessions
+      ? [...options.store.listSessions().filter((session) => session.transport === 'chat'), ...options.ptySessions.listSessions()]
+      : options.store.listSessions();
     const result: Session[] = [];
     for (const session of sessions) {
       if (session.transport === 'chat') {
@@ -595,7 +598,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
           return;
         }
         const raw = lines.filter((line) => /^\s*\d+\.\s+/.test(line)).join('\n');
-        const selectEvent = options.store.appendEvent(subSession.id, 'agent.select', {
+        const selectEvent = createSessionEvent(subSession.id, 'agent.select', {
           options: matchedOptions,
           raw
         });
@@ -611,11 +614,8 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     if (runnerClient) {
       try {
         unsubscribe = await runnerClient.subscribeEvents((frame) => {
-          const event = options.store.listEvents(frame.sessionId, frame.eventId - 1, 1)[0];
-          if (event) {
-            send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(event) });
-            detectAndEmitRelaySelect(event);
-          }
+          send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(frame.event) });
+          detectAndEmitRelaySelect(frame.event);
         }, replayCursor);
       } catch {
         markSessionLost(sessionId);
@@ -639,11 +639,12 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   const markSessionLost = (sessionId: string): void => {
     const session = getStoredSession(sessionId);
     if (session?.status === 'running') {
-      options.store.updateSessionStatus(sessionId, 'lost');
-      options.store.appendEvent(sessionId, 'session.error', {
+      options.ptySessions?.updateSessionStatus(sessionId, 'lost');
+      const event = createSessionEvent(sessionId, 'session.error', {
         code: 'session_lost',
         message: 'Gateway relay client lost the session runner'
       });
+      send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(event) });
     }
   };
 
@@ -733,14 +734,14 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     const runnerClient = session ? options.runnerClientForSession?.(session) : undefined;
     if (runnerClient) {
       await runnerClient.stop('relay-stop').catch(() => {
-        options.store.updateSessionStatus(sessionId, 'lost');
+        options.ptySessions?.updateSessionStatus(sessionId, 'lost');
         sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
       });
       return;
     }
     const ok = options.ptySessions?.stop(sessionId) ?? false;
     if (!ok) {
-      options.store.updateSessionStatus(sessionId, 'lost');
+      options.ptySessions?.updateSessionStatus(sessionId, 'lost');
       sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
     }
   };

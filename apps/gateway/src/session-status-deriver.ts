@@ -1,4 +1,4 @@
-import type { SessionEvent, Store } from './store.js';
+import type { SessionEventType } from './store.js';
 
 export type AgentRuntimeStatus =
   | 'idle'
@@ -16,8 +16,7 @@ export class AgentStatusPublisher {
 
   constructor(
     private readonly sessionId: string,
-    private readonly store: Store,
-    private readonly publishEvent: (event: SessionEvent) => void
+    private readonly appendEvent: (type: SessionEventType, payload: Record<string, unknown>) => void
   ) {}
 
   emit(status: AgentRuntimeStatus, reason: string, source: AgentStatusSource): void {
@@ -26,13 +25,12 @@ export class AgentStatusPublisher {
     }
     const previousStatus = this.current;
     this.current = status;
-    const event = this.store.appendEvent(this.sessionId, 'agent.status', {
+    this.appendEvent('agent.status', {
       status,
       previousStatus,
       reason,
       source
     });
-    this.publishEvent(event);
   }
 
   onUserInput(data: string): void {

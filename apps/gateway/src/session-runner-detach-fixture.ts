@@ -1,18 +1,14 @@
 import { Buffer } from 'node:buffer';
 import { spawnSessionRunnerProcess } from './session-runner-spawn.js';
-import { Store } from './store.js';
 
 type DetachFixturePayload = {
-  dbPath: string;
   socketDir: string;
   projectPath: string;
 };
 
 async function main(): Promise<void> {
   const payload = parsePayload(process.argv[2]);
-  const store = new Store(payload.dbPath);
   await spawnSessionRunnerProcess({
-    store,
     options: {
       id: 'tth_detach_fixture',
       provider: 'codex',
