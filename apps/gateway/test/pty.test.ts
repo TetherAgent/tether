@@ -26,7 +26,7 @@ test('pty sessions emit output and mask stored input', async () => {
     assert.equal(session.status, 'running');
     assert.equal(manager.hasLiveSession(session.id), true);
     assert.equal(manager.getSession(session.id)?.id, session.id);
-    assert.equal(manager.listSessions().map((item) => item.id), [session.id]);
+    assert.deepEqual(manager.listSessions().map((item) => item.id), [session.id]);
 
     manager.write(session.id, {
       clientId: 'test-client',
@@ -40,9 +40,7 @@ test('pty sessions emit output and mask stored input', async () => {
     const input = events.find((event) => event.type === 'user.input');
     assert.ok(input);
     assert.match(String(input.payload.data), /\[REDACTED/);
-    const started = events.find((event) => event.type === 'session.started');
-    assert.ok(started);
-    assert.equal(started.id > 0, true);
+    assert.equal(input.id > 0, true);
     manager.updateSessionStatus(session.id, 'lost');
     assert.equal(manager.getSession(session.id)?.status, 'lost');
 

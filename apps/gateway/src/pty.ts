@@ -2,9 +2,9 @@ import path from 'node:path';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
 import type { AuthScopePayload } from '@tether/core';
+import { createSessionEvent } from './events.js';
 import { maskSensitiveOutput } from './mask.js';
-import type { Session, SessionEvent } from './store.js';
-import { Store } from './store.js';
+import type { Session, SessionEvent, SessionStatus } from './store.js';
 
 export type CreatePtySessionOptions = {
   id: string;
@@ -41,7 +41,7 @@ export function isValidTerminalSize(cols: unknown, rows: unknown): cols is numbe
 
 type LivePtySession = {
   session: Session;
-  pty: IPty;
+  pty?: IPty;
   outputBuffer: string[];
   outputTimer?: NodeJS.Timeout;
 };
@@ -49,8 +49,6 @@ type LivePtySession = {
 export class PtySessionManager {
   private readonly sessions = new Map<string, LivePtySession>();
   private readonly listeners = new Map<string, Set<EventListener>>();
-
-  constructor(private readonly store: Store) {}
 
   create(options: CreatePtySessionOptions): Session {
     const title = options.title ?? path.basename(options.projectPath);
@@ -82,11 +80,10 @@ export class PtySessionManager {
       updatedAt: now,
       lastActiveAt: now
     };
-    this.store.insertSession(session);
     const live: LivePtySession = { session, pty: term, outputBuffer: [] };
     this.sessions.set(session.id, live);
-    this.publish(
-      this.store.appendEvent(session.id, 'session.started', {
+    this.publishEvent(
+      createSessionEvent(session.id, 'session.started', {
         provider: options.provider,
         command: options.command,
         providerArgs,
@@ -104,21 +101,23 @@ export class PtySessionManager {
     term.onExit(({ exitCode, signal }) => {
       this.flushOutput(session.id);
       const status = exitCode === 0 ? 'completed' : 'failed';
-      this.store.updateSessionStatus(session.id, status);
-      this.publish(
-        this.store.appendEvent(session.id, 'session.exited', {
+      live.session.status = status;
+      live.session.updatedAt = Date.now();
+      live.session.lastActiveAt = live.session.updatedAt;
+      live.pty = undefined;
+      this.publishEvent(
+        createSessionEvent(session.id, 'session.exited', {
           exitCode,
           signal
         })
       );
-      this.sessions.delete(session.id);
     });
 
     return session;
   }
 
   hasLiveSession(id: string): boolean {
-    return this.sessions.has(id);
+    return this.sessions.get(id)?.pty !== undefined;
   }
 
   liveSessionIds(): string[] {
@@ -127,18 +126,19 @@ export class PtySessionManager {
 
   write(sessionId: string, options: PtyInputOptions): boolean {
     const live = this.sessions.get(sessionId);
-    if (!live) {
+    if (!live?.pty) {
       return false;
     }
-    this.publish(
-      this.store.appendEvent(sessionId, 'user.input', {
+    this.publishEvent(
+      createSessionEvent(sessionId, 'user.input', {
         clientId: options.clientId,
         data: maskSensitiveOutput(options.data),
         encoding: 'utf8'
       })
     );
     live.pty.write(options.data);
-    this.store.touchSession(sessionId);
+    live.session.updatedAt = Date.now();
+    live.session.lastActiveAt = live.session.updatedAt;
     return true;
   }
 
@@ -147,12 +147,12 @@ export class PtySessionManager {
       return false;
     }
     const live = this.sessions.get(sessionId);
-    if (!live) {
+    if (!live?.pty) {
       return false;
     }
     live.pty.resize(cols, rows);
-    this.publish(
-      this.store.appendEvent(sessionId, 'terminal.resize', {
+    this.publishEvent(
+      createSessionEvent(sessionId, 'terminal.resize', {
         clientId,
         cols,
         rows
@@ -163,7 +163,7 @@ export class PtySessionManager {
 
   stop(sessionId: string): boolean {
     const live = this.sessions.get(sessionId);
-    if (!live) {
+    if (!live?.pty) {
       return false;
     }
     live.pty.kill();
@@ -187,6 +187,23 @@ export class PtySessionManager {
 
   publishEvent(event: SessionEvent): void {
     this.publish(event);
+  }
+
+  getSession(id: string): Session | undefined {
+    return this.sessions.get(id)?.session;
+  }
+
+  listSessions(): Session[] {
+    return [...this.sessions.values()].map((live) => live.session);
+  }
+
+  updateSessionStatus(id: string, status: SessionStatus): void {
+    const live = this.sessions.get(id);
+    if (!live) {
+      return;
+    }
+    live.session.status = status;
+    live.session.updatedAt = Date.now();
   }
 
   private publish(event: SessionEvent): void {
@@ -226,11 +243,12 @@ export class PtySessionManager {
     }
     const masked = maskSensitiveOutput(live.outputBuffer.join(''));
     live.outputBuffer = [];
-    const event = this.store.appendEvent(sessionId, 'terminal.output', {
+    const event = createSessionEvent(sessionId, 'terminal.output', {
       data: masked,
       encoding: 'utf8'
     });
-    this.publish(event);
-    this.store.touchSession(sessionId);
+    this.publishEvent(event);
+    live.session.updatedAt = Date.now();
+    live.session.lastActiveAt = live.session.updatedAt;
   }
 }

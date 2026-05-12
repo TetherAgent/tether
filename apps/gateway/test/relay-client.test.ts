@@ -183,7 +183,7 @@ test('gateway relay client uses authenticated gateway id for follow-up frames', 
 
 test('gateway relay client replays and forwards output', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_replay' });
   ptySessions.create({
@@ -353,7 +353,7 @@ test('gateway relay client marks missing runner lost instead of crashing on subs
 
 test('gateway relay client forwards control input to pty', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_input' });
   ptySessions.create({
@@ -401,7 +401,7 @@ test('gateway relay client forwards control input to pty', async () => {
 
 test('gateway relay client forwards control resize to pty', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_resize' });
   ptySessions.create({
@@ -439,7 +439,7 @@ test('gateway relay client forwards control resize to pty', async () => {
 
 test('gateway relay client applies subscribe resize before replay', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_subscribe_resize' });
   ptySessions.create({
@@ -484,7 +484,7 @@ test('gateway relay client applies subscribe resize before replay', async () => 
 
 test('gateway relay client forwards control stop to pty', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_stop' });
   ptySessions.create({
@@ -518,7 +518,7 @@ test('gateway relay client forwards control stop to pty', async () => {
 
 test('gateway relay client accepts stop immediately after subscribe', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_immediate_stop' });
   ptySessions.create({
@@ -558,7 +558,7 @@ test('gateway relay client accepts stop immediately after subscribe', async () =
 
 test('gateway relay client blocks observe input', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_observe' });
   ptySessions.create({
@@ -598,7 +598,7 @@ test('gateway relay client blocks observe input', async () => {
 
 test('gateway relay client blocks observe resize', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_observe_resize' });
   ptySessions.create({
@@ -638,7 +638,7 @@ test('gateway relay client blocks observe resize', async () => {
 
 test('gateway relay client blocks unsubscribed input', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_unsubscribed' });
   ptySessions.create({
@@ -676,7 +676,7 @@ test('gateway relay client blocks unsubscribed input', async () => {
 
 test('gateway relay client blocks unsubscribed resize', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_unsubscribed_resize' });
   ptySessions.create({
@@ -714,7 +714,7 @@ test('gateway relay client blocks unsubscribed resize', async () => {
 
 test('gateway relay client rejects invalid resize dimensions', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 4919 });
   const gatewaySocketPromise = waitForGatewaySocket(fakeRelay);

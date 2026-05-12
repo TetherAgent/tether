@@ -142,7 +142,7 @@ async function readRequestBody(req: IncomingMessage): Promise<Record<string, unk
 
 test('status reports gateway runtime details', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const port = 5500 + Math.floor(Math.random() * 1000);
   const sessionId = createSessionId();
   ptySessions.create({
@@ -185,7 +185,7 @@ test('status reports gateway runtime details', async () => {
 
 test('session creation is disabled by default', async () => {
   const { store, cleanup } = tempStore();
-  const daemon = await startDaemon({ host: '127.0.0.1', port: 4899, store, ptySessions: new PtySessionManager(store) });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4899, store, ptySessions: new PtySessionManager() });
 
   try {
     const response = await fetch('http://127.0.0.1:4899/api/sessions', {
@@ -207,7 +207,7 @@ test('session creation rejects command-shaped payloads', async () => {
     host: '127.0.0.1',
     port: 4900,
     store,
-    ptySessions: new PtySessionManager(store),
+    ptySessions: new PtySessionManager(),
     allowApiSessionCreate: true
   });
 
@@ -239,7 +239,7 @@ test('session creation rejects missing token', async () => {
     host: '127.0.0.1',
     port: 4909,
     store,
-    ptySessions: new PtySessionManager(store),
+    ptySessions: new PtySessionManager(),
     allowApiSessionCreate: true
   });
 
@@ -259,7 +259,7 @@ test('session creation rejects missing token', async () => {
 
 test('direct read endpoints require auth and enforce session ownership', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const port = 5500 + Math.floor(Math.random() * 1000);
   const sessionId = createSessionId();
   ptySessions.create({
@@ -316,7 +316,7 @@ test('session creation rejects management token', async () => {
     host: '127.0.0.1',
     port: 4910,
     store,
-    ptySessions: new PtySessionManager(store),
+    ptySessions: new PtySessionManager(),
     allowApiSessionCreate: true
   });
 
@@ -344,7 +344,7 @@ test('session creation accepts whitelisted provider when enabled', async () => {
   writeFileSync(fakeCodex, '#!/bin/sh\nsleep 2\n', 'utf8');
   chmodSync(fakeCodex, 0o755);
   process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ''}`;
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const daemon = await startDaemon({ host: '127.0.0.1', port: 4901, store, ptySessions, allowApiSessionCreate: true, config: {} });
 
   try {
@@ -384,7 +384,7 @@ test('session creation forwards provider arguments to whitelisted provider', asy
   const fakeCodex = path.join(binDir, 'codex-custom');
   writeFileSync(fakeCodex, '#!/bin/sh\nsleep 2\n', 'utf8');
   chmodSync(fakeCodex, 0o755);
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const port = 5500 + Math.floor(Math.random() * 1000);
   const daemon = await startDaemon({
     host: '127.0.0.1',
@@ -436,7 +436,7 @@ test('session creation rejects invalid provider arguments', async () => {
     host: '127.0.0.1',
     port,
     store,
-    ptySessions: new PtySessionManager(store),
+    ptySessions: new PtySessionManager(),
     allowApiSessionCreate: true
   });
 
@@ -468,7 +468,7 @@ test('session creation uses configured provider command path', async () => {
   const fakeCodex = path.join(binDir, 'codex-custom');
   writeFileSync(fakeCodex, '#!/bin/sh\nsleep 2\n', 'utf8');
   chmodSync(fakeCodex, 0o755);
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const daemon = await startDaemon({
     host: '127.0.0.1',
     port: 4908,
@@ -506,7 +506,7 @@ test('session creation uses configured provider command path', async () => {
 
 test('session creation accepts display name as session title', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const daemon = await startDaemon({
     host: '127.0.0.1',
     port: 4909,
@@ -543,7 +543,7 @@ test('session creation accepts display name as session title', async () => {
 
 test('session creation rejects invalid display name', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const daemon = await startDaemon({
     host: '127.0.0.1',
     port: 4910,
@@ -586,7 +586,7 @@ test('daemon marks running pty sessions lost when no live handle exists', async 
     lastActiveAt: now
   });
 
-  const daemon = await startDaemon({ host: '127.0.0.1', port: 4891, store, ptySessions: new PtySessionManager(store) });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4891, store, ptySessions: new PtySessionManager() });
   try {
     assert.equal(store.getSession('tth_lost_test')?.status, 'lost');
     assert.equal(store.listEvents('tth_lost_test').some((event) => event.type === 'session.error'), true);
@@ -682,7 +682,7 @@ test('stop marks unavailable pty session lost instead of failing hard', async ()
     lastActiveAt: now
   });
 
-  const daemon = await startDaemon({ host: '127.0.0.1', port: 4898, store, ptySessions: new PtySessionManager(store) });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4898, store, ptySessions: new PtySessionManager() });
   try {
     await withAuthFixture(async ({ authHeaders }) => {
       const response = await fetch(`http://127.0.0.1:4898/api/sessions/${sessionId}/stop`, {
@@ -704,7 +704,7 @@ test('stop marks unavailable pty session lost instead of failing hard', async ()
 
 test('observe websocket clients cannot write input', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   ptySessions.create({
     id: sessionId,
@@ -737,7 +737,7 @@ test('observe websocket clients cannot write input', async () => {
 
 test('observe websocket clients cannot resize pty', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   ptySessions.create({
     id: sessionId,
@@ -769,7 +769,7 @@ test('observe websocket clients cannot resize pty', async () => {
 
 test('direct websocket controller can resize pty', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   ptySessions.create({
     id: sessionId,
@@ -802,7 +802,7 @@ test('direct websocket controller can resize pty', async () => {
 
 test('http resize endpoint can resize pty before websocket replay', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   ptySessions.create({
     id: sessionId,
@@ -837,7 +837,7 @@ test('http resize endpoint can resize pty before websocket replay', async () => 
 
 test('http resize endpoint rejects invalid dimensions', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   ptySessions.create({
     id: sessionId,
@@ -868,7 +868,7 @@ test('http resize endpoint rejects invalid dimensions', async () => {
 
 test('ws ticket rejects same-account token for a different owner session', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const port = 5400 + Math.floor(Math.random() * 1000);
   const sessionId = createSessionId();
   ptySessions.create({
@@ -905,7 +905,7 @@ test('ws ticket rejects same-account token for a different owner session', async
 
 test('ws ticket rejects sessions owned by a different gateway', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const port = 5400 + Math.floor(Math.random() * 1000);
   const sessionId = createSessionId();
   ptySessions.create({
@@ -943,7 +943,7 @@ test('ws ticket rejects sessions owned by a different gateway', async () => {
 
 test('direct websocket rejects invalid resize dimensions', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   ptySessions.create({
     id: sessionId,
@@ -975,7 +975,7 @@ test('direct websocket rejects invalid resize dimensions', async () => {
 
 test('previous direct controller cannot write after control is claimed', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   ptySessions.create({
     id: sessionId,
@@ -1014,7 +1014,7 @@ test('previous direct controller cannot write after control is claimed', async (
 
 test('stop endpoint terminates live pty session', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const sessionId = createSessionId();
   ptySessions.create({
     id: sessionId,
