@@ -630,6 +630,7 @@ export function ChatPanel({
   );
 
   const handleRelayClose = React.useCallback(() => {
+    subscribedSessionIdRef.current = null;
     setGatewayReady(false);
     setHasGatewayStatusFrame(false);
     setRelayGatewayId(undefined);
@@ -698,6 +699,7 @@ export function ChatPanel({
             ? (activeSessionGatewayIdRef.current ?? selectedGatewayIdRef.current)
             : selectedGatewayIdRef.current;
           if (gatewayId === effectiveGatewayId) {
+            subscribedSessionIdRef.current = null;
             setGatewayReady(false);
             setRelayGatewayId((current) => current === gatewayId ? undefined : current);
             setConnectionError(t.gatewayNotConnected);
