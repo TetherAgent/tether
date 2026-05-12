@@ -47,7 +47,7 @@ function compactProjectPath(projectPath: string): string {
   return `.../${parts.slice(-3).join('/')}`;
 }
 
-export function ChatSessionList({
+export function AppSidebar({
   activeSessionId,
   onSelect,
   onToggleSidebar,

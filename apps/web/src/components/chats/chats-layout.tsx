@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { ChatPanel } from './chat-panel.js';
-import { ChatSessionList } from './chat-session-list.js';
+import { AppSidebar } from './app-sidebar.js';
 
 export function ChatsLayout({ activeSessionId }: { activeSessionId?: string }) {
   const [drawerOpen, setDrawerOpen] = React.useState(false);
@@ -11,7 +11,7 @@ export function ChatsLayout({ activeSessionId }: { activeSessionId?: string }) {
   }, []);
 
   const sidebarContent = (
-    <ChatSessionList
+    <AppSidebar
       activeSessionId={activeSessionId}
       refreshKey={sessionRefreshKey}
       onSelect={() => setDrawerOpen(false)}

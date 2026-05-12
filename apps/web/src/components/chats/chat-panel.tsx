@@ -28,6 +28,8 @@ import { ToolCard } from './tool-card.js';
 import { PermissionPrompt } from './permission-prompt.js';
 import { type RelayFrame, useChatRelaySocket } from './use-chat-relay-socket.js';
 import { GatewaySelector } from './gateway-selector.js';
+import { SlashCommandMenu } from './slash-command-menu.js';
+import { useSlashMenu } from './use-slash-menu.js';
 
 type Usage = ChatUsage;
 type HistoryUsage = ChatHistoryUsage;
@@ -396,6 +398,7 @@ export function ChatPanel({
   const messageScrollRef = React.useRef<HTMLDivElement | null>(null);
   const messageEndRef = React.useRef<HTMLDivElement | null>(null);
   const inputRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const newSessionInputRef = React.useRef<HTMLTextAreaElement | null>(null);
   const currentAgentIdRef = React.useRef<string | null>(null);
   const inflightStartedAtRef = React.useRef<number>(0);
   const revealTimerRef = React.useRef<number | undefined>(undefined);
@@ -1259,7 +1262,18 @@ export function ChatPanel({
 
   const isNewSession = !currentSessionId && messages.length === 0;
 
+  const slashMenu = useSlashMenu({
+    inputText,
+    onSelect: (name) => {
+      setInputText(`/${name} `);
+      window.requestAnimationFrame(() => {
+        (inputRef.current ?? newSessionInputRef.current)?.focus();
+      });
+    }
+  });
+
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slashMenu.handleKeyDown(event)) return;
     const nativeEvent = event.nativeEvent as KeyboardEvent;
     const isComposing = isComposingRef.current || nativeEvent.isComposing || nativeEvent.keyCode === 229;
     if (event.key === 'Enter' && !event.shiftKey && !isComposing) {
@@ -1420,9 +1434,20 @@ export function ChatPanel({
   const displayProvider = currentSessionId ? (activeSessionProvider ?? 'agent') : selectedProvider;
   const displayProviderModels = providerOptions.find((provider) => provider.provider === displayProvider)?.models ?? [];
   const displayModel = currentSessionId ? (activeSessionModel ?? displayProviderModels[0]) : selectedModel;
+  const slashMenuEl = (
+    <SlashCommandMenu
+      open={slashMenu.open}
+      commands={slashMenu.filteredCommands}
+      activeIndex={slashMenu.activeIndex}
+      onSelect={slashMenu.handleSelect}
+      onActiveIndexChange={slashMenu.setActiveIndex}
+    />
+  );
+
   const inputCard = (withControls: boolean) => (
     <div className="chat-input-card relative overflow-hidden rounded-2xl border border-border bg-card" style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
       <Textarea
+        ref={withControls ? newSessionInputRef : undefined}
         value={inputText}
         onChange={(event) => setInputText(event.target.value)}
         placeholder={gatewayInputMessage ?? buildInputPlaceholder(
@@ -1618,7 +1643,10 @@ export function ChatPanel({
         </div>
 
         <div className="chat-new-session-composer w-full max-w-[680px]">
-          {inputCard(true)}
+          <div className="relative">
+            {slashMenuEl}
+            {inputCard(true)}
+          </div>
           <div className="mt-3 flex items-center justify-center gap-1">
             <span className="text-[11px] text-muted-foreground/70">{t.chatsCwdNote}</span>
           </div>
@@ -1701,6 +1729,7 @@ export function ChatPanel({
                   durationMs={message.durationMs}
                   nextSuggestions={index === lastAgentIndex ? message.nextSuggestions : undefined}
                   onSuggestionClick={applyNextSuggestion}
+                  onCommandClick={applyNextSuggestion}
                 />
               );
             }
@@ -1811,6 +1840,8 @@ export function ChatPanel({
           </div>
 
           {/* Compact input card */}
+          <div className="relative">
+            {slashMenuEl}
           <div className="chat-input-card relative overflow-hidden rounded-2xl border border-border bg-card" style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
             <div className="flex items-end gap-2 px-3 py-2.5">
               <Textarea
@@ -1826,6 +1857,7 @@ export function ChatPanel({
               />
               {sendButton}
             </div>
+          </div>
           </div>
         </div>
       </div>

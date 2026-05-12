@@ -47,16 +47,83 @@ function CodeBlock({ className, children }: { className?: string; children?: Rea
   );
 }
 
-const mdComponents: Components = {
-  pre({ children }) {
-    const code = React.Children.toArray(children).find(
-      (c): c is React.ReactElement<{ className?: string; children?: React.ReactNode }> =>
-        React.isValidElement(c) && (c as React.ReactElement).type === 'code'
-    );
-    if (!code) return <pre>{children}</pre>;
-    return <CodeBlock className={code.props.className}>{code.props.children}</CodeBlock>;
+const COMMAND_RE = /^[$\/][a-z][\w-]/;
+
+function extractText(node: React.ReactNode): string {
+  if (!node) return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(extractText).join('');
+  if (React.isValidElement(node)) {
+    return extractText((node as React.ReactElement<{ children?: React.ReactNode }>).props.children);
   }
-};
+  return '';
+}
+
+function makeLineClickable(children: React.ReactNode): boolean {
+  return COMMAND_RE.test(extractText(children).trimStart());
+}
+
+function createMdComponents(onCommandClick?: (text: string) => void): Components {
+  return {
+    pre({ children }) {
+      const code = React.Children.toArray(children).find(
+        (c): c is React.ReactElement<{ className?: string; children?: React.ReactNode }> =>
+          React.isValidElement(c) && (c as React.ReactElement).type === 'code'
+      );
+      if (!code) return <pre>{children}</pre>;
+      return <CodeBlock className={code.props.className}>{code.props.children}</CodeBlock>;
+    },
+    p({ children }) {
+      if (!onCommandClick) return <p>{children}</p>;
+      // Split on <br> so each line in a paragraph is independently clickable
+      const childArray = React.Children.toArray(children);
+      const lines: React.ReactNode[][] = [[]];
+      for (const child of childArray) {
+        if (React.isValidElement(child) && child.type === 'br') {
+          lines.push([]);
+        } else {
+          lines[lines.length - 1].push(child);
+        }
+      }
+      if (!lines.some(makeLineClickable)) return <p>{children}</p>;
+      return (
+        <p>
+          {lines.map((line, i) =>
+            makeLineClickable(line) ? (
+              <span
+                key={i}
+                className="block cursor-pointer rounded transition-colors hover:bg-accent/50"
+                title="点击填入输入框"
+                onClick={(e) => onCommandClick((e.currentTarget as HTMLElement).innerText.trim())}
+              >
+                {line}
+              </span>
+            ) : (
+              <span key={i} className="block">{line}</span>
+            )
+          )}
+        </p>
+      );
+    },
+    li({ children }) {
+      if (onCommandClick && makeLineClickable(children)) {
+        return (
+          <li
+            className="cursor-pointer rounded transition-colors hover:bg-accent/50"
+            title="点击填入输入框"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCommandClick((e.currentTarget as HTMLElement).innerText.trim());
+            }}
+          >
+            {children}
+          </li>
+        );
+      }
+      return <li>{children}</li>;
+    }
+  };
+}
 
 export function ChatBubbleAgent({
   text,
@@ -67,7 +134,8 @@ export function ChatBubbleAgent({
   usage,
   durationMs,
   nextSuggestions,
-  onSuggestionClick
+  onSuggestionClick,
+  onCommandClick
 }: {
   text: string;
   isStreaming: boolean;
@@ -78,8 +146,10 @@ export function ChatBubbleAgent({
   durationMs?: number;
   nextSuggestions?: ChatNextSuggestion[];
   onSuggestionClick?: (description: string) => void;
+  onCommandClick?: (text: string) => void;
 }) {
   const renderText = isStreaming ? closeUnclosedFence(text) : text;
+  const components = React.useMemo(() => createMdComponents(onCommandClick), [onCommandClick]);
   return (
     <div className="flex min-w-0 max-w-full items-start gap-3 overflow-hidden">
       <ModelAvatar provider={provider} label={provider} />
@@ -94,7 +164,7 @@ export function ChatBubbleAgent({
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeHighlight]}
-                components={mdComponents}
+                components={components}
               >
                 {renderText}
               </ReactMarkdown>
