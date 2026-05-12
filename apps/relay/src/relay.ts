@@ -1020,7 +1020,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           command: frame.command,
           cwd: frame.cwd,
           cols: frame.cols,
-          rows: frame.rows
+          rows: frame.rows,
+          ...(typeof frame.title === 'string' ? { title: frame.title } : {}),
+          ...(Array.isArray(frame.providerArgs) ? { providerArgs: frame.providerArgs } : {})
         });
         break;
       }
@@ -1408,8 +1410,8 @@ async function authenticateClientFrame(
     if (!scope) {
       return { ok: false, code: 'invalid_token', message: 'client token is invalid' };
     }
-    if (scope.tokenClass !== 'normal_client_access' && scope.tokenClass !== 'ws_ticket') {
-      return { ok: false, code: 'wrong_token_class', message: 'client token must be normal_client_access or ws_ticket' };
+    if (scope.tokenClass !== 'normal_client_access' && scope.tokenClass !== 'ws_ticket' && scope.tokenClass !== 'gateway_access') {
+      return { ok: false, code: 'wrong_token_class', message: 'client token must be normal_client_access, gateway_access, or ws_ticket' };
     }
     return { ok: true, scope, authMethod: 'token' };
   }
@@ -1493,7 +1495,13 @@ function hasForbiddenKey(value: unknown): boolean {
   if (!value || typeof value !== 'object') {
     return false;
   }
+  const frameType = typeof (value as { type?: unknown }).type === 'string'
+    ? (value as { type: string }).type
+    : undefined;
   for (const [key, nested] of Object.entries(value)) {
+    if (frameType === 'client.new-pty-session' && (key === 'command' || key === 'providerArgs' || key === 'title')) {
+      continue;
+    }
     if (FORBIDDEN_KEYS.has(key) || hasForbiddenKey(nested)) {
       return true;
     }

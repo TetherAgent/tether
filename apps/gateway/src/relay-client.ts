@@ -39,6 +39,8 @@ export type RelayClientOptions = {
     cwd: string;
     cols: number;
     rows: number;
+    title?: string;
+    providerArgs?: string[];
   }) => Promise<{ sessionId: string }>;
   heartbeatIntervalMs?: number;
   heartbeatTimeoutMs?: number;
@@ -482,7 +484,9 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
           command: frame.command,
           cwd: frame.cwd,
           cols: frame.cols,
-          rows: frame.rows
+          rows: frame.rows,
+          title: frame.title,
+          providerArgs: frame.providerArgs
         }).then(({ sessionId }) => {
           send({
             type: 'gateway.session-created',

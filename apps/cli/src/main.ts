@@ -49,7 +49,6 @@ import {
 import { defaultDbPath } from '@tether/gateway/store';
 import { isProviderName, PROVIDERS, type ProviderDefinition } from '@tether/core';
 import * as terminal from './terminal.js';
-import { buildCreateSessionPayload } from './forwarding.js';
 import {
   gatewayRuntimeJsonPath,
   installLaunchAgent,
@@ -291,7 +290,17 @@ async function startProviderSession(provider: ProviderDefinition, options: Start
   if (!gatewayUrl) {
     throw new Error('未检测到常驻 Gateway。\n请先运行：tether gateway start');
   }
-  const session = await createSessionViaGateway(provider, options, gatewayUrl);
+  const relay = resolveRelayConfig({ file: readTetherConfig() });
+  if (!relay) {
+    throw new Error('当前 Gateway 未配置 Relay，无法通过 relay 创建 PTY session。请切到 relay 模式后重试。');
+  }
+  const auth = await readFreshGatewayAuthState();
+  const payload = decodeTokenPayload(auth.accessToken);
+  const gatewayId = typeof payload?.gatewayId === 'string' ? payload.gatewayId : undefined;
+  if (!gatewayId) {
+    throw new Error('gateway access token 缺少 gatewayId，请重新执行 tether gateway login。');
+  }
+  const session = await createSessionViaRelay(provider, options, relay.url, auth.accessToken, gatewayId);
   const remoteUrl = `${gatewayUrl}/remote/session/${session.id}`;
   console.log(`Tether session: ${session.id}`);
   console.log(`Remote URL: ${remoteUrl}`);
@@ -340,33 +349,79 @@ async function gatewayCandidateUrls(): Promise<string[]> {
   return [...candidates];
 }
 
-async function createSessionViaGateway(
+async function createSessionViaRelay(
   provider: ProviderDefinition,
   options: Pick<StartOptions, 'project' | 'title' | 'providerArgs'>,
-  gatewayUrl: string
+  relayUrl: string,
+  accessToken: string,
+  gatewayId: string
 ): Promise<CreatedGatewaySession> {
-  const authHeaders = await gatewayAuthHeaders();
-  const response = await fetch(`${gatewayUrl}/api/sessions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...authHeaders },
-    body: JSON.stringify(buildCreateSessionPayload(provider, options))
+  const ws = new WebSocket(relayClientUrl(relayUrl));
+  return await new Promise<CreatedGatewaySession>((resolve, reject) => {
+    let authOk = false;
+    let settled = false;
+    const finish = (error?: Error, session?: CreatedGatewaySession) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      ws.removeAllListeners();
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(session as CreatedGatewaySession);
+    };
+    const timer = setTimeout(() => {
+      finish(new Error(authOk ? 'relay PTY session create timeout' : 'relay auth timeout'));
+    }, authOk ? 10_000 : 5_000);
+    ws.once('error', (error) => {
+      finish(error instanceof Error ? error : new Error(String(error)));
+    });
+    ws.once('open', () => {
+      ws.send(JSON.stringify({ type: 'client.auth', token: accessToken }));
+    });
+    ws.on('message', (raw) => {
+      const frame = JSON.parse(raw.toString()) as Record<string, unknown>;
+      if (frame.type === 'client.auth.failed') {
+        finish(new Error(`relay auth failed: ${String(frame.message ?? 'unknown error')}`));
+        return;
+      }
+      if (!authOk && frame.type === 'client.auth.ok') {
+        authOk = true;
+        clearTimeout(timer);
+        const createTimer = setTimeout(() => {
+          finish(new Error('relay PTY session create timeout'));
+        }, 10_000);
+        ws.send(JSON.stringify({
+          type: 'client.new-pty-session',
+          provider: provider.name,
+          command: provider.command,
+          cwd: path.resolve(options.project ?? process.cwd()),
+          cols: process.stdout.columns ?? 120,
+          rows: process.stdout.rows ?? 40,
+          gatewayId,
+          ...(typeof options.title === 'string' ? { title: options.title } : {}),
+          ...(Array.isArray(options.providerArgs) && options.providerArgs.length > 0
+            ? { providerArgs: options.providerArgs }
+            : {})
+        }));
+        ws.once('close', () => clearTimeout(createTimer));
+        return;
+      }
+      if (frame.type === 'gateway.session-created' && typeof frame.sessionId === 'string') {
+        finish(undefined, { id: frame.sessionId });
+        return;
+      }
+      if (frame.type === 'error') {
+        finish(new Error(`session create error: ${String(frame.message ?? frame.code ?? 'unknown error')}`));
+      }
+    });
   });
-
-  if (response.status === 401) {
-    throw new Error('常驻 Gateway 鉴权失败。请重新执行 tether gateway login。');
-  }
-  if (response.status === 403) {
-    throw new Error('常驻 Gateway 当前未启用 API session creation。请在 ~/.tether/config.json 中开启 gateway.allowApiSessionCreate 后重启 Gateway。');
-  }
-  if (!response.ok) {
-    throw new Error(`创建常驻 Gateway session 失败：HTTP ${response.status}`);
-  }
-
-  const body = (await response.json()) as { session?: { id?: unknown } };
-  if (typeof body.session?.id !== 'string') {
-    throw new Error('创建常驻 Gateway session 失败：响应缺少 session id');
-  }
-  return { id: body.session.id };
 }
 
 program
@@ -625,7 +680,7 @@ async function startGatewayForeground(profile?: GatewayProfileName): Promise<voi
   await assertGatewayPortAvailable(resolved.gateway.host, resolved.gateway.port);
   await ensureGatewayAuthForProfile(resolved.profile);
   const store = new Store();
-  const ptySessions = new PtySessionManager(store);
+  const ptySessions = new PtySessionManager();
   const daemon = await startDaemon({
     host: resolved.gateway.host,
     port: resolved.gateway.port,
@@ -1078,9 +1133,19 @@ async function verifyGatewaySession(providerName: string): Promise<void> {
   }
   const gateway = resolveGatewayConfig();
   const gatewayUrl = gatewayApiUrl(gateway.host, gateway.port);
-  const session = await createSessionViaGateway(PROVIDERS[providerName], { project: process.cwd() }, gatewayUrl);
+  const relay = resolveRelayConfig({ file: readTetherConfig() });
+  if (!relay) {
+    throw new Error('当前未配置 Relay，无法验证 relay PTY 创建链路');
+  }
+  const auth = await readFreshGatewayAuthState();
+  const payload = decodeTokenPayload(auth.accessToken);
+  const gatewayId = typeof payload?.gatewayId === 'string' ? payload.gatewayId : undefined;
+  if (!gatewayId) {
+    throw new Error('gateway access token 缺少 gatewayId，请重新执行 tether gateway login。');
+  }
+  const session = await createSessionViaRelay(PROVIDERS[providerName], { project: process.cwd() }, relay.url, auth.accessToken, gatewayId);
   if (!session) {
-    throw new Error('无法通过 Gateway 创建 session，请先开启 allowApiSessionCreate 并重启 Gateway');
+    throw new Error('无法通过 Relay 创建 session，请确认 Gateway 已连接 Relay');
   }
   console.log(`已创建验证 session：${session.id}`);
   const response = await fetch(`${gatewayUrl}/api/sessions/${encodeURIComponent(session.id)}/stop`, {
@@ -1115,6 +1180,19 @@ function commandAvailable(command: string): boolean {
 function gatewayApiUrl(host: string, port: number): string {
   const connectHost = host === '0.0.0.0' ? '127.0.0.1' : host;
   return `http://${connectHost}:${port}`;
+}
+
+function relayClientUrl(relayUrl: string): string {
+  const url = new URL(relayUrl);
+  if (url.protocol === 'https:') {
+    url.protocol = 'wss:';
+  } else if (url.protocol === 'http:') {
+    url.protocol = 'ws:';
+  }
+  url.pathname = '/ws/client';
+  url.search = '';
+  url.hash = '';
+  return url.toString();
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

@@ -1052,7 +1052,35 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       gatewayId,
       store: options.store,
       ptySessions: options.ptySessions,
-      runnerClientForSession: getRunnerClient
+      runnerClientForSession: getRunnerClient,
+      onNewPtySession: async ({ provider, cwd, cols, rows, title, providerArgs }) => {
+        const authState = await loadGatewayAuthState();
+        if (!authState.ok) {
+          throw new Error(authState.error);
+        }
+        const identity = getGatewayIdentity(authState.value);
+        const id = createSessionId();
+        const session = await spawnSessionRunnerProcess({
+          options: {
+            id,
+            provider,
+            command: providerCommand(provider, options.config),
+            providerArgs,
+            providerEnv: providerEnv(provider),
+            projectPath: path.resolve(cwd),
+            title,
+            cols,
+            rows,
+            owner: identity ? {
+              accountId: identity.accountId,
+              userId: identity.userId,
+              gatewayId: identity.gatewayId
+            } : undefined
+          }
+        });
+        options.store.insertSession(session);
+        return { sessionId: session.id };
+      }
     });
   }
 

@@ -1659,6 +1659,68 @@ test('phase14: client.chat with another account gatewayId returns gateway_unauth
   }
 });
 
+test('phase18: client.new-pty-session routes by bound client.gatewayId only', async () => {
+  const relay = await startRelayServer({
+    host: '127.0.0.1',
+    port: 0,
+    secret: SECRET,
+    validateToken: async (token) => {
+      if (token === 'gw-token-b') {
+        return { accountId: 'acct_b', gatewayId: 'gateway-b', userId: 'user_b', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw_b' };
+      }
+      if (token === 'gw-token-a') {
+        return { accountId: 'acct_a', gatewayId: 'gateway-a', userId: 'user_a', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_gw_a' };
+      }
+      if (token === 'client-token-a') {
+        return { accountId: 'acct_a', gatewayId: 'gateway-a', userId: 'user_a', tokenClass: 'gateway_access', expiresAt: Date.now() + 60_000, jti: 'jti_client_a' };
+      }
+      return undefined;
+    }
+  });
+  const wsUrl = relay.url.replace('http', 'ws');
+  const gatewayB = new WebSocket(`${wsUrl}/ws/gateway`);
+  const gatewayA = new WebSocket(`${wsUrl}/ws/gateway`);
+  const clientA = new WebSocket(`${wsUrl}/ws/client`);
+
+  try {
+    await waitForOpen(gatewayB);
+    gatewayB.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-b', token: 'gw-token-b' }));
+    await waitForJson(gatewayB, (m) => m.type === 'gateway.auth.ok');
+
+    await waitForOpen(gatewayA);
+    gatewayA.send(JSON.stringify({ type: 'gateway.auth', gatewayId: 'gateway-a', token: 'gw-token-a' }));
+    await waitForJson(gatewayA, (m) => m.type === 'gateway.auth.ok');
+
+    await waitForOpen(clientA);
+    clientA.send(JSON.stringify({ type: 'client.auth', token: 'client-token-a' }));
+    const authOk = await waitForJson(clientA, (m) => m.type === 'client.auth.ok');
+
+    clientA.send(JSON.stringify({
+      type: 'client.new-pty-session',
+      provider: 'codex',
+      command: 'codex',
+      cwd: process.cwd(),
+      cols: 120,
+      rows: 40,
+      gatewayId: 'gateway-b'
+    }));
+    const routed = await waitForJson(gatewayA, (m) => m.type === 'client.new-pty-session');
+    assert.equal(routed.clientId, authOk.clientId);
+    assert.equal(routed.provider, 'codex');
+
+    const leakCheck = await Promise.race([
+      waitForJson(gatewayB, (m) => m.type === 'client.new-pty-session').then(() => 'leaked'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('isolated'), 300))
+    ]);
+    assert.equal(leakCheck, 'isolated');
+  } finally {
+    gatewayA.close();
+    gatewayB.close();
+    clientA.close();
+    await relay.close();
+  }
+});
+
 test('phase14: client.list-providers with matching gatewayId routes only to that gateway', async () => {
   const relay = await startRelayServer({
     host: '127.0.0.1',

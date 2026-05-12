@@ -151,3 +151,11 @@ test('stop prints success and can fall back to runner socket', () => {
   assert.match(source, /stopPtySessionViaRunner\(session\.runnerSocketPath\)/);
   assert.match(source, /new SessionRunnerClient\(\{ socketPath \}\)/);
 });
+
+test('provider session creation goes through relay websocket frames', () => {
+  const source = mainSource();
+  assert.match(source, /createSessionViaRelay/);
+  assert.match(source, /relayClientUrl\(relayUrl\)/);
+  assert.match(source, /type: 'client\.new-pty-session'/);
+  assert.match(source, /type: 'client\.auth'/);
+});
