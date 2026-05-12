@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.3
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 18-02-PLAN.md
-last_updated: "2026-05-12T08:03:04Z"
-last_activity: 2026-05-12 -- Phase 18 plan 02 complete
+stopped_at: Completed 18-03-PLAN.md
+last_updated: "2026-05-12T08:19:26Z"
+last_activity: 2026-05-12 -- Phase 18 plan 03 complete
 progress:
   total_phases: 18
-  completed_phases: 10
-  total_plans: 68
-  completed_plans: 68
+  completed_phases: 11
+  total_plans: 69
+  completed_plans: 69
   percent: 100
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-05-01)
 ## Current Position
 
 Phase: 18
-Plan: 03
-Next: execute Phase 18 Plan 03
-Last activity: 2026-05-12 -- Phase 18 plan 02 complete
+Plan: complete
+Next: none
+Last activity: 2026-05-12 -- Phase 18 plan 03 complete
 
 Progress: [██████████] 100%
 
@@ -42,7 +42,7 @@ Progress: [██████████] 100%
 
 **Velocity:**
 
-- Total plans completed: 25
+- Total plans completed: 26
 - Average duration: — min
 - Total execution time: 0 hours
 
@@ -74,6 +74,7 @@ Progress: [██████████] 100%
 | Phase 14 P06 | 30min | 2 tasks | 4 files |
 | Phase 18 P01 | 22min | 3 tasks | 14 files |
 | Phase 18 P02 | 9min | 4 tasks | 14 files |
+| Phase 18 P03 | 16min | 2 tasks | 23 files |
 
 ## Accumulated Context
 
@@ -120,6 +121,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 18-02: Restored PTY sessions live in a separate restoredSessions map so relay recovery can repopulate metadata without pretending a live local PTY exists.
 - [Phase ?]: Phase 18-02: CLI provider launches authenticate to relay with the bound gateway token so local session creation reuses the authenticated gatewayId route.
 - [Phase ?]: Phase 18-02: client.new-pty-session carries optional title/providerArgs so the relay path preserves existing CLI launch behavior.
+- [Phase ?]: Phase 18-03: Gateway daemon and CLI now rely on PtySessionManager memory state and gateway HTTP only; no local SQLite fallback remains.
+- [Phase ?]: Phase 18-03: Replay/history remain intentional stubs after Store removal until a later MySQL-backed replay phase.
 
 ### Pending Todos
 
@@ -165,6 +168,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-12T08:03:04Z
-Stopped at: Completed 18-02-PLAN.md
+Last session: 2026-05-12T08:19:26Z
+Stopped at: Completed 18-03-PLAN.md
 Resume file: None

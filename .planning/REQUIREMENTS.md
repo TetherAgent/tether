@@ -79,7 +79,7 @@ The already-shipped Personal Relay MVP remains useful as a development bootstrap
 
 - [x] **SQLITE-01**: PTY live events and session metadata no longer depend on local SQLite writes on the live Gateway path.
 - [x] **SQLITE-02**: Relay restores gateway-scoped sessions after auth and PTY session creation moves to `client.new-pty-session` websocket frames for CLI/Gateway runtime flow.
-- [ ] **SQLITE-03**: `store.ts`, `better-sqlite3`, and all residual local SQLite references are removed from Gateway and CLI runtime paths.
+- [x] **SQLITE-03**: `store.ts`, `better-sqlite3`, and all residual local SQLite references are removed from Gateway and CLI runtime paths.
 
 ## v2 Requirements (deferred — not in v0.3 roadmap)
 
@@ -152,7 +152,7 @@ The already-shipped Personal Relay MVP remains useful as a development bootstrap
 | CLEAN-03 | Phase 8 | Pending |
 | SQLITE-01 | Phase 18 | Complete |
 | SQLITE-02 | Phase 18 | Complete |
-| SQLITE-03 | Phase 18 | Pending |
+| SQLITE-03 | Phase 18 | Complete |
 
 **Coverage:**
 - v1 requirements: 29 total
