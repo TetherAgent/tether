@@ -1614,16 +1614,58 @@ async function waitForGatewayAuthCallback(port: number, timeoutMs: number): Prom
       const gatewayRefreshToken = get('gatewayRefreshToken');
 
       if (!gatewayId || !accountId || !gatewayAccessToken || !gatewayRefreshToken) {
+        const errorHtml = `<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8"><title>授权失败 · Tether</title>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse 80% 60% at 50% -10%,#2a0d0d 0%,#0a0a0a 70%);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e5e5e5}.card{background:rgba(18,18,18,.92);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:40px 36px;width:100%;max-width:380px;text-align:center}h1{font-size:20px;font-weight:600;color:#f5f5f5;margin-bottom:8px}p{font-size:14px;color:#a3a3a3;line-height:1.6}</style>
+</head><body><div class="card"><h1>授权失败</h1><p>回调参数缺失，请重新运行 tether gateway login。</p></div></body></html>`;
         res.writeHead(400, { 'content-type': 'text/html; charset=utf-8', connection: 'close' })
-          .end('<html><body>授权失败：参数缺失。</body></html>', () => {
+          .end(errorHtml, () => {
             req.socket.destroy();
             finish(undefined, new Error('Gateway 授权失败：回调缺少必要参数'));
           });
         return;
       }
 
+      const successHtml = `<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>授权成功 · Tether</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{min-height:100vh;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(ellipse 80% 60% at 50% -10%,#0d2a1a 0%,#0a0a0a 70%);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e5e5e5}
+  .card{background:rgba(18,18,18,.92);border:1px solid rgba(255,255,255,.08);
+    border-radius:16px;padding:40px 36px;width:100%;max-width:380px;
+    box-shadow:0 24px 64px rgba(0,0,0,.6);text-align:center}
+  .icon{width:52px;height:52px;border-radius:50%;background:rgba(34,197,94,.15);
+    border:1.5px solid rgba(34,197,94,.4);display:flex;align-items:center;
+    justify-content:center;margin:0 auto 20px}
+  .icon svg{width:26px;height:26px;stroke:#22c55e;fill:none;stroke-width:2.5;
+    stroke-linecap:round;stroke-linejoin:round}
+  h1{font-size:20px;font-weight:600;color:#f5f5f5;margin-bottom:8px}
+  p{font-size:14px;color:#a3a3a3;line-height:1.6;margin-bottom:28px}
+  button{width:100%;padding:11px 0;border-radius:8px;border:none;cursor:pointer;
+    font-size:14px;font-weight:500;
+    background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;
+    transition:opacity .15s}
+  button:hover{opacity:.85}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">
+    <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+  </div>
+  <h1>授权成功</h1>
+  <p>Gateway 已绑定到你的账号，可以关闭此窗口，返回终端继续操作。</p>
+  <button onclick="window.close()">关闭窗口</button>
+</div>
+</body>
+</html>`;
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', connection: 'close' }).end(
-        '<html><body style="font-family:sans-serif;padding:2em"><h2>授权成功</h2><p>可以关闭此窗口，返回终端。</p></body></html>',
+        successHtml,
         () => {
           req.socket.destroy();
           finish({ gatewayId, accountId, gatewayAccessToken, gatewayRefreshToken }, undefined);
