@@ -189,6 +189,13 @@ gatewayCommand
   });
 
 gatewayCommand
+  .command('serve')
+  .description('以前台 daemon 模式运行 Gateway（供 launchd 调用）')
+  .action(async () => {
+    await startGatewayForeground(gatewayProfileFromEnv());
+  });
+
+gatewayCommand
   .command('stop')
   .description('通过 launchd 停止 Gateway')
   .action(async () => {
