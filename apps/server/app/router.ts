@@ -35,6 +35,7 @@ export default (app: Application): void => {
   // Relay → Server 运行时同步（仅 127.0.0.1 可访问，nginx 层拦截外部请求）
   router.post('/api/relay/runtime-sync/gateway/sessions', requireRuntimeSyncSecret, controller.runtimeSync.sessions);      // 同步 Session 列表
   router.post('/api/relay/runtime-sync/gateway/event', requireRuntimeSyncSecret, controller.runtimeSync.event);            // 同步终端事件
+  router.get('/api/relay/runtime-sync/gateway-sessions-restore/:gatewayId', requireRuntimeSyncSecret, controller.runtimeSync.gatewaySessionsRestore);
 
   // Gateway 数据读取（前端只读）
   router.get('/api/server/gateways', requireNormalAccess, controller.gateway.list);

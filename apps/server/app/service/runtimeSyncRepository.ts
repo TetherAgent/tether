@@ -38,6 +38,20 @@ type RuntimeSyncScope = {
   transport?: string;
 };
 
+type RestorableRelaySession = {
+  id: string;
+  provider: string;
+  title: string;
+  projectPath: string;
+  accountId?: string;
+  gatewayId?: string;
+  userId?: string;
+  agentSessionId?: string;
+  status: 'running' | 'stopped' | 'completed' | 'failed' | 'lost';
+  transport: 'pty-event-stream' | 'tmux' | 'chat';
+  lastActiveAt: number;
+};
+
 type Queryable = {
   query: (sql: string, values?: any[]) => Promise<unknown>;
 };
@@ -197,6 +211,34 @@ export default class RuntimeSyncRepositoryService extends Service {
       'UPDATE gateway_sessions SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?',
       [sessionId]
     );
+  }
+
+  public async listSessionsForGateway(gatewayId: string): Promise<RestorableRelaySession[]> {
+    if (!this.mysqlModeEnabled()) {
+      return [];
+    }
+    const rows = await this.ctx.service.db.query(
+      `SELECT id, provider, title, project_path, account_id, gateway_id, user_id, agent_session_id,
+              status, transport, last_active_at
+       FROM gateway_sessions
+       WHERE gateway_id = ? AND status IN ('running', 'lost')
+       ORDER BY last_active_at DESC
+       LIMIT 100`,
+      [gatewayId]
+    ) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id ?? ''),
+      provider: String(row.provider ?? ''),
+      title: String(row.title ?? ''),
+      projectPath: String(row.project_path ?? ''),
+      accountId: typeof row.account_id === 'string' ? row.account_id : undefined,
+      gatewayId: typeof row.gateway_id === 'string' ? row.gateway_id : undefined,
+      userId: typeof row.user_id === 'string' ? row.user_id : undefined,
+      agentSessionId: typeof row.agent_session_id === 'string' ? row.agent_session_id : undefined,
+      status: String(row.status ?? 'lost') as RestorableRelaySession['status'],
+      transport: String(row.transport ?? 'pty-event-stream') as RestorableRelaySession['transport'],
+      lastActiveAt: this.toDate(row.last_active_at).getTime()
+    }));
   }
 
   public async upsertChatRuntimeEvent(

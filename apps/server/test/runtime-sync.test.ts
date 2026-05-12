@@ -14,6 +14,7 @@ describe('test/runtime-sync.test.ts', () => {
     const whitelist = app.config.verifyLoginWhitelist
     assert(whitelist.includes('/api/relay/runtime-sync/gateway/sessions'))
     assert(whitelist.includes('/api/relay/runtime-sync/gateway/event'))
+    assert(whitelist.includes('/api/relay/runtime-sync/gateway-sessions-restore/:gatewayId'))
     assert(whitelist.includes('/api/relay/gateway-sessions/:sessionId/metadata'))
     assert(whitelist.includes('/api/relay/gateway-sessions/:sessionId/agent-session-id'))
   })
@@ -22,6 +23,24 @@ describe('test/runtime-sync.test.ts', () => {
     const middleware = verifyLogin()
     const requestCtx = app.mockContext({
       url: '/api/relay/gateway-sessions/tth_sync_route/metadata'
+    }) as Context & { service: Context['service'] }
+    let passed = false
+    requestCtx.get = (name: string) => name.toLowerCase() === 'authorization' ? '' : ''
+    requestCtx.service.auth.verifyToken = async () => {
+      throw new Error('verifyToken should not be called for whitelist route')
+    }
+
+    await middleware(requestCtx, async () => {
+      passed = true
+    })
+
+    assert.equal(passed, true)
+  })
+
+  it('verifyLogin 白名单支持 gateway-sessions-restore :gatewayId 路由模板匹配真实路径', async () => {
+    const middleware = verifyLogin()
+    const requestCtx = app.mockContext({
+      url: '/api/relay/runtime-sync/gateway-sessions-restore/gw_restore_01'
     }) as Context & { service: Context['service'] }
     let passed = false
     requestCtx.get = (name: string) => name.toLowerCase() === 'authorization' ? '' : ''
@@ -109,6 +128,11 @@ describe('test/runtime-sync.test.ts', () => {
         scope
       )
     })
+  })
+
+  it('runtimeSyncRepository.listSessionsForGateway — MySQL 未启用时返回空数组', async () => {
+    const result = await ctx.service.runtimeSyncRepository.listSessionsForGateway('gw_restore_01')
+    assert.deepEqual(result, [])
   })
 
   it('runtimeSyncRepository.upsertGatewaySession — 用户自定义标题不被 Gateway 同步覆盖', async () => {

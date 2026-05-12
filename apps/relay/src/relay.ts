@@ -339,6 +339,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           clearTimeout(authTimer);
           sendToSocket<RelayServerToGatewayFrame>(socket, { type: 'gateway.auth.ok', gatewayId });
           broadcastGatewayStatus(gatewayId, 'connected', auth.scope);
+          void sendSessionsRestoreToGateway(gatewayId, socket);
           return;
         }
 
@@ -988,6 +989,41 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           });
         }
         break;
+      case 'client.new-pty-session': {
+        const client = clients.get(clientId);
+        const targetGatewayId = client?.gatewayId;
+        if (!client || !targetGatewayId) {
+          sendToClient(clientId, { type: 'error', code: 'gateway_not_bound', message: 'client has no bound gateway' });
+          break;
+        }
+        const targetGateway = gateways.get(targetGatewayId);
+        if (!targetGateway || targetGateway.socket.readyState !== WebSocket.OPEN) {
+          sendToClient(clientId, {
+            type: 'error',
+            code: 'gateway_not_found',
+            message: `gateway ${targetGatewayId} is not connected`
+          });
+          break;
+        }
+        if (!clientCanUseGateway(client.scope, targetGateway.scope)) {
+          sendToClient(clientId, {
+            type: 'error',
+            code: 'gateway_unauthorized',
+            message: 'client cannot use this gateway'
+          });
+          break;
+        }
+        sendToSocket<RelayServerToGatewayFrame>(targetGateway.socket, {
+          type: 'client.new-pty-session',
+          clientId,
+          provider: frame.provider,
+          command: frame.command,
+          cwd: frame.cwd,
+          cols: frame.cols,
+          rows: frame.rows
+        });
+        break;
+      }
       case 'client.list-providers':
         forwardFrameToGateway(clientId, clientScope, frame.gatewayId, { type: 'client.list-providers', clientId });
         break;
@@ -1168,6 +1204,36 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
       if (!clientCanUseGateway(client.scope, gatewayScope)) continue;
       if (client.gatewayId && client.gatewayId !== gatewayId) continue;
       sendToSocket<RelayServerToClientFrame>(client.socket, { type: 'gateway.status', gatewayId, status, version: gateway?.version });
+    }
+  }
+
+  async function sendSessionsRestoreToGateway(gatewayId: string, gatewaySocket: WebSocket): Promise<void> {
+    if (!options.serverSyncUrl || !options.runtimeSyncSecret) {
+      return;
+    }
+    try {
+      const response = await fetch(
+        `${options.serverSyncUrl}/api/relay/runtime-sync/gateway-sessions-restore/${encodeURIComponent(gatewayId)}`,
+        {
+          method: 'GET',
+          headers: {
+            'x-tether-runtime-sync-secret': options.runtimeSyncSecret
+          },
+          signal: AbortSignal.timeout(3000)
+        }
+      );
+      if (!response.ok) {
+        return;
+      }
+      const json = await response.json() as { data?: unknown };
+      const sessions = Array.isArray(json.data) ? json.data as RelaySession[] : [];
+      sendToSocket<RelayServerToGatewayFrame>(gatewaySocket, {
+        type: 'gateway.sessions-restore',
+        gatewayId,
+        sessions
+      });
+    } catch {
+      // Non-fatal: gateway can continue without restore data.
     }
   }
 

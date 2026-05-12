@@ -106,4 +106,15 @@ export default class RuntimeSyncController extends Controller {
     }
     ctx.success(metadata);
   }
+
+  public async gatewaySessionsRestore(): Promise<void> {
+    const { ctx } = this;
+    const gatewayId = String(ctx.params['gatewayId'] ?? '');
+    if (!gatewayId) {
+      ctx.throw(400, 'Missing gatewayId');
+      return;
+    }
+    const sessions = await ctx.service.runtimeSyncRepository.listSessionsForGateway(gatewayId);
+    ctx.success(sessions);
+  }
 }
