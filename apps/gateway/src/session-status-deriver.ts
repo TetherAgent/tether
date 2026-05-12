@@ -1,4 +1,4 @@
-import type { SessionEventType } from './store.js';
+import type { SessionEventType } from './types.js';
 
 export type AgentRuntimeStatus =
   | 'idle'

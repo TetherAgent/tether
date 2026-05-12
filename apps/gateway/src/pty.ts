@@ -4,7 +4,7 @@ import * as pty from 'node-pty';
 import type { AuthScopePayload } from '@tether/core';
 import { createSessionEvent } from './events.js';
 import { maskSensitiveOutput } from './mask.js';
-import type { Session, SessionEvent, SessionStatus } from './store.js';
+import type { Session, SessionEvent, SessionStatus } from './types.js';
 
 export type CreatePtySessionOptions = {
   id: string;

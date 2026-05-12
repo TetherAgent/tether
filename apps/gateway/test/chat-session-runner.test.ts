@@ -4,14 +4,10 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ChatSessionRunner, CodexChatRunner } from '../src/chat-session-runner.js';
-import { Store } from '../src/store.js';
+import { tempSessionState, type TestSessionState } from './helpers/test-session-state.js';
 
-function tempStore(): { store: Store; cleanup: () => void } {
-  const dir = mkdtempSync(path.join(tmpdir(), 'tether-chat-runner-'));
-  return {
-    store: new Store(path.join(dir, 'tether.db')),
-    cleanup: () => rmSync(dir, { recursive: true, force: true })
-  };
+function tempStore(): { store: TestSessionState; cleanup: () => void } {
+  return tempSessionState();
 }
 
 function installFakeClaude(outputLines: Array<Record<string, unknown>>): { pathPrefix: string; cleanup: () => void } {
@@ -83,7 +79,6 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
       resolveResult = resolve;
     });
     const runner = new ChatSessionRunner({
-      store,
       gatewayId: () => 'gateway-test',
       onSessionCreated: (_clientId, sessionId) => {
         createdSessionId = sessionId;
@@ -181,7 +176,6 @@ test('chat runner ignores non-fatal Codex stderr diagnostics', async () => {
       resolveDone = resolve;
     });
     const runner = new CodexChatRunner({
-      store,
       gatewayId: () => 'gateway-test',
       onSessionCreated: () => undefined,
       onChatSessionCreated: () => undefined,
@@ -275,7 +269,6 @@ test('chat runner streams Claude content block text deltas', async () => {
       resolveResult = resolve;
     });
     const runner = new ChatSessionRunner({
-      store,
       gatewayId: () => 'gateway-test',
       onSessionCreated: (_clientId, sessionId) => {
         createdSessionId = sessionId;
@@ -348,7 +341,6 @@ test('chat runner maps Claude permission denials to next suggestions', async () 
       resolveResult = resolve;
     });
     const runner = new ChatSessionRunner({
-      store,
       gatewayId: () => 'gateway-test',
       onSessionCreated: () => undefined,
       onChatSessionCreated: () => undefined,
@@ -409,7 +401,7 @@ test('Phase15-T4: chat runner resumes existing session from frame.session withou
   store.getSession = ((sessionId: string) => {
     getSessionCalls += 1;
     return originalGetSession(sessionId);
-  }) as Store['getSession'];
+  }) as TestSessionState['getSession'];
   try {
     let result = '';
     let resolveResult: (() => void) | undefined;
@@ -417,7 +409,6 @@ test('Phase15-T4: chat runner resumes existing session from frame.session withou
       resolveResult = resolve;
     });
     const runner = new ChatSessionRunner({
-      store,
       gatewayId: () => 'gateway-test',
       onSessionCreated: () => undefined,
       onChatSessionCreated: () => undefined,
@@ -480,7 +471,7 @@ test('Phase15-T5: createChatSession does not call store.insertSession', async ()
   store.insertSession = ((session) => {
     insertSessionCalls += 1;
     return originalInsertSession(session);
-  }) as Store['insertSession'];
+  }) as TestSessionState['insertSession'];
   try {
     let createdSessionId = '';
     let resolveResult: (() => void) | undefined;
@@ -488,7 +479,6 @@ test('Phase15-T5: createChatSession does not call store.insertSession', async ()
       resolveResult = resolve;
     });
     const runner = new ChatSessionRunner({
-      store,
       gatewayId: () => 'gateway-test',
       onSessionCreated: () => undefined,
       onChatSessionCreated: (_clientId, metadata) => {

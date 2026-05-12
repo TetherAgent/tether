@@ -9,7 +9,7 @@ import { createSessionEvent } from './events.js';
 import { maskSensitiveOutput } from './mask.js';
 import { isValidTerminalSize } from './pty.js';
 import { AgentStatusPublisher } from './session-status-deriver.js';
-import type { Session, SessionEvent } from './store.js';
+import type { Session, SessionEvent } from './types.js';
 
 export const RUNNER_MAX_FRAME_BYTES = 1024 * 1024;
 export const RUNNER_HEARTBEAT_INTERVAL_MS = 10_000;

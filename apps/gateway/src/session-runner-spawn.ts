@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { NODE_RUNTIME_FLAGS } from './node-flags.js';
 import { runnerSocketPath, type CreateSessionRunnerOptions } from './session-runner.js';
 import { SessionRunnerClient } from './session-runner-client.js';
-import type { Session } from './store.js';
+import type { Session } from './types.js';
 
 export type SpawnSessionRunnerOptions = {
   options: CreateSessionRunnerOptions;

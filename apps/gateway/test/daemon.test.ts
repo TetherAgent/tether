@@ -8,19 +8,15 @@ import WebSocket from 'ws';
 import { startDaemon } from '../src/daemon.js';
 import { createSessionId } from '../src/ids.js';
 import { PtySessionManager } from '../src/pty.js';
-import { Store } from '../src/store.js';
+import { tempSessionState, type TestSessionState } from './helpers/test-session-state.js';
 
 const TOKEN_GATEWAY = 'gateway-test-token';
 const TOKEN_NORMAL = 'normal-test-token';
 const TOKEN_NORMAL_OTHER = 'normal-test-token-other';
 const TOKEN_MANAGEMENT = 'management-test-token';
 
-function tempStore(): { store: Store; cleanup: () => void } {
-  const dir = mkdtempSync(path.join(tmpdir(), 'tether-daemon-'));
-  return {
-    store: new Store(path.join(dir, 'tether.db')),
-    cleanup: () => rmSync(dir, { recursive: true, force: true })
-  };
+function tempStore(): { store: TestSessionState; cleanup: () => void } {
+  return tempSessionState();
 }
 
 async function withAuthFixture<T>(run: (fixture: {
@@ -153,7 +149,7 @@ test('status reports gateway runtime details', async () => {
     cols: 80,
     rows: 24
   });
-  const daemon = await startDaemon({ host: '127.0.0.1', port: 4898, store, ptySessions, allowApiSessionCreate: true });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4898, ptySessions, allowApiSessionCreate: true });
 
   try {
     const response = await fetch('http://127.0.0.1:4898/api/status');
@@ -185,7 +181,7 @@ test('status reports gateway runtime details', async () => {
 
 test('session creation is disabled by default', async () => {
   const { store, cleanup } = tempStore();
-  const daemon = await startDaemon({ host: '127.0.0.1', port: 4899, store, ptySessions: new PtySessionManager() });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4899, ptySessions: new PtySessionManager() });
 
   try {
     const response = await fetch('http://127.0.0.1:4899/api/sessions', {
@@ -206,7 +202,6 @@ test('session creation rejects command-shaped payloads', async () => {
   const daemon = await startDaemon({
     host: '127.0.0.1',
     port: 4900,
-    store,
     ptySessions: new PtySessionManager(),
     allowApiSessionCreate: true
   });
@@ -238,7 +233,6 @@ test('session creation rejects missing token', async () => {
   const daemon = await startDaemon({
     host: '127.0.0.1',
     port: 4909,
-    store,
     ptySessions: new PtySessionManager(),
     allowApiSessionCreate: true
   });
@@ -275,7 +269,7 @@ test('direct read endpoints require auth and enforce session ownership', async (
       deviceId: 'device_test'
     }
   });
-  const daemon = await startDaemon({ host: '127.0.0.1', port, store, ptySessions });
+  const daemon = await startDaemon({ host: '127.0.0.1', port, ptySessions });
 
   try {
     await withAuthFixture(async ({ authHeaders }) => {
@@ -315,7 +309,6 @@ test('session creation rejects management token', async () => {
   const daemon = await startDaemon({
     host: '127.0.0.1',
     port: 4910,
-    store,
     ptySessions: new PtySessionManager(),
     allowApiSessionCreate: true
   });
@@ -345,7 +338,7 @@ test('session creation accepts whitelisted provider when enabled', async () => {
   chmodSync(fakeCodex, 0o755);
   process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ''}`;
   const ptySessions = new PtySessionManager();
-  const daemon = await startDaemon({ host: '127.0.0.1', port: 4901, store, ptySessions, allowApiSessionCreate: true, config: {} });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4901, ptySessions, allowApiSessionCreate: true, config: {} });
 
   try {
     await withAuthFixture(async ({ authHeaders }) => {
@@ -364,7 +357,7 @@ test('session creation accepts whitelisted provider when enabled', async () => {
       if (!createdId) {
         throw new Error('created session id missing');
       }
-      assert.equal(typeof store.getSession(createdId)?.runnerSocketPath, 'string');
+      assert.equal(typeof ptySessions.getSession(createdId)?.runnerSocketPath, 'string');
       await fetch(`http://127.0.0.1:4901/api/sessions/${encodeURIComponent(createdId)}/stop`, {
         method: 'POST',
         headers: authHeaders()
@@ -389,7 +382,6 @@ test('session creation forwards provider arguments to whitelisted provider', asy
   const daemon = await startDaemon({
     host: '127.0.0.1',
     port,
-    store,
     ptySessions,
     allowApiSessionCreate: true,
     config: { providers: { codex: { command: fakeCodex } } }
@@ -415,7 +407,7 @@ test('session creation forwards provider arguments to whitelisted provider', asy
       if (!createdId) {
         throw new Error('created session id missing');
       }
-      assert.equal(typeof store.getSession(createdId)?.runnerSocketPath, 'string');
+      assert.equal(typeof ptySessions.getSession(createdId)?.runnerSocketPath, 'string');
       await fetch(`http://127.0.0.1:${port}/api/sessions/${encodeURIComponent(createdId)}/stop`, {
         method: 'POST',
         headers: authHeaders()
@@ -434,7 +426,6 @@ test('session creation rejects invalid provider arguments', async () => {
   const daemon = await startDaemon({
     host: '127.0.0.1',
     port,
-    store,
     ptySessions: new PtySessionManager(),
     allowApiSessionCreate: true
   });
@@ -471,7 +462,6 @@ test('session creation uses configured provider command path', async () => {
   const daemon = await startDaemon({
     host: '127.0.0.1',
     port: 4908,
-    store,
     ptySessions,
     allowApiSessionCreate: true,
     config: { providers: { codex: { command: fakeCodex } } }
@@ -509,7 +499,6 @@ test('session creation accepts display name as session title', async () => {
   const daemon = await startDaemon({
     host: '127.0.0.1',
     port: 4909,
-    store,
     ptySessions,
     allowApiSessionCreate: true,
     config: { providers: { codex: { command: '/bin/cat' } } }
@@ -546,7 +535,6 @@ test('session creation rejects invalid display name', async () => {
   const daemon = await startDaemon({
     host: '127.0.0.1',
     port: 4910,
-    store,
     ptySessions,
     allowApiSessionCreate: true
   });
@@ -585,7 +573,8 @@ test('daemon marks running pty sessions lost when no live handle exists', async 
     lastActiveAt: now
   });
 
-  const daemon = await startDaemon({ host: '127.0.0.1', port: 4891, store, ptySessions: new PtySessionManager() });
+  const ptySessions = store.ptySessions;
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4891, ptySessions });
   try {
     assert.equal(store.getSession('tth_lost_test')?.status, 'lost');
     assert.equal(store.listEvents('tth_lost_test').some((event) => event.type === 'session.error'), true);
@@ -601,7 +590,7 @@ test('daemon restart keeps runner-backed session controllable', async () => {
   let daemon = await startDaemon({
     host: '127.0.0.1',
     port,
-    store,
+    ptySessions: store.ptySessions,
     allowApiSessionCreate: true,
     config: { providers: { codex: { command: '/bin/cat' } } }
   });
@@ -626,7 +615,7 @@ test('daemon restart keeps runner-backed session controllable', async () => {
       daemon = await startDaemon({
         host: '127.0.0.1',
         port,
-        store,
+        ptySessions: store.ptySessions,
         allowApiSessionCreate: true,
         config: { providers: { codex: { command: '/bin/cat' } } }
       });
@@ -685,7 +674,8 @@ test('stop marks unavailable pty session lost instead of failing hard', async ()
     lastActiveAt: now
   });
 
-  const daemon = await startDaemon({ host: '127.0.0.1', port: 4898, store, ptySessions: new PtySessionManager() });
+  const ptySessions = store.ptySessions;
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4898, ptySessions });
   try {
     await withAuthFixture(async ({ authHeaders }) => {
       const response = await fetch(`http://127.0.0.1:4898/api/sessions/${sessionId}/stop`, {
@@ -717,7 +707,7 @@ test('observe websocket clients cannot write input', async () => {
     cols: 80,
     rows: 24
   });
-  const daemon = await startDaemon({ host: '127.0.0.1', port: 4892, store, ptySessions });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4892, ptySessions });
 
   try {
     await withAuthFixture(async ({ authHeaders }) => {
@@ -749,7 +739,7 @@ test('observe websocket clients cannot resize pty', async () => {
     cols: 80,
     rows: 24
   });
-  const daemon = await startDaemon({ host: '127.0.0.1', port: 4895, store, ptySessions });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4895, ptySessions });
 
   try {
     await withAuthFixture(async ({ authHeaders }) => {
@@ -780,7 +770,7 @@ test('direct websocket controller can resize pty', async () => {
     cols: 80,
     rows: 24
   });
-  const daemon = await startDaemon({ host: '127.0.0.1', port: 4896, store, ptySessions });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4896, ptySessions });
 
   try {
     await withAuthFixture(async ({ authHeaders }) => {
@@ -812,7 +802,7 @@ test('http resize endpoint can resize pty before websocket replay', async () => 
     rows: 24
   });
   const port = 5400 + Math.floor(Math.random() * 1000);
-  const daemon = await startDaemon({ host: '127.0.0.1', port, store, ptySessions });
+  const daemon = await startDaemon({ host: '127.0.0.1', port, ptySessions });
 
   try {
     await withAuthFixture(async ({ authHeaders }) => {
@@ -843,7 +833,7 @@ test('http resize endpoint rejects invalid dimensions', async () => {
     rows: 24
   });
   const port = 5400 + Math.floor(Math.random() * 1000);
-  const daemon = await startDaemon({ host: '127.0.0.1', port, store, ptySessions });
+  const daemon = await startDaemon({ host: '127.0.0.1', port, ptySessions });
 
   try {
     await withAuthFixture(async ({ authHeaders }) => {
@@ -879,7 +869,7 @@ test('ws ticket rejects same-account token for a different owner session', async
       deviceId: 'device_test'
     }
   });
-  const daemon = await startDaemon({ host: '127.0.0.1', port, store, ptySessions });
+  const daemon = await startDaemon({ host: '127.0.0.1', port, ptySessions });
 
   try {
     await withAuthFixture(async ({ authHeaders }) => {
@@ -917,7 +907,7 @@ test('ws ticket rejects sessions owned by a different gateway', async () => {
       gatewayId: 'gw_other'
     }
   });
-  const daemon = await startDaemon({ host: '127.0.0.1', port, store, ptySessions });
+  const daemon = await startDaemon({ host: '127.0.0.1', port, ptySessions });
 
   try {
     await withAuthFixture(async ({ authHeaders }) => {
@@ -948,7 +938,7 @@ test('direct websocket rejects invalid resize dimensions', async () => {
     cols: 80,
     rows: 24
   });
-  const daemon = await startDaemon({ host: '127.0.0.1', port: 4897, store, ptySessions });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4897, ptySessions });
 
   try {
     await withAuthFixture(async ({ authHeaders }) => {
@@ -979,7 +969,7 @@ test('previous direct controller cannot write after control is claimed', async (
     cols: 80,
     rows: 24
   });
-  const daemon = await startDaemon({ host: '127.0.0.1', port: 4894, store, ptySessions });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4894, ptySessions });
 
   try {
     await withAuthFixture(async ({ authHeaders }) => {
@@ -1017,7 +1007,7 @@ test('stop endpoint terminates live pty session', async () => {
     cols: 80,
     rows: 24
   });
-  const daemon = await startDaemon({ host: '127.0.0.1', port: 4893, store, ptySessions });
+  const daemon = await startDaemon({ host: '127.0.0.1', port: 4893, ptySessions });
 
   try {
     const response = await withAuthFixture(async ({ authHeaders }) => fetch(`http://127.0.0.1:4893/api/sessions/${sessionId}/stop`, {

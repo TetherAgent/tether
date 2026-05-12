@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createSessionId } from './ids.js';
 import { providerEffectiveEnv } from './provider-env.js';
-import type { ChatEvent, ChatEventType, Store } from './store.js';
+import type { ChatEvent, ChatEventType } from './types.js';
 import type { TrustedChatSessionMetadata } from '@tether/protocol';
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -37,7 +37,6 @@ export type NextSuggestion = {
 };
 
 export type ChatRunnerOptions = {
-  store: Store;
   gatewayId: () => string;
   onSessionCreated: (clientId: string, sessionId: string) => void;
   onChatSessionCreated: (clientId: string, metadata: TrustedChatSessionMetadata) => void;

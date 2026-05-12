@@ -17,22 +17,21 @@ import { isProviderName, PROVIDERS } from '@tether/core';
 import { ResponseCode, type AuthScopePayload, type AuthTokenClass, type SessionAccessMode } from '@tether/core';
 import { createSessionId } from './ids.js';
 import { maskSensitiveOutput } from './mask.js';
+import { createSessionEvent } from './events.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
-import { replaySessionEvents } from './replay.js';
 import { providerChildEnv } from './provider-env.js';
 import { listGateways, registerGateway, touchGateway, unregisterGateway } from './registry.js';
 import { detectSelectOptions } from './agent-select-detect.js';
 import { startRelayClient, type RunningRelayClient } from './relay-client.js';
 import { SessionRunnerClient } from './session-runner-client.js';
 import { spawnSessionRunnerProcess } from './session-runner-spawn.js';
-import { Store, type Session } from './store.js';
+import type { Session } from './types.js';
 import { capturePane, sendKeys, sessionExists } from './tmux.js';
 
 export type DaemonOptions = {
   host: string;
   port: number;
-  store: Store;
-  ptySessions?: PtySessionManager;
+  ptySessions: PtySessionManager;
   relay?: { url: string; secret: string; gatewayId?: string };
   allowApiSessionCreate?: boolean;
   config?: TetherConfig;
@@ -192,61 +191,47 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     if (session.runnerSocketPath) {
       return pingRunner(session);
     }
-    return options.ptySessions?.hasLiveSession(session.id) ?? false;
+    return options.ptySessions.hasLiveSession(session.id);
   };
 
   const getSession = (sessionId: string): Session | undefined => {
-    return options.ptySessions?.getSession(sessionId) ?? options.store.getSession(sessionId);
+    return options.ptySessions.getSession(sessionId);
   };
 
   const listSessions = (): Session[] => {
-    const storeSessions = options.store.listSessions();
-    if (!options.ptySessions) {
-      return storeSessions;
-    }
-    const ptySessions = options.ptySessions.listSessions();
-    const ptyIds = new Set(ptySessions.map((session) => session.id));
-    return [...storeSessions.filter((session) => !ptyIds.has(session.id)), ...ptySessions];
+    return options.ptySessions.listSessions();
   };
 
   const updateSessionStatus = (sessionId: string, status: Session['status'], now = Date.now()): void => {
-    if (options.ptySessions?.getSession(sessionId)) {
-      options.ptySessions.updateSessionStatus(sessionId, status);
-      const session = options.ptySessions.getSession(sessionId);
-      if (session) {
-        session.lastActiveAt = now;
-      }
-      return;
+    options.ptySessions.updateSessionStatus(sessionId, status);
+    const session = options.ptySessions.getSession(sessionId);
+    if (session) {
+      session.lastActiveAt = now;
     }
-    options.store.updateSessionStatus(sessionId, status, now);
   };
 
   const touchSession = (sessionId: string, now = Date.now()): void => {
-    const session = options.ptySessions?.getSession(sessionId);
+    const session = options.ptySessions.getSession(sessionId);
     if (session) {
       session.updatedAt = now;
       session.lastActiveAt = now;
-      return;
     }
-    options.store.touchSession(sessionId, now);
   };
 
   const updateAttachState = (sessionId: string, attachState: Session['attachState'], now = Date.now()): void => {
-    const session = options.ptySessions?.getSession(sessionId);
+    const session = options.ptySessions.getSession(sessionId);
     if (session) {
       session.attachState = attachState;
       session.updatedAt = now;
-      return;
     }
-    options.store.updateAttachState(sessionId, attachState, now);
   };
 
   const markSessionLost = (session: Session, message: string): void => {
     updateSessionStatus(session.id, 'lost');
-    options.store.appendEvent(session.id, 'session.error', {
+    options.ptySessions.publishEvent(createSessionEvent(session.id, 'session.error', {
       code: 'session_lost',
       message
-    });
+    }));
     session.status = 'lost';
   };
   app.post('/api/ws-ticket', async (c) => {
@@ -443,7 +428,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         }
       }
     });
-    options.store.insertSession(session);
+    options.ptySessions.restoreSession(session);
     return c.json({ session }, 201);
   });
 
@@ -470,7 +455,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     }
 
     if (session.transport === 'pty-event-stream') {
-      const text = stripAnsi(options.store.transcript(session.id, 1000));
+      const text = '';
       return c.json({ session, text, capturedAt: Date.now() });
     }
 
@@ -527,7 +512,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     }
 
     if (!(await sessionExists(session.tmuxSessionName))) {
-      options.store.updateSessionStatus(session.id, 'stopped');
+      updateSessionStatus(session.id, 'stopped');
       return c.json({ error: 'tmux session is no longer running' }, 410);
     }
 
@@ -552,10 +537,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     const after = parseIntegerQuery(c.req.query('after'), 0);
     const limit = parseIntegerQuery(c.req.query('limit'), 1000);
     const tail = parseIntegerQuery(c.req.query('tail'), 0);
-    const events = tail > 0 && after === 0
-      ? options.store.listRecentEvents(session.id, tail)
-      : options.store.listEvents(session.id, after, limit);
-    return c.json({ events });
+    void tail;
+    void after;
+    void limit;
+    return c.json({ events: [] });
   });
 
   app.get('/api/sessions/:id/clients', async (c) => {
@@ -738,7 +723,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     port: options.port
   }) as ServerType;
 
-  const livePtyIds = new Set(options.ptySessions?.liveSessionIds() ?? []);
+  const livePtyIds = new Set(options.ptySessions.liveSessionIds());
   for (const session of listSessions()) {
     if (session.status !== 'running' || session.transport !== 'pty-event-stream') {
       continue;
@@ -819,7 +804,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       type: 'hello',
       sessionId,
       clientId,
-      latestEventId: options.store.latestEventId(sessionId),
+      latestEventId: after,
       controllerClientId: controllers.get(session.id) ?? null
     }));
     if (mode === 'control' && isValidTerminalSize(requestedCols, requestedRows)) {
@@ -843,35 +828,16 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         }
       }
     }
-    const replayCursor = replaySessionEvents({
-      store: options.store,
-      sessionId,
-      after,
-      tail,
-      sendPage: ({ events, done, latestEventId }) => {
-        const output = events
-          .map((event) => event.type === 'terminal.output' && typeof event.payload.data === 'string' ? event.payload.data : '')
-          .join('');
-        if (output.length > 0) {
-          socket.send(JSON.stringify({ type: 'replay.output', sessionId, data: output, latestEventId }));
-        }
-        for (const event of events) {
-          if (event.type === 'terminal.output' || event.type === 'user.input' || event.type === 'terminal.resize' || event.type === 'client.attached') {
-            continue;
-          }
-          socket.send(JSON.stringify({ type: 'event', event }));
-        }
-        if (done) {
-          socket.send(JSON.stringify({ type: 'replay.done', latestEventId }));
-        }
-      }
-    });
-    const attached = options.store.appendEvent(session.id, 'client.attached', {
+    void tail;
+    socket.send(JSON.stringify({ type: 'replay.done', latestEventId: after }));
+    const replayCursor = after;
+    const attached = createSessionEvent(session.id, 'client.attached', {
       clientId,
       deviceName: client.deviceName,
       surface: client.surface,
       mode
     });
+    options.ptySessions.publishEvent(attached);
     socket.send(JSON.stringify({ type: 'event', event: attached }));
 
     const runnerClient = getRunnerClient(session);
@@ -907,7 +873,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           return;
         }
         const raw = lines.filter((line) => /^\s*\d+\.\s+/.test(line)).join('\n');
-        const selectEvent = options.store.appendEvent(session.id, 'agent.select', {
+        const selectEvent = createSessionEvent(session.id, 'agent.select', {
           options: matchedOptions,
           raw
         });
@@ -1008,16 +974,16 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         const nextController = [...(sessionClients?.values() ?? [])].find((candidate) => candidate.mode === 'control');
         if (nextController) {
           controllers.set(session.id, nextController.clientId);
-          options.store.appendEvent(session.id, 'client.control_changed', {
+          options.ptySessions.publishEvent(createSessionEvent(session.id, 'client.control_changed', {
             previousClientId: clientId,
             nextClientId: nextController.clientId,
             reason: 'disconnect'
-          });
+          }));
         } else {
           controllers.delete(session.id);
         }
       }
-      options.store.appendEvent(session.id, 'client.detached', { clientId, reason: 'disconnect' });
+      options.ptySessions.publishEvent(createSessionEvent(session.id, 'client.detached', { clientId, reason: 'disconnect' }));
       if ((sessionClients?.size ?? 0) === 0) {
         updateAttachState(session.id, 'detached');
       }
@@ -1050,7 +1016,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       url: options.relay.url,
       secret: options.relay.secret,
       gatewayId,
-      store: options.store,
       ptySessions: options.ptySessions,
       runnerClientForSession: getRunnerClient,
       onNewPtySession: async ({ provider, cwd, cols, rows, title, providerArgs }) => {
@@ -1078,7 +1043,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             } : undefined
           }
         });
-        options.store.insertSession(session);
+        options.ptySessions.restoreSession(session);
         return { sessionId: session.id };
       }
     });

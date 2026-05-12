@@ -8,8 +8,7 @@ export { startRelayClient } from './relay-client.js';
 export type { RelayClientOptions, RelayConnectionStatus, RunningRelayClient } from './relay-client.js';
 export { listGateways } from './registry.js';
 export type { GatewayRecord } from './registry.js';
-export { Store } from './store.js';
-export type { AttachState, Session, SessionEvent, SessionStatus, SessionTransport } from './store.js';
+export type { AttachState, ChatEvent, ChatEventType, Session, SessionEvent, SessionStatus, SessionTransport } from './types.js';
 export type {
   CreateSessionRunnerOptions,
   RunnerErrorCode,
