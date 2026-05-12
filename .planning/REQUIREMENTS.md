@@ -75,6 +75,12 @@ The already-shipped Personal Relay MVP remains useful as a development bootstrap
 
 - [ ] **CLEAN-03**: ROADMAP/Phase docs note that future review UI owns the full diff/approval surface; `approval.requested` / `diff.detected` / `agent.handoff` event types have an exhaustive-switch parser test that fails when new event types are added without handling.
 
+### SQLite Removal (P1 — remove local PTY persistence)
+
+- [x] **SQLITE-01**: PTY live events and session metadata no longer depend on local SQLite writes on the live Gateway path.
+- [x] **SQLITE-02**: Relay restores gateway-scoped sessions after auth and PTY session creation moves to `client.new-pty-session` websocket frames for CLI/Gateway runtime flow.
+- [ ] **SQLITE-03**: `store.ts`, `better-sqlite3`, and all residual local SQLite references are removed from Gateway and CLI runtime paths.
+
 ## v2 Requirements (deferred — not in v0.3 roadmap)
 
 ### Remote Access (full)
@@ -144,6 +150,9 @@ The already-shipped Personal Relay MVP remains useful as a development bootstrap
 | GW-02 | Phase 7 | Complete |
 | TEST-01 | Phase 8 | Pending |
 | CLEAN-03 | Phase 8 | Pending |
+| SQLITE-01 | Phase 18 | Complete |
+| SQLITE-02 | Phase 18 | Complete |
+| SQLITE-03 | Phase 18 | Pending |
 
 **Coverage:**
 - v1 requirements: 29 total

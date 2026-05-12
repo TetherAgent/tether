@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.3
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 18-01-PLAN.md
-last_updated: "2026-05-12T07:46:25.119Z"
-last_activity: 2026-05-12 -- Phase 18 plan 01 complete
+stopped_at: Completed 18-02-PLAN.md
+last_updated: "2026-05-12T08:03:04Z"
+last_activity: 2026-05-12 -- Phase 18 plan 02 complete
 progress:
   total_phases: 18
   completed_phases: 10
   total_plans: 68
-  completed_plans: 67
-  percent: 99
+  completed_plans: 68
+  percent: 100
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-05-01)
 ## Current Position
 
 Phase: 18
-Plan: 02
-Next: execute Phase 18 Plan 02
-Last activity: 2026-05-12 -- Phase 18 plan 01 complete
+Plan: 03
+Next: execute Phase 18 Plan 03
+Last activity: 2026-05-12 -- Phase 18 plan 02 complete
 
-Progress: [██████████] 99%
+Progress: [██████████] 100%
 
 ## Quick Tasks Completed
 
@@ -73,6 +73,7 @@ Progress: [██████████] 99%
 | Phase 14 P05 | 45min | 2 tasks | 2 files |
 | Phase 14 P06 | 30min | 2 tasks | 4 files |
 | Phase 18 P01 | 22min | 3 tasks | 14 files |
+| Phase 18 P02 | 9min | 4 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 18-01: PTY live events now use shared createSessionEvent ids from apps/gateway/src/events.ts instead of store.appendEvent.
 - [Phase ?]: Phase 18-01: SessionRunner now sends full SessionEvent payloads over runner sockets because live runner events no longer persist in SQLite.
 - [Phase ?]: Phase 18-01: Daemon session lookup now prefers PtySessionManager memory state and falls back to Store for non-PTY sessions.
+- [Phase ?]: Phase 18-02: Restored PTY sessions live in a separate restoredSessions map so relay recovery can repopulate metadata without pretending a live local PTY exists.
+- [Phase ?]: Phase 18-02: CLI provider launches authenticate to relay with the bound gateway token so local session creation reuses the authenticated gatewayId route.
+- [Phase ?]: Phase 18-02: client.new-pty-session carries optional title/providerArgs so the relay path preserves existing CLI launch behavior.
 
 ### Pending Todos
 
@@ -161,6 +165,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-12T07:45:28.255Z
-Stopped at: Completed 18-01-PLAN.md
+Last session: 2026-05-12T08:03:04Z
+Stopped at: Completed 18-02-PLAN.md
 Resume file: None

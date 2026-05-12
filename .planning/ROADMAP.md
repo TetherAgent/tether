@@ -428,13 +428,13 @@ Plans:
 **Goal:** 从 Gateway 彻底移除本地 SQLite（tether.db）：PTY 事件只走 relay→MySQL，session 元数据改内存 Map，relay 推 gateway.sessions-restore 启动恢复，PTY 创建改 relay WS 帧，删掉 store.ts / better-sqlite3 所有残留。
 **Requirements**: SQLITE-01, SQLITE-02, SQLITE-03
 **Depends on:** Phase 17
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
   - **Wave 1** (no deps):
-    - [ ] `18-01-PLAN.md` — 删 PTY 事件写入（appendEvent→createSessionEvent+publishEvent）+ session 元数据改内存 Map（PtySessionManager 新增 getSession/listSessions）
+- [x] `18-01-PLAN.md` — 删 PTY 事件写入（appendEvent→createSessionEvent+publishEvent）+ session 元数据改内存 Map（PtySessionManager 新增 getSession/listSessions）
   - **Wave 2** *(blocked on Plan 01)*:
-    - [ ] `18-02-PLAN.md` — relay 加 gateway.sessions-restore 推送 + client.new-pty-session WS 帧 + CLI 命令改 WS
+    - [x] `18-02-PLAN.md` — relay 加 gateway.sessions-restore 推送 + client.new-pty-session WS 帧 + CLI 命令改 WS
   - **Wave 3** *(blocked on Plan 02)*:
     - [ ] `18-03-PLAN.md` — 删 store.ts、better-sqlite3、所有残留引用，清理 apps/cli 中 Store 使用（D-09 验收）
 
