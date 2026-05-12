@@ -11,7 +11,7 @@ import { PtySessionManager } from '../src/pty.js';
 import { relayGatewayUrl, startRelayClient } from '../src/relay-client.js';
 import { CodexChatRunner } from '../src/chat-session-runner.js';
 import type { SessionRunnerClient } from '../src/session-runner-client.js';
-import { Store } from '../src/store.js';
+import { tempSessionState, type TestSessionState } from './helpers/test-session-state.js';
 
 const SECRET = 'relay-client-test-secret';
 const GATEWAY_SCOPE = {
@@ -72,7 +72,7 @@ test('gateway relay client sends websocket heartbeat pings', async () => {
     gatewayId: 'gw_test_heartbeat',
     token: 'gateway-token',
     scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_heartbeat' },
-    store,
+    ptySessions: store.ptySessions,
     heartbeatIntervalMs: 20,
     heartbeatTimeoutMs: 100
   });
@@ -89,12 +89,8 @@ test('gateway relay client sends websocket heartbeat pings', async () => {
   }
 });
 
-function tempStore(): { store: Store; cleanup: () => void } {
-  const dir = mkdtempSync(path.join(tmpdir(), 'tether-relay-client-'));
-  return {
-    store: new Store(path.join(dir, 'tether.db')),
-    cleanup: () => rmSync(dir, { recursive: true, force: true })
-  };
+function tempStore(): { store: TestSessionState; cleanup: () => void } {
+  return tempSessionState();
 }
 
 test('gateway relay client registers sessions', async () => {
@@ -118,7 +114,7 @@ test('gateway relay client registers sessions', async () => {
     updatedAt: now,
     lastActiveAt: now
   });
-  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_register', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_register' }, store });
+  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_register', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_register' }, ptySessions: store.ptySessions });
   await waitForRelayClientConnected(relayClient);
   const client = await connectRelayClient(relay.url);
 
@@ -162,7 +158,7 @@ test('gateway relay client uses authenticated gateway id for follow-up frames', 
     gatewayId: 'gw_local_runtime',
     token: 'gateway-token',
     scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_authenticated' },
-    store
+    ptySessions: store.ptySessions
   });
   await waitForRelayClientConnected(relayClient);
   const client = await connectRelayClient(relay.url);
@@ -182,7 +178,7 @@ test('gateway relay client uses authenticated gateway id for follow-up frames', 
 
 test('gateway relay client restores sessions from relay without dropping restored metadata', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager();
+  const ptySessions = store.ptySessions;
   const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   const port = await waitForWebSocketServerPort(fakeRelay);
   const gatewaySocketPromise = waitForGatewaySocket(fakeRelay);
@@ -192,7 +188,6 @@ test('gateway relay client restores sessions from relay without dropping restore
     gatewayId: 'gw_restore_runtime',
     token: 'gateway-token',
     scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_restore_runtime' },
-    store,
     ptySessions
   });
 
@@ -239,7 +234,7 @@ test('gateway relay client creates PTY sessions from forwarded relay frames', as
     gatewayId: 'gw_create_runtime',
     token: 'gateway-token',
     scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_create_runtime' },
-    store,
+    ptySessions: store.ptySessions,
     onNewPtySession: async () => ({ sessionId: 'tth_created_from_relay' })
   });
 
@@ -272,7 +267,7 @@ test('gateway relay client creates PTY sessions from forwarded relay frames', as
 
 test('gateway relay client replays and forwards output', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager();
+  const ptySessions = store.ptySessions;
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_replay' });
   ptySessions.create({
@@ -284,21 +279,14 @@ test('gateway relay client replays and forwards output', async () => {
     rows: 24,
     owner: testOwner('gw_test_replay')
   });
-  const replayed = store.appendEvent(sessionId, 'terminal.output', { data: 'from replay\r\n', encoding: 'utf8' });
-  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_replay', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_replay' }, store, ptySessions });
+  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_replay', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_replay' }, ptySessions });
   await waitForRelayClientConnected(relayClient);
   const client = await connectRelayClient(relay.url);
 
   try {
     await waitForSessionList(client, sessionId);
-    const replayPromise = waitForFrame(
-      client,
-      (frame) => frame.type === 'replay.output' && frame.data === 'from replay\r\n' && frame.latestEventId === replayed.id
-    );
     const replayDonePromise = waitForFrame(client, (frame) => frame.type === 'replay.done' && frame.sessionId === sessionId);
-    client.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: replayed.id - 1, mode: 'control' }));
-    const replayFrame = await replayPromise;
-    assert.equal(replayFrame.type, 'replay.output');
+    client.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control' }));
     await replayDonePromise;
 
     const livePromise = waitForFrame(
@@ -321,7 +309,7 @@ test('gateway relay client replays and forwards output', async () => {
   }
 });
 
-test('gateway relay client paginates full relay replay before live subscription cursor', async () => {
+test('gateway relay client returns an empty replay stub before live subscription cursor', async () => {
   const { store, cleanup } = tempStore();
   const sessionId = createSessionId();
   const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 0 });
@@ -345,16 +333,13 @@ test('gateway relay client paginates full relay replay before live subscription 
     updatedAt: now,
     lastActiveAt: now
   });
-  for (let i = 1; i <= 5001; i += 1) {
-    store.appendEvent(sessionId, 'terminal.output', { data: `line ${i}\r\n`, encoding: 'utf8' });
-  }
   const relayClient = startRelayClient({
     url: `ws://127.0.0.1:${port}`,
     secret: SECRET,
     gatewayId: 'gw_test_paged_replay',
     token: 'gateway-token',
     scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_paged_replay' },
-    store
+    ptySessions: store.ptySessions
   });
 
   try {
@@ -362,16 +347,14 @@ test('gateway relay client paginates full relay replay before live subscription 
     await waitForGatewayFrame(gatewaySocket, (frame) => frame.type === 'gateway.auth');
     gatewaySocket.send(JSON.stringify({ type: 'gateway.auth.ok', gatewayId: 'gw_test_paged_replay' }));
     gatewaySocket.send(JSON.stringify({ type: 'client.subscribe', clientId: 'relay_paged_replay', sessionId, after: 0, mode: 'control' }));
-    const replayFrames = await waitForGatewayReplayPages(gatewaySocket, sessionId);
-
-    assert.equal(replayFrames.length, 2);
-    assert.equal(replayFrames[0].events.length, 5000);
-    assert.equal(replayFrames[0].done, false);
-    assert.equal(replayFrames[1].events.length, 1);
-    assert.equal(replayFrames[1].done, true);
-    assert.equal(replayFrames[0].events[0]?.payload.data, 'line 1\r\n');
-    assert.equal(replayFrames[1].events[0]?.payload.data, 'line 5001\r\n');
-    assert.equal(replayFrames[1].latestEventId, 5001);
+    const replayFrame = await waitForGatewayFrame(
+      gatewaySocket,
+      (frame) => frame.type === 'gateway.replay' && frame.sessionId === sessionId
+    );
+    assert.equal(replayFrame.type, 'gateway.replay');
+    assert.equal(replayFrame.events.length, 0);
+    assert.equal(replayFrame.done, true);
+    assert.equal(replayFrame.latestEventId, 0);
   } finally {
     await relayClient.close();
     await closeWebSocketServer(fakeRelay);
@@ -413,7 +396,7 @@ test('gateway relay client marks missing runner lost instead of crashing on subs
     gatewayId: 'gw_test_missing_runner',
     token: 'gateway-token',
     scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_missing_runner' },
-    store,
+    ptySessions: store.ptySessions,
     runnerClientForSession: () => missingRunner
   });
   await waitForRelayClientConnected(relayClient);
@@ -435,7 +418,7 @@ test('gateway relay client marks missing runner lost instead of crashing on subs
 
 test('gateway relay client forwards control input to pty', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager();
+  const ptySessions = store.ptySessions;
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_input' });
   ptySessions.create({
@@ -447,7 +430,7 @@ test('gateway relay client forwards control input to pty', async () => {
     rows: 24,
     owner: testOwner('gw_test_input')
   });
-  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_input', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_input' }, store, ptySessions });
+  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_input', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_input' }, ptySessions });
   await waitForRelayClientConnected(relayClient);
   const client = await connectRelayClient(relay.url);
 
@@ -486,7 +469,7 @@ test('gateway relay client forwards control input to pty', async () => {
 
 test('gateway relay client forwards control resize to pty', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager();
+  const ptySessions = store.ptySessions;
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_resize' });
   ptySessions.create({
@@ -498,7 +481,7 @@ test('gateway relay client forwards control resize to pty', async () => {
     rows: 24,
     owner: testOwner('gw_test_resize')
   });
-  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_resize', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_resize' }, store, ptySessions });
+  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_resize', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_resize' }, ptySessions });
   await waitForRelayClientConnected(relayClient);
   const client = await connectRelayClient(relay.url);
 
@@ -528,7 +511,7 @@ test('gateway relay client forwards control resize to pty', async () => {
 
 test('gateway relay client applies subscribe resize before replay', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager();
+  const ptySessions = store.ptySessions;
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_subscribe_resize' });
   ptySessions.create({
@@ -546,7 +529,6 @@ test('gateway relay client applies subscribe resize before replay', async () => 
     gatewayId: 'gw_test_subscribe_resize',
     token: 'gateway-token',
     scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_subscribe_resize' },
-    store,
     ptySessions
   });
   await waitForRelayClientConnected(relayClient);
@@ -568,7 +550,7 @@ test('gateway relay client applies subscribe resize before replay', async () => 
 
 test('gateway relay client forwards control stop to pty', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager();
+  const ptySessions = store.ptySessions;
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_stop' });
   ptySessions.create({
@@ -580,7 +562,7 @@ test('gateway relay client forwards control stop to pty', async () => {
     rows: 24,
     owner: testOwner('gw_test_stop')
   });
-  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_stop', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_stop' }, store, ptySessions });
+  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_stop', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_stop' }, ptySessions });
   await waitForRelayClientConnected(relayClient);
   const client = await connectRelayClient(relay.url);
 
@@ -602,7 +584,7 @@ test('gateway relay client forwards control stop to pty', async () => {
 
 test('gateway relay client accepts stop immediately after subscribe', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager();
+  const ptySessions = store.ptySessions;
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_immediate_stop' });
   ptySessions.create({
@@ -620,7 +602,6 @@ test('gateway relay client accepts stop immediately after subscribe', async () =
     gatewayId: 'gw_test_immediate_stop',
     token: 'gateway-token',
     scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_immediate_stop' },
-    store,
     ptySessions
   });
   await waitForRelayClientConnected(relayClient);
@@ -642,7 +623,7 @@ test('gateway relay client accepts stop immediately after subscribe', async () =
 
 test('gateway relay client blocks observe input', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager();
+  const ptySessions = store.ptySessions;
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_observe' });
   ptySessions.create({
@@ -654,7 +635,7 @@ test('gateway relay client blocks observe input', async () => {
     rows: 24,
     owner: testOwner('gw_test_observe')
   });
-  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_observe', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_observe' }, store, ptySessions });
+  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_observe', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_observe' }, ptySessions });
   await waitForRelayClientConnected(relayClient);
   const client = await connectRelayClient(relay.url);
 
@@ -665,9 +646,9 @@ test('gateway relay client blocks observe input', async () => {
     client.send(JSON.stringify({ type: 'client.input', sessionId, data: 'blocked input\r' }));
     const error = await waitForFrame(client, (frame) => frame.type === 'error' && frame.code === 'observe_only');
     assert.equal(error.type, 'error');
-    assert.equal(
+      assert.equal(
       store
-        .listEvents(sessionId, 0, 5000)
+        .listEvents(sessionId)
         .some((event) => event.type === 'user.input' && event.payload.data === 'blocked input\r'),
       false
     );
@@ -682,7 +663,7 @@ test('gateway relay client blocks observe input', async () => {
 
 test('gateway relay client blocks observe resize', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager();
+  const ptySessions = store.ptySessions;
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_observe_resize' });
   ptySessions.create({
@@ -694,7 +675,7 @@ test('gateway relay client blocks observe resize', async () => {
     rows: 24,
     owner: testOwner('gw_test_observe_resize')
   });
-  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_observe_resize', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_observe_resize' }, store, ptySessions });
+  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_observe_resize', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_observe_resize' }, ptySessions });
   await waitForRelayClientConnected(relayClient);
   const client = await connectRelayClient(relay.url);
 
@@ -705,9 +686,9 @@ test('gateway relay client blocks observe resize', async () => {
     client.send(JSON.stringify({ type: 'client.resize', sessionId, cols: 100, rows: 30 }));
     const error = await waitForFrame(client, (frame) => frame.type === 'error' && frame.code === 'observe_only');
     assert.equal(error.type, 'error');
-    assert.equal(
+      assert.equal(
       store
-        .listEvents(sessionId, 0, 5000)
+        .listEvents(sessionId)
         .some((event) => event.type === 'terminal.resize' && event.payload.cols === 100),
       false
     );
@@ -722,7 +703,7 @@ test('gateway relay client blocks observe resize', async () => {
 
 test('gateway relay client blocks unsubscribed input', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager();
+  const ptySessions = store.ptySessions;
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_unsubscribed' });
   ptySessions.create({
@@ -734,7 +715,7 @@ test('gateway relay client blocks unsubscribed input', async () => {
     rows: 24,
     owner: testOwner('gw_test_unsubscribed')
   });
-  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_unsubscribed', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_unsubscribed' }, store, ptySessions });
+  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_unsubscribed', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_unsubscribed' }, ptySessions });
   await waitForRelayClientConnected(relayClient);
   const client = await connectRelayClient(relay.url);
 
@@ -743,9 +724,9 @@ test('gateway relay client blocks unsubscribed input', async () => {
     client.send(JSON.stringify({ type: 'client.input', sessionId, data: 'blocked input\r' }));
     const error = await waitForFrame(client, (frame) => frame.type === 'error' && frame.code === 'not_subscribed');
     assert.equal(error.type, 'error');
-    assert.equal(
+      assert.equal(
       store
-        .listEvents(sessionId, 0, 5000)
+        .listEvents(sessionId)
         .some((event) => event.type === 'user.input' && event.payload.data === 'blocked input\r'),
       false
     );
@@ -760,7 +741,7 @@ test('gateway relay client blocks unsubscribed input', async () => {
 
 test('gateway relay client blocks unsubscribed resize', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager();
+  const ptySessions = store.ptySessions;
   const sessionId = createSessionId();
   const relay = await relayAuthServer({ gatewayId: 'gw_test_unsubscribed_resize' });
   ptySessions.create({
@@ -772,7 +753,7 @@ test('gateway relay client blocks unsubscribed resize', async () => {
     rows: 24,
     owner: testOwner('gw_test_unsubscribed_resize')
   });
-  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_unsubscribed_resize', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_unsubscribed_resize' }, store, ptySessions });
+  const relayClient = startRelayClient({ url: relay.url, secret: SECRET, gatewayId: 'gw_test_unsubscribed_resize', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_unsubscribed_resize' }, ptySessions });
   await waitForRelayClientConnected(relayClient);
   const client = await connectRelayClient(relay.url);
 
@@ -781,9 +762,9 @@ test('gateway relay client blocks unsubscribed resize', async () => {
     client.send(JSON.stringify({ type: 'client.resize', sessionId, cols: 100, rows: 30 }));
     const error = await waitForFrame(client, (frame) => frame.type === 'error' && frame.code === 'not_subscribed');
     assert.equal(error.type, 'error');
-    assert.equal(
+      assert.equal(
       store
-        .listEvents(sessionId, 0, 5000)
+        .listEvents(sessionId)
         .some((event) => event.type === 'terminal.resize' && event.payload.cols === 100),
       false
     );
@@ -798,7 +779,7 @@ test('gateway relay client blocks unsubscribed resize', async () => {
 
 test('gateway relay client rejects invalid resize dimensions', async () => {
   const { store, cleanup } = tempStore();
-  const ptySessions = new PtySessionManager();
+  const ptySessions = store.ptySessions;
   const sessionId = createSessionId();
   const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 4919 });
   const gatewaySocketPromise = waitForGatewaySocket(fakeRelay);
@@ -810,7 +791,7 @@ test('gateway relay client rejects invalid resize dimensions', async () => {
     cols: 80,
     rows: 24
   });
-  const relayClient = startRelayClient({ url: 'ws://127.0.0.1:4919', secret: SECRET, gatewayId: 'gw_test_bad_resize', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_bad_resize' }, store, ptySessions });
+  const relayClient = startRelayClient({ url: 'ws://127.0.0.1:4919', secret: SECRET, gatewayId: 'gw_test_bad_resize', token: 'gateway-token', scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_bad_resize' }, ptySessions });
 
   try {
     const gatewaySocket = await gatewaySocketPromise;
@@ -821,9 +802,9 @@ test('gateway relay client rejects invalid resize dimensions', async () => {
     gatewaySocket.send(JSON.stringify({ type: 'client.resize', clientId: 'relay_bad_resize', sessionId, cols: 0, rows: 0 }));
     const error = await waitForGatewayFrame(gatewaySocket, (frame) => frame.type === 'gateway.error' && frame.code === 'bad_resize');
     assert.equal(error.type, 'gateway.error');
-    assert.equal(
+      assert.equal(
       store
-        .listEvents(sessionId, 0, 5000)
+        .listEvents(sessionId)
         .some((event) => event.type === 'terminal.resize' && event.payload.cols === 0),
       false
     );
@@ -844,7 +825,7 @@ test('gateway relay client surfaces auth_failed for invalid token and points to 
     gatewayId: 'gw_test_auth_failed',
     token: 'invalid-token',
     scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_test_auth_failed' },
-    store
+    ptySessions: store.ptySessions
   });
 
   try {
@@ -1076,7 +1057,7 @@ test('Phase15-A8: relay-client rejects new chat with non-whitelisted provider', 
     gatewayId: 'gw_phase15_a8',
     token: 'gateway-token',
     scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_phase15_a8' },
-    store
+    ptySessions: store.ptySessions
   });
 
   try {
@@ -1135,7 +1116,7 @@ async function startPhase17RelayClient() {
     gatewayId: 'gw_phase17',
     token: 'gateway-token',
     scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_phase17' },
-    store
+    ptySessions: store.ptySessions
   });
   const gatewaySocket = await gatewaySocketPromise;
   await waitForGatewayFrame(gatewaySocket, (frame) => frame.type === 'gateway.auth');

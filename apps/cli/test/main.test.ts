@@ -98,14 +98,13 @@ test('background gateway start verifies daemon and relay readiness before succes
   assert.match(source, /当前未确认启动成功，未打印/);
 });
 
-test('gateway delete-db requires confirmation and removes sqlite sidecar files', () => {
+test('gateway delete-db command and sqlite cleanup path are removed', () => {
   const source = mainSource();
-  assert.match(source, /command\('delete-db'\)/);
-  assert.match(source, /\.option\('--yes'/);
-  assert.match(source, /删除数据库会清空 session 历史和回放数据/);
-  assert.match(source, /\`\$\{dbPath\}-wal\`/);
-  assert.match(source, /\`\$\{dbPath\}-shm\`/);
-  assert.match(source, /Gateway 仍在运行/);
+  assert.doesNotMatch(source, /command\('delete-db'\)/);
+  assert.doesNotMatch(source, /删除数据库会清空 session 历史和回放数据/);
+  assert.doesNotMatch(source, /\$\{dbPath\}-wal/);
+  assert.doesNotMatch(source, /\$\{dbPath\}-shm/);
+  assert.doesNotMatch(source, /defaultDbPath/);
 });
 
 test('pty attach defaults to reconnect with fresh tickets and event cursor', () => {
@@ -143,13 +142,13 @@ test('pty attach prints explicit terminal closeout for stop, exit, detach and lo
   assert.match(source, /if \(result === 'detached'\)/);
 });
 
-test('stop prints success and can fall back to runner socket', () => {
+test('stop prints success and uses gateway HTTP only', () => {
   const source = mainSource();
   assert.match(source, /console\.log\(result === 'already-stopped'/);
   assert.match(source, /已关闭 \$\{id\}/);
   assert.match(source, /stopPtySessionViaGateway/);
-  assert.match(source, /stopPtySessionViaRunner\(session\.runnerSocketPath\)/);
-  assert.match(source, /new SessionRunnerClient\(\{ socketPath \}\)/);
+  assert.doesNotMatch(source, /stopPtySessionViaRunner/);
+  assert.doesNotMatch(source, /SessionRunnerClient/);
 });
 
 test('provider session creation goes through relay websocket frames', () => {

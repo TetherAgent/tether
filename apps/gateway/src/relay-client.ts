@@ -16,9 +16,8 @@ import { detectSelectOptions } from './agent-select-detect.js';
 import { ChatSessionRunner, CodexChatRunner, CopilotChatRunner, type ChatRunnerOptions, type IChatRunner } from './chat-session-runner.js';
 import { createSessionEvent } from './events.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
-import { replaySessionEvents } from './replay.js';
 import type { SessionRunnerClient } from './session-runner-client.js';
-import type { Session, SessionEvent, Store } from './store.js';
+import type { Session, SessionEvent } from './types.js';
 import { providerEffectiveEnv } from './provider-env.js';
 
 const TETHER_VERSION = resolvePackageVersion(import.meta.url, ['@tether-labs/cli', '@tether/gateway']) ?? '0.0.0-dev';
@@ -29,7 +28,6 @@ export type RelayClientOptions = {
   gatewayId: string;
   token?: string;
   scope?: RelayAuthScope;
-  store: Store;
   ptySessions?: PtySessionManager;
   runnerClientForSession?: (session: Session) => SessionRunnerClient | undefined;
   onNewPtySession?: (params: {
@@ -81,18 +79,37 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? RELAY_HEARTBEAT_TIMEOUT_MS;
   const subscriptions = new Map<string, RelaySubscription>();
   const chatInFlight = new Set<string>();
+  const chatSessions = new Map<string, Session>();
   let connectionState: RelayConnectionStatus['state'] = 'connecting';
   let lastChangedAt = Date.now();
   let effectiveGatewayId = options.gatewayId;
-  const getStoredSession = (sessionId: string) => options.ptySessions?.getSession(sessionId) ?? options.store['getSession'](sessionId);
+  const getStoredSession = (sessionId: string) => options.ptySessions?.getSession(sessionId) ?? chatSessions.get(sessionId);
   const chatRunnerOptions: ChatRunnerOptions = {
-    store: options.store,
     gatewayId: () => effectiveGatewayId,
     onSessionCreated: (clientId, sessionId) => {
       send({ type: 'gateway.session-created', gatewayId: effectiveGatewayId, clientId, sessionId });
       void sendSessions();
     },
     onChatSessionCreated: (clientId, metadata) => {
+      const now = Date.now();
+      chatSessions.set(metadata.id, {
+        id: metadata.id,
+        provider: metadata.provider,
+        title: metadata.title ?? metadata.provider,
+        projectPath: metadata.projectPath,
+        accountId: metadata.accountId,
+        userId: metadata.userId,
+        gatewayId: metadata.gatewayId,
+        status: 'running',
+        attachState: 'detached',
+        tmuxSessionName: '',
+        command: metadata.provider,
+        transport: 'chat',
+        agentSessionId: metadata.agentSessionId,
+        createdAt: now,
+        updatedAt: now,
+        lastActiveAt: now
+      });
       send({
         type: 'gateway.chat-session-created',
         gatewayId: effectiveGatewayId,
@@ -158,6 +175,12 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       });
     },
     onAgentIdUpdate: (sessionId, agentSessionId) => {
+      const session = chatSessions.get(sessionId);
+      if (session) {
+        session.agentSessionId = agentSessionId;
+        session.updatedAt = Date.now();
+        session.lastActiveAt = session.updatedAt;
+      }
       sendChatEvent(Date.now(), sessionId, 'session.agent-id-updated', { sessionId, agentSessionId });
     }
   };
@@ -411,6 +434,25 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
           });
           return;
         }
+        const now = Date.now();
+        chatSessions.set(frame.sessionId, {
+          id: frame.session.id,
+          provider: frame.session.provider,
+          title: frame.session.title ?? frame.session.provider,
+          projectPath: frame.session.projectPath,
+          accountId: frame.session.accountId,
+          userId: frame.session.userId,
+          gatewayId: frame.session.gatewayId,
+          status: 'running',
+          attachState: 'detached',
+          tmuxSessionName: '',
+          command: frame.session.provider,
+          transport: 'chat',
+          agentSessionId: frame.session.agentSessionId,
+          createdAt: now,
+          updatedAt: now,
+          lastActiveAt: now
+        });
         const runner = runnerForProvider(frame.session.provider);
         if (!runner) {
           send({
@@ -510,9 +552,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   };
 
   const listRelaySessions = async (): Promise<Session[]> => {
-    const sessions = options.ptySessions
-      ? [...options.store.listSessions().filter((session) => session.transport === 'chat'), ...options.ptySessions.listSessions()]
-      : options.store.listSessions();
+    const sessions = [...chatSessions.values(), ...(options.ptySessions?.listSessions() ?? [])];
     const result: Session[] = [];
     for (const session of sessions) {
       if (session.status === 'lost') {
@@ -717,23 +757,17 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   };
 
   const replayEvents = (clientId: string, sessionId: string, after: number, tail?: number): number => {
-    return replaySessionEvents({
-      store: options.store,
+    void tail;
+    send({
+      type: 'gateway.replay',
+      gatewayId: effectiveGatewayId,
+      clientId,
       sessionId,
-      after,
-      tail,
-      sendPage: ({ events, done, latestEventId }) => {
-        send({
-          type: 'gateway.replay',
-          gatewayId: effectiveGatewayId,
-          clientId,
-          sessionId,
-          events: events.map(toRelayEvent),
-          done,
-          latestEventId
-        });
-      }
+      events: [],
+      done: true,
+      latestEventId: after
     });
+    return after;
   };
 
   const writeInput = async (clientId: string, sessionId: string, data: string) => {

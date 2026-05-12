@@ -35,18 +35,12 @@ import {
   type TetherConfig
 } from '@tether/config';
 import {
-  attachSession,
   formatTmuxError,
   listGateways,
   localLanAddress,
-  sendKeys,
-  sessionExists,
   PtySessionManager,
   startDaemon,
-  Store,
-  SessionRunnerClient,
 } from '@tether/gateway';
-import { defaultDbPath } from '@tether/gateway/store';
 import { isProviderName, PROVIDERS, type ProviderDefinition } from '@tether/core';
 import * as terminal from './terminal.js';
 import {
@@ -246,14 +240,6 @@ gatewayCommand
   });
 
 gatewayCommand
-  .command('delete-db')
-  .description('删除本机 Gateway SQLite 数据库（会清空本机 session 历史和回放数据）')
-  .option('--yes', '确认删除')
-  .action(async (options: { yes?: boolean }) => {
-    await deleteGatewayDatabase(options);
-  });
-
-gatewayCommand
   .command('logs')
   .description('查看 Gateway launchd 日志')
   .option('-f, --follow', '持续跟随日志输出')
@@ -265,7 +251,7 @@ gatewayCommand
 
 program
   .command('doctor')
-  .description('全面诊断 Tether 运行环境（Node、sqlite、node-pty、launchd、Gateway、provider）')
+  .description('全面诊断 Tether 运行环境（Node、node-pty、launchd、Gateway、provider）')
   .action(async () => {
     await runGatewayDoctor();
   });
@@ -425,45 +411,14 @@ async function createSessionViaRelay(
 }
 
 program
-  .command('attach')
-  .argument('<id>')
-  .option('--host <host>', 'Gateway 地址', '127.0.0.1')
-  .option('--port <port>', 'Gateway 端口', parsePort, 4789)
-  .option('--control', '作为控制端接入')
-  .option('--observe', '作为观察端接入')
-  .option('--no-reconnect', 'Gateway 重启或连接断开后不自动重连')
-  .description('把当前终端接入已有 session')
-  .action(async (id: string, options: { host: string; port: number; control?: boolean; observe?: boolean; reconnect?: boolean }) => {
-    const session = new Store().getSession(id);
-    if (!session) {
-      throw new Error(`unknown session: ${id}`);
-    }
-    if (session.transport === 'pty-event-stream') {
-      await attachPtySession(id, { ...options, mode: options.observe ? 'observe' : 'control' });
-      return;
-    }
-    await attachSession(session.tmuxSessionName);
-  });
-
-program
   .command('ls')
   .description('列出已知 session')
   .action(async () => {
-    const gatewaySessions = await fetchGatewaySessions().catch(() => undefined);
-    const store = new Store();
-    const sessions = gatewaySessions ?? store.listSessions();
-    if (!gatewaySessions) {
-      console.warn('未能连接常驻 Gateway，以下为本地历史状态，可能未对账。');
-    }
+    const sessions = await fetchGatewaySessions().catch((error: unknown) => {
+      throw new Error(`无法连接 Gateway：${String(error)}`);
+    });
     for (const session of sessions) {
-      const alive = session.transport === 'tmux' && session.tmuxSessionName
-        ? await sessionExists(session.tmuxSessionName)
-        : session.status === 'running';
-      if (session.transport === 'tmux' && !alive && session.status === 'running') {
-        store.updateSessionStatus(session.id, 'stopped');
-      }
-      const status = alive ? session.status : 'stopped';
-      console.log(`${session.id}\t${status}\t${session.transport}\t${session.projectPath}`);
+      console.log(`${session.id}\t${session.status}\t${session.transport}\t${session.projectPath}`);
     }
   });
 
@@ -495,10 +450,6 @@ program
   .option('--port <port>', 'Gateway 端口', parsePort, 4789)
   .description('打印某个 session 的远程访问 URL')
   .action((id: string, options: { host?: string; port: number }) => {
-    const session = new Store().getSession(id);
-    if (!session) {
-      throw new Error(`unknown session: ${id}`);
-    }
     const host = options.host ?? localLanAddress() ?? '127.0.0.1';
     console.log(`http://${host}:${options.port}/remote/session/${id}`);
   });
@@ -509,24 +460,18 @@ program
   .argument('<text>')
   .description('向已有 session 发送文本')
   .action(async (id: string, text: string) => {
-    const store = new Store();
-    const session = store.getSession(id);
-    if (!session) {
-      throw new Error(`unknown session: ${id}`);
+    const gatewayUrl = await findPersistentGateway();
+    if (!gatewayUrl) {
+      throw new Error('未检测到常驻 Gateway。\n请先运行：tether gateway start');
     }
-    if (session.transport === 'pty-event-stream') {
-      const response = await fetch(`http://127.0.0.1:4789/api/sessions/${encodeURIComponent(id)}/input`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...(await gatewayAuthHeaders()) },
-        body: JSON.stringify({ data: `${text}\r` })
-      });
-      if (!response.ok) {
-        throw new Error(`send failed: HTTP ${response.status}`);
-      }
-      return;
+    const response = await fetch(`${gatewayUrl}/api/sessions/${encodeURIComponent(id)}/input`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(await gatewayAuthHeaders()) },
+      body: JSON.stringify({ data: `${text}\r` })
+    });
+    if (!response.ok) {
+      throw new Error(`send failed: HTTP ${response.status}`);
     }
-    await sendKeys(session.tmuxSessionName, text);
-    store.touchSession(id);
   });
 
 program
@@ -537,13 +482,12 @@ program
   .option('--port <port>', 'Gateway 端口', parsePort, 4789)
   .description('停止运行中的 session')
   .action(async (id: string | undefined, options: { all?: boolean; host: string; port: number }) => {
-    const store = new Store();
     if (options.all) {
       const gatewayUrl = await stopGatewayUrl(options);
-      const sessions = gatewayUrl ? await fetchGatewaySessions(gatewayUrl).catch(() => store.listSessions()) : store.listSessions();
+      const sessions = await fetchGatewaySessions(gatewayUrl);
       const ids = runningSessionIds(sessions);
       for (const sessionId of ids) {
-        await stopSession(store, sessionId, options, gatewayUrl);
+        await stopSession(sessionId, gatewayUrl);
         console.log(`已关闭 ${sessionId}`);
       }
       console.log(`已关闭 ${ids.length} 个 session。`);
@@ -552,7 +496,7 @@ program
     if (!id) {
       throw new Error('missing session id; use `tether stop <id>` or `tether stop --all`');
     }
-    const result = await stopSession(store, id, options, await stopGatewayUrl(options));
+    const result = await stopSession(id, await stopGatewayUrl(options));
     console.log(result === 'already-stopped' ? `${id} 已经不是 running 状态。` : `已关闭 ${id}`);
   });
 
@@ -561,35 +505,23 @@ program.parseAsync().catch((error: unknown) => {
   process.exitCode = 1;
 });
 
-async function stopGatewayUrl(options: { host: string; port: number }): Promise<string | undefined> {
+async function stopGatewayUrl(options: { host: string; port: number }): Promise<string> {
   return await findPersistentGateway().catch(() => undefined) ?? `http://${options.host}:${options.port}`;
 }
 
-async function stopSession(
-  store: Store,
-  id: string,
-  options: { host: string; port: number },
-  gatewayUrl = `http://${options.host}:${options.port}`
-): Promise<'stopped' | 'already-stopped'> {
-  const session = store.getSession(id);
+async function stopSession(id: string, gatewayUrl: string): Promise<'stopped' | 'already-stopped'> {
+  const sessions = await fetchGatewaySessions(gatewayUrl);
+  const session = sessions.find((item) => item.id === id);
   if (!session) {
     throw new Error(`unknown session: ${id}`);
   }
   if (session.status !== 'running') {
     return 'already-stopped';
   }
-  if (session.transport === 'pty-event-stream') {
-    const gatewayStopped = await stopPtySessionViaGateway(id, gatewayUrl);
-    if (gatewayStopped) {
-      return 'stopped';
-    }
-    if (session.runnerSocketPath) {
-      await stopPtySessionViaRunner(session.runnerSocketPath);
-      return 'stopped';
-    }
-    throw new Error('未检测到可用 Gateway，也没有本机 runner socket，无法停止这个 session。请先运行 `tether gateway` 后重试。');
+  const gatewayStopped = await stopPtySessionViaGateway(id, gatewayUrl);
+  if (!gatewayStopped) {
+    throw new Error(`stop failed: ${id}`);
   }
-  await sendKeys(session.tmuxSessionName, 'C-c');
   return 'stopped';
 }
 
@@ -610,15 +542,6 @@ async function stopPtySessionViaGateway(id: string, gatewayUrl: string): Promise
     return false;
   }
   throw new Error(`stop failed: HTTP ${response.status}`);
-}
-
-async function stopPtySessionViaRunner(socketPath: string): Promise<void> {
-  const client = new SessionRunnerClient({ socketPath });
-  try {
-    await client.stop('cli-stop');
-  } finally {
-    await client.close().catch(() => undefined);
-  }
 }
 
 async function fetchGatewaySessions(gatewayUrl?: string): Promise<CliSession[]> {
@@ -679,12 +602,10 @@ async function startGatewayForeground(profile?: GatewayProfileName): Promise<voi
   });
   await assertGatewayPortAvailable(resolved.gateway.host, resolved.gateway.port);
   await ensureGatewayAuthForProfile(resolved.profile);
-  const store = new Store();
   const ptySessions = new PtySessionManager();
   const daemon = await startDaemon({
     host: resolved.gateway.host,
     port: resolved.gateway.port,
-    store,
     ptySessions,
     allowApiSessionCreate: resolved.gateway.allowApiSessionCreate,
     relay: relayConfig(file, resolved.profile),
@@ -853,50 +774,6 @@ async function printGatewayStatus(): Promise<void> {
   terminal.line('LaunchAgent', formatLaunchAgentStatus(launchd));
 }
 
-async function deleteGatewayDatabase(options: { yes?: boolean }): Promise<void> {
-  if (options.yes !== true) {
-    throw new Error('删除数据库会清空 session 历史和回放数据。确认删除请加：--yes');
-  }
-
-  const file = readTetherConfig();
-  const resolved = resolveGatewayProfileConfig({ file });
-  const gatewayConfig = resolved.gateway;
-  const launchd = await getLaunchAgentStatus();
-  const registryRecords = await listGateways();
-  const running = await fetchFirstGatewayStatus([
-    ...registryRecords.map((record) => record.url),
-    gatewayApiUrl(gatewayConfig.host, gatewayConfig.port)
-  ]);
-
-  if (running || launchd.loaded || launchd.pid) {
-    throw new Error(
-      'Gateway 仍在运行，不能删除正在使用的 SQLite 数据库。\n' +
-      '先执行：pnpm tether gateway stop\n' +
-      '确认 status 显示已停止后，再执行：pnpm tether gateway delete-db --yes'
-    );
-  }
-
-  const dbPath = defaultDbPath();
-  const paths = [dbPath, `${dbPath}-wal`, `${dbPath}-shm`];
-  const deleted: string[] = [];
-  for (const filePath of paths) {
-    if (fs.existsSync(filePath)) {
-      await rm(filePath, { force: true });
-      deleted.push(filePath);
-    }
-  }
-
-  if (deleted.length === 0) {
-    terminal.warn(`未找到 Gateway 数据库：${dbPath}`);
-    return;
-  }
-
-  terminal.success('已删除 Gateway 数据库文件：');
-  for (const filePath of deleted) {
-    console.log(`${terminal.color.dim('-')} ${filePath}`);
-  }
-}
-
 async function waitForStartedGateway(profile: GatewayProfileName): Promise<GatewayStatus> {
   const file = readTetherConfig();
   const resolved = resolveGatewayProfileConfig({ file, profile });
@@ -1026,14 +903,12 @@ async function runGatewayDoctor(): Promise<void> {
   const nodeOk = maj > 22 || (maj === 22 && min >= 13);
   pushCheck('Node 版本', nodeOk, `${nodeVersion}（要求 >= 22.13）`);
   pushCheck('runtime 模式', true, detectRuntimeMode());
-  const sqliteCheck = await checkNodeSqlite();
-  checks.push({ name: 'node:sqlite', status: sqliteCheck.ok ? 'ok' : 'fail', detail: sqliteCheck.detail });
   const ptyCheck = checkNodePty();
   checks.push({ name: 'node-pty', status: ptyCheck.ok ? 'ok' : 'fail', detail: ptyCheck.detail });
   for (const runtime of checkGatewayRuntimeInfo()) {
     checks.push(runtime);
   }
-  checks.push({ name: 'Gateway DB', status: 'ok', detail: gatewayDbSummary() });
+  checks.push({ name: 'Gateway 状态存储', status: 'ok', detail: '本地 SQLite 已移除；运行态依赖内存 + Relay/Server 同步' });
   // 配置 & launchd
   pushCheck('配置文件', fs.existsSync(configPath()), configPath());
   pushCheck('LaunchAgent 已安装', launchd.installed, launchd.path);
@@ -1069,18 +944,6 @@ function detectRuntimeMode(): string {
   return import.meta.url.includes('/dist/') ? 'prod (dist bundle)' : 'dev (源码 + tsx)';
 }
 
-async function checkNodeSqlite(): Promise<{ ok: boolean; detail: string }> {
-  try {
-    const mod = await import('node:sqlite');
-    const db = new mod.DatabaseSync(':memory:');
-    db.exec('SELECT 1');
-    db.close();
-    return { ok: true, detail: 'in-memory db open/close OK' };
-  } catch (err) {
-    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
-  }
-}
-
 function checkNodePty(): { ok: boolean; detail: string } {
   // PtySessionManager 是 gateway 对 node-pty 的封装。能 import 到说明 gateway 已加载 node-pty。
   // 不直接 import('node-pty')，因为 cli 本身没有 node-pty 直接依赖，dynamic import 会失败。
@@ -1114,17 +977,6 @@ function checkGatewayRuntimeInfo(): Array<{ name: string; status: 'ok' | 'warn' 
       detail: info.launcherPath
     }
   ];
-}
-
-function gatewayDbSummary(): string {
-  const dbPath = defaultDbPath();
-  try {
-    const stat = fs.statSync(dbPath);
-    const sizeMb = (stat.size / 1024 / 1024).toFixed(1);
-    return `${dbPath} (${sizeMb} MB)`;
-  } catch {
-    return `${dbPath}（不存在）`;
-  }
 }
 
 async function verifyGatewaySession(providerName: string): Promise<void> {
