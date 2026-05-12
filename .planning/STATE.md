@@ -4,8 +4,8 @@ milestone: v0.3
 milestone_name: milestone
 status: in_progress
 stopped_at: Completed 18-03-PLAN.md
-last_updated: "2026-05-12T08:19:26Z"
-last_activity: 2026-05-12 -- Phase 18 plan 03 complete
+last_updated: "2026-05-12T11:23:17Z"
+last_activity: 2026-05-12 -- Quick 260512-qte complete
 progress:
   total_phases: 18
   completed_phases: 11
@@ -36,6 +36,7 @@ Progress: [██████████] 100%
 
 | Date | Quick ID | Task | Summary |
 |------|----------|------|---------|
+| 2026-05-12 | 260512-qte | Gateway runtime split Wave 1 | Extracted `RelaySender` for Gateway outgoing relay frames; see `.planning/quick/260512-qte-docs-working-2026-05-12-gateway-runtime-/260512-qte-SUMMARY.md`. |
 | 2026-05-11 | 260511-gd9 | Chat session title ownership | Added `title_source` protection so Web-renamed chat titles are not overwritten by Gateway runtime sync; see `.planning/quick/260511-gd9-docs-working-2026-05-11-chat-session-tit/260511-gd9-SUMMARY.md`. |
 
 ## Performance Metrics

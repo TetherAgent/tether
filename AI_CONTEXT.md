@@ -136,6 +136,14 @@ HarmonyOS / Flutter / iOS / Android 都视为 client surface，只消费 Gateway
   的 Auth Shell、Admin Layout、Data Management Page 布局规则分别记录在对应
   app 的 `CLAUDE.md`。
 
+## 模块级 AI 规范
+
+- `apps/gateway/CLAUDE.md`：Gateway runtime 分层规范，定义 Relay transport、
+  session catalog、subscription、PTY runtime、Chat runtime 和 daemon 的职责边界。
+- `apps/web/CLAUDE.md`：普通用户 Web 控制台规范。
+- `apps/admin-web/CLAUDE.md`：管理后台 Web 规范。
+- `apps/server/CLAUDE.md`：Egg 服务端分层、路由、service、MySQL / Redis 和认证规范。
+
 ## 仓库结构（当前）
 
 ```

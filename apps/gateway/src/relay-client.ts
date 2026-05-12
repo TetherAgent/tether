@@ -16,6 +16,7 @@ import { detectSelectOptions } from './agent-select-detect.js';
 import { ChatSessionRunner, CodexChatRunner, CopilotChatRunner, type ChatRunnerOptions, type IChatRunner } from './chat-session-runner.js';
 import { createSessionEvent } from './events.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty.js';
+import { RelaySender } from './relay/relay-sender.js';
 import type { SessionRunnerClient } from './session-runner-client.js';
 import type { Session, SessionEvent } from './types.js';
 import { providerEffectiveEnv } from './provider-env.js';
@@ -83,11 +84,12 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   let connectionState: RelayConnectionStatus['state'] = 'connecting';
   let lastChangedAt = Date.now();
   let effectiveGatewayId = options.gatewayId;
+  const relaySender = new RelaySender((frame) => send(frame), () => effectiveGatewayId);
   const getStoredSession = (sessionId: string) => options.ptySessions?.getSession(sessionId) ?? chatSessions.get(sessionId);
   const chatRunnerOptions: ChatRunnerOptions = {
     gatewayId: () => effectiveGatewayId,
     onSessionCreated: (clientId, sessionId) => {
-      send({ type: 'gateway.session-created', gatewayId: effectiveGatewayId, clientId, sessionId });
+      relaySender.sessionCreated(clientId, sessionId);
       void sendSessions();
     },
     onChatSessionCreated: (clientId, metadata) => {
@@ -110,12 +112,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         updatedAt: now,
         lastActiveAt: now
       });
-      send({
-        type: 'gateway.chat-session-created',
-        gatewayId: effectiveGatewayId,
-        clientId,
-        session: metadata
-      });
+      relaySender.chatSessionCreated(clientId, metadata);
     },
     onUserMessage: ({ clientId, sessionId, event }) => {
       sendChatEvent(event.id, sessionId, 'user.message', {
@@ -165,14 +162,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
           message
         });
       }
-      send({
-        type: 'gateway.error',
-        gatewayId: effectiveGatewayId,
-        clientId,
-        sessionId,
-        code,
-        message
-      });
+      relaySender.error(clientId, sessionId, code, message);
     },
     onAgentIdUpdate: (sessionId, agentSessionId) => {
       const session = chatSessions.get(sessionId);
@@ -308,16 +298,12 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   };
 
   const sendChatEvent = (id: number, sessionId: string, type: string, payload: Record<string, unknown>) => {
-    send({
-      type: 'gateway.event',
-      gatewayId: effectiveGatewayId,
-      event: {
-        id,
-        sessionId,
-        type,
-        ts: Date.now(),
-        payload
-      }
+    relaySender.event({
+      id,
+      sessionId,
+      type,
+      ts: Date.now(),
+      payload
     });
   };
 
@@ -344,11 +330,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   };
 
   const sendSessions = async () => {
-    send({
-      type: 'gateway.sessions',
-      gatewayId: effectiveGatewayId,
-      sessions: (await listRelaySessions()).map(toRelaySession)
-    });
+    relaySender.sessions((await listRelaySessions()).map(toRelaySession));
   };
 
   const handleFrame = (frame: RelayServerToGatewayFrame) => {
@@ -397,14 +379,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         if (frame.sessionId === null) {
           const runner = runnerForProvider(frame.provider);
           if (!runner) {
-            send({
-              type: 'gateway.error',
-              gatewayId: effectiveGatewayId,
-              clientId: frame.clientId,
-              sessionId: '',
-              code: 'provider_not_supported',
-              message: `provider is not supported: ${frame.provider}`
-            });
+            relaySender.error(frame.clientId, '', 'provider_not_supported', `provider is not supported: ${frame.provider}`);
             return;
           }
           void runner.run({
@@ -424,14 +399,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
           return;
         }
         if (!frame.session) {
-          send({
-            type: 'gateway.error',
-            gatewayId: effectiveGatewayId,
-            clientId: frame.clientId,
-            sessionId: frame.sessionId,
-            code: 'missing_session_metadata',
-            message: 'trusted session metadata is missing from relay frame'
-          });
+          relaySender.error(frame.clientId, frame.sessionId, 'missing_session_metadata', 'trusted session metadata is missing from relay frame');
           return;
         }
         const now = Date.now();
@@ -455,14 +423,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         });
         const runner = runnerForProvider(frame.session.provider);
         if (!runner) {
-          send({
-            type: 'gateway.error',
-            gatewayId: effectiveGatewayId,
-            clientId: frame.clientId,
-            sessionId: frame.sessionId,
-            code: 'provider_not_supported',
-            message: `provider is not supported: ${frame.session.provider}`
-          });
+          relaySender.error(frame.clientId, frame.sessionId, 'provider_not_supported', `provider is not supported: ${frame.session.provider}`);
           return;
         }
         chatInFlight.add(frame.sessionId);
@@ -485,21 +446,8 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         void sendCwdSuggestions(frame.clientId, frame.cwd);
         return;
       case 'client.switch-model':
-        send({
-          type: 'gateway.chat-catchup',
-          gatewayId: effectiveGatewayId,
-          clientId: frame.clientId,
-          sessionId: frame.sessionId,
-          text: '模型切换功能将在后续版本中实现'
-        });
-        send({
-          type: 'gateway.error',
-          gatewayId: effectiveGatewayId,
-          clientId: frame.clientId,
-          sessionId: frame.sessionId,
-          code: 'switch_not_implemented',
-          message: '模型切换功能将在后续版本中实现'
-        });
+        relaySender.chatCatchup(frame.clientId, frame.sessionId, '模型切换功能将在后续版本中实现');
+        relaySender.error(frame.clientId, frame.sessionId, 'switch_not_implemented', '模型切换功能将在后续版本中实现');
         return;
       case 'client.permission_response': {
         const session = getStoredSession(frame.sessionId);
@@ -510,14 +458,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       }
       case 'client.new-pty-session':
         if (!options.onNewPtySession) {
-          send({
-            type: 'gateway.error',
-            gatewayId: effectiveGatewayId,
-            clientId: frame.clientId,
-            sessionId: '',
-            code: 'session_create_not_supported',
-            message: 'gateway cannot create PTY sessions over relay'
-          });
+          relaySender.error(frame.clientId, '', 'session_create_not_supported', 'gateway cannot create PTY sessions over relay');
           return;
         }
         void options.onNewPtySession({
@@ -530,22 +471,10 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
           title: frame.title,
           providerArgs: frame.providerArgs
         }).then(({ sessionId }) => {
-          send({
-            type: 'gateway.session-created',
-            gatewayId: effectiveGatewayId,
-            clientId: frame.clientId,
-            sessionId
-          });
+          relaySender.sessionCreated(frame.clientId, sessionId);
           void sendSessions();
         }).catch((error: unknown) => {
-          send({
-            type: 'gateway.error',
-            gatewayId: effectiveGatewayId,
-            clientId: frame.clientId,
-            sessionId: '',
-            code: 'session_create_failed',
-            message: error instanceof Error ? error.message : String(error)
-          });
+          relaySender.error(frame.clientId, '', 'session_create_failed', error instanceof Error ? error.message : String(error));
         });
         return;
       }
@@ -634,13 +563,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     if (session.transport === 'chat') {
       const catchupText = runnerForProvider(session.provider)?.getCatchup(sessionId);
       if (catchupText !== undefined) {
-        send({
-          type: 'gateway.chat-catchup',
-          gatewayId: effectiveGatewayId,
-          clientId,
-          sessionId,
-          text: catchupText
-        });
+        relaySender.chatCatchup(clientId, sessionId, catchupText);
       }
       return;
     }
@@ -711,7 +634,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
           options: matchedOptions,
           raw
         });
-        send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(selectEvent) });
+        relaySender.event(toRelayEvent(selectEvent));
         relaySelectEmitted = true;
       }, 300);
     };
@@ -723,7 +646,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     if (runnerClient) {
       try {
         unsubscribe = await runnerClient.subscribeEvents((frame) => {
-          send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(frame.event) });
+          relaySender.event(toRelayEvent(frame.event));
           detectAndEmitRelaySelect(frame.event);
         }, replayCursor);
       } catch {
@@ -734,7 +657,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       }
     } else {
       unsubscribe = options.ptySessions?.subscribe(sessionId, (event) => {
-        send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(event) });
+        relaySender.event(toRelayEvent(event));
         detectAndEmitRelaySelect(event);
       });
     }
@@ -753,21 +676,13 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         code: 'session_lost',
         message: 'Gateway relay client lost the session runner'
       });
-      send({ type: 'gateway.event', gatewayId: effectiveGatewayId, event: toRelayEvent(event) });
+      relaySender.event(toRelayEvent(event));
     }
   };
 
   const replayEvents = (clientId: string, sessionId: string, after: number, tail?: number): number => {
     void tail;
-    send({
-      type: 'gateway.replay',
-      gatewayId: effectiveGatewayId,
-      clientId,
-      sessionId,
-      events: [],
-      done: true,
-      latestEventId: after
-    });
+    relaySender.replay(clientId, sessionId, [], after);
     return after;
   };
 
@@ -850,7 +765,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   };
 
   const sendError = (clientId: string, sessionId: string, code: string, message: string) => {
-    send({ type: 'gateway.error', gatewayId: effectiveGatewayId, clientId, sessionId, code, message });
+    relaySender.error(clientId, sessionId, code, message);
   };
 
   const deferLostError = (clientId: string, sessionId: string) => {

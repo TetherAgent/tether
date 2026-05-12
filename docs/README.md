@@ -31,6 +31,7 @@
 
 | 文档路径 | 状态 | 内容描述 |
 | --- | --- | --- |
+| [2026-05-12-gateway-runtime-split.md](working/2026-05-12-gateway-runtime-split.md) | **Working** | Gateway runtime 按 Relay / subscription / session catalog / PTY / Chat 分层拆分的目标结构、TODO 和验收项 |
 | [2026-05-11-chat-runtime-raw-events.md](working/2026-05-11-chat-runtime-raw-events.md) | **Working** | Chat 链路新增 `gateway_runtime_chats_events` 和 `raw_json`，记录 delta 流、完整 rawjson、TODO 和验收项 |
 | [2026-05-11-chat-multi-client-realtime.md](working/2026-05-11-chat-multi-client-realtime.md) | **Working** | PC/手机多端同时打开同一 chat session 的实时广播、发送锁、TODO 和验收项 |
 | [2026-05-11-multi-device-gateway-routing.md](working/2026-05-11-multi-device-gateway-routing.md) | **Working** | 同一账号多电脑多 Gateway 的设备绑定、Gateway 选择、Relay 路由和防串设计 |
