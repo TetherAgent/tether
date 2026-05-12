@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { z } from 'zod';
 
 import { Button, InfoBlock, Input } from '@tether/design';
@@ -16,8 +16,6 @@ type FormValues = {
 };
 
 export function LoginPage() {
-  const navigate = useNavigate();
-  const location = useLocation();
   const { loginNormal } = useAuth();
   const { t } = useI18n();
   const [error, setError] = React.useState<string | null>(null);
@@ -37,9 +35,6 @@ export function LoginPage() {
     setError(null);
     try {
       await loginNormal(values);
-      const redirectParam = new URLSearchParams(location.search).get('redirect');
-      const from = redirectParam?.startsWith('/') ? redirectParam : '/chats';
-      navigate(from, { replace: true });
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : t.loginFailed);
     }

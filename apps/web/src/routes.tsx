@@ -110,6 +110,7 @@ function RequireUserAuth({ children }: { children: React.ReactNode }) {
 }
 
 function RedirectAuthenticated({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
   const { authReady, normalAuth } = useAuth();
   const storedNormalAuth = normalAuth ?? readStoredNormalAuth();
 
@@ -118,7 +119,9 @@ function RedirectAuthenticated({ children }: { children: React.ReactNode }) {
   }
 
   if (storedNormalAuth) {
-    return <Navigate replace to="/chats" />;
+    const redirectParam = new URLSearchParams(location.search).get('redirect');
+    const to = redirectParam?.startsWith('/') ? redirectParam : '/chats';
+    return <Navigate replace to={to} />;
   }
 
   return <>{children}</>;
