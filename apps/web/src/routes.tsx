@@ -103,7 +103,7 @@ function RequireUserAuth({ children }: { children: React.ReactNode }) {
   }
 
   if (!storedNormalAuth) {
-    return <Navigate replace to="/login" state={{ from: location.pathname }} />;
+    return <Navigate replace to={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`} />;
   }
 
   return <>{children}</>;

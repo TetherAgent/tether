@@ -29,7 +29,7 @@ export function GatewayAuthPage() {
   if (!authReady) return null;
 
   if (!storedNormalAuth) {
-    return <Navigate replace to="/login" state={{ from: location.pathname + location.search }} />;
+    return <Navigate replace to={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`} />;
   }
 
   if (!port) {

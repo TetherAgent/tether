@@ -37,7 +37,8 @@ export function LoginPage() {
     setError(null);
     try {
       await loginNormal(values);
-      const from = (location.state as { from?: string } | undefined)?.from ?? '/chats';
+      const redirectParam = new URLSearchParams(location.search).get('redirect');
+      const from = redirectParam?.startsWith('/') ? redirectParam : '/chats';
       navigate(from, { replace: true });
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : t.loginFailed);
