@@ -1003,8 +1003,6 @@ async function verifyGatewaySession(providerName: string): Promise<void> {
   if (!isProviderName(providerName)) {
     throw new Error(`unknown provider: ${providerName}`);
   }
-  const gateway = resolveGatewayConfig();
-  const gatewayUrl = gatewayApiUrl(gateway.host, gateway.port);
   const relay = resolveRelayConfig({ file: readTetherConfig() });
   if (!relay) {
     throw new Error('当前未配置 Relay，无法验证 relay PTY 创建链路');
@@ -1020,13 +1018,7 @@ async function verifyGatewaySession(providerName: string): Promise<void> {
     throw new Error('无法通过 Relay 创建 session，请确认 Gateway 已连接 Relay');
   }
   console.log(`已创建验证 session：${session.id}`);
-  const response = await fetch(`${gatewayUrl}/api/sessions/${encodeURIComponent(session.id)}/stop`, {
-    method: 'POST',
-    headers: await gatewayAuthHeaders()
-  });
-  if (!response.ok) {
-    throw new Error(`验证 session 停止失败：HTTP ${response.status}`);
-  }
+  await stopSessionViaRelay(session.id, relay.url, auth.accessToken);
   console.log(`已停止验证 session：${session.id}`);
 }
 

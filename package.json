@@ -23,10 +23,10 @@
     "reload:relay": "pm2 reload tether-relay",
     "stop:relay": "pm2 stop tether-relay",
     "relay": "node apps/relay/dist/main.js",
-    "dev:codex": "node --experimental-sqlite --no-warnings=ExperimentalWarning --import tsx apps/cli/src/main.ts codex --host 0.0.0.0",
+    "dev:codex": "node --no-warnings=ExperimentalWarning --import tsx apps/cli/src/main.ts codex --host 0.0.0.0",
     "dev:relay": "[ -f env.sh ] && . env.sh; tsx apps/relay/src/main.ts",
     "test": "pnpm -r --if-present run test",
-    "tether": "node --experimental-sqlite --no-warnings=ExperimentalWarning --import tsx apps/cli/src/main.ts",
+    "tether": "node --no-warnings=ExperimentalWarning --import tsx apps/cli/src/main.ts",
     "build:release": "tsup --config tsup.release.config.ts && node scripts/fix-node-prefix.mjs",
     "publish:release": "npm --prefix release version patch --no-git-tag-version && pnpm build:release && cd release && npm publish --access public && cd .. && node scripts/sync-cli-version.mjs"
   },
