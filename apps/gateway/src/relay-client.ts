@@ -32,6 +32,14 @@ export type RelayClientOptions = {
   store: Store;
   ptySessions?: PtySessionManager;
   runnerClientForSession?: (session: Session) => SessionRunnerClient | undefined;
+  onNewPtySession?: (params: {
+    clientId: string;
+    provider: string;
+    command: string;
+    cwd: string;
+    cols: number;
+    rows: number;
+  }) => Promise<{ sessionId: string }>;
   heartbeatIntervalMs?: number;
   heartbeatTimeoutMs?: number;
 };
@@ -324,6 +332,17 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         setConnectionState('connected');
         void sendSessions();
         return;
+      case 'gateway.sessions-restore':
+        for (const relaySession of frame.sessions) {
+          const pid = 'pid' in relaySession && typeof relaySession.pid === 'number' ? relaySession.pid : undefined;
+          const status = pid ? (isPidAlive(pid) ? 'running' : 'lost') : relaySession.status;
+          options.ptySessions?.restoreSession({
+            ...relaySession,
+            status
+          });
+        }
+        void sendSessions();
+        return;
       case 'gateway.auth.failed':
         setConnectionState('auth_failed');
         socket?.close();
@@ -445,7 +464,45 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         }
         return;
       }
-    }
+      case 'client.new-pty-session':
+        if (!options.onNewPtySession) {
+          send({
+            type: 'gateway.error',
+            gatewayId: effectiveGatewayId,
+            clientId: frame.clientId,
+            sessionId: '',
+            code: 'session_create_not_supported',
+            message: 'gateway cannot create PTY sessions over relay'
+          });
+          return;
+        }
+        void options.onNewPtySession({
+          clientId: frame.clientId,
+          provider: frame.provider,
+          command: frame.command,
+          cwd: frame.cwd,
+          cols: frame.cols,
+          rows: frame.rows
+        }).then(({ sessionId }) => {
+          send({
+            type: 'gateway.session-created',
+            gatewayId: effectiveGatewayId,
+            clientId: frame.clientId,
+            sessionId
+          });
+          void sendSessions();
+        }).catch((error: unknown) => {
+          send({
+            type: 'gateway.error',
+            gatewayId: effectiveGatewayId,
+            clientId: frame.clientId,
+            sessionId: '',
+            code: 'session_create_failed',
+            message: error instanceof Error ? error.message : String(error)
+          });
+        });
+        return;
+      }
   };
 
   const listRelaySessions = async (): Promise<Session[]> => {
@@ -454,7 +511,14 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       : options.store.listSessions();
     const result: Session[] = [];
     for (const session of sessions) {
+      if (session.status === 'lost') {
+        continue;
+      }
       if (session.transport === 'chat') {
+        result.push(session);
+        continue;
+      }
+      if (options.ptySessions?.isRestoredSession(session.id)) {
         result.push(session);
         continue;
       }
@@ -830,6 +894,15 @@ function parseFrame(data: WebSocket.RawData): RelayServerToGatewayFrame | undefi
 
 function subscriptionKey(clientId: string, sessionId: string): string {
   return `${clientId}:${sessionId}`;
+}
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function toRelaySession(session: Session): RelaySession {

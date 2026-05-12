@@ -48,6 +48,7 @@ type LivePtySession = {
 
 export class PtySessionManager {
   private readonly sessions = new Map<string, LivePtySession>();
+  private readonly restoredSessions = new Map<string, Session>();
   private readonly listeners = new Map<string, Set<EventListener>>();
 
   create(options: CreatePtySessionOptions): Session {
@@ -81,6 +82,7 @@ export class PtySessionManager {
       lastActiveAt: now
     };
     const live: LivePtySession = { session, pty: term, outputBuffer: [] };
+    this.restoredSessions.delete(session.id);
     this.sessions.set(session.id, live);
     this.publishEvent(
       createSessionEvent(session.id, 'session.started', {
@@ -118,6 +120,10 @@ export class PtySessionManager {
 
   hasLiveSession(id: string): boolean {
     return this.sessions.get(id)?.pty !== undefined;
+  }
+
+  isRestoredSession(id: string): boolean {
+    return this.restoredSessions.has(id) && !this.sessions.has(id);
   }
 
   liveSessionIds(): string[] {
@@ -190,20 +196,65 @@ export class PtySessionManager {
   }
 
   getSession(id: string): Session | undefined {
-    return this.sessions.get(id)?.session;
+    return this.sessions.get(id)?.session ?? this.restoredSessions.get(id);
   }
 
   listSessions(): Session[] {
-    return [...this.sessions.values()].map((live) => live.session);
+    const result = new Map<string, Session>();
+    for (const [id, session] of this.restoredSessions) {
+      result.set(id, session);
+    }
+    for (const [id, live] of this.sessions) {
+      result.set(id, live.session);
+    }
+    return [...result.values()];
   }
 
   updateSessionStatus(id: string, status: SessionStatus): void {
     const live = this.sessions.get(id);
-    if (!live) {
+    if (live) {
+      live.session.status = status;
+      live.session.updatedAt = Date.now();
       return;
     }
-    live.session.status = status;
-    live.session.updatedAt = Date.now();
+    const restored = this.restoredSessions.get(id);
+    if (!restored) {
+      return;
+    }
+    restored.status = status;
+    restored.updatedAt = Date.now();
+  }
+
+  restoreSession(
+    session: Partial<Session> & Pick<Session, 'id' | 'provider' | 'title' | 'projectPath' | 'status' | 'transport' | 'lastActiveAt'>
+  ): Session {
+    const existing = this.sessions.get(session.id)?.session;
+    if (existing) {
+      return existing;
+    }
+    const lastActiveAt = session.lastActiveAt;
+    const restored: Session = {
+      id: session.id,
+      provider: session.provider,
+      title: session.title,
+      projectPath: session.projectPath,
+      accountId: session.accountId,
+      userId: session.userId,
+      deviceId: session.deviceId,
+      gatewayId: session.gatewayId,
+      status: session.status,
+      attachState: session.attachState ?? 'detached',
+      tmuxSessionName: session.tmuxSessionName ?? '',
+      command: session.command ?? '',
+      pid: session.pid,
+      runnerSocketPath: session.runnerSocketPath,
+      transport: session.transport,
+      createdAt: session.createdAt ?? lastActiveAt,
+      updatedAt: session.updatedAt ?? lastActiveAt,
+      lastActiveAt
+    };
+    this.restoredSessions.set(restored.id, restored);
+    return restored;
   }
 
   private publish(event: SessionEvent): void {

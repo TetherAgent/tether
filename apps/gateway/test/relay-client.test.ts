@@ -180,6 +180,95 @@ test('gateway relay client uses authenticated gateway id for follow-up frames', 
   }
 });
 
+test('gateway relay client restores sessions from relay without dropping restored metadata', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = new PtySessionManager();
+  const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  const port = await waitForWebSocketServerPort(fakeRelay);
+  const gatewaySocketPromise = waitForGatewaySocket(fakeRelay);
+  const relayClient = startRelayClient({
+    url: `ws://127.0.0.1:${port}`,
+    secret: SECRET,
+    gatewayId: 'gw_restore_runtime',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_restore_runtime' },
+    store,
+    ptySessions
+  });
+
+  try {
+    const gatewaySocket = await gatewaySocketPromise;
+    await waitForGatewayFrame(gatewaySocket, (frame) => frame.type === 'gateway.auth');
+    gatewaySocket.send(JSON.stringify({ type: 'gateway.auth.ok', gatewayId: 'gw_restore_runtime' }));
+    gatewaySocket.send(JSON.stringify({
+      type: 'gateway.sessions-restore',
+      gatewayId: 'gw_restore_runtime',
+      sessions: [{
+        id: 'tth_restored_runtime',
+        provider: 'codex',
+        title: 'restored runtime',
+        projectPath: process.cwd(),
+        accountId: 'acct_test',
+        gatewayId: 'gw_restore_runtime',
+        userId: 'user_test',
+        status: 'running',
+        transport: 'pty-event-stream',
+        lastActiveAt: Date.now()
+      }]
+    }));
+
+    await waitFor(() => ptySessions.getSession('tth_restored_runtime') !== undefined);
+    const restored = ptySessions.getSession('tth_restored_runtime');
+    assert.equal(restored?.status, 'running');
+    assert.equal(ptySessions.isRestoredSession('tth_restored_runtime'), true);
+  } finally {
+    await relayClient.close();
+    await closeWebSocketServer(fakeRelay);
+    cleanup();
+  }
+});
+
+test('gateway relay client creates PTY sessions from forwarded relay frames', async () => {
+  const { store, cleanup } = tempStore();
+  const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  const port = await waitForWebSocketServerPort(fakeRelay);
+  const gatewaySocketPromise = waitForGatewaySocket(fakeRelay);
+  const relayClient = startRelayClient({
+    url: `ws://127.0.0.1:${port}`,
+    secret: SECRET,
+    gatewayId: 'gw_create_runtime',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_create_runtime' },
+    store,
+    onNewPtySession: async () => ({ sessionId: 'tth_created_from_relay' })
+  });
+
+  try {
+    const gatewaySocket = await gatewaySocketPromise;
+    await waitForGatewayFrame(gatewaySocket, (frame) => frame.type === 'gateway.auth');
+    gatewaySocket.send(JSON.stringify({ type: 'gateway.auth.ok', gatewayId: 'gw_create_runtime' }));
+    gatewaySocket.send(JSON.stringify({
+      type: 'client.new-pty-session',
+      clientId: 'relay_client_01',
+      provider: 'codex',
+      command: 'codex',
+      cwd: process.cwd(),
+      cols: 120,
+      rows: 40
+    }));
+
+    const created = await waitForGatewayFrame(
+      gatewaySocket,
+      (frame) => frame.type === 'gateway.session-created' && frame.sessionId === 'tth_created_from_relay'
+    );
+    assert.equal(created.type, 'gateway.session-created');
+  } finally {
+    await relayClient.close();
+    await closeWebSocketServer(fakeRelay);
+    cleanup();
+  }
+});
+
 
 test('gateway relay client replays and forwards output', async () => {
   const { store, cleanup } = tempStore();
