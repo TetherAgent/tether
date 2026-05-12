@@ -16,6 +16,33 @@ type GatewaySessionRecord = {
   updatedAt: number;
 };
 
+export type AdminSessionRecord = GatewaySessionRecord & { userEmail?: string };
+
+type AdminChatMessageRecord = {
+  id: number;
+  sessionId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  usageJson: Record<string, unknown>;
+  createdAt: number;
+};
+
+type AdminRuntimeEventRecord = {
+  eventId: number;
+  sessionId: string;
+  eventType: string;
+  payloadJson: Record<string, unknown>;
+  createdAt: number;
+};
+
+type AdminChatEventRecord = {
+  id: number;
+  sessionId: string;
+  eventId: number;
+  eventType: string;
+  createdAt: number;
+};
+
 type RuntimeEventRecord = {
   id: number;
   sessionId: string;
@@ -173,5 +200,154 @@ export default class SessionRepositoryService extends Service {
       [sessionId, limit]
     );
     return this.mergeConsecutiveOutput((rows as Record<string, unknown>[]).map((row) => this.eventFromRow(row)));
+  }
+
+  public async adminListSessions(
+    page: number,
+    limit: number,
+    filters: { userId?: string; gatewayId?: string; transport?: string; status?: string }
+  ): Promise<{ sessions: AdminSessionRecord[]; total: number }> {
+    if (!this.mysqlModeEnabled()) return { sessions: [], total: 0 };
+    const offset = (page - 1) * limit;
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (filters.userId) { conditions.push('gs.user_id = ?'); params.push(filters.userId); }
+    if (filters.gatewayId) { conditions.push('gs.gateway_id = ?'); params.push(filters.gatewayId); }
+    if (filters.transport) { conditions.push('gs.transport = ?'); params.push(filters.transport); }
+    if (filters.status) { conditions.push('gs.status = ?'); params.push(filters.status); }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const rows = await this.ctx.service.db.query(
+      `SELECT gs.id, gs.account_id, gs.gateway_id, gs.user_id, gs.provider,
+              gs.title, gs.project_path, gs.agent_session_id, gs.status,
+              gs.transport, gs.last_active_at, gs.created_at, gs.updated_at,
+              u.email as user_email
+       FROM gateway_sessions gs
+       LEFT JOIN users u ON u.id = gs.user_id
+       ${where}
+       ORDER BY gs.last_active_at DESC, gs.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+    const countRows = await this.ctx.service.db.query(
+      `SELECT COUNT(*) as total FROM gateway_sessions gs ${where}`,
+      params
+    );
+    const total = Number((countRows as Array<{ total: unknown }>)[0]?.total ?? 0);
+    const sessions = (rows as Record<string, unknown>[]).map(row => this.adminSessionFromRow(row));
+    return { sessions, total };
+  }
+
+  public async adminGetSession(sessionId: string): Promise<AdminSessionRecord | null> {
+    if (!this.mysqlModeEnabled()) return null;
+    const rows = await this.ctx.service.db.query(
+      `SELECT gs.id, gs.account_id, gs.gateway_id, gs.user_id, gs.provider,
+              gs.title, gs.project_path, gs.agent_session_id, gs.status,
+              gs.transport, gs.last_active_at, gs.created_at, gs.updated_at,
+              u.email as user_email
+       FROM gateway_sessions gs
+       LEFT JOIN users u ON u.id = gs.user_id
+       WHERE gs.id = ? LIMIT 1`,
+      [sessionId]
+    );
+    const row = (rows as Record<string, unknown>[])[0];
+    return row ? this.adminSessionFromRow(row) : null;
+  }
+
+  public async adminListChatMessages(
+    sessionId: string, page: number, limit: number
+  ): Promise<{ messages: AdminChatMessageRecord[]; total: number }> {
+    if (!this.mysqlModeEnabled()) return { messages: [], total: 0 };
+    const offset = (page - 1) * limit;
+    const rows = await this.ctx.service.db.query(
+      `SELECT id, session_id, role, content, usage_json, created_at
+       FROM gateway_chat_messages WHERE session_id = ?
+       ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?`,
+      [sessionId, limit, offset]
+    );
+    const countRows = await this.ctx.service.db.query(
+      'SELECT COUNT(*) as total FROM gateway_chat_messages WHERE session_id = ?',
+      [sessionId]
+    );
+    const total = Number((countRows as Array<{ total: unknown }>)[0]?.total ?? 0);
+    const messages = (rows as Record<string, unknown>[]).map(row => ({
+      id: Number(row.id ?? 0),
+      sessionId: String(row.session_id ?? ''),
+      role: row.role === 'user' ? 'user' : 'assistant' as 'user' | 'assistant',
+      content: String(row.content ?? ''),
+      usageJson: this.parseJsonObject(row.usage_json),
+      createdAt: this.sqlDateToMs(row.created_at),
+    }));
+    return { messages, total };
+  }
+
+  public async adminListRuntimeEvents(
+    sessionId: string, page: number, limit: number
+  ): Promise<{ events: AdminRuntimeEventRecord[]; total: number }> {
+    if (!this.mysqlModeEnabled()) return { events: [], total: 0 };
+    const offset = (page - 1) * limit;
+    const rows = await this.ctx.service.db.query(
+      `SELECT event_id, session_id, event_type, payload_json, created_at
+       FROM gateway_runtime_events WHERE session_id = ?
+       ORDER BY event_id DESC LIMIT ? OFFSET ?`,
+      [sessionId, limit, offset]
+    );
+    const countRows = await this.ctx.service.db.query(
+      'SELECT COUNT(*) as total FROM gateway_runtime_events WHERE session_id = ?',
+      [sessionId]
+    );
+    const total = Number((countRows as Array<{ total: unknown }>)[0]?.total ?? 0);
+    const events = (rows as Record<string, unknown>[]).map(row => ({
+      eventId: Number(row.event_id ?? 0),
+      sessionId: String(row.session_id ?? ''),
+      eventType: String(row.event_type ?? ''),
+      payloadJson: this.parseJsonObject(row.payload_json),
+      createdAt: this.sqlDateToMs(row.created_at),
+    }));
+    return { events, total };
+  }
+
+  public async adminListChatEvents(
+    sessionId: string, page: number, limit: number
+  ): Promise<{ events: AdminChatEventRecord[]; total: number }> {
+    if (!this.mysqlModeEnabled()) return { events: [], total: 0 };
+    const offset = (page - 1) * limit;
+    const rows = await this.ctx.service.db.query(
+      `SELECT id, session_id, event_id, event_type, created_at
+       FROM gateway_runtime_chats_events WHERE session_id = ?
+       ORDER BY event_id DESC LIMIT ? OFFSET ?`,
+      [sessionId, limit, offset]
+    );
+    const countRows = await this.ctx.service.db.query(
+      'SELECT COUNT(*) as total FROM gateway_runtime_chats_events WHERE session_id = ?',
+      [sessionId]
+    );
+    const total = Number((countRows as Array<{ total: unknown }>)[0]?.total ?? 0);
+    const events = (rows as Record<string, unknown>[]).map(row => ({
+      id: Number(row.id ?? 0),
+      sessionId: String(row.session_id ?? ''),
+      eventId: Number(row.event_id ?? 0),
+      eventType: String(row.event_type ?? ''),
+      createdAt: this.sqlDateToMs(row.created_at),
+    }));
+    return { events, total };
+  }
+
+  private adminSessionFromRow(row: Record<string, unknown>): AdminSessionRecord {
+    return {
+      id: String(row.id ?? ''),
+      accountId: String(row.account_id ?? ''),
+      gatewayId: String(row.gateway_id ?? ''),
+      userId: this.nullableString(row.user_id),
+      userEmail: this.nullableString(row.user_email),
+      provider: String(row.provider ?? ''),
+      title: this.nullableString(row.title),
+      projectPath: this.nullableString(row.project_path),
+      agentSessionId: this.nullableString(row.agent_session_id),
+      status: String(row.status ?? ''),
+      transport: String(row.transport ?? ''),
+      lastActiveAt: row.last_active_at ? this.sqlDateToMs(row.last_active_at) : undefined,
+      createdAt: this.sqlDateToMs(row.created_at),
+      updatedAt: this.sqlDateToMs(row.updated_at),
+    };
   }
 }
