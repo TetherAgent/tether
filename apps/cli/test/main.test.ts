@@ -121,6 +121,13 @@ test('background gateway start verifies daemon and relay readiness before succes
   assert.match(source, /当前未确认启动成功，未打印/);
 });
 
+test('background gateway start is idempotent when gateway is already running', () => {
+  const source = mainSource();
+  assert.match(source, /const existing = await fetchGatewayStatusBody/);
+  assert.match(source, /Gateway 状态', `已运行/);
+  assert.match(source, /return;[\s\S]*const status = await startLaunchAgent/);
+});
+
 test('gateway delete-db command and sqlite cleanup path are removed', () => {
   const source = mainSource();
   assert.doesNotMatch(source, /command\('delete-db'\)/);

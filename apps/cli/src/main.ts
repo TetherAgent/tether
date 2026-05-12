@@ -594,25 +594,49 @@ function parsePort(value: string): number {
 }
 
 async function startGatewayBackground(): Promise<void> {
+  terminal.section('Gateway 启动');
   let profile = gatewayProfileFromEnv();
   if (!fs.existsSync(configPath())) {
+    terminal.line('配置检查', '未找到配置，正在初始化');
     const chosen = profile ?? 'relay';
     const existing = readTetherConfig();
     const next: TetherConfig = { ...defaultTetherConfig(chosen), providers: existing.providers };
     await writeTetherConfig(next);
     terminal.success(`配置已写入：${configPath()}`);
     profile = chosen;
+  } else {
+    terminal.line('配置检查', configPath());
   }
   profile ??= 'relay';
+  terminal.line('启动模式', profile);
+  terminal.line('登录检查', '检查中');
   await ensureGatewayAuthForProfile(profile);
+  terminal.line('登录检查', profile === 'local' ? '本地模式无需登录' : '已登录');
   const before = await launchAgentStatus();
+  const file = readTetherConfig();
+  const resolved = resolveGatewayProfileConfig({ file, profile });
+  const gatewayUrl = gatewayApiUrl(resolved.gateway.host, resolved.gateway.port);
+  terminal.line('现有 Gateway', `检查 ${gatewayUrl}`);
+  const existing = await fetchGatewayStatusBody(gatewayApiUrl(resolved.gateway.host, resolved.gateway.port));
+  if (existing && (profile !== 'relay' || stringValue(existing.relay?.state) === 'connected')) {
+    terminal.line('Gateway 状态', `已运行 (${stringValue(existing.url) ?? gatewayUrl})`);
+    if (profile === 'relay') {
+      terminal.line('Relay 连接', formatRelayConnectionState(stringValue(existing.relay?.state)));
+    }
+    terminal.success(`Gateway 已在后台运行：${before.path}`);
+    return;
+  }
+  terminal.line('现有 Gateway', '未运行或未就绪');
+  terminal.line('LaunchAgent', before.installed ? '已安装，正在启动' : '未安装，正在安装并启动');
   const status = await startLaunchAgent({ env: { ...process.env, TETHER_GATEWAY_PROFILE: profile } });
+  terminal.line('等待 Gateway HTTP', gatewayUrl);
+  if (profile === 'relay') {
+    terminal.line('等待 Relay', '连接中');
+  }
   const gatewayStatus = await waitForStartedGateway(profile);
   if (!before.installed) {
     terminal.success(`LaunchAgent 已安装：${status.path}`);
   }
-  terminal.section('Gateway 启动');
-  terminal.line('启动模式', profile);
   terminal.line('Gateway 状态', `运行中 (${stringValue(gatewayStatus.url) ?? 'URL 未知'})`);
   if (profile === 'relay') {
     terminal.line('Relay 连接', formatRelayConnectionState(stringValue(gatewayStatus.relay?.state)));
