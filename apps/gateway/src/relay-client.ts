@@ -7,6 +7,7 @@ import type {
 } from '@tether/protocol';
 import { ChatSessionRegistry } from './chat/chat-session-registry.js';
 import { ChatRuntime } from './chat/chat-runtime.js';
+import { logger } from './utils/logger.js';
 import type { PtySessionManager } from './pty/manager.js';
 import { ChatHandler } from './relay/chat-handler.js';
 import { FrameRouter } from './relay/frame-router.js';
@@ -118,21 +119,27 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     }
 
     setConnectionState('connecting');
+    logger.info('relay', 'connecting', { url: options.url });
     socket = new WebSocket(relayGatewayUrl(options.url));
 
     socket.on('open', () => {
       startHeartbeat(socket);
       void (async () => {
-        const auth = await resolveRelayAuth(options);
-        if (!auth) {
-          console.error('Relay auth failed: missing ~/.tether/auth.json or invalid gateway token. Run: tether login');
+        const authResult = await resolveRelayAuth(options);
+        if (!authResult.ok) {
+          if (authResult.permanent) {
+            logger.error('relay', 'auth failed, run: tether login', { reason: authResult.message, permanent: true });
+            closed = true;
+          } else {
+            logger.warn('relay', 'auth failed, will retry', { reason: authResult.message });
+          }
           setConnectionState('auth_failed');
           socket?.close();
           return;
         }
-        effectiveGatewayId = auth.gatewayId;
+        effectiveGatewayId = authResult.gatewayId;
         reconnectDelayMs = MIN_RECONNECT_DELAY_MS;
-        send({ type: 'gateway.auth', gatewayId: auth.gatewayId, token: auth.token, scope: auth.scope, secret: options.secret, version: TETHER_VERSION });
+        send({ type: 'gateway.auth', gatewayId: authResult.gatewayId, token: authResult.token, scope: authResult.scope, secret: options.secret, version: TETHER_VERSION });
       })();
     });
 
@@ -150,6 +157,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
       void subscriptionHandler.clearSubscriptions();
       if (connectionState !== 'auth_failed') {
         setConnectionState('disconnected');
+        logger.info('relay', 'disconnected');
       }
       scheduleReconnect();
     });
@@ -165,6 +173,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     }
     const delay = reconnectDelayMs;
     reconnectDelayMs = Math.min(reconnectDelayMs * 2, MAX_RECONNECT_DELAY_MS);
+    logger.info('relay', 'reconnecting', { delayMs: delay });
     reconnectTimer = setTimeout(() => {
       reconnectTimer = undefined;
       connect();
@@ -242,15 +251,17 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   };
 
   const frameRouter = new FrameRouter({
-    onAuthOk: () => {
+    onAuthOk: (frame) => {
       setConnectionState('connected');
+      logger.info('relay', 'connected', { gatewayId: effectiveGatewayId ?? frame.gatewayId });
       void sendSessions();
     },
     onSessionsRestore: (frame) => {
       sessionCatalog.restoreRelaySessions(frame.sessions);
       void sendSessions();
     },
-    onAuthFailed: () => {
+    onAuthFailed: (frame) => {
+      logger.warn('relay', 'server rejected auth', { code: frame.code, message: frame.message });
       setConnectionState('auth_failed');
       socket?.close();
     },
@@ -393,11 +404,14 @@ function sanitizeRelayValue(value: unknown): unknown {
   return sanitizeRelayPayload(value as Record<string, unknown>);
 }
 
-async function resolveRelayAuth(
-  options: RelayClientOptions
-): Promise<{ gatewayId: string; token?: string; scope: RelayAuthScope } | undefined> {
+type RelayAuthResult =
+  | { ok: true; gatewayId: string; token?: string; scope: RelayAuthScope }
+  | { ok: false; permanent: boolean; message: string }
+
+async function resolveRelayAuth(options: RelayClientOptions): Promise<RelayAuthResult> {
   if (options.token && options.scope) {
     return {
+      ok: true,
       gatewayId: options.scope.gatewayId ?? options.gatewayId,
       token: options.token,
       scope: options.scope
@@ -406,7 +420,8 @@ async function resolveRelayAuth(
 
   const authState = await loadGatewayAuthState();
   if (!authState.ok) {
-    return undefined;
+    const permanent = authState.error === 'gateway_auth_missing' || authState.error === 'gateway_auth_invalid';
+    return { ok: false, permanent, message: authState.error };
   }
   const parsed = authState.value;
   const payload = decodeGatewayToken(parsed.accessToken);
@@ -417,10 +432,10 @@ async function resolveRelayAuth(
     ? payload.accountId
     : typeof parsed.accountId === 'string' ? parsed.accountId : undefined;
   if (!gatewayId || !accountId) {
-    console.error('auth.json accessToken 缺少 gatewayId/accountId，请重新运行 tether login');
-    return undefined;
+    return { ok: false, permanent: true, message: 'gateway_auth_missing_ids' };
   }
   return {
+    ok: true,
     gatewayId,
     token: parsed.accessToken,
     scope: {

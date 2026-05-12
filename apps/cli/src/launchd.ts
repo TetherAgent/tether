@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -124,18 +124,6 @@ export async function stopLaunchAgent(): Promise<LaunchAgentStatus> {
     throw new Error(`launchctl bootout failed: ${result.stderr || result.stdout || `exit ${result.code}`}`);
   }
   return launchAgentStatus();
-}
-
-export async function restartLaunchAgent(options: GatewayPlistOptions = {}): Promise<LaunchAgentStatus> {
-  await stopLaunchAgent();
-  return startLaunchAgent(options);
-}
-
-export async function uninstallLaunchAgent(): Promise<string> {
-  await stopLaunchAgent();
-  const plistPath = launchAgentPath();
-  await rm(plistPath, { force: true });
-  return plistPath;
 }
 
 export async function launchAgentStatus(): Promise<LaunchAgentStatus> {

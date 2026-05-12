@@ -138,6 +138,8 @@ HarmonyOS / Flutter / iOS / Android 都视为 client surface，只消费 Gateway
 
 ## 模块级 AI 规范
 
+- `apps/cli/CLAUDE.md`：CLI 命令入口、Gateway supervisor、Relay 短请求、
+  PTY attach、launchd 和文档回写规范。
 - `apps/gateway/CLAUDE.md`：Gateway runtime 分层规范，定义 Relay transport、
   session catalog、subscription、PTY runtime、Chat runtime 和 daemon 的职责边界。
 - `apps/web/CLAUDE.md`：普通用户 Web 控制台规范。
@@ -317,3 +319,32 @@ Tether 直接控制本机命令行，安全是底线：
 - 配对 token：一次性 / 5 分钟过期 / 使用后失效；配对成功后发长期 device token
 
 详细安全规则见 `PROJECT.md`「安全门槛」一节。
+
+## 回写规则
+
+本文档记录**长期有效的架构事实和关键决策**，不记录在途任务或临时状态。
+
+**触发更新的条件**
+
+| 变化 | 必须更新的部分 |
+|---|---|
+| 新增 monorepo package 或 app | "仓库结构（当前）"目录树 + "模块级 AI 规范"列表 |
+| 阶段路线图变更（新增/完成/调整 Phase） | "阶段路线"表 + 对应阶段描述 |
+| 关键架构决策变更（认证模型、数据流、访问层） | 对应"关键架构决策"小节 |
+| 技术栈变更（新增/移除依赖、运行时升级） | "技术栈"表 |
+| 数据模型字段变更 | "数据模型（当前）"类型定义 |
+| 前端新增 app 或路由边界变化 | "前端应用边界与规范"节 |
+| Server API 分层规则变化 | "Server API 约定"节 |
+
+**不需要更新的内容**
+
+- 正在进行的 sprint 任务、in-progress 状态（属于 `.planning/`）
+- 具体 bug 修复或单文件重构（属于 git history）
+- 模块内部实现细节（属于各模块的 `CLAUDE.md`）
+- working 文档引用（working 完成后应从本文档中删除引用，如有）
+
+**更新原则**
+
+- 只更新已经落地的事实，不把"计划中"写进本文档。
+- 若架构决策被推翻，删除旧条目，写入新决策及原因，不保留并列矛盾描述。
+- 仓库结构目录树保持和 `pnpm-workspace.yaml` 实际一致。

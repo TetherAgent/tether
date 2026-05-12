@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { logger } from '../utils/logger.js';
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -281,6 +282,7 @@ class CliChatRunner implements IChatRunner {
       agentSessionId: session.agentSessionId
     });
 
+    logger.info('chat', 'session started', { sessionId, provider: this.adapter.provider });
     const child = spawn(this.adapter.command, args, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -330,6 +332,7 @@ class CliChatRunner implements IChatRunner {
     });
 
     child.on('error', (error) => {
+      logger.error('chat', 'runner spawn failed', { sessionId, error: error.message });
       emit.error('chat_runner_spawn_failed', error.message);
       this.activeSubprocesses.delete(sessionId);
     });
@@ -342,13 +345,14 @@ class CliChatRunner implements IChatRunner {
           void this.finishResult(sessionId, current, current.accumulatedText, current.lastUsage);
           return;
         }
-        emit.error(
-          'chat_runner_exit',
-          [
-            `${this.adapter.provider} exited before producing a result${typeof code === 'number' ? ` (${code})` : ''}`,
-            current.lastStderr
-          ].filter(Boolean).join(': ')
-        );
+        const errMsg = [
+          `${this.adapter.provider} exited before producing a result${typeof code === 'number' ? ` (${code})` : ''}`,
+          current.lastStderr
+        ].filter(Boolean).join(': ');
+        logger.error('chat', 'runner exited with error', { sessionId, code, error: errMsg });
+        emit.error('chat_runner_exit', errMsg);
+      } else {
+        logger.info('chat', 'session ended', { sessionId });
       }
       this.activeSubprocesses.delete(sessionId);
     });

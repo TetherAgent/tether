@@ -9,6 +9,7 @@ import type { ServerType } from '@hono/node-server';
 import { readTetherConfig, type TetherConfig } from '@tether/config';
 import { isProviderName, PROVIDERS } from '@tether/core';
 import type { AuthScopePayload } from '@tether/core';
+import { initLogger, logger } from './utils/logger.js';
 import { createSessionId } from './utils/ids.js';
 import { createSessionEvent } from './utils/events.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty/manager.js';
@@ -120,6 +121,7 @@ function captureCommandOutput(command: string, args: string[], timeoutMs: number
 }
 
 export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon> {
+  initLogger();
   await captureShellEnv();
   const app = new Hono();
   const displayHost = options.host === '0.0.0.0' ? localLanAddress() ?? '127.0.0.1' : options.host;
@@ -293,6 +295,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       }
       continue;
     }
+    logger.warn('daemon', 'session marked lost on startup', { sessionId: session.id });
     markSessionLost(session, 'Gateway restarted without a live PTY runner');
   }
 
@@ -316,6 +319,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   }, 30_000);
   serverHeartbeat.unref();
   void sendServerHeartbeat();
+
+  logger.info('daemon', 'started', { host: options.host, port: options.port, version: TETHER_VERSION, gatewayId });
 
   if (options.relay) {
     relayClient = startRelayClient({
@@ -355,6 +360,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           }
         });
         options.ptySessions.restoreSession(session);
+        logger.info('daemon', 'pty session created', { sessionId: session.id, provider, cwd });
         return { sessionId: session.id };
       }
     });
@@ -363,6 +369,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   return {
     url,
     close: async () => {
+      logger.info('daemon', 'closed', { gatewayId });
       clearInterval(heartbeat);
       clearInterval(serverHeartbeat);
       await relayClient?.close();
@@ -395,12 +402,14 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       });
       if (!response.ok) {
         lastServerHeartbeatError = `HTTP ${response.status}`;
+        logger.warn('daemon', 'server heartbeat failed', { error: lastServerHeartbeatError });
         return;
       }
       lastServerHeartbeatAt = Date.now();
       lastServerHeartbeatError = undefined;
     } catch (error) {
       lastServerHeartbeatError = error instanceof Error ? error.message : String(error);
+      logger.warn('daemon', 'server heartbeat failed', { error: lastServerHeartbeatError });
     }
   }
 

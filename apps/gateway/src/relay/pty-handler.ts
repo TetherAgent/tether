@@ -1,4 +1,5 @@
 import type { RelayServerToGatewayFrame } from '@tether/protocol';
+import { logger } from '../utils/logger.js';
 import { isValidTerminalSize, type PtySessionManager } from '../pty/manager.js';
 import type { SessionRunnerClient } from '../pty/session-runner-client.js';
 import type { Session } from '../types.js';
@@ -111,11 +112,14 @@ export class PtyHandler {
       this.options.relaySender.sessionCreated(frame.clientId, sessionId);
       void this.options.sendSessions();
     }).catch((error: unknown) => {
-      this.options.relaySender.error(frame.clientId, '', 'session_create_failed', error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('pty', 'session create failed', { error: message });
+      this.options.relaySender.error(frame.clientId, '', 'session_create_failed', message);
     });
   }
 
   private markLostAndSendError(clientId: string, sessionId: string): void {
+    logger.warn('pty', 'session marked lost', { sessionId });
     this.options.sessionCatalog.markSessionLost(sessionId);
     this.options.sendError(clientId, sessionId, 'session_lost', 'PTY session is no longer running');
   }

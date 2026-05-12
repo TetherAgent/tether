@@ -5,7 +5,7 @@
 ## 如何使用本文件
 
 1. 每个会话中，在读取任何代码或其他文档之前，**先读本文件**。
-2. 然后阅读 `CLAUDE.md`（编码原则）和 `PROJECT.md`（项目规则）。
+2. 然后阅读 `CLAUDE.md`（编码原则）和 `PROJECT.md`（项目规则）和 `AGENTS.md`（项目入口）。
 3. 然后阅读 `AI_CONTEXT.md`（项目架构与上下文）。
 4. 然后阅读 [docs/README.md](docs/README.md)，定位相关模块级文档。
 5. 如果任务涉及 GSD 阶段计划，再读 `.planning/` 中对应阶段产物。
