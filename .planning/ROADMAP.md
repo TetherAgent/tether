@@ -428,7 +428,7 @@ Plans:
 **Goal:** 从 Gateway 彻底移除本地 SQLite（tether.db）：PTY 事件只走 relay→MySQL，session 元数据改内存 Map，relay 推 gateway.sessions-restore 启动恢复，PTY 创建改 relay WS 帧，删掉 store.ts / better-sqlite3 所有残留。
 **Requirements**: SQLITE-01, SQLITE-02, SQLITE-03
 **Depends on:** Phase 17
-**Plans:** 3 plans across 3 waves
+**Plans:** 1/3 plans executed
 
 Plans:
   - **Wave 1** (no deps):

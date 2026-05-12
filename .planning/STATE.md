@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.3
 milestone_name: milestone
-status: ready_for_uat
-stopped_at: Phase 17 code verification complete
-last_updated: "2026-05-12T01:10:00.000Z"
-last_activity: 2026-05-12 -- Phase 17 execution complete
+status: in_progress
+stopped_at: Completed 18-01-PLAN.md
+last_updated: "2026-05-12T07:46:25.119Z"
+last_activity: 2026-05-12 -- Phase 18 plan 01 complete
 progress:
-  total_phases: 17
+  total_phases: 18
   completed_phases: 10
-  total_plans: 65
-  completed_plans: 65
-  percent: 100
+  total_plans: 68
+  completed_plans: 67
+  percent: 99
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-01)
 
 **Core value:** 在 agent session 场景里，本地体验对齐 tmux，并在历史回放、多端接管、审计、手机/Web/App 接入上超越 tmux。
-**Current focus:** Phase 17 — chat-multi-client-realtime-sync
+**Current focus:** Phase 18 — sqlite
 
 ## Current Position
 
-Phase: 17
-Plan: Complete
-Next: human UAT / verify-work for Phase 17 live multi-client chat
-Last activity: 2026-05-12 -- Phase 17 execution complete
+Phase: 18
+Plan: 02
+Next: execute Phase 18 Plan 02
+Last activity: 2026-05-12 -- Phase 18 plan 01 complete
 
-Progress: [██████████] 100%
+Progress: [██████████] 99%
 
 ## Quick Tasks Completed
 
@@ -72,6 +72,7 @@ Progress: [██████████] 100%
 | Phase 14 P04 | 15min | 2 tasks | 2 files |
 | Phase 14 P05 | 45min | 2 tasks | 2 files |
 | Phase 14 P06 | 30min | 2 tasks | 4 files |
+| Phase 18 P01 | 22min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -112,6 +113,9 @@ Recent decisions affecting current work:
 - [Phase 11]: agent.turn turnIndex is taken directly from insertConversationTurn return value. — Removes race risk from follow-up list query.
 - [Phase 11]: [Phase 11-04] 会话前端统一切到 /chat 路由，移除 /simple 入口
 - [Phase 11]: [Phase 11-04] agent.select 检测在 daemon 与 relay-client 两侧独立执行，覆盖直连与中继模式
+- [Phase ?]: Phase 18-01: PTY live events now use shared createSessionEvent ids from apps/gateway/src/events.ts instead of store.appendEvent.
+- [Phase ?]: Phase 18-01: SessionRunner now sends full SessionEvent payloads over runner sockets because live runner events no longer persist in SQLite.
+- [Phase ?]: Phase 18-01: Daemon session lookup now prefers PtySessionManager memory state and falls back to Store for non-PTY sessions.
 
 ### Pending Todos
 
@@ -120,6 +124,7 @@ Recent decisions affecting current work:
 
 ### Roadmap Evolution
 
+- Phase 18 added: 去掉本地 SQLite — PTY 事件走 relay→MySQL，session 元数据改内存 Map，relay 推 gateway.sessions-restore 启动恢复，PTY 创建改 WS 帧；参考 docs/working/2026-05-12-remove-local-sqlite.md
 - Phase 9 added: Flutter Client App
 - Phase 10 added: Multi-workspace Expansion for WORKSPACE-01; use `$gsd-discuss-phase 10` when ready
 - Phase 11 added: Agent 实时对话视图
@@ -156,6 +161,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-12T01:10:00.000Z
-Stopped at: Phase 17 code verification complete
-Resume file: .planning/phases/17-chat-multi-client-realtime-sync/17-03-SUMMARY.md
+Last session: 2026-05-12T07:45:28.255Z
+Stopped at: Completed 18-01-PLAN.md
+Resume file: None
