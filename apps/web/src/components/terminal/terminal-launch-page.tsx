@@ -4,8 +4,10 @@ import { TerminalCommandShortcuts, type TerminalProviderId } from './terminal-co
 import { TerminalLaunchComposer } from './terminal-launch-composer.js';
 
 export function TerminalLaunchPage({
+  onCreateStarted,
   onCreated
 }: {
+  onCreateStarted?: () => void;
   onCreated: (sessionId: string) => void;
 }) {
   const [provider, setProvider] = React.useState<TerminalProviderId>('shell');
@@ -22,7 +24,12 @@ export function TerminalLaunchPage({
           </div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">你好，我是 Tether</h1>
           <div className="mt-8 w-full">
-            <TerminalLaunchComposer provider={provider} onProviderChange={setProvider} onCreated={onCreated} />
+            <TerminalLaunchComposer
+              provider={provider}
+              onCreateStarted={onCreateStarted}
+              onProviderChange={setProvider}
+              onCreated={onCreated}
+            />
             <p className="mt-5 text-left text-xs font-semibold text-muted-foreground">快捷命令</p>
             <TerminalCommandShortcuts onSelectProvider={setProvider} />
           </div>

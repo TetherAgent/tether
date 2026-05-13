@@ -18,6 +18,8 @@ export function WorkbenchLayout() {
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [sessionRefreshKey, setSessionRefreshKey] = React.useState(0);
+  const refreshBurstIntervalRef = React.useRef<number | undefined>(undefined);
+  const refreshBurstTimeoutRef = React.useRef<number | undefined>(undefined);
   const relayUrl = React.useMemo(
     () => readWebRelayUrl(),
     []
@@ -26,6 +28,23 @@ export function WorkbenchLayout() {
   const refreshSessions = React.useCallback(() => {
     setSessionRefreshKey((key) => key + 1);
   }, []);
+  const startSessionRefreshBurst = React.useCallback(() => {
+    refreshSessions();
+    if (refreshBurstIntervalRef.current !== undefined) {
+      window.clearInterval(refreshBurstIntervalRef.current);
+    }
+    if (refreshBurstTimeoutRef.current !== undefined) {
+      window.clearTimeout(refreshBurstTimeoutRef.current);
+    }
+    refreshBurstIntervalRef.current = window.setInterval(refreshSessions, 5_000);
+    refreshBurstTimeoutRef.current = window.setTimeout(() => {
+      if (refreshBurstIntervalRef.current !== undefined) {
+        window.clearInterval(refreshBurstIntervalRef.current);
+        refreshBurstIntervalRef.current = undefined;
+      }
+      refreshBurstTimeoutRef.current = undefined;
+    }, 60_000);
+  }, [refreshSessions]);
 
   const sidebarContent = (
     <WorkbenchSidebar
@@ -40,8 +59,20 @@ export function WorkbenchLayout() {
     onExpandSidebar: !sidebarOpen ? () => setSidebarOpen(true) : undefined,
     onOpenDrawer: () => setDrawerOpen(true),
     onReconnectCatchup: refreshSessions,
+    onSessionCreateStarted: startSessionRefreshBurst,
     relayUrl
-  }), [refreshSessions, relayUrl, sidebarOpen]);
+  }), [refreshSessions, relayUrl, sidebarOpen, startSessionRefreshBurst]);
+
+  React.useEffect(() => {
+    return () => {
+      if (refreshBurstIntervalRef.current !== undefined) {
+        window.clearInterval(refreshBurstIntervalRef.current);
+      }
+      if (refreshBurstTimeoutRef.current !== undefined) {
+        window.clearTimeout(refreshBurstTimeoutRef.current);
+      }
+    };
+  }, []);
 
   React.useEffect(() => {
     if (location.pathname === '/chats' && location.search) {
@@ -86,5 +117,6 @@ export type WorkbenchOutletContext = {
   onExpandSidebar?: () => void;
   onOpenDrawer: () => void;
   onReconnectCatchup: () => void;
+  onSessionCreateStarted: () => void;
   relayUrl: string;
 };

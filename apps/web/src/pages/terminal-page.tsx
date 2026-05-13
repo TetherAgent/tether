@@ -12,7 +12,7 @@ import { useI18n } from '../hooks/use-i18n.js';
 export function TerminalPage() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
-  const { onExpandSidebar, onOpenDrawer, relayUrl } = useOutletContext<WorkbenchOutletContext>();
+  const { onExpandSidebar, onOpenDrawer, onSessionCreateStarted, relayUrl } = useOutletContext<WorkbenchOutletContext>();
   const { t } = useI18n();
   const connectionSettings = React.useMemo(() => ({ relayUrl, relaySecret: '' }), [relayUrl]);
 
@@ -49,7 +49,10 @@ export function TerminalPage() {
             embedded
           />
         ) : (
-          <TerminalLaunchPage onCreated={(id) => navigate(`/terminal/${encodeURIComponent(id)}`)} />
+          <TerminalLaunchPage
+            onCreated={(id) => navigate(`/terminal/${encodeURIComponent(id)}`)}
+            onCreateStarted={onSessionCreateStarted}
+          />
         )}
       </div>
     </div>

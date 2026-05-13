@@ -10,11 +10,16 @@ import {
   toast
 } from '@tether/design';
 import { PathPicker } from '../workbench/path-picker.js';
-import { useRelayClient, type RelayFrame } from '../relay/use-relay-client.js';
+import { useRelayClient, type RelayFrame, type RelaySessionSummary } from '../relay/use-relay-client.js';
 import { GatewaySelector } from '../chats/gateway-selector.js';
 import type { TerminalProviderId } from './terminal-command-shortcuts.js';
 
 type LaunchMode = 'background' | 'local-terminal';
+type PendingLocalLaunch = {
+  existingIds: Set<string>;
+  gatewayId?: string;
+  provider: TerminalProviderId;
+};
 
 const PROVIDERS: Array<{ id: TerminalProviderId; label: string }> = [
   { id: 'shell', label: 'Shell' },
@@ -40,15 +45,17 @@ const PROVIDER_COPY: Record<TerminalProviderId, { command: string }> = {
 };
 
 export function TerminalLaunchComposer({
+  onCreateStarted,
   provider,
   onProviderChange,
   onCreated
 }: {
+  onCreateStarted?: () => void;
   provider: TerminalProviderId;
   onProviderChange: (provider: TerminalProviderId) => void;
   onCreated: (sessionId: string) => void;
 }) {
-  const { createPtySession, gatewayIdsOnline, sendFrame, subscribeFrame, wsReady } = useRelayClient();
+  const { createPtySession, gatewayIdsOnline, relaySessions, sendFrame, subscribeFrame, wsReady } = useRelayClient();
   const [selectedGatewayId, setSelectedGatewayId] = React.useState<string | undefined>(undefined);
   const [launchMode, setLaunchMode] = React.useState<LaunchMode>('background');
   const [cwd, setCwd] = React.useState('~');
@@ -57,6 +64,7 @@ export function TerminalLaunchComposer({
   const [pathSuggestionIndex, setPathSuggestionIndex] = React.useState(0);
   const [pathLoading, setPathLoading] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
+  const [pendingLocalLaunch, setPendingLocalLaunch] = React.useState<PendingLocalLaunch | undefined>(undefined);
 
   React.useEffect(() => {
     return subscribeFrame((frame: RelayFrame) => {
@@ -67,6 +75,29 @@ export function TerminalLaunchComposer({
       setPathSuggestions(Array.isArray(frame.suggestions) ? frame.suggestions.filter((item): item is string => typeof item === 'string') : []);
     });
   }, [cwd, subscribeFrame]);
+
+  React.useEffect(() => {
+    if (!pendingLocalLaunch) return;
+    const createdSession = relaySessions.find((session): session is RelaySessionSummary & { id: string } => {
+      if (pendingLocalLaunch.existingIds.has(session.id)) return false;
+      if (session.transport !== 'pty-event-stream') return false;
+      if (session.provider !== pendingLocalLaunch.provider) return false;
+      if (pendingLocalLaunch.gatewayId && session.gatewayId !== pendingLocalLaunch.gatewayId) return false;
+      return session.status === undefined || session.status === 'running';
+    });
+    if (!createdSession) return;
+    setPendingLocalLaunch(undefined);
+    onCreated(createdSession.id);
+  }, [onCreated, pendingLocalLaunch, relaySessions]);
+
+  React.useEffect(() => {
+    if (!pendingLocalLaunch) return undefined;
+    const timer = window.setTimeout(() => {
+      setPendingLocalLaunch(undefined);
+      toast.error('已打开本机终端，但还没等到新 session。请确认命令启动成功，或从左侧列表进入。');
+    }, 20_000);
+    return () => window.clearTimeout(timer);
+  }, [pendingLocalLaunch]);
 
   const requestPathSuggestions = React.useCallback((nextCwd: string) => {
     if (!selectedGatewayId) return;
@@ -88,11 +119,14 @@ export function TerminalLaunchComposer({
         ? 'Gateway 未连接'
       : undefined;
   const visibleDisabledReason = isGatewaySelectionPending ? undefined : disabledReason;
+  const busy = submitting || Boolean(pendingLocalLaunch);
 
   const submit = async () => {
-    if (disabledReason || submitting) return;
+    if (disabledReason || busy) return;
     setSubmitting(true);
+    const existingIds = new Set(relaySessions.map((session) => session.id));
     try {
+      onCreateStarted?.();
       const result = await createPtySession({
         cwd,
         gatewayId: selectedGatewayId,
@@ -103,7 +137,12 @@ export function TerminalLaunchComposer({
         onCreated(result.sessionId);
         return;
       }
-      toast.success('已在 Gateway 本机终端打开，session 创建后会出现在左侧列表。');
+      setPendingLocalLaunch({
+        existingIds,
+        gatewayId: selectedGatewayId,
+        provider
+      });
+      toast.success('已打开 Gateway 本机终端，等待 session 创建后自动跳转。');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '创建终端失败');
     } finally {
@@ -179,12 +218,12 @@ export function TerminalLaunchComposer({
           type="button"
           size="icon"
           variant="brand"
-          disabled={!!disabledReason || submitting}
+          disabled={!!disabledReason || busy}
           title={disabledReason ?? '启动终端'}
           onClick={() => void submit()}
           className="terminal-launch-submit h-10 w-10 rounded-full"
         >
-          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : launchMode === 'local-terminal' ? <TerminalSquare className="h-4 w-4" /> : <ArrowUp className="h-4 w-4" />}
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : launchMode === 'local-terminal' ? <TerminalSquare className="h-4 w-4" /> : <ArrowUp className="h-4 w-4" />}
         </Button>
       </div>
       {visibleDisabledReason ? <p className="mt-3 text-center text-xs text-muted-foreground">{visibleDisabledReason}，请先确认连接状态。</p> : null}
