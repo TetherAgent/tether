@@ -1,6 +1,6 @@
 import { ShieldAlert } from 'lucide-react';
 import { Button } from '@tether/design';
-import { useI18n } from '../../hooks/use-i18n.js';
+import { useI18n } from '../../../hooks/use-i18n.js';
 
 export function PermissionPrompt({
   toolName,

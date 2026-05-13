@@ -8,7 +8,9 @@ type NotificationBellProps = {
   gatewayNamesById?: Record<string, string>;
 };
 
-export function NotificationBell({ gatewayNamesById = {} }: NotificationBellProps) {
+const EMPTY_GATEWAY_NAMES: Record<string, string> = {};
+
+export function NotificationBell({ gatewayNamesById = EMPTY_GATEWAY_NAMES }: NotificationBellProps) {
   const { t } = useI18n();
   const { hasUpdate, outdatedGateways, latestVersion, dismiss } = useUpdateCheck(gatewayNamesById);
   const [open, setOpen] = useState(false);

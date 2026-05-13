@@ -7,6 +7,8 @@ import { GatewayAuthPage } from './pages/gateway-auth-page.js';
 import { LoginPage } from './pages/login-page.js';
 import { RegisterPage } from './pages/register-page.js';
 import { ChatsPage } from './pages/chats-page.js';
+import { TerminalPage } from './pages/terminal-page.js';
+import { WorkbenchLayout } from './components/workbench/workbench-layout.js';
 
 type WebRoutesProps = {
   sessionListSurface: React.ReactNode;
@@ -58,22 +60,12 @@ export function WebRoutes({ sessionListSurface, renderSessionView }: WebRoutesPr
           </RequireUserAuth>
         )}
       />
-      <Route
-        path="/chats"
-        element={(
-          <RequireUserAuth>
-            <ChatsPage />
-          </RequireUserAuth>
-        )}
-      />
-      <Route
-        path="/chats/:sessionId"
-        element={(
-          <RequireUserAuth>
-            <ChatsPage />
-          </RequireUserAuth>
-        )}
-      />
+      <Route element={<RequireUserAuth><WorkbenchLayout /></RequireUserAuth>}>
+        <Route path="/chats" element={<ChatsPage />} />
+        <Route path="/chats/:sessionId" element={<ChatsPage />} />
+        <Route path="/terminal" element={<TerminalPage />} />
+        <Route path="/terminal/:sessionId" element={<TerminalPage />} />
+      </Route>
       <Route path="*" element={<Navigate replace to="/chats" />} />
     </Routes>
   );

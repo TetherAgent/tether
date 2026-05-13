@@ -172,6 +172,11 @@ export function createHttpClient(options: HttpClientOptions = {}) {
       applyHeaders(method, options);
       return run(method, options.suppressGlobalError);
     },
+    patch<T>(url: string, body?: Record<string, unknown> | BodyInit | null, options: BodyRequestOptions = {}) {
+      const method = alova.Patch<T>(url, body ?? undefined);
+      applyHeaders(method, options);
+      return run(method, options.suppressGlobalError);
+    },
     delete<T>(url: string, body?: Record<string, unknown> | BodyInit | null, options: BodyRequestOptions = {}) {
       const method = alova.Delete<T>(url, body ?? undefined);
       applyHeaders(method, options);

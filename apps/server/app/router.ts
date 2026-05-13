@@ -42,6 +42,8 @@ export default (app: Application): void => {
 
   // Session 数据读取（前端只读，stop/input/resize 走 WebSocket）
   router.get('/api/server/sessions', requireNormalAccess, controller.session.list);                          // Session 列表
+  router.patch('/api/server/sessions/:id/title', requireNormalAccess, controller.session.renameTitle);        // 统一会话重命名
+  router.post('/api/server/sessions/:id/archive', requireNormalAccess, controller.session.archive);           // 统一会话归档
   router.get('/api/server/sessions/:id/events', requireNormalAccess, controller.session.events);             // 终端事件流
   router.get('/api/server/chat-sessions', requireNormalAccess, controller.chat.sessions);
   router.get('/api/server/chat-sessions/:sessionId/messages', requireNormalAccess, controller.chat.messages);

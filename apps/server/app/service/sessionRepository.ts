@@ -120,6 +120,16 @@ export default class SessionRepositoryService extends Service {
     return Array.isArray(rows) && rows.length > 0;
   }
 
+  private hasAffectedRows(value: unknown): boolean {
+    return Boolean(
+      value &&
+      typeof value === 'object' &&
+      'affectedRows' in value &&
+      typeof (value as { affectedRows?: unknown }).affectedRows === 'number' &&
+      (value as { affectedRows: number }).affectedRows > 0
+    );
+  }
+
   public async listSessions(
     accountId: string,
     userId: string,
@@ -131,12 +141,63 @@ export default class SessionRepositoryService extends Service {
     }
     const rows = await this.ctx.service.db.query(
       `SELECT * FROM gateway_sessions
-       WHERE account_id = ? AND user_id = ?
+       WHERE account_id = ? AND user_id = ? AND archived_at IS NULL
         ORDER BY last_active_at DESC, updated_at DESC
         LIMIT ? OFFSET ?`,
       [accountId, userId, limit, offset]
     );
     return (rows as Record<string, unknown>[]).map((row) => this.sessionFromRow(row));
+  }
+
+  public async renameSessionTitle(
+    sessionId: string,
+    accountId: string,
+    userId: string,
+    title: string
+  ): Promise<void> {
+    if (!this.mysqlModeEnabled()) return;
+    const result = await this.ctx.service.db.query(
+      `UPDATE gateway_sessions
+       SET title = ?, title_source = 'user', updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND account_id = ? AND user_id = ?`,
+      [title, sessionId, accountId, userId]
+    );
+    if (!this.hasAffectedRows(result)) {
+      this.ctx.throw(404, 'Session not found or access denied');
+    }
+  }
+
+  public async archiveSession(
+    sessionId: string,
+    accountId: string,
+    userId: string
+  ): Promise<void> {
+    if (!this.mysqlModeEnabled()) return;
+    const rows = await this.ctx.service.db.query(
+      `SELECT id, status, transport FROM gateway_sessions
+       WHERE id = ? AND account_id = ? AND user_id = ? LIMIT 1`,
+      [sessionId, accountId, userId]
+    );
+    if (!Array.isArray(rows) || rows.length === 0) {
+      this.ctx.throw(404, 'Session not found or access denied');
+    }
+
+    const session = rows[0] as { status?: unknown; transport?: unknown };
+    const status = typeof session.status === 'string' ? session.status : '';
+    const transport = typeof session.transport === 'string' ? session.transport : '';
+    if (transport !== 'chat' && status === 'running') {
+      this.ctx.throw(409, 'Running terminal sessions must be stopped before archive');
+    }
+
+    const result = await this.ctx.service.db.query(
+      `UPDATE gateway_sessions
+       SET archived_at = COALESCE(archived_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND account_id = ? AND user_id = ?`,
+      [sessionId, accountId, userId]
+    );
+    if (!this.hasAffectedRows(result)) {
+      this.ctx.throw(404, 'Session not found or access denied');
+    }
   }
 
   private mergeConsecutiveOutput(events: RuntimeEventRecord[]): RuntimeEventRecord[] {

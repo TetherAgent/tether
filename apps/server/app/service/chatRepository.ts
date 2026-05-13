@@ -86,7 +86,7 @@ export default class ChatRepositoryService extends Service {
     const rows = await this.ctx.service.db.query(
       `SELECT id, gateway_id, provider, project_path, title, agent_session_id, status, transport, last_active_at, created_at
        FROM gateway_sessions
-       WHERE account_id = ? AND user_id = ? AND transport = 'chat'
+       WHERE account_id = ? AND user_id = ? AND transport = 'chat' AND archived_at IS NULL
        ORDER BY last_active_at DESC, created_at DESC
        LIMIT 50`,
       [accountId, userId]

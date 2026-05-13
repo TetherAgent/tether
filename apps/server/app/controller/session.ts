@@ -36,4 +36,29 @@ export default class SessionController extends Controller {
     });
     ctx.success({ events });
   }
+
+  public async renameTitle(): Promise<void> {
+    const { ctx } = this;
+    const { accountId, userId } = authScope(ctx);
+    const { id } = ctx.params as { id: string };
+    const { title } = ctx.request.body as { title?: string };
+    if (!id || typeof title !== 'string' || !title.trim()) {
+      ctx.throw(400, 'session id and title are required');
+      return;
+    }
+    await ctx.service.sessionRepository.renameSessionTitle(id, accountId, userId, title.trim());
+    ctx.success({ ok: true });
+  }
+
+  public async archive(): Promise<void> {
+    const { ctx } = this;
+    const { accountId, userId } = authScope(ctx);
+    const { id } = ctx.params as { id: string };
+    if (!id) {
+      ctx.throw(400, 'session id is required');
+      return;
+    }
+    await ctx.service.sessionRepository.archiveSession(id, accountId, userId);
+    ctx.success({ ok: true });
+  }
 }

@@ -177,6 +177,28 @@ export async function renameChatSession(sessionId: string, title: string, token?
   }
 }
 
+export async function renameSessionTitle(sessionId: string, title: string, token?: string) {
+  try {
+    return await http.patch<{ ok: boolean }>(`/api/server/sessions/${sessionId}/title`, { title }, {
+      token: token ?? getStoredNormalAccessToken(),
+      suppressGlobalError: true
+    });
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
+}
+
+export async function archiveSession(sessionId: string, token?: string) {
+  try {
+    return await http.post<{ ok: boolean }>(`/api/server/sessions/${sessionId}/archive`, null, {
+      token: token ?? getStoredNormalAccessToken(),
+      suppressGlobalError: true
+    });
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
+}
+
 export async function deleteChatSession(sessionId: string, token?: string) {
   try {
     return await http.delete<{ ok: boolean }>(`/api/server/chat-sessions/${sessionId}`, null, {

@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUp, Check, Copy, Folder, Loader2, Menu, PanelLeftOpen, Settings } from 'lucide-react';
-import { NotificationBell } from './notification-bell.js';
+import { ArrowUp, Folder, Loader2 } from 'lucide-react';
 import {
   Button,
   Input,
@@ -20,222 +19,35 @@ import { useI18n } from '../../hooks/use-i18n.js';
 import { rememberGatewayVersion } from '../../hooks/use-update-check.js';
 import { gatewayAuthHeaders, getStoredNormalAccessToken, readGatewayData } from '../../lib/api.js';
 import { providerResumeCommand } from '../../lib/provider-resume-command.js';
-import { fetchChatMessages, fetchChatSessions, type ChatHistoryMessage, type ChatHistoryUsage, type ChatSessionRecord, type ChatUsage, type ProviderOption } from './chat-data.js';
-import { ChatBubbleAgent, type ChatNextSuggestion } from './chat-bubble-agent.js';
-import { ChatBubbleUser } from './chat-bubble-user.js';
-import { SystemMessage } from './system-message.js';
-import { ToolCard } from './tool-card.js';
-import { PermissionPrompt } from './permission-prompt.js';
-import { type RelayFrame, useChatRelaySocket } from './use-chat-relay-socket.js';
+import { fetchChatMessages, fetchChatSessions, type ChatSessionRecord, type ProviderOption } from './chat-data.js';
+import { ChatHeader } from './chat-header.js';
+import { ChatComposer } from './chat-composer.js';
+import { ChatMessageList } from './chat-message-list.js';
+import { NewChatSurface } from './new-chat-surface.js';
+import { type RelayFrame, useRelayClient } from '../relay/use-relay-client.js';
+import { WorkbenchStatusPill } from '../workbench/workbench-status-pill.js';
 import { GatewaySelector } from './gateway-selector.js';
 import { SlashCommandMenu } from './slash-command-menu.js';
 import { useSlashMenu } from './use-slash-menu.js';
+import type { GatewayInfo, HistoryUsage, MessageItem, RelaySessionSummary, Usage, UsageStats } from './chat-types.js';
+import {
+  compactPathLabel,
+  compactProjectPath,
+  findLastAgentIndex,
+  findLatestLostAgentId,
+  findLatestOpenAgentId,
+  gatewayDisplayName,
+  historyMessagesToItems,
+  historySnapshotLooksOlder,
+  isProviderOption,
+  isRelaySessionSummary,
+  normalizeNextSuggestions,
+  usageStatsFromHistory
+} from './chat-utils.js';
 
-type Usage = ChatUsage;
-type HistoryUsage = ChatHistoryUsage;
-type MessageItem =
-  | { kind: 'user'; id: string; content: string; ts: number }
-  | { kind: 'agent'; id: string; text: string; isStreaming: boolean; isWaiting: boolean; isLost: boolean; provider: string; usage?: Usage; durationMs?: number; nextSuggestions?: ChatNextSuggestion[] }
-  | { kind: 'tool'; id: string; toolName: string; input: Record<string, unknown>; result?: string; isError: boolean; isInFlight: boolean }
-  | { kind: 'system'; id: string; text: string }
-  | { kind: 'permission'; id: string; requestId: string; toolName: string; decided?: 'allow' | 'deny' };
-type UsageStats = {
-  contextPct?: number;
-  rateLimitResetsAt?: number;
-  rateLimitType?: string;
-  primary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
-  secondary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
-};
-type RelaySessionSummary = {
-  id: string;
-  gatewayId?: string;
-  provider?: string;
-  projectPath?: string;
-  transport?: string;
-};
-type GatewayInfo = {
-  gatewayId: string;
-  name?: string;
-  hostname?: string;
-  status?: string;
-};
-
-const RELAY_URL_KEY = 'tether:relayUrl';
-const DEFAULT_RELAY_URL = import.meta.env.VITE_TETHER_RELAY_URL ?? 'wss://tether.earntools.me';
 const DEFAULT_PROVIDER_OPTIONS: ProviderOption[] = [
   { provider: 'claude', models: ['sonnet', 'opus', 'haiku'] }
 ];
-
-function isProviderOption(value: unknown): value is ProviderOption {
-  return Boolean(
-    value &&
-    typeof value === 'object' &&
-    typeof (value as { provider?: unknown }).provider === 'string' &&
-    Array.isArray((value as { models?: unknown }).models) &&
-    (value as { models: unknown[] }).models.every((model) => typeof model === 'string') &&
-    (value as { models: unknown[] }).models.length > 0
-  );
-}
-
-function isRelaySessionSummary(value: unknown): value is RelaySessionSummary {
-  return Boolean(
-    value &&
-    typeof value === 'object' &&
-    typeof (value as { id?: unknown }).id === 'string'
-  );
-}
-
-function gatewayDisplayName(gateway: GatewayInfo): string {
-  const name = gateway.name?.trim();
-  if (name) return name;
-  const hostname = gateway.hostname?.trim();
-  if (hostname) return hostname;
-  return gateway.gatewayId.slice(0, 8);
-}
-
-function compactPathLabel(value: string): string {
-  const normalized = value.trim();
-  if (!normalized || normalized === '~') {
-    return '~';
-  }
-  const parts = normalized.split('/').filter(Boolean);
-  if (normalized.startsWith('/Users/') && parts.length >= 2) {
-    const relativeParts = parts.slice(2);
-    if (relativeParts.length === 0) {
-      return '~';
-    }
-    if (relativeParts.length <= 2) {
-      return `~/${relativeParts.join('/')}`;
-    }
-    return `~/.../${relativeParts.slice(-2).join('/')}`;
-  }
-  if (parts.length <= 3) {
-    return normalized;
-  }
-  return `.../${parts.slice(-2).join('/')}`;
-}
-
-function compactProjectPath(value: string): string {
-  const normalized = value.trim();
-  if (!normalized) {
-    return '请选择工作目录';
-  }
-  if (normalized === '~') {
-    return '~';
-  }
-  const parts = normalized.split('/').filter(Boolean);
-  if (normalized.startsWith('/Users/') && parts.length >= 2) {
-    const relativeParts = parts.slice(2);
-    return relativeParts.length > 0 ? `~/${relativeParts.join('/')}` : '~';
-  }
-  if (parts.length <= 3) {
-    return normalized;
-  }
-  return `.../${parts.slice(-3).join('/')}`;
-}
-
-function findLatestOpenAgentId(items: MessageItem[]): string | undefined {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (item?.kind === 'agent' && (item.isWaiting || item.isStreaming)) {
-      return item.id;
-    }
-  }
-  return undefined;
-}
-
-function findLatestLostAgentId(items: MessageItem[]): string | undefined {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (item?.kind === 'agent' && item.isLost) {
-      return item.id;
-    }
-  }
-  return undefined;
-}
-
-function findLastAgentIndex(items: MessageItem[]): number {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    if (items[index]?.kind === 'agent') {
-      return index;
-    }
-  }
-  return -1;
-}
-
-function normalizeNextSuggestions(value: unknown): ChatNextSuggestion[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const suggestions = value
-    .map((item) => {
-      if (!item || typeof item !== 'object') return undefined;
-      const suggestion = item as { description?: unknown; title?: unknown };
-      if (typeof suggestion.description !== 'string' || suggestion.description.trim().length === 0) return undefined;
-      return {
-        description: suggestion.description.trim(),
-        ...(typeof suggestion.title === 'string' && suggestion.title.trim().length > 0 ? { title: suggestion.title.trim() } : {})
-      };
-    })
-    .filter((item): item is ChatNextSuggestion => Boolean(item));
-  return suggestions.length > 0 ? suggestions.slice(0, 3) : undefined;
-}
-
-function historyMessagesToItems(messages: ChatHistoryMessage[], provider: string): MessageItem[] {
-  return messages.map((message, index) =>
-    message.role === 'user'
-      ? { kind: 'user', id: `history-user-${index}`, content: message.content, ts: Date.parse(message.createdAt) }
-      : {
-          kind: 'agent',
-          id: `history-agent-${index}`,
-          text: message.content,
-          isStreaming: false,
-          isWaiting: false,
-          isLost: false,
-          provider,
-          usage: message.usageJson
-        }
-  );
-}
-
-function chatItemsOnly(items: MessageItem[]): Array<Extract<MessageItem, { kind: 'user' | 'agent' }>> {
-  return items.filter((item): item is Extract<MessageItem, { kind: 'user' | 'agent' }> => item.kind === 'user' || item.kind === 'agent');
-}
-
-function historySnapshotLooksOlder(currentItems: MessageItem[], snapshotItems: MessageItem[]): boolean {
-  const currentChatItems = chatItemsOnly(currentItems);
-  const snapshotChatItems = chatItemsOnly(snapshotItems);
-  if (snapshotChatItems.length < currentChatItems.length) {
-    return true;
-  }
-  const currentLastAgent = [...currentChatItems].reverse().find((item) => item.kind === 'agent');
-  const snapshotLastAgent = [...snapshotChatItems].reverse().find((item) => item.kind === 'agent');
-  if (!currentLastAgent || !snapshotLastAgent) {
-    return false;
-  }
-  return currentLastAgent.text.length > snapshotLastAgent.text.length &&
-    currentLastAgent.text.startsWith(snapshotLastAgent.text);
-}
-
-function usageStatsFromHistory(messages: ChatHistoryMessage[]): UsageStats | undefined {
-  const lastAssistant = messages.filter((message) => message.role === 'assistant').at(-1);
-  if (lastAssistant?.usageJson?.contextWindow == null) {
-    return undefined;
-  }
-  const usage = lastAssistant.usageJson;
-  const contextWindow = usage.contextWindow!;
-  const totalTokens = usage.contextInputTokens !== undefined
-    ? usage.contextInputTokens
-    : (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
-  const contextPct = Math.min(100, Math.round((totalTokens / contextWindow) * 100));
-  const rateLimit = usage.rateLimitInfo;
-  const rateLimitStillValid = rateLimit?.resetsAt !== undefined && rateLimit.resetsAt * 1000 > Date.now();
-  return {
-    contextPct,
-    rateLimitResetsAt: rateLimitStillValid ? rateLimit?.resetsAt : undefined,
-    rateLimitType: rateLimitStillValid ? rateLimit?.rateLimitType : undefined,
-    primary: rateLimitStillValid ? rateLimit?.primary : undefined,
-    secondary: rateLimitStillValid ? rateLimit?.secondary : undefined
-  };
-}
 
 function formatResetCountdown(resetsAt: number): string {
   const diffMs = resetsAt * 1000 - Date.now();
@@ -410,6 +222,7 @@ export function ChatPanel({
   const activeSessionGatewayIdRef = React.useRef(activeSessionGatewayId);
   const onlineGatewayIdsRef = React.useRef(onlineGatewayIds);
   const subscribedSessionIdRef = React.useRef<string | null>(null);
+  const releaseSessionSubscriptionRef = React.useRef<(() => void) | null>(null);
   const lastDeltaEventIdRef = React.useRef<number>(0);
   const cwdRef = React.useRef(cwd);
   const skipNextHistoryLoadSessionIdRef = React.useRef<string | null>(null);
@@ -626,11 +439,6 @@ export function ChatPanel({
       cancelled = true;
     };
   }, [normalAuth?.accessToken]);
-
-  const relayUrl = React.useMemo(
-    () => window.localStorage.getItem(RELAY_URL_KEY) ?? DEFAULT_RELAY_URL,
-    []
-  );
 
   const handleRelayClose = React.useCallback(() => {
     subscribedSessionIdRef.current = null;
@@ -1099,12 +907,16 @@ export function ChatPanel({
       }
   }, [gatewayReady, markGatewayReadyFallback, navigate, relayGatewayId, selectedGatewayId, t.chatsProviderFail, t.chatsSessionOutsideGateway, t.chatsSessionStarted, t.gatewayNotConnected, t.gatewaySelectorNoSelection]);
 
-  const { wsReady, sendFrame, connectionEpoch } = useChatRelaySocket({
-    accessToken: normalAuth?.accessToken,
-    relayUrl,
-    onFrame: handleRelayFrame,
-    onClose: handleRelayClose
-  });
+  const relay = useRelayClient();
+  const {
+    acquireSessionSubscription,
+    connectionEpoch,
+    sendFrame,
+    wsReady
+  } = relay;
+
+  React.useEffect(() => relay.subscribeFrame(handleRelayFrame), [handleRelayFrame, relay]);
+  React.useEffect(() => relay.subscribeClose(handleRelayClose), [handleRelayClose, relay]);
 
   React.useEffect(() => {
     if (!wsReady || connectionEpoch <= 1 || connectionEpoch === lastCatchupConnectionEpochRef.current) {
@@ -1178,7 +990,8 @@ export function ChatPanel({
     }
     const previousSessionId = subscribedSessionIdRef.current;
     if (previousSessionId && previousSessionId !== currentSessionId) {
-      sendFrame({ type: 'client.unsubscribe', sessionId: previousSessionId });
+      releaseSessionSubscriptionRef.current?.();
+      releaseSessionSubscriptionRef.current = null;
       subscribedSessionIdRef.current = null;
     }
     if (!currentSessionId || !activeSessionMetadataReady) {
@@ -1188,19 +1001,25 @@ export function ChatPanel({
       return;
     }
     setSessionAccessError(undefined);
-    sendFrame({ type: 'client.subscribe', sessionId: currentSessionId, mode: 'control', after: lastDeltaEventIdRef.current });
+    releaseSessionSubscriptionRef.current = acquireSessionSubscription({
+      owner: `chat:${currentSessionId}`,
+      sessionId: currentSessionId,
+      mode: 'control',
+      after: lastDeltaEventIdRef.current
+    });
     subscribedSessionIdRef.current = currentSessionId;
-  }, [activeSessionMetadataReady, currentSessionId, sendFrame, wsReady, subscribeRetryKey]);
+  }, [acquireSessionSubscription, activeSessionMetadataReady, currentSessionId, wsReady, subscribeRetryKey]);
 
   React.useEffect(() => {
     return () => {
       const sessionId = subscribedSessionIdRef.current;
       if (sessionId) {
-        sendFrame({ type: 'client.unsubscribe', sessionId });
+        releaseSessionSubscriptionRef.current?.();
+        releaseSessionSubscriptionRef.current = null;
         subscribedSessionIdRef.current = null;
       }
     };
-  }, [sendFrame]);
+  }, []);
 
   const sendMessage = React.useCallback(() => {
     const text = inputText.trim();
@@ -1314,72 +1133,45 @@ export function ChatPanel({
   const relayStatusChip = (() => {
     if (wsReady) {
       return (
-        <div className="chat-connection-chip chat-connection-chip--connected" role="status" aria-live="polite">
-          <span />
-          <strong>{t.chatsRelayConnected}</strong>
-        </div>
+        <WorkbenchStatusPill state="connected">Relay</WorkbenchStatusPill>
       );
     }
     if (hasEverConnectedRef.current) {
       return (
-        <div className="chat-connection-chip" role="status" aria-live="polite">
-          <span />
-          <strong>{t.chatsRelayDisconnected}</strong>
-        </div>
+        <WorkbenchStatusPill state="error">{t.chatsRelayDisconnected}</WorkbenchStatusPill>
       );
     }
     return (
-      <div className="chat-connection-chip chat-connection-chip--connecting" role="status" aria-live="polite">
-        <strong>{t.chatsRelayConnecting}</strong>
-      </div>
+      <WorkbenchStatusPill state="connecting">{t.chatsRelayConnecting}</WorkbenchStatusPill>
     );
   })();
 
   const gatewayStatusChip = (() => {
     if (connectionError) {
       return (
-        <div className="chat-connection-chip" role="status" aria-live="polite">
-          <span />
-          <strong>{connectionError}</strong>
-        </div>
+        <WorkbenchStatusPill state="error">{connectionError}</WorkbenchStatusPill>
       );
     }
     if (wsReady && hasEverConnectedRef.current && !gatewayReady) {
       return (
-        <div className="chat-connection-chip chat-connection-chip--connecting" role="status" aria-live="polite">
-          <strong>{t.chatsGatewayConnecting}</strong>
-        </div>
+        <WorkbenchStatusPill state="connecting">{t.chatsGatewayConnecting}</WorkbenchStatusPill>
       );
     }
     if (wsReady && gatewayReady) {
       return (
-        <div className="chat-connection-chip chat-connection-chip--connected" role="status" aria-live="polite">
-          <span />
-          <strong>{t.chatsGatewayConnected}</strong>
-        </div>
+        <WorkbenchStatusPill state="connected">Gateway</WorkbenchStatusPill>
       );
     }
     return (
-      <div className="chat-connection-chip chat-connection-chip--connecting" role="status" aria-live="polite">
-        <strong>{t.chatsGatewayConnecting}</strong>
-      </div>
+      <WorkbenchStatusPill state="connecting">{t.chatsGatewayConnecting}</WorkbenchStatusPill>
     );
   })();
 
   const connectionStatusChips = (
-    wsReady && gatewayReady && !connectionError ? (
-      <div className="chat-connection-mini" role="status" aria-live="polite" title={`${t.chatsGatewayConnected} / ${t.chatsRelayConnected}`}>
-        <span className="chat-connection-mini-label">G</span>
-        <span className="chat-connection-mini-dot" />
-        <span className="chat-connection-mini-label">R</span>
-        <span className="chat-connection-mini-dot" />
-      </div>
-    ) : (
-      <>
-        {gatewayStatusChip}
-        {relayStatusChip}
-      </>
-    )
+    <>
+      {gatewayStatusChip}
+      {relayStatusChip}
+    </>
   );
 
   const gatewaySelector = (
@@ -1599,51 +1391,19 @@ export function ChatPanel({
 
   if (isNewSession) {
     return (
-      <div className="chat-surface chat-new-session-surface relative flex h-full flex-col items-center justify-center bg-background px-6">
-        {onOpenDrawer && (
-          <button
-            onClick={onOpenDrawer}
-            className="absolute left-3 top-3 flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground md:hidden"
-          >
-            <Menu className="h-4 w-4" />
-          </button>
-        )}
-        {onExpandSidebar && (
-          <button
-            onClick={onExpandSidebar}
-            className="absolute left-3 top-3 hidden h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground md:flex"
-          >
-            <PanelLeftOpen className="h-[15px] w-[15px]" />
-          </button>
-        )}
-        <div className="absolute right-3 top-3 flex items-center gap-2">
-          <div className="chat-header-connection-status">
-            {connectionStatusChips}
-          </div>
-          <NotificationBell gatewayNamesById={gatewayNamesById} />
-        </div>
-        <div className="chat-new-session-hero mb-10 flex flex-col items-center gap-4">
-          <div
-            className="flex h-14 w-14 items-center justify-center rounded-2xl text-xl font-bold text-black shadow-md"
-            style={{ background: 'var(--gradient-brand)' }}
-          >
-            T
-          </div>
-          <h1 className="text-[26px] font-semibold tracking-tight text-foreground">
-            {t.chatsWelcomeGreeting}
-          </h1>
-        </div>
-
-        <div className="chat-new-session-composer w-full max-w-[680px]">
+      <NewChatSurface
+        composer={(
           <div className="relative">
             {slashMenuEl}
             {inputCard(true)}
           </div>
-          <div className="mt-3 flex items-center justify-center gap-1">
-            <span className="text-[11px] text-muted-foreground/70">{t.chatsCwdNote}</span>
-          </div>
-        </div>
-      </div>
+        )}
+        connectionStatusChips={connectionStatusChips}
+        gatewayNamesById={gatewayNamesById}
+        onExpandSidebar={onExpandSidebar}
+        onOpenDrawer={onOpenDrawer}
+        t={t}
+      />
     );
   }
 
@@ -1651,208 +1411,66 @@ export function ChatPanel({
 
   return (
     <div className="chat-surface flex h-full flex-col bg-background">
-      {/* Session header */}
-      <div className="flex items-center gap-2 border-b border-border bg-card/60 px-4 py-2.5 backdrop-blur-sm">
-        {onOpenDrawer && (
-          <button
-            onClick={onOpenDrawer}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground md:hidden"
-          >
-            <Menu className="h-4 w-4" />
-          </button>
-        )}
-        {onExpandSidebar && (
-          <button
-            onClick={onExpandSidebar}
-            className="hidden h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground md:flex"
-          >
-            <PanelLeftOpen className="h-[15px] w-[15px]" />
-          </button>
-        )}
-        <div className="flex-1" />
-        <div className="chat-header-connection-status">
-          {connectionStatusChips}
-        </div>
-        {sessionAccessError ? (
-          <div className="chat-header-session-status">
-            <div className="chat-connection-chip" role="status" aria-live="polite">
-              <span />
-              <strong>{sessionAccessError}</strong>
-            </div>
-          </div>
+      <ChatHeader
+        agentSessionId={agentSessionId}
+        connectionStatusChips={connectionStatusChips}
+        copiedAgentId={copiedAgentId}
+        displayProvider={displayProvider}
+        gatewayNamesById={gatewayNamesById}
+        onCopyAgentSession={() => {
+          if (!agentSessionId) return;
+          const cmd = providerResumeCommand(displayProvider, agentSessionId);
+          void navigator.clipboard.writeText(cmd);
+          setCopiedAgentId(true);
+          setTimeout(() => setCopiedAgentId(false), 1500);
+        }}
+        onExpandSidebar={onExpandSidebar}
+        onOpenDrawer={onOpenDrawer}
+        sessionAccessError={sessionAccessError}
+        t={t}
+      />
+
+      <ChatMessageList
+        lastAgentIndex={lastAgentIndex}
+        messageEndRef={messageEndRef}
+        messageScrollRef={messageScrollRef}
+        messages={messages}
+        onCommandClick={applyNextSuggestion}
+        onPermissionResponse={sendPermissionResponse}
+        onSuggestionClick={applyNextSuggestion}
+      />
+
+      <ChatComposer
+        activeSessionProjectPath={activeSessionProjectPath}
+        buildInputPlaceholder={buildInputPlaceholder}
+        displayGatewayName={displayGatewayName}
+        displayModel={displayModel}
+        displayModelOptions={displayProviderModels}
+        displayProvider={displayProvider}
+        inputRef={inputRef}
+        inputText={inputText}
+        isInputDisabled={isInputDisabled}
+        onCompositionEnd={handleCompositionEnd}
+        onCompositionStart={handleCompositionStart}
+        onInputChange={setInputText}
+        onKeyDown={onKeyDown}
+        sendButton={sendButton}
+        sessionSettingsOpen={sessionSettingsOpen}
+        setActiveSessionModel={setActiveSessionModel}
+        setSessionSettingsOpen={setSessionSettingsOpen}
+        slashMenuEl={slashMenuEl}
+        t={t}
+        usageStats={usageStats}
+        usageStatsRows={(usageStats?.contextPct !== undefined || usageStats?.rateLimitResetsAt || usageStats?.primary) ? (
+          <UsageStatsRows
+            contextPct={usageStats?.contextPct}
+            rateLimitResetsAt={usageStats?.rateLimitResetsAt}
+            rateLimitType={usageStats?.rateLimitType}
+            primary={usageStats?.primary}
+            secondary={usageStats?.secondary}
+          />
         ) : null}
-        {agentSessionId && (
-          <button
-            onClick={() => {
-              const cmd = providerResumeCommand(displayProvider, agentSessionId);
-              void navigator.clipboard.writeText(cmd);
-              setCopiedAgentId(true);
-              setTimeout(() => setCopiedAgentId(false), 1500);
-            }}
-            title={t.chatsCopyProviderSessionId.replace('{provider}', displayProvider)}
-            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-muted px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {copiedAgentId
-              ? <Check className="h-3 w-3 text-brand" />
-              : <Copy className="h-3 w-3" />}
-            <span>{copiedAgentId ? t.chatCodeCopied : t.chatsCopyProviderSessionId.replace('{provider}', displayProvider)}</span>
-          </button>
-        )}
-        <NotificationBell gatewayNamesById={gatewayNamesById} />
-      </div>
-
-      {/* Messages */}
-      <div ref={messageScrollRef} className="flex-1 overflow-y-auto px-4 py-5">
-        <div className="mx-auto max-w-3xl space-y-4">
-          {messages.map((message, index) => {
-            if (message.kind === 'user') {
-              return <ChatBubbleUser key={message.id} content={message.content} />;
-            }
-            if (message.kind === 'agent') {
-              return (
-                <ChatBubbleAgent
-                  key={message.id}
-                  text={message.text}
-                  isStreaming={message.isStreaming}
-                  isWaiting={message.isWaiting}
-                  isLost={message.isLost}
-                  provider={message.provider}
-                  usage={message.usage}
-                  durationMs={message.durationMs}
-                  nextSuggestions={index === lastAgentIndex ? message.nextSuggestions : undefined}
-                  onSuggestionClick={applyNextSuggestion}
-                  onCommandClick={applyNextSuggestion}
-                />
-              );
-            }
-            if (message.kind === 'tool') {
-              return (
-                <ToolCard
-                  key={message.id}
-                  toolName={message.toolName}
-                  input={message.input}
-                  result={message.result}
-                  isError={message.isError}
-                  isInFlight={message.isInFlight}
-                />
-              );
-            }
-            if (message.kind === 'permission') {
-              return (
-                <PermissionPrompt
-                  key={message.id}
-                  toolName={message.toolName}
-                  requestId={message.requestId}
-                  onAllow={(id) => sendPermissionResponse(id, 'allow')}
-                  onDeny={(id) => sendPermissionResponse(id, 'deny')}
-                  decided={message.decided}
-                />
-              );
-            }
-            return <SystemMessage key={message.id} text={message.text} />;
-          })}
-          <div ref={messageEndRef} aria-hidden="true" />
-        </div>
-      </div>
-
-      {/* Input */}
-      <div className="px-4 pb-4 pt-2">
-        <div className="mx-auto max-w-3xl flex flex-col gap-1.5">
-          {/* Info row — click to open session settings */}
-          <div className="flex items-center gap-2 self-start min-w-0">
-            <Popover open={sessionSettingsOpen} onOpenChange={setSessionSettingsOpen}>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  title={t.chatsSessionSettings}
-                  className="flex items-center gap-1.5 rounded px-1 py-0.5 text-[11px] text-muted-foreground/55 transition-colors hover:text-muted-foreground"
-                >
-                  {displayGatewayName && (
-                    <>
-                      <span className="max-w-[80px] truncate font-medium text-brand">{displayGatewayName}</span>
-                      <span className="opacity-40">·</span>
-                    </>
-                  )}
-                  {displayModel && <span className="font-medium">{displayModel}</span>}
-                  {activeSessionProjectPath && (
-                    <>
-                      <span className="hidden opacity-40 md:inline">·</span>
-                      <span className="hidden max-w-[200px] truncate font-mono md:inline">{compactPathLabel(activeSessionProjectPath)}</span>
-                    </>
-                  )}
-                  {usageStats?.contextPct !== undefined && (
-                    <>
-                      <span className="opacity-40">·</span>
-                      <span className="tabular-nums">ctx {usageStats.contextPct}%</span>
-                    </>
-                  )}
-                  <Settings className="ml-1 h-3 w-3 opacity-50" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent side="top" align="start" sideOffset={8} className="w-64 p-3">
-                <div className="flex flex-col gap-2.5">
-                  {displayProviderModels.length > 0 && displayModel && (
-                    <div className="flex items-center gap-2">
-                      <span className="w-10 shrink-0 text-[12px] text-muted-foreground">{t.chatsLabelModel}</span>
-                      <Select value={displayModel} onValueChange={setActiveSessionModel}>
-                        <SelectTrigger className="h-7 flex-1 text-[12px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {displayProviderModels.map((model) => (
-                            <SelectItem key={model} value={model}>{model}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                  {activeSessionProjectPath && (
-                    <div className="flex items-center gap-2">
-                      <span className="w-10 shrink-0 text-[12px] text-muted-foreground">{t.chatsCwdShort}</span>
-                      <span
-                        title={activeSessionProjectPath}
-                        className="flex h-7 min-w-0 flex-1 items-center rounded-lg bg-muted px-3 font-mono text-[12px] font-medium text-muted-foreground"
-                      >
-                        <span className="truncate">{compactPathLabel(activeSessionProjectPath)}</span>
-                      </span>
-                    </div>
-                  )}
-                  {(usageStats?.contextPct !== undefined || usageStats?.rateLimitResetsAt || usageStats?.primary) && (
-                    <UsageStatsRows
-                      contextPct={usageStats?.contextPct}
-                      rateLimitResetsAt={usageStats?.rateLimitResetsAt}
-                      rateLimitType={usageStats?.rateLimitType}
-                      primary={usageStats?.primary}
-                      secondary={usageStats?.secondary}
-                    />
-                  )}
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
-
-          {/* Compact input card */}
-          <div className="relative">
-            {slashMenuEl}
-          <div className="chat-input-card relative overflow-hidden rounded-2xl border border-border bg-card" style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
-            <div className="flex items-end gap-2 px-3 py-2.5">
-              <Textarea
-                ref={inputRef}
-                value={inputText}
-                onChange={(event) => setInputText(event.target.value)}
-                placeholder={buildInputPlaceholder(displayProvider, displayModel)}
-                disabled={isInputDisabled}
-                className="flex-1 max-h-44 min-h-[36px] resize-none border-0 bg-transparent py-1 text-[15px] leading-relaxed shadow-none focus-visible:ring-0"
-                onKeyDown={onKeyDown}
-                onCompositionStart={handleCompositionStart}
-                onCompositionEnd={handleCompositionEnd}
-              />
-              {sendButton}
-            </div>
-          </div>
-          </div>
-        </div>
-      </div>
+      />
     </div>
   );
 }
