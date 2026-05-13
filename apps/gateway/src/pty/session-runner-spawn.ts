@@ -11,6 +11,7 @@ import type { Session } from '../types.js';
 export type SpawnSessionRunnerOptions = {
   options: CreateSessionRunnerOptions;
   timeoutMs?: number;
+  onExit?: (event: { sessionId: string; exitCode: number | null; signal: NodeJS.Signals | null }) => void;
 };
 
 type RunnerPingResult = {
@@ -18,13 +19,16 @@ type RunnerPingResult = {
   session?: Session | null;
 };
 
-export async function spawnSessionRunnerProcess({ options, timeoutMs = 5000 }: SpawnSessionRunnerOptions): Promise<Session> {
+export async function spawnSessionRunnerProcess({ options, timeoutMs = 5000, onExit }: SpawnSessionRunnerOptions): Promise<Session> {
   const entry = resolveRunnerEntry();
   const payload = Buffer.from(JSON.stringify({ options }), 'utf8').toString('base64url');
   const child = spawn(process.execPath, [...NODE_RUNTIME_FLAGS, ...runnerExecArgv(), entry, payload], {
     detached: true,
     stdio: 'ignore',
     env: process.env
+  });
+  child.once('exit', (exitCode, signal) => {
+    onExit?.({ sessionId: options.id, exitCode, signal });
   });
   child.unref();
 

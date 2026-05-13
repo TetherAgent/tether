@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { latestNewCodexSessionId, readCodexSessionId, SessionRunner, runnerSocketPath } from '../src/pty/session-runner.js';
 import { SessionRunnerClient } from '../src/pty/session-runner-client.js';
+import { spawnSessionRunnerProcess } from '../src/pty/session-runner-spawn.js';
 
 function tempRunnerFixture(): { dir: string; socketDir: string; cleanup: () => void } {
   const dir = mkdtempSync(path.join(tmpdir(), 'tether-runner-'));
@@ -164,6 +165,38 @@ test('detached runner process survives parent process exit', async () => {
     await client.stop('detach-test-complete');
     await waitFor(() => eventTypes.includes('session.exited'), 1500);
     await unsubscribe();
+  } finally {
+    await client?.close().catch(() => undefined);
+    cleanup();
+  }
+});
+
+test('spawned runner process invokes onExit when child exits', async () => {
+  const { socketDir, cleanup } = tempRunnerFixture();
+  const exitEvents: Array<{ sessionId: string; exitCode: number | null; signal: NodeJS.Signals | null }> = [];
+  let client: SessionRunnerClient | undefined;
+  try {
+    await spawnSessionRunnerProcess({
+      options: {
+        id: 'tth_spawn_exit',
+        provider: 'codex',
+        command: '/bin/cat',
+        projectPath: process.cwd(),
+        cols: 80,
+        rows: 24,
+        socketDir
+      },
+      onExit: (event) => {
+        exitEvents.push(event);
+      }
+    });
+
+    client = new SessionRunnerClient({ socketPath: runnerSocketPath('tth_spawn_exit', socketDir) });
+    await client.stop('exit-test-complete');
+    await waitFor(() => exitEvents.length === 1, 1500);
+    assert.equal(exitEvents[0]?.sessionId, 'tth_spawn_exit');
+    assert.equal(exitEvents[0]?.exitCode, 0);
+    assert.equal(exitEvents[0]?.signal, null);
   } finally {
     await client?.close().catch(() => undefined);
     cleanup();

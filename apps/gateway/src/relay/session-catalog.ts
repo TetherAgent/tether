@@ -11,6 +11,7 @@ export type SessionCatalogOptions = {
   runnerClientForSession?: (session: Session) => SessionRunnerClient | undefined;
   emitEvent: (event: SessionEvent) => void;
   isPidAlive: (pid: number) => boolean;
+  onSessionsChanged?: () => void;
 };
 
 export class SessionCatalog {
@@ -32,11 +33,11 @@ export class SessionCatalog {
         result.push(session);
         continue;
       }
-      if (this.options.ptySessions?.isRestoredSession(session.id)) {
-        result.push(session);
+      if (session.transport !== 'pty-event-stream') {
         continue;
       }
-      if (session.status !== 'running' || session.transport !== 'pty-event-stream') {
+      if (session.status !== 'running') {
+        result.push(session);
         continue;
       }
       const alive = await this.isLiveSession(session);
@@ -88,6 +89,7 @@ export class SessionCatalog {
       code: 'session_lost',
       message: 'Gateway relay client lost the session runner'
     }));
+    this.options.onSessionsChanged?.();
   }
 }
 

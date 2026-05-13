@@ -215,6 +215,7 @@ async function attachPtySessionOnce(
       const frame = JSON.parse(raw.toString()) as {
         type?: string;
         code?: string;
+        data?: unknown;
         latestEventId?: unknown;
         sessionId?: unknown;
         event?: { id?: unknown; type?: string; payload?: { data?: unknown } };
@@ -225,14 +226,23 @@ async function attachPtySessionOnce(
       if (typeof frame.event?.id === 'number') {
         result.latestEventId = Math.max(result.latestEventId, frame.event.id);
       }
-      if (frame.type === 'gateway.event' && frame.event?.type === 'terminal.output') {
-        const data = frame.event.payload?.data;
+      if (frame.type === 'replay.output') {
+        if (typeof frame.data === 'string') {
+          process.stdout.write(frame.data);
+        }
+        return;
+      }
+      const event = frame.type === 'gateway.event' || frame.type === 'event'
+        ? frame.event
+        : undefined;
+      if (event?.type === 'terminal.output') {
+        const data = event.payload?.data;
         if (typeof data === 'string') {
           process.stdout.write(data);
         }
         return;
       }
-      if (frame.type === 'gateway.event' && frame.event?.type === 'session.exited') {
+      if (event?.type === 'session.exited') {
         result = { status: 'exited', latestEventId: result.latestEventId, message: `Session 已停止：${id}` };
         ws.close();
         return;

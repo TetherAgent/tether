@@ -33,10 +33,12 @@ export type RelayClientOptions = {
   onNewPtySession?: NewPtySessionHandler;
   heartbeatIntervalMs?: number;
   heartbeatTimeoutMs?: number;
+  ptyHealthCheckIntervalMs?: number;
 };
 
 export type RunningRelayClient = {
   close: () => Promise<void>;
+  syncSessions: () => Promise<void>;
   status: () => RelayConnectionStatus;
 };
 
@@ -51,6 +53,7 @@ const MIN_RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_DELAY_MS = 5000;
 const RELAY_HEARTBEAT_INTERVAL_MS = 15_000;
 const RELAY_HEARTBEAT_TIMEOUT_MS = 10_000;
+const PTY_HEALTH_CHECK_INTERVAL_MS = 30_000;
 const RELAY_FORBIDDEN_KEYS = new Set(['command', 'args', 'argv', 'env', 'providerArgs', 'providerCommand']);
 export function startRelayClient(options: RelayClientOptions): RunningRelayClient {
   let closed = false;
@@ -59,8 +62,11 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   let reconnectTimer: NodeJS.Timeout | undefined;
   let heartbeatInterval: NodeJS.Timeout | undefined;
   let heartbeatTimeout: NodeJS.Timeout | undefined;
+  let ptyHealthTimer: NodeJS.Timeout | undefined;
+  let ptyHealthCheckRunning = false;
   const heartbeatIntervalMs = options.heartbeatIntervalMs ?? RELAY_HEARTBEAT_INTERVAL_MS;
   const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? RELAY_HEARTBEAT_TIMEOUT_MS;
+  const ptyHealthCheckIntervalMs = options.ptyHealthCheckIntervalMs ?? PTY_HEALTH_CHECK_INTERVAL_MS;
   const subscriptions = new SubscriptionManager();
   const chatRegistry = new ChatSessionRegistry();
   let connectionState: RelayConnectionStatus['state'] = 'connecting';
@@ -78,7 +84,10 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     ptySessions: options.ptySessions,
     runnerClientForSession: options.runnerClientForSession,
     emitEvent: (event) => relaySender.event(toRelayEvent(event)),
-    isPidAlive
+    isPidAlive,
+    onSessionsChanged: () => {
+      void sendSessions();
+    }
   });
   const sendError = (clientId: string, sessionId: string, code: string, message: string) => {
     relaySender.error(clientId, sessionId, code, message);
@@ -192,6 +201,44 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     }
   };
 
+  const hasRunningPtySession = (): boolean => {
+    return (options.ptySessions?.listSessions() ?? []).some(
+      session => session.transport === 'pty-event-stream' && session.status === 'running'
+    );
+  };
+
+  const stopPtyHealthCheck = () => {
+    if (!ptyHealthTimer) {
+      return;
+    }
+    clearTimeout(ptyHealthTimer);
+    ptyHealthTimer = undefined;
+  };
+
+  const ensurePtyHealthCheck = () => {
+    if (closed || connectionState !== 'connected' || ptyHealthCheckRunning || ptyHealthTimer || !hasRunningPtySession()) {
+      if (!hasRunningPtySession()) {
+        stopPtyHealthCheck();
+      }
+      return;
+    }
+    ptyHealthTimer = setTimeout(() => {
+      ptyHealthTimer = undefined;
+      if (closed || connectionState !== 'connected' || ptyHealthCheckRunning || !hasRunningPtySession()) {
+        if (!hasRunningPtySession()) {
+          stopPtyHealthCheck();
+        }
+        return;
+      }
+      ptyHealthCheckRunning = true;
+      void sendSessions().finally(() => {
+        ptyHealthCheckRunning = false;
+        ensurePtyHealthCheck();
+      });
+    }, ptyHealthCheckIntervalMs);
+    ptyHealthTimer.unref();
+  };
+
   const startHeartbeat = (activeSocket: WebSocket | undefined) => {
     clearHeartbeat();
     if (!activeSocket) {
@@ -247,7 +294,13 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
   });
 
   sendSessions = async () => {
-    relaySender.sessions((await sessionCatalog.listRelaySessions()).map(toRelaySession));
+    const sessions = await sessionCatalog.listRelaySessions();
+    relaySender.sessions(sessions.map(toRelaySession));
+    if (hasRunningPtySession()) {
+      ensurePtyHealthCheck();
+    } else {
+      stopPtyHealthCheck();
+    }
   };
 
   const frameRouter = new FrameRouter({
@@ -316,6 +369,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         reconnectTimer = undefined;
       }
       clearHeartbeat();
+      stopPtyHealthCheck();
       await subscriptionHandler.clearSubscriptions();
       const closingSocket = socket;
       socket = undefined;
@@ -327,6 +381,7 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
         closingSocket.close();
       });
     },
+    syncSessions: () => sendSessions(),
     status: () => ({
       configured: true,
       state: connectionState,

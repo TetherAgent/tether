@@ -18,7 +18,7 @@ import { detectSelectOptions } from './pty/agent-select-detector.js';
 import { startRelayClient, type RunningRelayClient } from './relay-client.js';
 import { SessionRunnerClient } from './pty/session-runner-client.js';
 import { spawnSessionRunnerProcess } from './pty/session-runner-spawn.js';
-import type { Session } from './types.js';
+import type { Session, SessionStatus } from './types.js';
 import { decodeGatewayToken, loadGatewayAuthState, type GatewayAuthState } from './utils/gateway-auth.js';
 import { resolvePackageVersion } from './utils/package-version.js';
 
@@ -189,6 +189,26 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     }));
     session.status = 'lost';
   };
+
+  const updateRunnerExitStatus = (
+    sessionId: string,
+    exitCode: number | null,
+    signal: NodeJS.Signals | null
+  ): void => {
+    const session = options.ptySessions.getSession(sessionId);
+    if (!session || session.status !== 'running') {
+      return;
+    }
+    const nextStatus: SessionStatus = signal ? 'lost' : exitCode === 0 ? 'completed' : 'failed';
+    updateSessionStatus(sessionId, nextStatus);
+    session.status = nextStatus;
+    options.ptySessions.publishEvent(createSessionEvent(sessionId, 'runner.exited', {
+      exitCode,
+      signal,
+      status: nextStatus
+    }));
+    void relayClient?.syncSessions();
+  };
   app.get('/api/status', async (c) => {
     const ptySessions = listSessions().filter(
       (session) => session.transport === 'pty-event-stream' && session.status === 'running'
@@ -338,6 +358,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
               userId: identity.userId,
               gatewayId: identity.gatewayId
             }
+          },
+          onExit: ({ sessionId, exitCode, signal }) => {
+            updateRunnerExitStatus(sessionId, exitCode, signal);
           }
         });
         options.ptySessions.restoreSession(session);

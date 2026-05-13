@@ -177,7 +177,7 @@ test('gateway relay client uses authenticated gateway id for follow-up frames', 
   }
 });
 
-test('gateway relay client restores sessions from relay without dropping restored metadata', async () => {
+test('gateway relay client marks restored PTY sessions without a live runner lost while preserving metadata', async () => {
   const { store, cleanup } = tempStore();
   const ptySessions = store.ptySessions;
   const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 0 });
@@ -215,11 +215,300 @@ test('gateway relay client restores sessions from relay without dropping restore
 
     await waitFor(() => ptySessions.getSession('tth_restored_runtime') !== undefined);
     const restored = ptySessions.getSession('tth_restored_runtime');
-    assert.equal(restored?.status, 'running');
+    await waitFor(() => ptySessions.getSession('tth_restored_runtime')?.status === 'lost');
+    assert.equal(restored?.accountId, 'acct_test');
+    assert.equal(restored?.userId, 'user_test');
+    assert.equal(restored?.gatewayId, 'gw_restore_runtime');
+    assert.equal(restored?.status, 'lost');
     assert.equal(ptySessions.isRestoredSession('tth_restored_runtime'), true);
   } finally {
     await relayClient.close();
     await closeWebSocketServer(fakeRelay);
+    cleanup();
+  }
+});
+
+test('gateway relay client syncs after markSessionLost and caps recursive lost syncs', async () => {
+  const { store, cleanup } = tempStore();
+  const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  const port = await waitForWebSocketServerPort(fakeRelay);
+  const gatewaySocketPromise = waitForGatewaySocket(fakeRelay);
+  const now = Date.now();
+  store.insertSession({
+    id: 'tth_lost_sync_once',
+    provider: 'codex',
+    title: 'lost sync once',
+    projectPath: process.cwd(),
+    accountId: 'acct_test',
+    userId: 'user_test',
+    gatewayId: 'gw_lost_sync',
+    status: 'running',
+    attachState: 'detached',
+    tmuxSessionName: '',
+    command: 'codex',
+    transport: 'pty-event-stream',
+    runnerSocketPath: '/tmp/tether-lost-sync-missing.sock',
+    createdAt: now,
+    updatedAt: now,
+    lastActiveAt: now
+  });
+  const relayClient = startRelayClient({
+    url: `ws://127.0.0.1:${port}`,
+    secret: SECRET,
+    gatewayId: 'gw_lost_sync',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_lost_sync' },
+    ptySessions: store.ptySessions
+  });
+
+  try {
+    const gatewaySocket = await gatewaySocketPromise;
+    await waitForGatewayFrame(gatewaySocket, (frame) => frame.type === 'gateway.auth');
+    const sessionFrames: Array<Extract<RelayGatewayToServerFrame, { type: 'gateway.sessions' }>> = [];
+    gatewaySocket.on('message', (raw) => {
+      const frame = JSON.parse(raw.toString()) as RelayGatewayToServerFrame;
+      if (frame.type === 'gateway.sessions') {
+        sessionFrames.push(frame);
+      }
+    });
+    gatewaySocket.send(JSON.stringify({ type: 'gateway.auth.ok', gatewayId: 'gw_lost_sync' }));
+
+    await waitFor(() => store.getSession('tth_lost_sync_once')?.status === 'lost');
+    await waitFor(() => sessionFrames.length >= 2);
+    assert.equal(sessionFrames.some(frame => frame.sessions.some(session => session.id === 'tth_lost_sync_once' && session.status === 'lost')), true);
+    assert.equal(sessionFrames.length, 2);
+  } finally {
+    await relayClient.close();
+    await closeWebSocketServer(fakeRelay);
+    cleanup();
+  }
+});
+
+test('gateway relay client health check marks dead running PTY sessions lost without client traffic', async () => {
+  const { store, cleanup } = tempStore();
+  const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  const port = await waitForWebSocketServerPort(fakeRelay);
+  const gatewaySocketPromise = waitForGatewaySocket(fakeRelay);
+  const now = Date.now();
+  let alive = true;
+  store.insertSession({
+    id: 'tth_health_lost',
+    provider: 'codex',
+    title: 'health lost',
+    projectPath: process.cwd(),
+    accountId: 'acct_test',
+    userId: 'user_test',
+    gatewayId: 'gw_health_lost',
+    status: 'running',
+    attachState: 'detached',
+    tmuxSessionName: '',
+    command: 'codex',
+    transport: 'pty-event-stream',
+    runnerSocketPath: '/tmp/tether-health-lost.sock',
+    createdAt: now,
+    updatedAt: now,
+    lastActiveAt: now
+  });
+  const relayClient = startRelayClient({
+    url: `ws://127.0.0.1:${port}`,
+    secret: SECRET,
+    gatewayId: 'gw_health_lost',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_health_lost' },
+    ptySessions: store.ptySessions,
+    ptyHealthCheckIntervalMs: 20,
+    runnerClientForSession: session => ({
+      ping: async () => {
+        if (!alive) {
+          throw new Error('runner down');
+        }
+        return { sessionId: session.id };
+      }
+    }) as unknown as SessionRunnerClient
+  });
+
+  try {
+    const gatewaySocket = await gatewaySocketPromise;
+    await waitForGatewayFrame(gatewaySocket, (frame) => frame.type === 'gateway.auth');
+    gatewaySocket.send(JSON.stringify({ type: 'gateway.auth.ok', gatewayId: 'gw_health_lost' }));
+    await waitForGatewayFrame(
+      gatewaySocket,
+      (frame) => frame.type === 'gateway.sessions' && frame.sessions.some(session => session.id === 'tth_health_lost' && session.status === 'running')
+    );
+
+    alive = false;
+    const lostFrame = await waitForGatewayFrame(
+      gatewaySocket,
+      (frame) => frame.type === 'gateway.sessions' && frame.sessions.some(session => session.id === 'tth_health_lost' && session.status === 'lost'),
+      1000
+    );
+    assert.equal(lostFrame.type, 'gateway.sessions');
+    assert.equal(store.getSession('tth_health_lost')?.status, 'lost');
+  } finally {
+    await relayClient.close();
+    await closeWebSocketServer(fakeRelay);
+    cleanup();
+  }
+});
+
+test('gateway relay client health check does not overlap runner pings', async () => {
+  const { store, cleanup } = tempStore();
+  const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  const port = await waitForWebSocketServerPort(fakeRelay);
+  const gatewaySocketPromise = waitForGatewaySocket(fakeRelay);
+  const now = Date.now();
+  let inFlight = 0;
+  let maxInFlight = 0;
+  let pingCount = 0;
+  store.insertSession({
+    id: 'tth_health_no_overlap',
+    provider: 'codex',
+    title: 'health no overlap',
+    projectPath: process.cwd(),
+    accountId: 'acct_test',
+    userId: 'user_test',
+    gatewayId: 'gw_health_no_overlap',
+    status: 'running',
+    attachState: 'detached',
+    tmuxSessionName: '',
+    command: 'codex',
+    transport: 'pty-event-stream',
+    runnerSocketPath: '/tmp/tether-health-no-overlap.sock',
+    createdAt: now,
+    updatedAt: now,
+    lastActiveAt: now
+  });
+  const relayClient = startRelayClient({
+    url: `ws://127.0.0.1:${port}`,
+    secret: SECRET,
+    gatewayId: 'gw_health_no_overlap',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_health_no_overlap' },
+    ptySessions: store.ptySessions,
+    ptyHealthCheckIntervalMs: 10,
+    runnerClientForSession: session => ({
+      ping: async () => {
+        pingCount += 1;
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise(resolve => setTimeout(resolve, 60));
+        inFlight -= 1;
+        return { sessionId: session.id };
+      }
+    }) as unknown as SessionRunnerClient
+  });
+
+  try {
+    const gatewaySocket = await gatewaySocketPromise;
+    await waitForGatewayFrame(gatewaySocket, (frame) => frame.type === 'gateway.auth');
+    gatewaySocket.send(JSON.stringify({ type: 'gateway.auth.ok', gatewayId: 'gw_health_no_overlap' }));
+    await waitFor(() => pingCount >= 2, 1000);
+    assert.equal(maxInFlight, 1);
+  } finally {
+    await relayClient.close();
+    await closeWebSocketServer(fakeRelay);
+    cleanup();
+  }
+});
+
+test('gateway relay client close clears PTY health check timer', async () => {
+  const { store, cleanup } = tempStore();
+  const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  const port = await waitForWebSocketServerPort(fakeRelay);
+  const gatewaySocketPromise = waitForGatewaySocket(fakeRelay);
+  const now = Date.now();
+  let pingCount = 0;
+  store.insertSession({
+    id: 'tth_health_close',
+    provider: 'codex',
+    title: 'health close',
+    projectPath: process.cwd(),
+    accountId: 'acct_test',
+    userId: 'user_test',
+    gatewayId: 'gw_health_close',
+    status: 'running',
+    attachState: 'detached',
+    tmuxSessionName: '',
+    command: 'codex',
+    transport: 'pty-event-stream',
+    runnerSocketPath: '/tmp/tether-health-close.sock',
+    createdAt: now,
+    updatedAt: now,
+    lastActiveAt: now
+  });
+  const relayClient = startRelayClient({
+    url: `ws://127.0.0.1:${port}`,
+    secret: SECRET,
+    gatewayId: 'gw_health_close',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_health_close' },
+    ptySessions: store.ptySessions,
+    ptyHealthCheckIntervalMs: 20,
+    runnerClientForSession: session => ({
+      ping: async () => {
+        pingCount += 1;
+        return { sessionId: session.id };
+      }
+    }) as unknown as SessionRunnerClient
+  });
+
+  try {
+    const gatewaySocket = await gatewaySocketPromise;
+    await waitForGatewayFrame(gatewaySocket, (frame) => frame.type === 'gateway.auth');
+    gatewaySocket.send(JSON.stringify({ type: 'gateway.auth.ok', gatewayId: 'gw_health_close' }));
+    await waitFor(() => pingCount >= 1);
+    await relayClient.close();
+    const countAfterClose = pingCount;
+    await new Promise(resolve => setTimeout(resolve, 80));
+    assert.equal(pingCount, countAfterClose);
+  } finally {
+    await relayClient.close().catch(() => undefined);
+    await closeWebSocketServer(fakeRelay);
+    cleanup();
+  }
+});
+
+test('gateway relay client reports terminal PTY statuses so relay can clear stale running cache', async () => {
+  const { store, cleanup } = tempStore();
+  const relay = await relayAuthServer({ gatewayId: 'gw_terminal_status' });
+  const now = Date.now();
+  store.insertSession({
+    id: 'tth_terminal_status',
+    provider: 'codex',
+    title: 'terminal status',
+    projectPath: process.cwd(),
+    accountId: 'acct_test',
+    userId: 'user_test',
+    gatewayId: 'gw_terminal_status',
+    status: 'completed',
+    attachState: 'detached',
+    tmuxSessionName: '',
+    command: 'codex',
+    transport: 'pty-event-stream',
+    createdAt: now,
+    updatedAt: now,
+    lastActiveAt: now
+  });
+  const relayClient = startRelayClient({
+    url: relay.url,
+    secret: SECRET,
+    gatewayId: 'gw_terminal_status',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_terminal_status' },
+    ptySessions: store.ptySessions
+  });
+  const client = await connectRelayClient(relay.url);
+
+  try {
+    await waitForRelayClientConnected(relayClient);
+    client.send(JSON.stringify({ type: 'client.list' }));
+    const sessions = await waitForFrame(client, (frame) => frame.type === 'sessions');
+    assert.equal(sessions.type, 'sessions');
+    assert.equal(sessions.sessions.some(session => session.id === 'tth_terminal_status' && session.status === 'completed'), true);
+  } finally {
+    client.close();
+    await relayClient.close();
+    await relay.close();
     cleanup();
   }
 });
