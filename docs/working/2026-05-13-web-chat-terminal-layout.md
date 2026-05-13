@@ -67,7 +67,7 @@ apps/web/src/
 │   │   ├── workbench-session-actions.tsx
 │   │   ├── workbench-right-panel.tsx
 │   │   ├── rename-session-dialog.tsx
-│   │   └── delete-session-dialog.tsx
+│   │   └── archive-session-dialog.tsx
 │   ├── relay/
 │   │   ├── relay-client-provider.tsx
 │   │   ├── use-relay-client.ts
@@ -305,7 +305,7 @@ Chat 历史列表：Server HTTP fetchChatSessions()
 Terminal 历史/运行中列表：GET /api/server/sessions?limit=30，第一版前端过滤 transport !== 'chat'
 在线状态第一版：HTTP 返回的 status 字段
 在线状态后续：Relay WS sessions + gateway.status
-rename/delete：仍走 Server HTTP，不能只改本地 WS 快照
+rename/archive：仍走 Server HTTP，不能只改本地 WS 快照
 ```
 
 事实核对：
@@ -603,7 +603,7 @@ Chat / Terminal：tab 或 bottom sheet
 - [ ] 拆出 `workbench-session-list.tsx`。
 - [ ] 拆出 `workbench-session-actions.tsx`。
 - [ ] 拆出 `rename-session-dialog.tsx`。
-- [ ] 拆出 `delete-session-dialog.tsx` 或改名为 `archive-session-dialog.tsx`。
+- [ ] 拆出 `archive-session-dialog.tsx`。
 - [ ] 数据读取收口到 `hooks/workbench/use-workbench-sessions.ts`。
 - [ ] action 能力按 `kind` 区分：chat 支持 rename/archive，terminal 支持 rename、非 running archive、running stop。
 
@@ -728,6 +728,7 @@ pnpm --filter @tether/web build
 - terminal rename 走新接口后不会被 Gateway sync 覆盖。
 - running terminal archive 被拒绝。
 - stopped/lost/completed terminal archive 后不再出现在 Terminal tab。
+- terminal archive 后 replay 数据仍保留。
 - 旧 chat rename/delete 接口仍可用。
 
 ### Step 3：拆 WorkbenchSidebar
@@ -735,7 +736,7 @@ pnpm --filter @tether/web build
 目标：
 
 - `AppSidebar` 改名/拆分成 `WorkbenchSidebar`。
-- session list、rename dialog、delete dialog 拆成独立组件。
+- session list、rename dialog、archive dialog 拆成独立组件。
 - `WorkbenchSidebar` 内部持有 `activeTab: 'chats' | 'terminal'`。
 - 数据读取收口到 `use-workbench-sessions.ts`。
 - action 能力按 `kind` 区分：chat 支持 rename/archive，terminal 支持 rename、非 running archive、running stop。
