@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import type { ITheme } from '@xterm/xterm';
+import '@xterm/xterm/css/xterm.css';
 import { Maximize2, Minimize2, Power } from 'lucide-react';
 import {
   Button,

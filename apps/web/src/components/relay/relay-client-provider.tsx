@@ -218,6 +218,14 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
           setWsReady(true);
           reconnectAttemptRef.current = 0;
           setConnectionEpoch((epoch) => epoch + 1);
+          if (typeof frame.gatewayId === 'string') {
+            const gatewayId = frame.gatewayId;
+            setGatewayIdsOnline((current) => {
+              const next = new Set(current);
+              next.add(gatewayId);
+              return next;
+            });
+          }
           for (const owners of sessionSubscriptionsRef.current.values()) {
             const subscription = preferredSubscription(owners);
             if (subscription) {
@@ -251,7 +259,7 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
           setGatewayIdsOnline((current) => {
             const next = new Set(current);
             for (const session of nextSessions) {
-              if (session.gatewayId && session.status === 'running') {
+              if (session.gatewayId) {
                 next.add(session.gatewayId);
               }
             }

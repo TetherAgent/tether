@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { Toaster, toast } from '@tether/design';
 import { eventBus } from '@tether/http';
 import { AdminAuthProvider } from './contexts/admin-auth-context.js';
+import { registerAdminPwaServiceWorker } from './pwa.js';
 import { AdminRoutes } from './routes.js';
 import './styles.css';
 
@@ -29,6 +30,7 @@ function AdminApp() {
 }
 
 const root = document.getElementById('root')!;
+registerAdminPwaServiceWorker();
 createRoot(root).render(
   <React.StrictMode>
     <AdminApp />

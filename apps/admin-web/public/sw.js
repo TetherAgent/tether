@@ -1,7 +1,8 @@
-const CACHE_NAME = 'tether-web-assets-v1';
-const CACHE_PREFIX = 'tether-web-';
+const CACHE_NAME = 'tether-admin-assets-v1';
+const CACHE_PREFIX = 'tether-admin-';
 const STATIC_DESTINATIONS = new Set(['font', 'image', 'manifest', 'script', 'style']);
-const STATIC_PATH_PREFIX = '/assets/';
+const STATIC_PATH_PREFIX = new URL('assets/', self.location.href).pathname;
+const MANIFEST_PATH = new URL('manifest.webmanifest', self.location.href).pathname;
 
 function shouldBypassCache(request, url) {
   if (request.method !== 'GET') {
@@ -31,7 +32,7 @@ function shouldCache(request, url) {
   return (
     STATIC_DESTINATIONS.has(request.destination) ||
     url.pathname.startsWith(STATIC_PATH_PREFIX) ||
-    url.pathname === '/manifest.webmanifest'
+    url.pathname === MANIFEST_PATH
   );
 }
 

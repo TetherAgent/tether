@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Tether Admin">
+  <defs>
+    <linearGradient id="admin-icon-gradient" x1="104" y1="104" x2="408" y2="408" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#111827" />
+      <stop offset="1" stop-color="#0ea5a9" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#admin-icon-gradient)" />
+  <path d="M256 126 376 356h-70l-18-42h-68l-18 42h-66l120-230Zm12 136-14-34-14 34h28Z" fill="#f8fafc" />
+</svg>

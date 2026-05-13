@@ -1,10 +1,11 @@
 import * as React from 'react';
 import type { MessageItem } from './chat-types.js';
-import { ChatBubbleAgent } from './messages/chat-bubble-agent.js';
 import { ChatBubbleUser } from './messages/chat-bubble-user.js';
 import { PermissionPrompt } from './messages/permission-prompt.js';
 import { SystemMessage } from './messages/system-message.js';
 import { ToolCard } from './messages/tool-card.js';
+
+const ChatBubbleAgent = React.lazy(() => import('./messages/chat-bubble-agent.js').then((module) => ({ default: module.ChatBubbleAgent })));
 
 export function ChatMessageList({
   lastAgentIndex,
@@ -32,19 +33,20 @@ export function ChatMessageList({
           }
           if (message.kind === 'agent') {
             return (
-              <ChatBubbleAgent
-                key={message.id}
-                text={message.text}
-                isStreaming={message.isStreaming}
-                isWaiting={message.isWaiting}
-                isLost={message.isLost}
-                provider={message.provider}
-                usage={message.usage}
-                durationMs={message.durationMs}
-                nextSuggestions={index === lastAgentIndex ? message.nextSuggestions : undefined}
-                onSuggestionClick={onSuggestionClick}
-                onCommandClick={onCommandClick}
-              />
+              <React.Suspense key={message.id} fallback={<SystemMessage text={message.text} />}>
+                <ChatBubbleAgent
+                  text={message.text}
+                  isStreaming={message.isStreaming}
+                  isWaiting={message.isWaiting}
+                  isLost={message.isLost}
+                  provider={message.provider}
+                  usage={message.usage}
+                  durationMs={message.durationMs}
+                  nextSuggestions={index === lastAgentIndex ? message.nextSuggestions : undefined}
+                  onSuggestionClick={onSuggestionClick}
+                  onCommandClick={onCommandClick}
+                />
+              </React.Suspense>
             );
           }
           if (message.kind === 'tool') {
