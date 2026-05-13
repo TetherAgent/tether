@@ -250,6 +250,13 @@ test('stop prints success and uses relay only', () => {
   assert.doesNotMatch(source, /SessionRunnerClient/);
 });
 
+test('ls defaults to PTY sessions and exposes --all for chat sessions', () => {
+  const source = commandSource('ls');
+  assert.match(source, /\.option\('--all'/);
+  assert.match(source, /options\.all\s*\?\s*relaySessions\s*:\s*relaySessions\.filter\(s => s\.transport === 'pty-event-stream'\)/);
+  assert.match(source, /translateType\(s\.transport \?\? ''\)/);
+});
+
 test('provider session creation goes through relay websocket frames', () => {
   const source = commandSource('run');
   const relaySource = relaySessionsSource();

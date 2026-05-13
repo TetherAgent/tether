@@ -60,7 +60,8 @@ Web frame 建议：
 {
   type: 'client.new-pty-session',
   provider: 'shell' | 'claude' | 'codex',
-  launchMode: 'background'
+  launchMode: 'background',
+  clientRequestId: 'uuid'
 }
 ```
 
@@ -105,6 +106,8 @@ osascript -e 'tell application "Terminal" to do script "cd /path && tether run s
 - 前台启动第一版不保证立即返回 `sessionId`。
 - Web 成功提示即可：`已在本机终端打开，session 创建后会出现在左侧列表`。
 - 后续如需立即拿到 sessionId，再补 `tether attach <sessionId>` 方案。
+- `osascript` 必须用 `execFile` / `spawn` 列表参数调用，不要拼 shell 字符串。
+- AppleScript 里的命令字符串必须做 AppleScript 字符串转义，不等同于 shell quote。
 
 ## 目录架构建议
 
@@ -187,7 +190,23 @@ apps/web/src/components/workbench/
 TODO：
 
 - [ ] 给 `client.new-pty-session` 增加 `launchMode?: 'background' | 'local-terminal'`。
-- [ ] 保留当前字段兼容 CLI，但 Web 侧不要传任意 `command`。
+- [ ] 给 `client.new-pty-session` 增加 `clientRequestId?: string`，用于 Web 关联创建响应。
+- [ ] 把 `RelayClientToServerFrame['client.new-pty-session']` 里的 `command` 改为可选：`command?: string`。
+- [ ] 把 `cwd` 改为可选：`cwd?: string`。Web 第一版不传，由 Gateway 使用默认 project path。
+- [ ] 把 `cols` / `rows` 改为可选：`cols?: number`、`rows?: number`。Web 第一版可不传，由 Gateway 使用默认尺寸。
+- [ ] `gatewayId` 暂时保持必填，Web 从共享 Relay 状态中选择当前绑定 Gateway。
+- [ ] `RelayServerToGatewayFrame['client.new-pty-session']` 同步增加 `launchMode` / `clientRequestId`，并允许 `command` / `cwd` / `cols` / `rows` 可选。
+- [ ] `gateway.session-created` 增加 `clientRequestId?: string`，让 Web 能精确匹配响应。
+- [ ] 新增 `gateway.local-terminal-opened`，用于前台启动成功但暂时没有 `sessionId` 的场景：
+  ```ts
+  {
+    type: 'gateway.local-terminal-opened',
+    clientRequestId: string,
+    provider: 'shell' | 'claude' | 'codex'
+  }
+  ```
+- [ ] 保留当前字段兼容 CLI：CLI 继续传 `command` / `cwd` / `cols` / `rows`。
+- [ ] Web 侧不要传任意 `command` / `providerArgs`。
 - [ ] 如需要，可以增加创建失败错误码文档：
   - `gateway_not_bound`
   - `gateway_not_found`
@@ -203,8 +222,10 @@ TODO：
 TODO：
 
 - [ ] 允许转发 `launchMode`。
+- [ ] 允许转发 `clientRequestId`。
 - [ ] 保持 Gateway 绑定和 scope 校验。
 - [ ] 不在 Relay 里解释 provider。
+- [ ] 不需要在 Relay 层过滤 `command`。现有安全边界在 Gateway `onNewPtySession`：`pty-handler.ts` 当前调用时没有把 `frame.command` 传给创建处理器。
 
 验收：
 
@@ -220,11 +241,17 @@ TODO：
 
 - [ ] 增加 provider 白名单校验：`shell` / `claude` / `codex`。
 - [ ] 后台模式复用现有 `PtySessionManager.create(...)`。
+- [ ] Web 未传 `cwd` 时使用 Gateway 默认 project path，不能使用浏览器传来的空字符串。
+- [ ] Web 未传 `cols` / `rows` 时使用默认尺寸，例如 `120x40`。
 - [ ] 前台模式新增 `openLocalTerminalForProvider(...)`。
-- [ ] macOS 下用 `osascript` 打开 Terminal.app。
+- [ ] macOS 下用 `execFile` / `spawn` 调 `osascript` 打开 Terminal.app。
 - [ ] 非 macOS 返回明确错误：`local_terminal_unsupported`。
 - [ ] 前台模式只执行固定命令：`tether run <provider>`。
-- [ ] 前台模式命令里的 cwd 必须做 shell quote。
+- [ ] 前台模式命令里的 cwd 必须分别处理两层转义：
+  - shell 层：`cd <quoted cwd> && tether run <provider>`，cwd 需要 shell quote。
+  - AppleScript 层：整条 shell command 作为 AppleScript 字符串，`"`、`\` 等字符需要 AppleScript 字符串转义。
+- [ ] `gateway.session-created` 回传 `clientRequestId`。
+- [ ] 前台模式如果只是打开 Terminal.app，不返回 `sessionId`，应回 `gateway.local-terminal-opened`；不要复用 `gateway.session-created`，避免 Web 误跳转。
 
 不做：
 
@@ -249,6 +276,11 @@ TODO：
 
 TODO：
 
+- [ ] 从 `relay-client-provider.tsx` 暴露 `createPtySession(...)`，不要让 UI 直接拼 WebSocket 细节。
+- [ ] `createPtySession(...)` 生成 `clientRequestId`，发 frame 后等待匹配的 `gateway.session-created` / `gateway.local-terminal-opened` / `error`。
+- [ ] 等待响应时必须按 `clientRequestId` 关联，不能靠“下一条 session-created”时序猜测。
+- [ ] Web 选择 `gatewayId`：优先使用当前绑定/在线 Gateway；如果有多个 Gateway，第一版可禁用并提示需要先选择 Gateway，或复用现有 Gateway selector 的选中值。
+- [ ] 后台创建 frame 第一版不传 `command` / `cwd` / `providerArgs`，`cols` / `rows` 可不传或传默认值。
 - [ ] 在 Terminal 空态增加 provider 创建区域。
 - [ ] 支持三个 provider：
   - `Shell`
@@ -267,6 +299,7 @@ TODO：
 
 - [ ] `/terminal` 没有 session 时显示创建入口。
 - [ ] Terminal 列表已有 session 时仍能创建新 session。
+- [ ] 多个快速创建请求不会串响应；每个请求只处理自己的 `clientRequestId`。
 - [ ] 后台 Shell 创建后进入 `/terminal/:id`。
 - [ ] 后台 Claude 创建后进入 `/terminal/:id`。
 - [ ] 后台 Codex 创建后进入 `/terminal/:id`。

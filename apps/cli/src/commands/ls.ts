@@ -124,15 +124,19 @@ export function registerLsCommand(program: Command): void {
   program
     .command('ls')
     .description('列出已知 session')
-    .action(async () => {
+    .option('--all', '显示所有 session，包括 chat 对话')
+    .action(async (options: { all?: boolean }) => {
       const relay = resolveRelayConfig({ file: readTetherConfig() });
       if (!relay) {
         throw new Error('当前 Gateway 未配置 Relay，无法列出 session。');
       }
       const auth = await readFreshGatewayAuthState();
-      const sessions = await listSessionsViaRelay(relay.url, auth.accessToken).catch((error: unknown) => {
+      const relaySessions = await listSessionsViaRelay(relay.url, auth.accessToken).catch((error: unknown) => {
         throw new Error(`无法连接 Relay：${String(error)}`);
       });
+      const sessions = options.all
+        ? relaySessions
+        : relaySessions.filter(s => s.transport === 'pty-event-stream');
 
       if (sessions.length === 0) {
         console.log(color.dim('没有活跃的 session。'));
