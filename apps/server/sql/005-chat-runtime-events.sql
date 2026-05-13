@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS gateway_runtime_chats_events (
   event_id    BIGINT          NOT NULL,
   event_type  VARCHAR(64)     NOT NULL,
   raw_json    MEDIUMTEXT      NOT NULL,
+  provider_raw_json MEDIUMTEXT NULL,
   created_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at  TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY  uk_session_event (session_id, event_id)
@@ -31,3 +32,9 @@ SET @p16_ddl = IF(@p16_col_exists = 0, 'ALTER TABLE gateway_chat_messages ADD CO
 PREPARE p16_stmt FROM @p16_ddl;
 EXECUTE p16_stmt;
 DEALLOCATE PREPARE p16_stmt;
+
+SET @p16_provider_raw_col_exists = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'gateway_runtime_chats_events' AND COLUMN_NAME = 'provider_raw_json');
+SET @p16_provider_raw_ddl = IF(@p16_provider_raw_col_exists = 0, 'ALTER TABLE gateway_runtime_chats_events ADD COLUMN provider_raw_json MEDIUMTEXT NULL AFTER raw_json', 'SELECT 1 /* provider_raw_json already exists */');
+PREPARE p16_provider_raw_stmt FROM @p16_provider_raw_ddl;
+EXECUTE p16_provider_raw_stmt;
+DEALLOCATE PREPARE p16_provider_raw_stmt;

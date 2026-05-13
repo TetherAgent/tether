@@ -268,17 +268,20 @@ export default class RuntimeSyncRepositoryService extends Service {
         console.warn(`[server] upsertChatRuntimeEvent scope mismatch: ${sessionId}`);
         return;
       }
-      const rawJson = truncatePayload(maskPayload(event));
+      const { event: sanitizedEvent, providerRaw } = this.extractProviderRawEvent(event);
+      const rawJson = truncatePayload(maskPayload(sanitizedEvent));
+      const providerRawJson = providerRaw === undefined ? null : truncatePayload(maskPayload(providerRaw));
       await connection.query(
-        `INSERT INTO gateway_runtime_chats_events (session_id, event_id, event_type, raw_json, created_at)
-         VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO gateway_runtime_chats_events (session_id, event_id, event_type, raw_json, provider_raw_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            event_type = VALUES(event_type),
            raw_json = VALUES(raw_json),
+           provider_raw_json = VALUES(provider_raw_json),
            updated_at = CURRENT_TIMESTAMP`,
-        [sessionId, eventId, eventType, rawJson, this.toDate(createdAt)]
+        [sessionId, eventId, eventType, rawJson, providerRawJson, this.toDate(createdAt)]
       );
-      await this.upsertDerivedChatMessageRawJson(connection, sessionId, eventId, eventType, event, rawJson, createdAt);
+      await this.upsertDerivedChatMessageRawJson(connection, sessionId, eventId, eventType, sanitizedEvent, rawJson, createdAt);
     });
   }
 
@@ -424,6 +427,22 @@ export default class RuntimeSyncRepositoryService extends Service {
       return payload as Record<string, unknown>;
     }
     return {};
+  }
+
+  private extractProviderRawEvent(eventInput: unknown): { event: unknown; providerRaw?: unknown } {
+    const event = this.normalizePayload(eventInput);
+    const payload = this.normalizePayload(event.payload);
+    if (!Object.prototype.hasOwnProperty.call(payload, 'providerRaw')) {
+      return { event: eventInput };
+    }
+    const { providerRaw, ...cleanPayload } = payload;
+    return {
+      event: {
+        ...event,
+        payload: cleanPayload
+      },
+      providerRaw
+    };
   }
 
   private parseJsonObject(value: unknown): Record<string, unknown> {

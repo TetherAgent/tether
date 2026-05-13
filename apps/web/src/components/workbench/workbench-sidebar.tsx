@@ -30,13 +30,14 @@ export function WorkbenchSidebar({
   const { t } = useI18n();
   const { normalAuth, logoutNormal } = useAuth();
   const { isDark, toggleTheme } = useUiPreferences();
-  const { gatewayIdsOnline, relaySessions } = useRelayClient();
+  const { gatewayIdsOnline, relaySessions, relaySessionsVersion } = useRelayClient();
   const navigate = useNavigate();
   const location = useLocation();
   const activeTab: WorkbenchSidebarTab = location.pathname.startsWith('/terminal') ? 'terminal' : 'chats';
   const { loadSessions, sessions, setSessions } = useWorkbenchSessions({
     activeSessionId,
     refreshKey,
+    relayRefreshKey: relaySessionsVersion,
     tab: activeTab
   });
   const [renameDialog, setRenameDialog] = React.useState<RenameDialogState>(null);

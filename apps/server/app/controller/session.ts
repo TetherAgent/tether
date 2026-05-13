@@ -19,7 +19,16 @@ export default class SessionController extends Controller {
     const { accountId, userId } = authScope(ctx);
     const limit = Math.min(Number(ctx.query.limit) || 50, 200);
     const offset = Math.max(Number(ctx.query.offset) || 0, 0);
-    const sessions = await ctx.service.sessionRepository.listSessions(accountId, userId, limit, offset);
+    const status = typeof ctx.query.status === 'string' && ctx.query.status.trim()
+      ? ctx.query.status.trim()
+      : 'running';
+    const transport = typeof ctx.query.transport === 'string' && ctx.query.transport.trim()
+      ? ctx.query.transport.trim()
+      : undefined;
+    const sessions = await ctx.service.sessionRepository.listSessions(accountId, userId, limit, offset, {
+      status,
+      transport
+    });
     ctx.success({ sessions });
   }
 

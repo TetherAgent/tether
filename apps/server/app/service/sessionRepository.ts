@@ -18,6 +18,11 @@ type GatewaySessionRecord = {
 
 export type AdminSessionRecord = GatewaySessionRecord & { userEmail?: string };
 
+type ListSessionsOptions = {
+  status?: string;
+  transport?: string;
+};
+
 type AdminChatMessageRecord = {
   id: number;
   sessionId: string;
@@ -134,17 +139,29 @@ export default class SessionRepositoryService extends Service {
     accountId: string,
     userId: string,
     limit = 50,
-    offset = 0
+    offset = 0,
+    options: ListSessionsOptions = {}
   ): Promise<GatewaySessionRecord[]> {
     if (!this.mysqlModeEnabled()) {
       return [];
     }
+    const where = ['account_id = ?', 'user_id = ?', 'archived_at IS NULL'];
+    const values: unknown[] = [accountId, userId];
+    if (options.status && options.status !== 'all') {
+      where.push('status = ?');
+      values.push(options.status);
+    }
+    if (options.transport) {
+      where.push('transport = ?');
+      values.push(options.transport);
+    }
+    values.push(limit, offset);
     const rows = await this.ctx.service.db.query(
       `SELECT * FROM gateway_sessions
-       WHERE account_id = ? AND user_id = ? AND archived_at IS NULL
+       WHERE ${where.join(' AND ')}
         ORDER BY last_active_at DESC, updated_at DESC
         LIMIT ? OFFSET ?`,
-      [accountId, userId, limit, offset]
+      values
     );
     return (rows as Record<string, unknown>[]).map((row) => this.sessionFromRow(row));
   }

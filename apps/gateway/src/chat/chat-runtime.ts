@@ -37,10 +37,14 @@ export class ChatRuntime {
           message: event.payload.message
         });
       },
-      onDelta: ({ clientId, sessionId, text, deltaEventId }) => {
-        this.sendChatEvent(deltaEventId, sessionId, 'agent.delta', { clientId, text });
+      onDelta: ({ clientId, sessionId, text, deltaEventId, providerRaw }) => {
+        this.sendChatEvent(deltaEventId, sessionId, 'agent.delta', {
+          clientId,
+          text,
+          ...(providerRaw !== undefined ? { providerRaw } : {})
+        });
       },
-      onResult: ({ clientId, sessionId, event, text, usage, stopReason, contextWindow, rateLimitInfo, contextInputTokens, nextSuggestions }) => {
+      onResult: ({ clientId, sessionId, event, text, usage, stopReason, contextWindow, rateLimitInfo, contextInputTokens, nextSuggestions, providerRaw }) => {
         options.chatRegistry.releaseInFlight(sessionId);
         this.sendChatEvent(event.id, sessionId, 'agent.result', {
           clientId,
@@ -50,7 +54,8 @@ export class ChatRuntime {
           ...(contextWindow !== undefined ? { contextWindow } : {}),
           ...(rateLimitInfo ? { rateLimitInfo } : {}),
           ...(contextInputTokens !== undefined ? { contextInputTokens } : {}),
-          ...(nextSuggestions && nextSuggestions.length > 0 ? { nextSuggestions } : {})
+          ...(nextSuggestions && nextSuggestions.length > 0 ? { nextSuggestions } : {}),
+          ...(providerRaw !== undefined ? { providerRaw } : {})
         });
       },
       onPermissionRequest: ({ clientId, sessionId, requestId, toolName, input }) => {
@@ -61,13 +66,14 @@ export class ChatRuntime {
           input
         });
       },
-      onTool: ({ clientId, sessionId, event, name, input, result, isError }) => {
+      onTool: ({ clientId, sessionId, event, name, input, result, isError, providerRaw }) => {
         this.sendChatEvent(event.id, sessionId, 'agent.tool', {
           clientId,
           name,
           input,
           ...(result ? { result } : {}),
-          ...(isError !== undefined ? { isError } : {})
+          ...(isError !== undefined ? { isError } : {}),
+          ...(providerRaw !== undefined ? { providerRaw } : {})
         });
       },
       onError: ({ clientId, sessionId, code, message, event }) => {

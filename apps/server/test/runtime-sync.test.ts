@@ -279,8 +279,111 @@ describe('test/runtime-sync.test.ts', () => {
 
     const chatEventsInsert = queries.find(query => /INSERT INTO gateway_runtime_chats_events/.test(query.sql))
     assert(chatEventsInsert, 'should have INSERT INTO gateway_runtime_chats_events')
+    assert.match(chatEventsInsert.sql, /provider_raw_json/)
+    assert.equal(chatEventsInsert.values?.[4], null)
     const rawJsonUpdate = queries.find(query => /UPDATE gateway_chat_messages SET raw_json/.test(query.sql))
     assert(!rawJsonUpdate, 'agent.delta should not update gateway_chat_messages.raw_json')
+  })
+
+  it('upsertChatRuntimeEvent transport=chat — providerRaw 写入 provider_raw_json 且 raw_json 保持干净', async () => {
+    const queries: Array<{ sql: string; values?: any[] }> = []
+    const db = ctx.service.db as unknown as {
+      mysqlModeEnabled: () => boolean
+      transaction: <T>(run: (connection: { query: (sql: string, values?: any[]) => Promise<unknown> }) => Promise<T>) => Promise<T>
+    }
+    db.mysqlModeEnabled = () => true
+    db.transaction = async run => {
+      const connection = {
+        query: async (sql: string, values?: any[]) => {
+          queries.push({ sql, values })
+          if (/SELECT user_id FROM gateway_sessions/.test(sql)) {
+            return [{ user_id: 'user_1' }]
+          }
+          if (/SELECT session_id FROM gateway_deleted_sessions/.test(sql)) {
+            return []
+          }
+          if (/SELECT id FROM gateway_sessions[\s\S]*gateway_id <>/.test(sql)) {
+            return []
+          }
+          return { affectedRows: 1 }
+        }
+      }
+      return await run(connection)
+    }
+
+    const providerRaw = { type: 'result', result: 'done', note: 'token=secret-value' }
+    const event = {
+      id: 7,
+      type: 'agent.result',
+      sessionId: 'tth_provider_raw_session',
+      ts: Date.now(),
+      payload: {
+        text: 'done',
+        usage: { input_tokens: 1, output_tokens: 2 },
+        providerRaw
+      }
+    }
+    await ctx.service.runtimeSyncRepository.upsertChatRuntimeEvent(
+      'tth_provider_raw_session',
+      7,
+      'agent.result',
+      event,
+      { accountId: 'acct_1', gatewayId: 'gw_1', transport: 'chat' },
+      Date.now()
+    )
+
+    const chatEventsInsert = queries.find(query => /INSERT INTO gateway_runtime_chats_events/.test(query.sql))
+    assert(chatEventsInsert, 'should have INSERT INTO gateway_runtime_chats_events')
+    const rawJson = String(chatEventsInsert.values?.[3] ?? '')
+    const providerRawJson = String(chatEventsInsert.values?.[4] ?? '')
+    assert(!rawJson.includes('providerRaw'), 'raw_json should not contain providerRaw')
+    assert(providerRawJson.includes('"type":"result"'), 'provider_raw_json should contain provider event')
+    assert(providerRawJson.includes('[REDACTED]'), 'provider_raw_json should be masked')
+
+    const messageInsert = queries.find(query => /INSERT INTO gateway_chat_messages/.test(query.sql))
+    assert(messageInsert, 'agent.result should upsert gateway_chat_messages')
+    assert(!String(messageInsert.values?.[5] ?? '').includes('providerRaw'), 'gateway_chat_messages.raw_json should remain clean')
+  })
+
+  it('upsertChatRuntimeEvent transport=chat — non-provider events write NULL provider_raw_json', async () => {
+    const queries: Array<{ sql: string; values?: any[] }> = []
+    const db = ctx.service.db as unknown as {
+      mysqlModeEnabled: () => boolean
+      transaction: <T>(run: (connection: { query: (sql: string, values?: any[]) => Promise<unknown> }) => Promise<T>) => Promise<T>
+    }
+    db.mysqlModeEnabled = () => true
+    db.transaction = async run => {
+      const connection = {
+        query: async (sql: string, values?: any[]) => {
+          queries.push({ sql, values })
+          if (/SELECT user_id FROM gateway_sessions/.test(sql)) {
+            return [{ user_id: 'user_1' }]
+          }
+          if (/SELECT session_id FROM gateway_deleted_sessions/.test(sql)) {
+            return []
+          }
+          if (/SELECT id FROM gateway_sessions[\s\S]*gateway_id <>/.test(sql)) {
+            return []
+          }
+          return { affectedRows: 1 }
+        }
+      }
+      return await run(connection)
+    }
+
+    const event = { id: 8, type: 'user.message', sessionId: 'tth_user_session', ts: Date.now(), payload: { message: 'hello' } }
+    await ctx.service.runtimeSyncRepository.upsertChatRuntimeEvent(
+      'tth_user_session',
+      8,
+      'user.message',
+      event,
+      { accountId: 'acct_1', gatewayId: 'gw_1', transport: 'chat' },
+      Date.now()
+    )
+
+    const chatEventsInsert = queries.find(query => /INSERT INTO gateway_runtime_chats_events/.test(query.sql))
+    assert(chatEventsInsert, 'should have INSERT INTO gateway_runtime_chats_events')
+    assert.equal(chatEventsInsert.values?.[4], null)
   })
 
   it('upsertChatRuntimeEvent transport=chat — agent.result 写入 messages raw_json', async () => {

@@ -15,6 +15,7 @@
 | 新增、删除或改名页面路由 | 本文「路由规范」和 `src/routes.tsx` |
 | 新增或修改可见文案 | `src/i18n/messages.ts` |
 | 新增页面布局模式 | 本文「布局模式」 |
+| 新增或调整 `components/` 目录分层 | 本文「目录规范」 |
 | 新增基础 UI 组件或 token 使用约束 | `../../packages/design` / `../../packages/theme` 相关文档 |
 | 新增或修改 chat-markdown / chat-code-block 样式 | `src/components/chats/chat-markdown.css` |
 | 发现新的 Web 反模式 | 本文「反模式速查」 |
@@ -34,47 +35,167 @@
 ## 目录规范
 
 ```text
-src/main.tsx                    应用启动、Provider、全局事件接线
-src/routes.tsx                  路由事实源和路由守卫
-src/pages/                      页面级入口，只放路由页面
-src/components/console/         会话控制台、登录壳、Chrome 控制等业务组件
-src/components/ui/              app 内 form glue；可共享基础组件应上移到 packages/design
-src/contexts/                   React context
-src/hooks/                      context hook 和 app hook
-src/i18n/messages.ts            中英文文案表
-src/lib/                        API、纯工具函数
-src/styles.css                  app 专属布局样式；基础 token 不在这里定义
+src/main.tsx                         应用启动、Provider、全局事件接线；
+                                     /sessions 旧终端列表 surface 仍在此渲染
+src/routes.tsx                       路由事实源和路由守卫
+src/pages/                           页面级入口，只放路由页面
+  chats-page.tsx                     /chats 和 /chats/:sessionId
+  terminal-page.tsx                  /terminal 和 /terminal/:sessionId
+  login-page.tsx
+  register-page.tsx
+  gateway-auth-page.tsx
+  session-control-page.tsx           /remote/session/:sessionId
+  session-replay-page.tsx            /remote/session/:sessionId/replay
+src/components/
+  workbench/                         Workbench 三栏布局、统一 Sidebar、会话动作
+    workbench-layout.tsx             路由嵌套 Outlet 布局；包裹 RelayClientProvider
+    workbench-sidebar.tsx            统一 Sidebar（Chats / Terminal tab 切换）
+    workbench-session-list.tsx       会话列表渲染
+    workbench-session-actions.tsx    rename / archive / stop 动作
+    workbench-status-pill.tsx        连接状态指示
+    rename-session-dialog.tsx
+    archive-session-dialog.tsx
+    types.ts                         WorkbenchSessionRecord、WorkbenchSidebarTab 等类型
+    session-utils.ts                 纯工具函数
+  relay/                             共享 Relay WebSocket transport
+    relay-client-provider.tsx        Provider：连接、认证、reconnect、sendFrame、frame fan-out
+    use-relay-client.ts              useRelayClient() hook
+  chats/                             Chat 领域 UI
+    chat-panel.tsx                   Chat 工作区主组件
+    chat-header.tsx
+    chat-message-list.tsx
+    chat-composer.tsx
+    new-chat-surface.tsx
+    app-sidebar.tsx                  旧 Sidebar（过渡期保留，逐步迁到 workbench/）
+    gateway-selector.tsx
+    slash-command-menu.tsx
+    slash-commands.ts
+    use-slash-menu.ts
+    notification-bell.tsx
+    model-avatar.tsx
+    result-card.tsx
+    chat-data.ts
+    chat-types.ts
+    chat-utils.ts
+    chat-markdown.css
+    messages/                        消息气泡和卡片组件
+      chat-bubble-agent.tsx
+      chat-bubble-user.tsx
+      permission-prompt.tsx
+      system-message.tsx
+      tool-card.tsx
+      streaming-cursor.tsx
+      thinking-dots.tsx
+  terminal/                          Terminal 可嵌入面板
+    terminal-pane.tsx                xterm 初始化、output 写入、resize、control/observe
+    terminal-session-picker.tsx      选择 running session 的选择器
+  session/                           旧整页 PTY surface（过渡期保留）
+    session-surface.tsx
+    session-detail-chrome.tsx
+    chat-bubble.tsx
+  console/                           登录壳和 Chrome 控制
+    web-auth-shell.tsx
+    web-chrome-controls.tsx
+  ui/
+    form.tsx
+src/hooks/
+  terminal/                          Terminal runtime 状态
+    use-terminal-runtime.ts
+    use-terminal-instance.ts
+    use-terminal-composer.ts
+  workbench/                         Workbench 数据
+    use-workbench-sessions.ts
+  use-auth.ts
+  use-i18n.ts
+  use-ui-preferences.ts
+  use-update-check.ts
+src/contexts/
+  auth-context.tsx
+  ui-preferences-context.tsx
+src/lib/
+  api.ts
+  provider-resume-command.ts
+  terminal-text-extractor.ts
+  utils.ts
+src/i18n/messages.ts
+src/styles.css
 ```
 
 ### 文件命名规范
 
 - 新增文件统一使用 **kebab-case**：`session-list-page.tsx`、`use-i18n.ts`、
   `auth-context.tsx`。
-- React 组件导出仍使用 **PascalCase**：`SessionListPage`、`WebAuthShell`。
-- Hook 文件用 `use-*.ts`，hook 导出用 camelCase：`useI18n`。
+- React 组件导出仍使用 **PascalCase**：`WorkbenchLayout`、`WebAuthShell`。
+- Hook 文件用 `use-*.ts`，hook 导出用 camelCase：`useRelayClient`。
 - Context 文件用 `*-context.tsx`。
 - 路由页面文件用 `*-page.tsx`。
 - 禁止新增 PascalCase 文件名；当前前端 app 文件名应保持 kebab-case。
 
+### 目录职责边界
+
+- `components/workbench/`：三栏布局、统一 Sidebar、session list/actions、连接状态。不放 chat 消息或 terminal output 业务逻辑。
+- `components/relay/`：Relay WS transport，只暴露连接能力、在线快照和 frame fan-out。不理解 chat message 或 terminal output。
+- `components/chats/`：Chat 领域 UI。不处理 terminal 输出，不拥有 Relay WS 连接。
+- `components/chats/messages/`：消息气泡和卡片，不依赖 relay 或路由。
+- `components/terminal/`：可嵌入 terminal 面板。不处理 chat message。
+- `components/session/`：旧整页 PTY surface，过渡期保留，新功能优先用 `terminal/terminal-pane.tsx`。
+- `hooks/terminal/`：terminal runtime 状态，不处理 chat。
+- `hooks/workbench/`：workbench 数据（session 列表、tab），不处理运行时业务。
+
 ## 路由规范
 
-当前 `apps/web` 只允许：
+当前 `apps/web` 路由（`src/routes.tsx` 为事实源）：
 
 | 路由 | 说明 |
 | --- | --- |
 | `/login` | 普通用户登录 |
 | `/register` | 普通用户注册 |
-| `/` | 对外官网首页，公开访问 |
-| `/sessions` | 登录后的 session 列表 |
-| `/remote/session/:sessionId` | 单个终端 session |
-| `*` | 重定向 `/sessions`；未登录由守卫跳 `/login` |
+| `/gateway-auth` | Gateway 本地认证回调 |
+| `/` | 重定向到 `/chats` |
+| `/chats` | Chat 工作台（WorkbenchLayout 嵌套） |
+| `/chats/:sessionId` | 特定 chat session（WorkbenchLayout 嵌套） |
+| `/terminal` | Terminal 工作台（WorkbenchLayout 嵌套） |
+| `/terminal/:sessionId` | 特定 terminal session（WorkbenchLayout 嵌套） |
+| `/sessions` | 旧终端列表页（`main.tsx` 渲染，过渡期保留） |
+| `/remote/session/:sessionId` | 旧整页 terminal session |
+| `/remote/session/:sessionId/replay` | 旧终端 replay |
+| `*` | 重定向 `/chats` |
 
 规则：
 
 - 新增路由必须先进入 `src/routes.tsx`。
-- 需要鉴权的页面必须通过路由守卫表达，不能在页面组件里散装 `Navigate`。
+- `/chats`、`/chats/:sessionId`、`/terminal`、`/terminal/:sessionId` 由 `WorkbenchLayout` 嵌套，共享 Relay WS 连接和 Sidebar。
+- 需要鉴权的页面必须通过 `RequireUserAuth` 路由守卫表达，不能在页面组件里散装 `Navigate`。
 - `apps/web` 禁止新增 `/admin/*` 页面；后台入口在 `apps/admin-web`。
-- `main.tsx` 只负责 Provider 和把 session surface 传给路由层。
+- 不要继续把新路由挂到 `main.tsx`；`/sessions` 是遗留路由，不复制这种模式。
+
+## Relay 架构
+
+`RelayClientProvider`（`components/relay/relay-client-provider.tsx`）是共享 WebSocket transport 的唯一入口，由 `WorkbenchLayout` 包裹。
+
+Provider 只暴露：
+
+```ts
+type RelayClientContextValue = {
+  ready: boolean;
+  connectionEpoch: number;
+  gatewayIdsOnline: Set<string>;
+  gatewayNamesById: Record<string, string>;
+  relaySessions: RelaySessionSummary[];
+  sendFrame(frame: Record<string, unknown>): boolean;
+  subscribeFrame(handler: (frame: RelayFrame) => void): () => void;
+  subscribe(input: RelaySessionSubscriptionInput): void;
+  unsubscribe(ownerKey: string): void;
+};
+```
+
+禁止：
+
+- 在 `WorkbenchLayout` 以外再创建独立 Relay WS 连接。
+- 在 Provider 里处理 chat message 或 terminal output 业务状态。
+- Chat / Terminal 组件各自维护独立 WS 连接。
+
+订阅所有权：每个 runtime hook 持有唯一 `owner` key（`chat:${sessionId}` / `terminal:${sessionId}`），`unsubscribe` 时只释放自己的 owner，不影响其他消费者。
 
 ## i18n 规范
 
@@ -146,46 +267,47 @@ src/components/chats/chat-markdown.css
 - 表单卡片固定宽度；禁止宽屏铺满。
 - 移动端隐藏左侧状态面板，只保留登录卡片。
 
-### 模式 B：Session List
+### 模式 B：Workbench
 
-适用：登录后的 session 列表。
+适用：`/chats`、`/chats/:sessionId`、`/terminal`、`/terminal/:sessionId`。
 
-- 顶部只放连接设置和状态。
-- session 卡片必须保持可扫描：title、provider/status、id、path。
-- 历史 session 折叠展示。
+- 由 `WorkbenchLayout` 统一承载，内部包裹 `RelayClientProvider`。
+- 三栏结构：左侧 `WorkbenchSidebar`（260px）+ 中间内容区（flex: 1）。
+- 左侧 Sidebar 支持 Chats / Terminal tab 切换；移动端收入 drawer。
+- 内容区由 React Router `<Outlet>` 渲染对应页面（`ChatsPage` / `TerminalPage`）。
+- Relay WS 连接由 `WorkbenchLayout` 持有，`/chats` 和 `/terminal` 共享同一连接。
 
-### 模式 C：Terminal Surface
+### 模式 C：Terminal Surface（旧）
 
-适用：`/remote/session/:sessionId`。
+适用：`/remote/session/:sessionId`、`/remote/session/:sessionId/replay`。
 
-- 终端区域优先占满可用高度。
-- 输入区固定底部。
-- WebSocket / HTTP / Relay 状态必须可见。
+- 整页 terminal，由 `SessionSurface` 承载（过渡期保留）。
+- 终端区域优先占满可用高度，输入区固定底部。
+- 新功能优先使用 `components/terminal/terminal-pane.tsx` 嵌入，不要扩展旧 surface。
 
-### 模式 D：Public Landing
+### 模式 D：Auth Callback
 
-适用：`/`。
+适用：`/gateway-auth`。
 
-- 对外官网首页，服务公开叙事，不要求登录。
-- 内容必须来自当前 README / 长期事实：Gateway ownership、PTY event stream、本机执行、
-  Web / H5 / App 接入面、安全边界和路线图。
-- 可见文案必须走 `src/i18n/messages.ts`，默认中英文双语。
-- 可以使用轻量 CSS 动效，但必须支持 `prefers-reduced-motion: reduce`。
-- CTA 只能导向现有 `/login`、`/register` 或页面锚点，不新增未实现产品入口。
+- Gateway 本地认证回调页，功能页，无需完整 shell。
 
 ## 反模式速查
 
 | 禁止行为 | 正确做法 |
 | --- | --- |
-| 在 `main.tsx` 继续堆路由 | 改 `src/routes.tsx` |
+| 在 `main.tsx` 继续堆新路由 | 改 `src/routes.tsx` |
 | 新增 PascalCase 文件名 | 新文件统一 kebab-case |
 | 在页面写硬编码可见文案 | 放进 `src/i18n/messages.ts` |
 | `apps/web` 新增 `/admin/*` | 改 `apps/admin-web` |
 | 页面层重复实现基础控件 | 用 `@tether/design` |
 | 大面积品牌绿背景/阴影 | 只在主操作和状态锚点使用品牌信号 |
 | 宽屏登录表单铺满 | 走 `WebAuthShell` 固定卡片宽度 |
-| 用裸 `<select>` 做复杂选择器 | 优先 `Select`；简单调试控件例外需保持样式 token |
 | 把 `.chat-markdown` / `.chat-code-*` 样式写进 `styles.css` | 统一写入 `src/components/chats/chat-markdown.css` |
+| Chat 组件或 Terminal 组件自建 Relay WS 连接 | 通过 `useRelayClient()` 共享 WorkbenchLayout 的连接 |
+| Terminal 业务逻辑写进 `components/chats/` | 放 `components/terminal/` 和 `hooks/terminal/` |
+| `unsubscribe` 时不指定 owner key | 传自己的 `chat:${sessionId}` / `terminal:${sessionId}` owner，防止误断他方订阅 |
+| 新功能扩展 `components/session/session-surface.tsx` | 用 `components/terminal/terminal-pane.tsx` |
+| 用裸 `<select>` 做复杂选择器 | 优先 `Select`；简单调试控件例外需保持样式 token |
 
 ## 验证
 

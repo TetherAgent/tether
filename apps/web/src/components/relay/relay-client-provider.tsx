@@ -34,6 +34,7 @@ type RelayClientContextValue = RelayClientApi & {
   connectionEpoch: number;
   gatewayIdsOnline: Set<string>;
   relaySessions: RelaySessionSummary[];
+  relaySessionsVersion: number;
   acquireSessionSubscription: (input: RelaySessionSubscriptionInput) => () => void;
   subscribeFrame: (handler: RelayFrameHandler) => () => void;
   subscribeClose: (handler: RelayCloseHandler) => () => void;
@@ -88,6 +89,7 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
   const [connectionEpoch, setConnectionEpoch] = React.useState(0);
   const [gatewayIdsOnline, setGatewayIdsOnline] = React.useState<Set<string>>(new Set());
   const [relaySessions, setRelaySessions] = React.useState<RelaySessionSummary[]>([]);
+  const [relaySessionsVersion, setRelaySessionsVersion] = React.useState(0);
   const wsRef = React.useRef<WebSocket | null>(null);
   const reconnectAttemptRef = React.useRef(0);
   const reconnectTimerRef = React.useRef<number | undefined>(undefined);
@@ -165,6 +167,7 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
       setWsReady(false);
       setGatewayIdsOnline(new Set());
       setRelaySessions([]);
+      setRelaySessionsVersion(0);
       return undefined;
     }
 
@@ -236,6 +239,7 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
         }
         if (frame.type === 'sessions' && Array.isArray(frame.sessions)) {
           setRelaySessions(frame.sessions.filter(isRelaySessionSummary));
+          setRelaySessionsVersion((version) => version + 1);
         }
         for (const handler of frameHandlersRef.current) {
           handler(frame, { sendFrame });
@@ -275,6 +279,7 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
       setWsReady(false);
       setGatewayIdsOnline(new Set());
       setRelaySessions([]);
+      setRelaySessionsVersion(0);
       if (currentWs && currentWs.readyState !== WebSocket.CLOSED && currentWs.readyState !== WebSocket.CLOSING) {
         currentWs.close();
       }
@@ -286,11 +291,12 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
     connectionEpoch,
     gatewayIdsOnline,
     relaySessions,
+    relaySessionsVersion,
     sendFrame,
     subscribeClose,
     subscribeFrame,
     wsReady
-  }), [acquireSessionSubscription, connectionEpoch, gatewayIdsOnline, relaySessions, sendFrame, subscribeClose, subscribeFrame, wsReady]);
+  }), [acquireSessionSubscription, connectionEpoch, gatewayIdsOnline, relaySessions, relaySessionsVersion, sendFrame, subscribeClose, subscribeFrame, wsReady]);
 
   return (
     <RelayClientContext.Provider value={value}>

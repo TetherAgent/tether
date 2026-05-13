@@ -18,8 +18,8 @@ import ExportAdminAdmins from '../../../app/controller/admin/admins';
 import ExportAdminAudit from '../../../app/controller/admin/audit';
 import ExportAdminDevices from '../../../app/controller/admin/devices';
 import ExportAdminGateways from '../../../app/controller/admin/gateways';
-import ExportAdminUsers from '../../../app/controller/admin/users';
 import ExportAdminSessions from '../../../app/controller/admin/sessions';
+import ExportAdminUsers from '../../../app/controller/admin/users';
 
 declare module 'egg' {
   interface IController {
@@ -39,8 +39,8 @@ declare module 'egg' {
       audit: ExportAdminAudit;
       devices: ExportAdminDevices;
       gateways: ExportAdminGateways;
-      users: ExportAdminUsers;
       sessions: ExportAdminSessions;
+      users: ExportAdminUsers;
     }
   }
 }

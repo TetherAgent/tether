@@ -139,59 +139,61 @@ provider_raw_json = {"type":"result","result":"最终回答","usage":{"input_tok
 
 ## TODO
 
-- [ ] `apps/server/sql/005-chat-runtime-events.sql`
-  - [ ] 给 `gateway_runtime_chats_events` 增加 `provider_raw_json MEDIUMTEXT NULL`。
-  - [ ] 使用幂等 migration，字段已存在时不重复添加。
+- [x] `apps/server/sql/005-chat-runtime-events.sql`
+  - [x] 给 `gateway_runtime_chats_events` 增加 `provider_raw_json MEDIUMTEXT NULL`。
+  - [x] 使用幂等 migration，字段已存在时不重复添加。
 
-- [ ] `apps/gateway/src/chat/chat-session-runner.ts`
-  - [ ] `LineEmitter.delta()` 支持携带 `providerRaw`。
-  - [ ] `LineEmitter.result()` opts 支持携带 `providerRaw`。
-  - [ ] 需要时让 `tool` / `permission_request` 也能携带 `providerRaw`。
-  - [ ] `ChatRunnerOptions.onDelta` / `onResult` / `onTool` 的事件参数支持携带可选 `providerRaw`。
-  - [ ] Claude / Codex / Copilot adapter 在解析原始 JSON 后，把 parsed event 作为 `providerRaw` 传下去。
-  - [ ] 默认不为 `agent.delta` 传 `providerRaw`，除非后续增加 debug 开关。
-  - [ ] 保持标准事件 payload 的 `text` / `usage` / `tool` 等字段不变。
+- [x] `apps/gateway/src/chat/chat-session-runner.ts`
+  - [x] `LineEmitter.delta()` 支持携带 `providerRaw`。
+  - [x] `LineEmitter.result()` opts 支持携带 `providerRaw`。
+  - [x] `tool` 支持携带 `providerRaw`。
+  - [x] `ChatRunnerOptions.onDelta` / `onResult` / `onTool` 的事件参数支持携带可选 `providerRaw`。
+  - [x] Claude / Codex / Copilot adapter 在解析原始 JSON 后，把 parsed event 作为 `providerRaw` 传下去。
+  - [x] 默认不为 `agent.delta` 传 `providerRaw`，除非后续增加 debug 开关。
+  - [x] 保持标准事件 payload 的 `text` / `usage` / `tool` 等字段不变。
 
-- [ ] `apps/gateway/src/chat/chat-runtime.ts`
-  - [ ] 内部发送 Relay event 时允许 payload 暂带 `providerRaw`。
-  - [ ] 不改变现有 `agent.delta` / `agent.result` 对前端需要的标准字段。
-  - [ ] 默认只在 `agent.result` / `agent.tool` payload 内部携带 `providerRaw`。
+- [x] `apps/gateway/src/chat/chat-runtime.ts`
+  - [x] 内部发送 Relay event 时允许 payload 暂带 `providerRaw`。
+  - [x] 不改变现有 `agent.delta` / `agent.result` 对前端需要的标准字段。
+  - [x] 默认只在 `agent.result` / `agent.tool` payload 内部携带 `providerRaw`。
 
-- [ ] `apps/relay/src/relay.ts`
-  - [ ] 同步 Server 时保留 `providerRaw`。
-  - [ ] 确认当前广播给前端的 `agent.delta` / `agent.result` / `agent.tool` frame 不会透传 `providerRaw`；如现有手工挑字段逻辑仍成立，不需要额外过滤代码。
-  - [ ] 确认 `agent.delta` 的独立 sync 路径和 `RUNTIME_EVENT_WHITELIST` 路径都不会丢失需要同步到 Server 的 `providerRaw`。
-  - [ ] chat catchup 继续只依赖 `raw_json` 的 `payload.text`，不读取 `provider_raw_json`。
+- [x] `apps/relay/src/relay.ts`
+  - [x] 同步 Server 时保留 `providerRaw`。
+  - [x] 确认当前广播给前端的 `agent.delta` / `agent.result` / `agent.tool` frame 不会透传 `providerRaw`；现有手工挑字段逻辑仍成立，不需要额外过滤代码。
+  - [x] 确认 `agent.delta` 的独立 sync 路径和 `RUNTIME_EVENT_WHITELIST` 路径都不会丢失需要同步到 Server 的 `providerRaw`。
+  - [x] chat catchup 继续只依赖 `raw_json` 的 `payload.text`，不读取 `provider_raw_json`。
 
-- [ ] `apps/server/app/service/runtimeSyncRepository.ts`
-  - [ ] `upsertChatRuntimeEvent()` 从 event payload 中提取 `providerRaw`。
-  - [ ] 写 `gateway_runtime_chats_events.raw_json` 前剥离 `providerRaw`，保持 `raw_json` 是干净的 Tether 标准 event。
-  - [ ] 将 `providerRaw` 经过 `maskPayload()` / `truncatePayload()` 后写入 `provider_raw_json`。
-  - [ ] 默认只为 `agent.result` / `agent.tool` 写入 provider raw。
-  - [ ] `agent.delta` 默认写 NULL。
-  - [ ] `user.message` / `agent.permission_request` / `session.error` 等没有 `payload.providerRaw` 的事件写 NULL。
-  - [ ] `gateway_chat_messages.raw_json` 保持现有逻辑，不写 provider raw。
+- [x] `apps/server/app/service/runtimeSyncRepository.ts`
+  - [x] `upsertChatRuntimeEvent()` 从 event payload 中提取 `providerRaw`。
+  - [x] 写 `gateway_runtime_chats_events.raw_json` 前剥离 `providerRaw`，保持 `raw_json` 是干净的 Tether 标准 event。
+  - [x] 将 `providerRaw` 经过 `maskPayload()` / `truncatePayload()` 后写入 `provider_raw_json`。
+  - [x] 默认只为携带 `payload.providerRaw` 的事件写入 provider raw；当前 Gateway 默认只给 `agent.result` / `agent.tool` 携带。
+  - [x] `agent.delta` 默认写 NULL。
+  - [x] `user.message` / `agent.permission_request` / `session.error` 等没有 `payload.providerRaw` 的事件写 NULL。
+  - [x] `gateway_chat_messages.raw_json` 保持现有逻辑，不写 provider raw。
 
-- [ ] 查询接口
-  - [ ] 暂不改普通聊天历史接口。
-  - [ ] 如需后台查看 provider raw，再单独扩展 admin/runtime event 查询返回 `provider_raw_json`。
+- [x] 查询接口
+  - [x] 暂不改普通聊天历史接口。
+  - [x] 如需后台查看 provider raw，再单独扩展 admin/runtime event 查询返回 `provider_raw_json`。
 
 ## 验收项目
 
 ### 自动化验收
 
-- [ ] `pnpm --filter @tether/gateway typecheck` 通过。
-- [ ] `pnpm --filter @tether/relay typecheck` 通过。
-- [ ] `pnpm --filter @tether/server test` 或相关 runtime sync 单测通过。
-- [ ] Server 单测：`gateway_runtime_chats_events.provider_raw_json` 会写入 provider 原始 JSON。
-- [ ] Server 单测：`gateway_runtime_chats_events.raw_json` 不包含 `providerRaw`。
-- [ ] Server 单测：`agent.delta` 默认写 `provider_raw_json = NULL`。
-- [ ] Server 单测：`user.message` / `agent.permission_request` / `session.error` 没有 provider raw 时写 NULL。
-- [ ] Server 单测：`gateway_chat_messages.raw_json` 不写 provider raw。
-- [ ] Relay 单测：广播给前端的 `agent.delta` / `agent.result` 不包含 `providerRaw`。
-- [ ] Relay 单测：同步 Server 的 event 保留 `providerRaw`。
-- [ ] Gateway 单测：Claude/Codex provider 原始 result/tool JSON 能进入标准事件的内部 `providerRaw`。
-- [ ] Gateway 单测：`agent.delta` 默认不携带 `providerRaw`。
+- [x] `pnpm --filter @tether/gateway typecheck` 通过。
+- [x] `pnpm --filter @tether/relay typecheck` 通过。
+- [x] `pnpm --filter @tether/server typecheck` 通过。
+- [ ] `pnpm --filter @tether/server test -- runtime-sync.test.ts` 通过。
+  - 当前阻塞：`apps/server/app/io/middleware/auth.js` / `auth.d.ts` 是未跟踪编译产物，和 `auth.ts` 同时被 Egg loader 加载，报 `can't overwrite property 'auth'`。清理编译产物后需要重跑。
+- [x] Server 单测已补：`gateway_runtime_chats_events.provider_raw_json` 会写入 provider 原始 JSON。
+- [x] Server 单测已补：`gateway_runtime_chats_events.raw_json` 不包含 `providerRaw`。
+- [x] Server 单测已补：`agent.delta` 默认写 `provider_raw_json = NULL`。
+- [x] Server 单测已补：`user.message` 没有 provider raw 时写 NULL。
+- [x] Server 单测已补：`gateway_chat_messages.raw_json` 不写 provider raw。
+- [x] Relay 单测：广播给前端的 `agent.result` 不包含 `providerRaw`。
+- [x] Relay 单测：同步 Server 的 event 保留 `providerRaw`。
+- [x] Gateway 单测：Claude provider 原始 result JSON 能进入标准事件的内部 `providerRaw`。
+- [x] Gateway 单测：`agent.delta` 默认不携带 `providerRaw`。
 
 ### 人工 UAT
 

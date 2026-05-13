@@ -44,11 +44,11 @@ export type ChatRunnerOptions = {
   onChatSessionCreated: (clientId: string, metadata: TrustedChatSessionMetadata) => void;
   onPermissionRequest: (event: { clientId: string; sessionId: string; requestId: string; toolName: string; input: Record<string, unknown> }) => void;
   onUserMessage: (event: { clientId: string; sessionId: string; event: ChatEvent<{ message: string }> }) => void;
-  onDelta: (event: { clientId: string; sessionId: string; text: string; deltaEventId: number }) => void;
+  onDelta: (event: { clientId: string; sessionId: string; text: string; deltaEventId: number; providerRaw?: unknown }) => void;
   onResult: (event: {
     clientId: string;
     sessionId: string;
-    event: ChatEvent<{ text: string; usage: ChatUsage; stop_reason?: string }>;
+    event: ChatEvent<{ text: string; usage: ChatUsage; stop_reason?: string; providerRaw?: unknown }>;
     text: string;
     usage: ChatUsage;
     stopReason?: string;
@@ -56,15 +56,17 @@ export type ChatRunnerOptions = {
     rateLimitInfo?: RateLimitInfo;
     contextInputTokens?: number;
     nextSuggestions?: NextSuggestion[];
+    providerRaw?: unknown;
   }) => void;
   onTool: (event: {
     clientId: string;
     sessionId: string;
-    event: ChatEvent<{ name: string; input: Record<string, unknown>; result?: string; isError?: boolean }>;
+    event: ChatEvent<{ name: string; input: Record<string, unknown>; result?: string; isError?: boolean; providerRaw?: unknown }>;
     name: string;
     input: Record<string, unknown>;
     result?: string;
     isError?: boolean;
+    providerRaw?: unknown;
   }) => void;
   onError: (event: {
     clientId: string;
@@ -156,13 +158,13 @@ export type BuildArgsParams = {
  *   - setLastUsage()     — update tracked usage before calling result()
  */
 export type LineEmitter = {
-  delta(text: string): void;
-  result(text: string, usage: ChatUsage, opts?: { stopReason?: string; nextSuggestions?: NextSuggestion[] }): void;
+  delta(text: string, providerRaw?: unknown): void;
+  result(text: string, usage: ChatUsage, opts?: { stopReason?: string; nextSuggestions?: NextSuggestion[]; providerRaw?: unknown }): void;
   rateLimitInfo(info: RateLimitInfo): void;
   contextWindow(tokens: number): void;
   contextInputTokens(tokens: number): void;
   agentSessionId(id: string): void;
-  tool(name: string, input: Record<string, unknown>): void;
+  tool(name: string, input: Record<string, unknown>, providerRaw?: unknown): void;
   permissionRequest(requestId: string, toolName: string, input: Record<string, unknown>): void;
   error(code: string, message: string): void;
   setLastUsage(usage: ChatUsage): void;
@@ -385,13 +387,13 @@ class CliChatRunner implements IChatRunner {
 
   private createEmitter(sessionId: string, active: ActiveSubprocess): LineEmitter {
     return {
-      delta: (text) => {
+      delta: (text, providerRaw) => {
         active.accumulatedText += text;
         const deltaEventId = active.nextDeltaId++;
-        this.options.onDelta({ clientId: active.clientId, sessionId, text, deltaEventId });
+        this.options.onDelta({ clientId: active.clientId, sessionId, text, deltaEventId, providerRaw });
       },
       result: (text, usage, opts) => {
-        void this.finishResult(sessionId, active, text, usage, opts?.stopReason, opts?.nextSuggestions);
+        void this.finishResult(sessionId, active, text, usage, opts?.stopReason, opts?.nextSuggestions, opts?.providerRaw);
       },
       rateLimitInfo: (info) => { active.rateLimitInfo = info; },
       contextWindow: (tokens) => { active.contextWindow = tokens; },
@@ -399,7 +401,7 @@ class CliChatRunner implements IChatRunner {
       agentSessionId: (id) => {
         this.emitAgentSessionId(sessionId, active, id);
       },
-      tool: (name, input) => { this.emitTool(sessionId, active.clientId, name, input); },
+      tool: (name, input, providerRaw) => { this.emitTool(sessionId, active.clientId, name, input, providerRaw); },
       permissionRequest: (requestId, toolName, input) => {
         active.pendingPermissions.set(requestId, (decision) => {
           this.adapter.respondToPermission?.(active.process, requestId, decision);
@@ -413,7 +415,7 @@ class CliChatRunner implements IChatRunner {
     };
   }
 
-  private async finishResult(sessionId: string, active: ActiveSubprocess, text: string, usage: ChatUsage, stopReason?: string, nextSuggestions?: NextSuggestion[]): Promise<void> {
+  private async finishResult(sessionId: string, active: ActiveSubprocess, text: string, usage: ChatUsage, stopReason?: string, nextSuggestions?: NextSuggestion[], providerRaw?: unknown): Promise<void> {
     active.completed = true;
     active.accumulatedText = text;
     if (this.adapter.afterTurn && !active.rateLimitInfo) {
@@ -425,7 +427,8 @@ class CliChatRunner implements IChatRunner {
       text,
       usage,
       lastDeltaEventId,
-      ...(stopReason ? { stop_reason: stopReason } : {})
+      ...(stopReason ? { stop_reason: stopReason } : {}),
+      ...(providerRaw !== undefined ? { providerRaw } : {})
     });
     this.emitAgentSessionId(sessionId, active, agentSessionId);
     this.options.onResult({
@@ -438,7 +441,8 @@ class CliChatRunner implements IChatRunner {
       contextWindow: active.contextWindow,
       rateLimitInfo: active.rateLimitInfo,
       contextInputTokens: active.contextInputTokens,
-      nextSuggestions
+      nextSuggestions,
+      providerRaw
     });
     this.activeSubprocesses.delete(sessionId);
   }
@@ -453,9 +457,13 @@ class CliChatRunner implements IChatRunner {
     this.options.onAgentIdUpdate(sessionId, agentSessionId);
   }
 
-  private emitTool(sessionId: string, clientId: string, name: string, input: Record<string, unknown>): void {
-    const event = createChatEvent(sessionId, 'agent.tool', { name, input });
-    this.options.onTool({ clientId, sessionId, event, name, input });
+  private emitTool(sessionId: string, clientId: string, name: string, input: Record<string, unknown>, providerRaw?: unknown): void {
+    const event = createChatEvent(sessionId, 'agent.tool', {
+      name,
+      input,
+      ...(providerRaw !== undefined ? { providerRaw } : {})
+    });
+    this.options.onTool({ clientId, sessionId, event, name, input, providerRaw });
   }
 
   private emitError(clientId: string, sessionId: string, code: string, message: string): void {
@@ -554,14 +562,14 @@ class ClaudeAdapter implements CliProviderAdapter {
     if (type === 'content_block_start') {
       const block = recordValue(event.content_block);
       if (block?.type === 'tool_use' && typeof block.name === 'string') {
-        emit.tool(block.name, recordValue(block.input) ?? {});
+        emit.tool(block.name, recordValue(block.input) ?? {}, event);
       }
       return;
     }
 
     if (type === 'tool_use') {
       if (typeof event.name === 'string') {
-        emit.tool(event.name, recordValue(event.input) ?? {});
+        emit.tool(event.name, recordValue(event.input) ?? {}, event);
       }
       return;
     }
@@ -624,7 +632,7 @@ class ClaudeAdapter implements CliProviderAdapter {
         const iterCacheCreate = numberValue(lastIter.cache_creation_input_tokens) ?? 0;
         emit.contextInputTokens(iterInput + iterCacheRead + iterCacheCreate);
       }
-      emit.result(text, usage, { stopReason, nextSuggestions: suggestionsFromPermissionDenials(event.permission_denials) });
+      emit.result(text, usage, { stopReason, nextSuggestions: suggestionsFromPermissionDenials(event.permission_denials), providerRaw: event });
       return;
     }
 
@@ -633,7 +641,7 @@ class ClaudeAdapter implements CliProviderAdapter {
       const stopReason = typeof event.stop_reason === 'string' ? event.stop_reason : undefined;
       const id = readSessionId(event) ?? readSessionId(recordValue(event.message));
       if (id) emit.agentSessionId(id);
-      emit.result(emit.getAccumulated(), usage, { stopReason });
+      emit.result(emit.getAccumulated(), usage, { stopReason, providerRaw: event });
     }
   }
 
@@ -689,7 +697,7 @@ class CodexAdapter implements CliProviderAdapter {
               : {})
           }
         : emit.getLastUsage();
-      emit.result(emit.getAccumulated(), usage);
+      emit.result(emit.getAccumulated(), usage, { providerRaw: event });
       return;
     }
 
@@ -745,7 +753,7 @@ class CopilotAdapter implements CliProviderAdapter {
 
     if (type === 'result') {
       if (typeof event.sessionId === 'string') emit.agentSessionId(event.sessionId);
-      emit.result(emit.getAccumulated(), emit.getLastUsage());
+      emit.result(emit.getAccumulated(), emit.getLastUsage(), { providerRaw: event });
       return;
     }
 

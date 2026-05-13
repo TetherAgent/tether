@@ -6,21 +6,24 @@ import type { WorkbenchSessionRecord, WorkbenchSidebarTab } from '../../componen
 export function useWorkbenchSessions({
   activeSessionId,
   refreshKey,
+  relayRefreshKey,
   tab
 }: {
   activeSessionId?: string;
   refreshKey: number;
+  relayRefreshKey?: number;
   tab: WorkbenchSidebarTab;
 }) {
   const [sessions, setSessions] = React.useState<WorkbenchSessionRecord[]>([]);
+  const didHandleRelayRefreshRef = React.useRef(false);
 
   const loadSessions = React.useCallback(() => {
     const token = getStoredNormalAccessToken();
     if (tab === 'terminal') {
-      void fetch('/api/server/sessions?limit=30', { headers: gatewayAuthHeaders(token) })
+      void fetch('/api/server/sessions?transport=pty-event-stream&limit=30', { headers: gatewayAuthHeaders(token) })
         .then((response) => response.ok ? readGatewayData<{ sessions: WorkbenchSessionRecord[] }>(response) : { sessions: [] })
         .then((data) => setSessions((data.sessions ?? [])
-          .filter((session) => session.transport !== 'chat' && session.status === 'running')
+          .filter((session) => session.transport === 'pty-event-stream')
           .map((session) => ({ ...session, kind: 'terminal' }))))
         .catch(() => undefined);
       return;
@@ -33,12 +36,6 @@ export function useWorkbenchSessions({
   React.useEffect(() => { loadSessions(); }, [activeSessionId, loadSessions, refreshKey]);
 
   React.useEffect(() => {
-    const refreshIfVisible = () => {
-      if (document.visibilityState === 'visible') {
-        loadSessions();
-      }
-    };
-    const intervalId = window.setInterval(refreshIfVisible, 30_000);
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         loadSessions();
@@ -46,10 +43,24 @@ export function useWorkbenchSessions({
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
-      window.clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [loadSessions]);
+
+  React.useEffect(() => {
+    if (tab !== 'terminal' || relayRefreshKey === undefined) {
+      didHandleRelayRefreshRef.current = false;
+      return undefined;
+    }
+    if (!didHandleRelayRefreshRef.current) {
+      didHandleRelayRefreshRef.current = true;
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      loadSessions();
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [loadSessions, relayRefreshKey, tab]);
 
   return {
     loadSessions,

@@ -839,6 +839,9 @@ Chat / Terminal：tab 或 bottom sheet
 - 2026-05-13：修复 `NotificationBell` 默认对象导致的 `useUpdateCheck()` 最大更新深度问题。
 - 2026-05-13：`TerminalPane` 的 `fitAddon.fit()` 增加容器尺寸未稳定时的防御，避免嵌入式页面初始化报错。
 - 2026-05-13：抽出 `WorkbenchStatusPill` / `WorkbenchConnectionStatus`，统一 Gateway / Relay / terminal status 的 pill 样式；Gateway 已连接判定兼容 relay session 快照，避免实际可用但一直显示连接中。
+- 2026-05-13：`GET /api/server/sessions` 契约收口为默认只返回 `running`；`?status=all` 返回所有非归档状态；`?status=lost` 只返回 lost；`?transport=pty-event-stream` 按 transport 过滤。
+- 2026-05-13：Terminal 左侧列表改为首次 HTTP 拉取 `/api/server/sessions?transport=pty-event-stream&limit=30`，后续不再 HTTP 轮询；Relay WS 的 `sessions` frame 只作为 invalidation 信号，收到后 debounce 重新拉 HTTP，避免依赖 WS 快照字段完整性。
+- 2026-05-13：旧 `/sessions` 页面改用 `/api/server/sessions?status=all&limit=30`，不受默认 `running` 过滤影响。
 - 2026-05-13：`pnpm --filter @tether/web typecheck` 与 `pnpm --filter @tether/web build` 通过。
 
 ## 风险点

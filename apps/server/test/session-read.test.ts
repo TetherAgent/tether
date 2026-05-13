@@ -38,6 +38,50 @@ describe('test/session-read.test.ts', () => {
     assert.deepStrictEqual(events, [])
   })
 
+  it('sessionRepository.listSessions defaults to caller filters and excludes archived sessions', async () => {
+    const queries: Array<{ sql: string; values?: unknown[] }> = []
+    const db = ctx.service.db as unknown as {
+      mysqlModeEnabled: () => boolean
+      query: (sql: string, values?: unknown[]) => Promise<unknown>
+    }
+    db.mysqlModeEnabled = () => true
+    db.query = async (sql, values) => {
+      queries.push({ sql, values })
+      return []
+    }
+
+    await ctx.service.sessionRepository.listSessions('acct_1', 'user_1', 30, 0, {
+      status: 'running',
+      transport: 'pty-event-stream'
+    })
+
+    assert.equal(queries.length, 1)
+    assert.match(queries[0]!.sql, /archived_at IS NULL/)
+    assert.match(queries[0]!.sql, /status = \?/)
+    assert.match(queries[0]!.sql, /transport = \?/)
+    assert.deepEqual(queries[0]!.values, ['acct_1', 'user_1', 'running', 'pty-event-stream', 30, 0])
+  })
+
+  it('sessionRepository.listSessions status=all skips status filter', async () => {
+    const queries: Array<{ sql: string; values?: unknown[] }> = []
+    const db = ctx.service.db as unknown as {
+      mysqlModeEnabled: () => boolean
+      query: (sql: string, values?: unknown[]) => Promise<unknown>
+    }
+    db.mysqlModeEnabled = () => true
+    db.query = async (sql, values) => {
+      queries.push({ sql, values })
+      return []
+    }
+
+    await ctx.service.sessionRepository.listSessions('acct_1', 'user_1', 30, 0, { status: 'all' })
+
+    assert.equal(queries.length, 1)
+    assert.match(queries[0]!.sql, /archived_at IS NULL/)
+    assert.doesNotMatch(queries[0]!.sql, /status = \?/)
+    assert.deepEqual(queries[0]!.values, ['acct_1', 'user_1', 30, 0])
+  })
+
   it('sessionRepository.renameSessionTitle marks user title without transport restriction', async () => {
     const queries: Array<{ sql: string; values?: unknown[] }> = []
     const db = ctx.service.db as unknown as {

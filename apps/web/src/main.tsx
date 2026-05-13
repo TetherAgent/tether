@@ -360,7 +360,7 @@ function SessionList({
 
   const refreshHistory = React.useCallback(async (activeIds: Set<string>) => {
     try {
-      const response = await gatewayRequest('/api/server/sessions?limit=30');
+      const response = await gatewayRequest('/api/server/sessions?status=all&limit=30');
       if (response.status === 401) {
         logoutNormal();
         return;

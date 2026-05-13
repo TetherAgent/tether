@@ -2327,7 +2327,8 @@ test('Phase16: agent.result syncs to Server with chat transport from session met
         payload: {
           text: 'done',
           usage: { input_tokens: 1, output_tokens: 2 },
-          lastDeltaEventId: 3
+          lastDeltaEventId: 3,
+          providerRaw: { type: 'result', result: 'done' }
         }
       }
     }));
@@ -2339,6 +2340,9 @@ test('Phase16: agent.result syncs to Server with chat transport from session met
     assert(syncRequest?.parsed, 'agent.result sync request should be captured');
     const scope = syncRequest.parsed.scope as { transport?: string } | undefined;
     assert.equal(scope?.transport, 'chat');
+    const event = syncRequest.parsed.event as { payload?: { providerRaw?: { type?: string; result?: string } } } | undefined;
+    assert.equal(event?.payload?.providerRaw?.type, 'result');
+    assert.equal(event?.payload?.providerRaw?.result, 'done');
   } finally {
     gateway.close();
     client.close();
@@ -2531,12 +2535,14 @@ test('Phase17-T3: relay broadcasts agent.result to all chat subscribers', async 
         id: 1703,
         type: 'agent.result',
         sessionId,
-        payload: { text: 'done', usage: { input_tokens: 1, output_tokens: 2 } }
+        payload: { text: 'done', usage: { input_tokens: 1, output_tokens: 2 }, providerRaw: { type: 'result', result: 'done' } }
       }
     }));
     const [result1, result2] = await Promise.all([result1Promise, result2Promise]);
     assert.equal(result1.text, 'done');
     assert.equal(result2.text, 'done');
+    assert.equal('providerRaw' in result1, false);
+    assert.equal('providerRaw' in result2, false);
   } finally {
     gateway.close();
     clientA1.close();

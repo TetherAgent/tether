@@ -27,8 +27,8 @@ import ExportAdminAdmins from '../../../app/service/admin/admins';
 import ExportAdminAudit from '../../../app/service/admin/audit';
 import ExportAdminDevices from '../../../app/service/admin/devices';
 import ExportAdminGateways from '../../../app/service/admin/gateways';
-import ExportAdminUsers from '../../../app/service/admin/users';
 import ExportAdminSessions from '../../../app/service/admin/sessions';
+import ExportAdminUsers from '../../../app/service/admin/users';
 
 declare module 'egg' {
   interface IService {
@@ -53,8 +53,8 @@ declare module 'egg' {
       audit: AutoInstanceType<typeof ExportAdminAudit>;
       devices: AutoInstanceType<typeof ExportAdminDevices>;
       gateways: AutoInstanceType<typeof ExportAdminGateways>;
-      users: AutoInstanceType<typeof ExportAdminUsers>;
       sessions: AutoInstanceType<typeof ExportAdminSessions>;
+      users: AutoInstanceType<typeof ExportAdminUsers>;
     }
   }
 }

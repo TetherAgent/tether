@@ -84,7 +84,9 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
     let createdProjectPath = '';
     let createdTitle = '';
     const deltas: string[] = [];
+    const deltaProviderRaw: unknown[] = [];
     const results: string[] = [];
+    const resultProviderRaw: unknown[] = [];
     const errors: string[] = [];
     const chatEventTypes: string[] = [];
     let resolveResult: (() => void) | undefined;
@@ -104,12 +106,14 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
       onUserMessage: ({ event }) => {
         chatEventTypes.push(event.type);
       },
-      onDelta: ({ text }) => {
+      onDelta: ({ text, providerRaw }) => {
         deltas.push(text);
+        deltaProviderRaw.push(providerRaw);
       },
-      onResult: ({ event, text }) => {
+      onResult: ({ event, text, providerRaw }) => {
         chatEventTypes.push(event.type);
         results.push(text);
+        resultProviderRaw.push(providerRaw);
         resolveResult?.();
       },
       onTool: () => undefined,
@@ -135,7 +139,10 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
     assert.equal(errors.length, 0);
     assert.equal(createdSessionId.startsWith('tth_'), true);
     assert.deepEqual(deltas, ['OK']);
+    assert.deepEqual(deltaProviderRaw, [undefined]);
     assert.deepEqual(results, ['OK']);
+    assert.equal((resultProviderRaw[0] as { type?: string } | undefined)?.type, 'result');
+    assert.equal((resultProviderRaw[0] as { result?: string } | undefined)?.result, 'OK');
     assert.equal(createdProjectPath, process.cwd());
     assert.equal(createdTitle, '帮我看一下这个登录问题');
     assert.equal(store.getSession(createdSessionId), undefined);
