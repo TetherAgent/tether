@@ -29,7 +29,7 @@ import { WorkbenchStatusPill } from '../workbench/workbench-status-pill.js';
 import { GatewaySelector } from './gateway-selector.js';
 import { SlashCommandMenu } from './slash-command-menu.js';
 import { useSlashMenu } from './use-slash-menu.js';
-import type { GatewayInfo, HistoryUsage, MessageItem, RelaySessionSummary, Usage, UsageStats } from './chat-types.js';
+import type { GatewayInfo, HistoryUsage, MessageItem, Usage, UsageStats } from './chat-types.js';
 import {
   compactPathLabel,
   compactProjectPath,
@@ -40,7 +40,6 @@ import {
   historyMessagesToItems,
   historySnapshotLooksOlder,
   isProviderOption,
-  isRelaySessionSummary,
   normalizeNextSuggestions,
   usageStatsFromHistory
 } from './chat-utils.js';
@@ -187,12 +186,9 @@ export function ChatPanel({
   const [activeSessionProjectPath, setActiveSessionProjectPath] = React.useState<string | undefined>(undefined);
   const [activeSessionGatewayId, setActiveSessionGatewayId] = React.useState<string | undefined>(undefined);
   const [activeSessionMetadataReady, setActiveSessionMetadataReady] = React.useState(!activeSessionId);
-  const [relayGatewayId, setRelayGatewayId] = React.useState<string | undefined>(undefined);
   const [selectedGatewayId, setSelectedGatewayId] = React.useState<string | undefined>(undefined);
   const [selectedGatewayName, setSelectedGatewayName] = React.useState<string | undefined>(undefined);
   const [gatewayNamesById, setGatewayNamesById] = React.useState<Record<string, string>>({});
-  const [onlineGatewayIds, setOnlineGatewayIds] = React.useState<Set<string>>(new Set());
-  const [relaySessions, setRelaySessions] = React.useState<RelaySessionSummary[]>([]);
   const [subscribeRetryKey, setSubscribeRetryKey] = React.useState(0);
   const [cwd, setCwd] = React.useState('~');
   const [cwdSuggestions, setCwdSuggestions] = React.useState<string[]>([]);
@@ -202,8 +198,6 @@ export function ChatPanel({
   const [connectionError, setConnectionError] = React.useState<string | undefined>(undefined);
   const [sessionAccessError, setSessionAccessError] = React.useState<string | undefined>(undefined);
   const hasEverConnectedRef = React.useRef(false);
-  const [gatewayReady, setGatewayReady] = React.useState(false);
-  const [hasGatewayStatusFrame, setHasGatewayStatusFrame] = React.useState(false);
   const [usageStats, setUsageStats] = React.useState<UsageStats | undefined>(undefined);
   const [copiedAgentId, setCopiedAgentId] = React.useState(false);
   const [sessionSettingsOpen, setSessionSettingsOpen] = React.useState(false);
@@ -220,7 +214,6 @@ export function ChatPanel({
   const currentSessionIdRef = React.useRef(currentSessionId);
   const selectedGatewayIdRef = React.useRef(selectedGatewayId);
   const activeSessionGatewayIdRef = React.useRef(activeSessionGatewayId);
-  const onlineGatewayIdsRef = React.useRef(onlineGatewayIds);
   const subscribedSessionIdRef = React.useRef<string | null>(null);
   const releaseSessionSubscriptionRef = React.useRef<(() => void) | null>(null);
   const lastDeltaEventIdRef = React.useRef<number>(0);
@@ -234,6 +227,20 @@ export function ChatPanel({
   const previousSelectedGatewayIdRef = React.useRef<string | undefined>(undefined);
   const providerRequestKeyRef = React.useRef<string | undefined>(undefined);
   const isComposingRef = React.useRef(false);
+
+  const relay = useRelayClient();
+  const {
+    acquireSessionSubscription,
+    connectionEpoch,
+    defaultGatewayId,
+    gatewayConnected,
+    gatewayIdsOnline,
+    relaySessions: providerRelaySessions,
+    sendFrame,
+    subscribeClose,
+    subscribeFrame,
+    wsReady
+  } = relay;
 
   React.useEffect(() => {
     cwdRef.current = cwd;
@@ -262,10 +269,6 @@ export function ChatPanel({
   React.useEffect(() => {
     activeSessionGatewayIdRef.current = activeSessionGatewayId;
   }, [activeSessionGatewayId]);
-
-  React.useEffect(() => {
-    onlineGatewayIdsRef.current = onlineGatewayIds;
-  }, [onlineGatewayIds]);
 
   const scrollMessagesToBottom = React.useCallback((behavior: ScrollBehavior = 'smooth') => {
     window.requestAnimationFrame(() => {
@@ -372,7 +375,7 @@ export function ChatPanel({
     if (!currentSessionId) {
       return;
     }
-    const session = relaySessions.find((item) => item.id === currentSessionId);
+    const session = providerRelaySessions.find((item) => item.id === currentSessionId);
     if (!session) {
       return;
     }
@@ -387,7 +390,7 @@ export function ChatPanel({
       setActiveSessionProjectPath(session.projectPath);
     }
     setActiveSessionMetadataReady(true);
-  }, [currentSessionId, relaySessions]);
+  }, [currentSessionId, providerRelaySessions]);
 
   React.useEffect(() => {
     if (!activeSessionId) {
@@ -442,26 +445,14 @@ export function ChatPanel({
 
   const handleRelayClose = React.useCallback(() => {
     subscribedSessionIdRef.current = null;
-    setGatewayReady(false);
-    setHasGatewayStatusFrame(false);
-    setRelayGatewayId(undefined);
-    setSelectedGatewayId(undefined);
-    setOnlineGatewayIds(new Set());
     setConnectionError(t.gatewayNotConnected);
     setIsInflight(false);
     currentAgentIdRef.current = null;
   }, [t.gatewayNotConnected]);
 
-  const markGatewayReadyFallback = React.useCallback((gatewayId?: string) => {
-    if (hasGatewayStatusFrame) {
-      return;
-    }
-    if (gatewayId) {
-      setRelayGatewayId(gatewayId);
-    }
-    setGatewayReady(true);
+  const clearGatewayNotConnectedError = React.useCallback(() => {
     setConnectionError((current) => current === t.gatewayNotConnected ? undefined : current);
-  }, [hasGatewayStatusFrame, t.gatewayNotConnected]);
+  }, [t.gatewayNotConnected]);
 
   const handleRelayFrame = React.useCallback((frame: RelayFrame, relay: { sendFrame: (frame: Record<string, unknown>) => boolean }) => {
       if (frame.type === 'client.auth.ok') {
@@ -471,57 +462,35 @@ export function ChatPanel({
       }
       if (frame.type === 'hello') {
         const gatewayId = typeof frame.gatewayId === 'string' ? frame.gatewayId : undefined;
-        setRelayGatewayId(gatewayId);
         if (gatewayId) {
           setSelectedGatewayId((current) => current ?? gatewayId);
-          markGatewayReadyFallback(gatewayId);
+          clearGatewayNotConnectedError();
         }
         return;
       }
       if (frame.type === 'gateway.status' && typeof frame.gatewayId === 'string') {
         const gatewayId = frame.gatewayId;
-        setHasGatewayStatusFrame(true);
         if (typeof frame.version === 'string' && frame.version) {
           rememberGatewayVersion(gatewayId, frame.version);
         }
         if (frame.status === 'connected') {
-          setOnlineGatewayIds((current) => {
-            const next = new Set([...current, gatewayId]);
-            onlineGatewayIdsRef.current = next;
-            return next;
-          });
-          setGatewayReady(true);
-          setRelayGatewayId(gatewayId);
           setSelectedGatewayId((current) => current ?? gatewayId);
-          setConnectionError((current) => current === t.gatewayNotConnected ? undefined : current);
+          clearGatewayNotConnectedError();
           relay.sendFrame({ type: 'client.list-providers', gatewayId });
           return;
         }
         if (frame.status === 'disconnected') {
-          const nextOnlineGatewayIds = new Set(onlineGatewayIdsRef.current);
-          nextOnlineGatewayIds.delete(gatewayId);
-          setOnlineGatewayIds((current) => {
-            const next = new Set(current);
-            next.delete(gatewayId);
-            onlineGatewayIdsRef.current = next;
-            return next;
-          });
           const effectiveGatewayId = currentSessionIdRef.current
             ? (activeSessionGatewayIdRef.current ?? selectedGatewayIdRef.current)
             : selectedGatewayIdRef.current;
           if (gatewayId === effectiveGatewayId) {
             subscribedSessionIdRef.current = null;
-            setGatewayReady(false);
-            setRelayGatewayId((current) => current === gatewayId ? undefined : current);
             setConnectionError(t.gatewayNotConnected);
-          } else {
-            setGatewayReady(nextOnlineGatewayIds.size > 0);
           }
           return;
         }
       }
       if (frame.type === 'sessions' && Array.isArray(frame.sessions)) {
-        setRelaySessions(frame.sessions.filter(isRelaySessionSummary));
         const pendingId = currentSessionIdRef.current;
         if (pendingId && subscribedSessionIdRef.current == null) {
           const appeared = (frame.sessions as unknown[]).some((s) => typeof s === 'object' && s !== null && (s as Record<string, unknown>).id === pendingId);
@@ -540,7 +509,7 @@ export function ChatPanel({
           ? frame.providers.filter((provider: unknown): provider is ProviderOption => isProviderOption(provider))
           : [];
         if (nextProviders.length > 0) {
-          markGatewayReadyFallback();
+          clearGatewayNotConnectedError();
           setProviderOptions(nextProviders);
           setSelectedProvider((currentProvider) =>
             nextProviders.some((provider: ProviderOption) => provider.provider === currentProvider)
@@ -855,11 +824,6 @@ export function ChatPanel({
           frame.code === 'forbidden' ||
           frame.code === 'wrong_ticket_scope'
         ) {
-          if (frame.code === 'gateway_unavailable') {
-            setGatewayReady(false);
-            setHasGatewayStatusFrame(false);
-            setRelayGatewayId(undefined);
-          }
           if (frame.code === 'forbidden' && frameMessage === 'session is outside client scope') {
             setSessionAccessError(t.chatsSessionOutsideGateway);
           } else {
@@ -897,20 +861,24 @@ export function ChatPanel({
           setIsInflight(false);
         }
       }
-  }, [gatewayReady, markGatewayReadyFallback, navigate, relayGatewayId, selectedGatewayId, t.chatsProviderFail, t.chatsSessionOutsideGateway, t.chatsSessionStarted, t.gatewayNotConnected, t.gatewaySelectorNoSelection]);
-
-  const relay = useRelayClient();
-  const {
-    acquireSessionSubscription,
-    connectionEpoch,
-    sendFrame,
-    subscribeClose,
-    subscribeFrame,
-    wsReady
-  } = relay;
+  }, [clearGatewayNotConnectedError, navigate, selectedGatewayId, t.chatsProviderFail, t.chatsSessionOutsideGateway, t.chatsSessionStarted, t.gatewayNotConnected, t.gatewaySelectorNoSelection]);
 
   React.useEffect(() => subscribeFrame(handleRelayFrame), [handleRelayFrame, subscribeFrame]);
   React.useEffect(() => subscribeClose(handleRelayClose), [handleRelayClose, subscribeClose]);
+
+  React.useEffect(() => {
+    const preferredGatewayId =
+      selectedGatewayIdRef.current ??
+      activeSessionGatewayIdRef.current ??
+      defaultGatewayId;
+    if (preferredGatewayId) {
+      setSelectedGatewayId((current) => current ?? preferredGatewayId);
+    }
+    if (wsReady && gatewayConnected) {
+      hasEverConnectedRef.current = true;
+      clearGatewayNotConnectedError();
+    }
+  }, [clearGatewayNotConnectedError, defaultGatewayId, gatewayConnected, wsReady]);
 
   React.useEffect(() => {
     if (!wsReady || connectionEpoch <= 1 || connectionEpoch === lastCatchupConnectionEpochRef.current) {
@@ -1025,7 +993,7 @@ export function ChatPanel({
       setConnectionError(t.gatewaySelectorNoSelection);
       return;
     }
-    if (!currentSessionId && selectedGatewayId && !onlineGatewayIds.has(selectedGatewayId)) {
+    if (!currentSessionId && selectedGatewayId && !gatewayIdsOnline.has(selectedGatewayId)) {
       setConnectionError(t.gatewaySelectorOffline);
       return;
     }
@@ -1054,7 +1022,7 @@ export function ChatPanel({
       message: text,
       gatewayId: selectedGatewayId
     });
-  }, [activeSessionModel, activeSessionProvider, connectionError, cwd, currentSessionId, inputText, isInflight, onlineGatewayIds, providerOptions, selectedGatewayId, selectedModel, selectedProvider, sendFrame, sessionAccessError, t.gatewaySelectorNoSelection, t.gatewaySelectorOffline, wsReady]);
+  }, [activeSessionModel, activeSessionProvider, connectionError, cwd, currentSessionId, gatewayIdsOnline, inputText, isInflight, providerOptions, selectedGatewayId, selectedModel, selectedProvider, sendFrame, sessionAccessError, t.gatewaySelectorNoSelection, t.gatewaySelectorOffline, wsReady]);
 
   const sendPermissionResponse = React.useCallback((requestId: string, decision: 'allow' | 'deny') => {
     if (!wsReady || !currentSessionIdRef.current) return;
@@ -1104,7 +1072,7 @@ export function ChatPanel({
   };
 
   const effectiveGatewayId = currentSessionId ? (activeSessionGatewayId ?? selectedGatewayId) : selectedGatewayId;
-  const selectedGatewayOnline = effectiveGatewayId ? onlineGatewayIds.has(effectiveGatewayId) : false;
+  const selectedGatewayOnline = effectiveGatewayId ? gatewayIdsOnline.has(effectiveGatewayId) : false;
   const displayGatewayName = currentSessionId
     ? (activeSessionGatewayId ? gatewayNamesById[activeSessionGatewayId] : undefined)
     : selectedGatewayName;
@@ -1146,12 +1114,12 @@ export function ChatPanel({
         <WorkbenchStatusPill state="error">{connectionError}</WorkbenchStatusPill>
       );
     }
-    if (wsReady && hasEverConnectedRef.current && !gatewayReady) {
+    if (wsReady && hasEverConnectedRef.current && !gatewayConnected) {
       return (
         <WorkbenchStatusPill state="connecting">{t.chatsGatewayConnecting}</WorkbenchStatusPill>
       );
     }
-    if (wsReady && gatewayReady) {
+    if (wsReady && gatewayConnected) {
       return (
         <WorkbenchStatusPill state="connected">Gateway</WorkbenchStatusPill>
       );
@@ -1196,7 +1164,7 @@ export function ChatPanel({
       onGatewayName={(_, name) => {
         setSelectedGatewayName(name);
       }}
-      onlineGatewayIds={onlineGatewayIds}
+      onlineGatewayIds={gatewayIdsOnline}
       readonly={Boolean(currentSessionId)}
     />
   );

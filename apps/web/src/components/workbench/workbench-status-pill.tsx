@@ -22,8 +22,7 @@ export function WorkbenchStatusPill({
 
 export function WorkbenchConnectionStatus() {
   const { t } = useI18n();
-  const { gatewayIdsOnline, relaySessions, wsReady } = useRelayClient();
-  const gatewayConnected = gatewayIdsOnline.size > 0 || relaySessions.length > 0;
+  const { gatewayConnected, wsReady } = useRelayClient();
 
   return (
     <div className="workbench-status-group">

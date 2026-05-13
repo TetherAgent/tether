@@ -25,6 +25,14 @@ export type RelaySessionSummary = {
   transport?: string;
 };
 
+export type GatewayRuntimeStatus = {
+  gatewayId: string;
+  lastSeenAt: number;
+  source: 'auth' | 'hello' | 'session' | 'status';
+  status: 'connected' | 'disconnected';
+  version?: string;
+};
+
 export type RelayClientApi = {
   sendFrame: (frame: Record<string, unknown>) => boolean;
 };
@@ -32,7 +40,10 @@ export type RelayClientApi = {
 type RelayClientContextValue = RelayClientApi & {
   wsReady: boolean;
   connectionEpoch: number;
+  defaultGatewayId?: string;
+  gatewayConnected: boolean;
   gatewayIdsOnline: Set<string>;
+  gatewayStatusById: Record<string, GatewayRuntimeStatus>;
   relaySessions: RelaySessionSummary[];
   relaySessionsVersion: number;
   acquireSessionSubscription: (input: RelaySessionSubscriptionInput) => () => void;
@@ -87,7 +98,7 @@ function preferredSubscription(
 export function RelayClientProvider({ accessToken, children, relayUrl }: RelayClientProviderProps) {
   const [wsReady, setWsReady] = React.useState(false);
   const [connectionEpoch, setConnectionEpoch] = React.useState(0);
-  const [gatewayIdsOnline, setGatewayIdsOnline] = React.useState<Set<string>>(new Set());
+  const [gatewayStatusById, setGatewayStatusById] = React.useState<Record<string, GatewayRuntimeStatus>>({});
   const [relaySessions, setRelaySessions] = React.useState<RelaySessionSummary[]>([]);
   const [relaySessionsVersion, setRelaySessionsVersion] = React.useState(0);
   const wsRef = React.useRef<WebSocket | null>(null);
@@ -104,6 +115,30 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
     }
     ws.send(JSON.stringify(frame));
     return true;
+  }, []);
+
+  const markGatewayStatus = React.useCallback((
+    gatewayId: string,
+    status: GatewayRuntimeStatus['status'],
+    source: GatewayRuntimeStatus['source'],
+    version?: string
+  ) => {
+    setGatewayStatusById((current) => {
+      const existing = current[gatewayId];
+      if (source === 'session' && existing?.source === 'status' && existing.status === 'disconnected') {
+        return current;
+      }
+      return {
+        ...current,
+        [gatewayId]: {
+          gatewayId,
+          lastSeenAt: Date.now(),
+          source,
+          status,
+          version: version ?? existing?.version
+        }
+      };
+    });
   }, []);
 
   const subscribeFrame = React.useCallback((handler: RelayFrameHandler): (() => void) => {
@@ -165,7 +200,7 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
   React.useEffect(() => {
     if (!accessToken) {
       setWsReady(false);
-      setGatewayIdsOnline(new Set());
+      setGatewayStatusById({});
       setRelaySessions([]);
       setRelaySessionsVersion(0);
       return undefined;
@@ -219,12 +254,7 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
           reconnectAttemptRef.current = 0;
           setConnectionEpoch((epoch) => epoch + 1);
           if (typeof frame.gatewayId === 'string') {
-            const gatewayId = frame.gatewayId;
-            setGatewayIdsOnline((current) => {
-              const next = new Set(current);
-              next.add(gatewayId);
-              return next;
-            });
+            markGatewayStatus(frame.gatewayId, 'connected', 'auth');
           }
           for (const owners of sessionSubscriptionsRef.current.values()) {
             const subscription = preferredSubscription(owners);
@@ -234,37 +264,25 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
           }
         }
         if (frame.type === 'hello' && typeof frame.gatewayId === 'string') {
-          const gatewayId = frame.gatewayId;
-          setGatewayIdsOnline((current) => {
-            const next = new Set(current);
-            next.add(gatewayId);
-            return next;
-          });
+          markGatewayStatus(frame.gatewayId, 'connected', 'hello');
         }
         if (frame.type === 'gateway.status' && typeof frame.gatewayId === 'string') {
-          const gatewayId = frame.gatewayId;
-          setGatewayIdsOnline((current) => {
-            const next = new Set(current);
-            if (frame.status === 'connected') {
-              next.add(gatewayId);
-            } else if (frame.status === 'disconnected') {
-              next.delete(gatewayId);
-            }
-            return next;
-          });
+          const status = frame.status === 'disconnected' ? 'disconnected' : 'connected';
+          markGatewayStatus(
+            frame.gatewayId,
+            status,
+            'status',
+            typeof frame.version === 'string' ? frame.version : undefined
+          );
         }
         if (frame.type === 'sessions' && Array.isArray(frame.sessions)) {
           const nextSessions = frame.sessions.filter(isRelaySessionSummary);
           setRelaySessions(nextSessions);
-          setGatewayIdsOnline((current) => {
-            const next = new Set(current);
-            for (const session of nextSessions) {
-              if (session.gatewayId) {
-                next.add(session.gatewayId);
-              }
+          for (const session of nextSessions) {
+            if (session.gatewayId) {
+              markGatewayStatus(session.gatewayId, 'connected', 'session');
             }
-            return next;
-          });
+          }
           setRelaySessionsVersion((version) => version + 1);
         }
         for (const handler of frameHandlersRef.current) {
@@ -303,26 +321,48 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
       const currentWs = wsRef.current;
       wsRef.current = null;
       setWsReady(false);
-      setGatewayIdsOnline(new Set());
+      setGatewayStatusById({});
       setRelaySessions([]);
       setRelaySessionsVersion(0);
       if (currentWs && currentWs.readyState !== WebSocket.CLOSED && currentWs.readyState !== WebSocket.CLOSING) {
         currentWs.close();
       }
     };
-  }, [accessToken, relayUrl, sendFrame, sendSubscribeFrame]);
+  }, [accessToken, markGatewayStatus, relayUrl, sendFrame, sendSubscribeFrame]);
+
+  const gatewayIdsOnline = React.useMemo(() => {
+    if (!wsReady) {
+      return new Set<string>();
+    }
+    const ids = Object.values(gatewayStatusById)
+      .filter((status) => status.status === 'connected')
+      .map((status) => status.gatewayId);
+    return new Set(ids);
+  }, [gatewayStatusById, wsReady]);
+
+  const defaultGatewayId = React.useMemo(() => {
+    const connected = Object.values(gatewayStatusById)
+      .filter((status) => status.status === 'connected')
+      .sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+    return connected[0]?.gatewayId;
+  }, [gatewayStatusById]);
+
+  const gatewayConnected = wsReady && gatewayIdsOnline.size > 0;
 
   const value = React.useMemo<RelayClientContextValue>(() => ({
     acquireSessionSubscription,
     connectionEpoch,
+    defaultGatewayId,
+    gatewayConnected,
     gatewayIdsOnline,
+    gatewayStatusById,
     relaySessions,
     relaySessionsVersion,
     sendFrame,
     subscribeClose,
     subscribeFrame,
     wsReady
-  }), [acquireSessionSubscription, connectionEpoch, gatewayIdsOnline, relaySessions, relaySessionsVersion, sendFrame, subscribeClose, subscribeFrame, wsReady]);
+  }), [acquireSessionSubscription, connectionEpoch, defaultGatewayId, gatewayConnected, gatewayIdsOnline, gatewayStatusById, relaySessions, relaySessionsVersion, sendFrame, subscribeClose, subscribeFrame, wsReady]);
 
   return (
     <RelayClientContext.Provider value={value}>
