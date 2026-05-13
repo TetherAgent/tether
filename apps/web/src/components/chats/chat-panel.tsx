@@ -520,14 +520,6 @@ export function ChatPanel({
           return;
         }
       }
-      if (frame.type === 'sessions' && Array.isArray(frame.sessions) && frame.sessions.length === 0 && gatewayReady) {
-        setGatewayReady(false);
-        setHasGatewayStatusFrame(false);
-        setRelayGatewayId(undefined);
-        setSelectedGatewayId(undefined);
-        setConnectionError(t.gatewayNotConnected);
-        return;
-      }
       if (frame.type === 'sessions' && Array.isArray(frame.sessions)) {
         setRelaySessions(frame.sessions.filter(isRelaySessionSummary));
         const pendingId = currentSessionIdRef.current;
@@ -912,11 +904,13 @@ export function ChatPanel({
     acquireSessionSubscription,
     connectionEpoch,
     sendFrame,
+    subscribeClose,
+    subscribeFrame,
     wsReady
   } = relay;
 
-  React.useEffect(() => relay.subscribeFrame(handleRelayFrame), [handleRelayFrame, relay]);
-  React.useEffect(() => relay.subscribeClose(handleRelayClose), [handleRelayClose, relay]);
+  React.useEffect(() => subscribeFrame(handleRelayFrame), [handleRelayFrame, subscribeFrame]);
+  React.useEffect(() => subscribeClose(handleRelayClose), [handleRelayClose, subscribeClose]);
 
   React.useEffect(() => {
     if (!wsReady || connectionEpoch <= 1 || connectionEpoch === lastCatchupConnectionEpochRef.current) {
