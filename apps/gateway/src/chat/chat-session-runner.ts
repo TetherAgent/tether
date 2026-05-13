@@ -293,6 +293,9 @@ class CliChatRunner implements IChatRunner {
       stdio: ['pipe', 'pipe', 'pipe'],
       env
     });
+    if (!this.adapter.respondToPermission) {
+      child.stdin?.end();
+    }
 
     const userEvent = createChatEvent(sessionId, 'user.message', { message: params.message });
     this.options.onUserMessage({ clientId: params.clientId, sessionId, event: userEvent });
