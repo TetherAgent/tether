@@ -674,7 +674,7 @@ export function ChatPanel({
         const gatewayId = frame.gatewayId;
         setHasGatewayStatusFrame(true);
         if (typeof frame.version === 'string' && frame.version) {
-          rememberGatewayVersion(frame.version);
+          rememberGatewayVersion(gatewayId, frame.version);
         }
         if (frame.status === 'connected') {
           setOnlineGatewayIds((current) => {
@@ -1620,7 +1620,7 @@ export function ChatPanel({
           <div className="chat-header-connection-status">
             {connectionStatusChips}
           </div>
-          <NotificationBell />
+          <NotificationBell gatewayNamesById={gatewayNamesById} />
         </div>
         <div className="chat-new-session-hero mb-10 flex flex-col items-center gap-4">
           <div
@@ -1698,7 +1698,7 @@ export function ChatPanel({
             <span>{copiedAgentId ? t.chatCodeCopied : t.chatsCopyProviderSessionId.replace('{provider}', displayProvider)}</span>
           </button>
         )}
-        <NotificationBell />
+        <NotificationBell gatewayNamesById={gatewayNamesById} />
       </div>
 
       {/* Messages */}

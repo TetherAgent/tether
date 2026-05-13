@@ -294,6 +294,7 @@ export const WEB_MESSAGES = {
     notificationsEmpty: '暂无通知',
     updateAvailableTitle: '新版本可用',
     updateAvailableBody: '当前 {current}，最新 {latest}',
+    updateAvailableGatewayBody: '{gateway}：当前 {current}，最新 {latest}',
     updateDismiss: '本版本不再提示'
   },
   en: {
@@ -586,6 +587,7 @@ export const WEB_MESSAGES = {
     notificationsEmpty: 'No notifications',
     updateAvailableTitle: 'Update available',
     updateAvailableBody: 'Current {current}, latest {latest}',
+    updateAvailableGatewayBody: '{gateway}: current {current}, latest {latest}',
     updateDismiss: 'Don\'t remind me for this version'
   }
 } as const;

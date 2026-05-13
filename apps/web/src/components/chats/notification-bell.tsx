@@ -4,9 +4,13 @@ import { Popover, PopoverContent, PopoverTrigger } from '@tether/design';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { useUpdateCheck } from '../../hooks/use-update-check.js';
 
-export function NotificationBell() {
+type NotificationBellProps = {
+  gatewayNamesById?: Record<string, string>;
+};
+
+export function NotificationBell({ gatewayNamesById = {} }: NotificationBellProps) {
   const { t } = useI18n();
-  const { hasUpdate, currentVersion, latestVersion, dismiss } = useUpdateCheck();
+  const { hasUpdate, outdatedGateways, latestVersion, dismiss } = useUpdateCheck(gatewayNamesById);
   const [open, setOpen] = useState(false);
 
   const handleOpenChange = (next: boolean) => {
@@ -30,11 +34,16 @@ export function NotificationBell() {
         {hasUpdate ? (
           <div className="px-4 py-3">
             <p className="mb-1 text-[13px] font-medium text-foreground">{t.updateAvailableTitle}</p>
-            <p className="mb-2 text-xs text-muted-foreground">
-              {t.updateAvailableBody
-                .replace('{current}', currentVersion ?? '')
-                .replace('{latest}', latestVersion ?? '')}
-            </p>
+            <div className="mb-2 space-y-1 text-xs text-muted-foreground">
+              {outdatedGateways.map((gateway) => (
+                <p key={gateway.gatewayId}>
+                  {t.updateAvailableGatewayBody
+                    .replace('{gateway}', gateway.name)
+                    .replace('{current}', gateway.currentVersion)
+                    .replace('{latest}', latestVersion ?? '')}
+                </p>
+              ))}
+            </div>
             <code className="mb-3 block rounded bg-muted px-2 py-1.5 font-mono text-[11px] text-foreground">
               npm i -g @tether-labs/cli@latest
             </code>
