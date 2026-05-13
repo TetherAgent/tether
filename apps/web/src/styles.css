@@ -5971,42 +5971,6 @@ textarea.composer-input {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 58%, transparent);
 }
 
-.composer-submit-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  flex: 0 0 40px;
-  border: 0;
-  border-radius: 999px;
-  transition: transform 0.16s ease, opacity 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
-}
-
-.composer-submit-button--active {
-  color: #001d12;
-  background: var(--brand);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand) 34%, transparent) inset, 0 14px 30px color-mix(in srgb, var(--brand) 20%, transparent);
-  cursor: pointer;
-}
-
-.composer-submit-button--active:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand) 42%, transparent) inset, 0 18px 36px color-mix(in srgb, var(--brand) 24%, transparent);
-}
-
-.composer-submit-button--disabled {
-  color: var(--muted-foreground);
-  background: var(--muted);
-  box-shadow: none;
-  cursor: not-allowed;
-}
-
-.composer-submit-button:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 24%, transparent);
-}
-
 .chat-help-button--pulse {
   animation: chat-help-pulse 1.1s ease-in-out 2;
   color: var(--brand);

@@ -1,7 +1,5 @@
 import * as React from 'react';
-import { HelpCircle, Menu, PanelLeftOpen } from 'lucide-react';
-import { Link } from 'react-router-dom';
-import { NotificationBell } from './notification-bell.js';
+import { WorkbenchTopbar } from '../workbench/workbench-topbar.js';
 
 const HELP_HINT_STORAGE_KEY = 'tether:helpHintSeen';
 
@@ -52,46 +50,22 @@ export function NewChatSurface({
 
   return (
     <div className="chat-surface chat-new-session-surface relative flex h-full flex-col items-center justify-center bg-background px-6">
-      {onOpenDrawer && (
-        <button
-          onClick={onOpenDrawer}
-          className="absolute left-3 top-3 flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground md:hidden"
-        >
-          <Menu className="h-4 w-4" />
-        </button>
-      )}
-      {onExpandSidebar && (
-        <button
-          onClick={onExpandSidebar}
-          className="absolute left-3 top-3 hidden h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground md:flex"
-        >
-          <PanelLeftOpen className="h-[15px] w-[15px]" />
-        </button>
-      )}
-      <div className="absolute right-3 top-3 flex items-center gap-2">
+      <WorkbenchTopbar
+        gatewayNamesById={gatewayNamesById}
+        help={{
+          active: showHelpHint,
+          hint: t.helpHintText,
+          label: t.helpNavLabel,
+          onClick: dismissHelpHint
+        }}
+        onExpandSidebar={onExpandSidebar}
+        onOpenDrawer={onOpenDrawer}
+        position="absolute"
+      >
         <div className="chat-header-connection-status">
           {connectionStatusChips}
         </div>
-        <div className="relative">
-          {showHelpHint ? (
-            <div className="chat-help-hint absolute right-0 top-9 hidden whitespace-nowrap rounded-full border border-brand/25 bg-card px-3 py-1.5 text-[12px] font-medium text-foreground shadow-card md:block">
-              {t.helpHintText}
-            </div>
-          ) : null}
-          <Link
-            to="/help"
-            onClick={dismissHelpHint}
-            title={t.helpNavLabel}
-            aria-label={t.helpNavLabel}
-            className={`chat-help-button flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground ${
-              showHelpHint ? 'chat-help-button--pulse' : ''
-            }`}
-          >
-            <HelpCircle className="h-[15px] w-[15px]" />
-          </Link>
-        </div>
-        <NotificationBell gatewayNamesById={gatewayNamesById} />
-      </div>
+      </WorkbenchTopbar>
       <div className="chat-new-session-hero mb-10 flex flex-col items-center gap-4">
         <div
           className="flex h-14 w-14 items-center justify-center rounded-2xl text-xl font-bold text-black shadow-md"

@@ -1,7 +1,6 @@
 import * as React from 'react';
-import { ArrowUp, Loader2, TerminalSquare } from 'lucide-react';
+import { TerminalSquare } from 'lucide-react';
 import {
-  Button,
   Select,
   SelectContent,
   SelectItem,
@@ -10,6 +9,7 @@ import {
   toast
 } from '@tether/design';
 import { PathPicker } from '../workbench/path-picker.js';
+import { ComposerSubmitButton } from '../workbench/composer-submit-button.js';
 import { useRelayClient, type RelayFrame, type RelaySessionSummary } from '../relay/use-relay-client.js';
 import { GatewaySelector } from '../chats/gateway-selector.js';
 import type { TerminalProviderId } from './terminal-command-shortcuts.js';
@@ -214,17 +214,14 @@ export function TerminalLaunchComposer({
           value={cwd}
         />
         <div className="min-w-0 flex-1" />
-        <Button
+        <ComposerSubmitButton
           type="button"
-          size="icon"
-          variant="brand"
           disabled={!!disabledReason || busy}
           title={disabledReason ?? '启动终端'}
           onClick={() => void submit()}
-          className="terminal-launch-submit h-10 w-10 rounded-full"
-        >
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : launchMode === 'local-terminal' ? <TerminalSquare className="h-4 w-4" /> : <ArrowUp className="h-4 w-4" />}
-        </Button>
+          loading={busy}
+          icon={launchMode === 'local-terminal' ? <TerminalSquare className="h-4 w-4" /> : undefined}
+        />
       </div>
       {visibleDisabledReason ? <p className="mt-3 text-center text-xs text-muted-foreground">{visibleDisabledReason}，请先确认连接状态。</p> : null}
     </div>

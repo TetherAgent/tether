@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { Check, Copy, Menu, PanelLeftOpen } from 'lucide-react';
-import { NotificationBell } from './notification-bell.js';
+import { Check, Copy } from 'lucide-react';
 import { WorkbenchStatusPill } from '../workbench/workbench-status-pill.js';
+import { WorkbenchTopbar } from '../workbench/workbench-topbar.js';
 
 export function ChatHeader({
   agentSessionId,
@@ -30,24 +30,11 @@ export function ChatHeader({
   };
 }) {
   return (
-    <div className="flex items-center gap-2 border-b border-border bg-card/60 px-4 py-2.5 backdrop-blur-sm">
-      {onOpenDrawer && (
-        <button
-          onClick={onOpenDrawer}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground md:hidden"
-        >
-          <Menu className="h-4 w-4" />
-        </button>
-      )}
-      {onExpandSidebar && (
-        <button
-          onClick={onExpandSidebar}
-          className="hidden h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground md:flex"
-        >
-          <PanelLeftOpen className="h-[15px] w-[15px]" />
-        </button>
-      )}
-      <div className="flex-1" />
+    <WorkbenchTopbar
+      gatewayNamesById={gatewayNamesById}
+      onExpandSidebar={onExpandSidebar}
+      onOpenDrawer={onOpenDrawer}
+    >
       <div className="chat-header-connection-status">
         {connectionStatusChips}
       </div>
@@ -68,7 +55,6 @@ export function ChatHeader({
           <span>{copiedAgentId ? t.chatCodeCopied : t.chatsCopyProviderSessionId.replace('{provider}', displayProvider)}</span>
         </button>
       )}
-      <NotificationBell gatewayNamesById={gatewayNamesById} />
-    </div>
+    </WorkbenchTopbar>
   );
 }
