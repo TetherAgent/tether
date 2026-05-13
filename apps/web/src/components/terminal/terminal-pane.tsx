@@ -22,7 +22,6 @@ import { gatewayAuthHeaders, readGatewayData } from '../../lib/api.js';
 import { RelayClientProvider } from '../relay/relay-client-provider.js';
 import { type RelayFrame, useRelayClient } from '../relay/use-relay-client.js';
 import { SessionDetailHeader, TerminalSurfaceSkeleton } from '../session/session-detail-chrome.js';
-import { WorkbenchStatusPill, type WorkbenchStatusPillState } from '../workbench/workbench-status-pill.js';
 
 type Session = {
   id: string;
@@ -41,15 +40,6 @@ type ReplayMode = 'recent' | 'all';
 type ConnectionSettings = {
   relayUrl: string;
   relaySecret: string;
-};
-
-type ClientInfo = {
-  clientId: string;
-  deviceName: string;
-  surface: string;
-  mode: ClientMode;
-  attachedAt: number;
-  lastSeenAt: number;
 };
 
 type AgentRuntimeStatus = 'idle' | 'submitted' | 'running' | 'responding' | 'done' | 'exited' | 'disconnected';
@@ -262,13 +252,12 @@ export function TerminalPane({
   const location = useLocation();
   const locationState = location.state as { agentSessionId?: string; provider?: string } | null;
   const terminalRef = React.useRef<HTMLDivElement>(null);
+  const panelRef = React.useRef<HTMLElement>(null);
   const terminal = React.useRef<Terminal | undefined>(undefined);
   const [clientMode, setClientMode] = React.useState<ClientMode>(readClientMode);
   const [replayMode, setReplayMode] = React.useState<ReplayMode>(readReplayMode);
   const effectiveClientMode = replayOnly ? 'observe' : clientMode;
   const [isTerminalFullscreen, setTerminalFullscreen] = React.useState(false);
-  const [clients, setClients] = React.useState<ClientInfo[]>([]);
-  const [controllerClientId, setControllerClientId] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState(initialStatus);
   const [agentRuntimeStatus, setAgentRuntimeStatus] = React.useState<AgentRuntimeStatus>('idle');
   const [terminalThemeOverride, setTerminalThemeOverride] = React.useState<TerminalThemeOverride | undefined>();
@@ -330,6 +319,14 @@ export function TerminalPane({
       terminal.current.options.theme = buildTerminalTheme(isDark, terminalThemeOverride);
     }
   }, [isDark, terminalThemeOverride]);
+
+  React.useEffect(() => {
+    const handleFullscreenChange = () => {
+      setTerminalFullscreen(document.fullscreenElement === panelRef.current);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
 
   const submitComposerText = React.useCallback(() => {
     const value = text.trim().replace(/\s*\r?\n\s*/g, ' ');
@@ -764,6 +761,22 @@ export function TerminalPane({
     setStatus(t.statusStopRequested);
   }
 
+  async function toggleTerminalFullscreen(): Promise<void> {
+    const panel = panelRef.current;
+    if (!panel) {
+      return;
+    }
+    try {
+      if (document.fullscreenElement === panel) {
+        await document.exitFullscreen();
+        return;
+      }
+      await panel.requestFullscreen();
+    } catch {
+      setTerminalFullscreen((value) => !value);
+    }
+  }
+
   const terminalActions = replayOnly ? (
     <div className="mode-select">
       <Label>{t.replay}</Label>
@@ -801,20 +814,6 @@ export function TerminalPane({
     </>
   );
 
-  const terminalStatusState: WorkbenchStatusPillState =
-    status === t.statusDisconnected ||
-    status === t.statusStreamError ||
-    status === t.statusRelayClosed ||
-    status === t.statusRelayError
-      ? 'error'
-      : status === t.statusConnecting ||
-          status === t.statusRelayAuth ||
-          status === t.statusReconnecting ||
-          status === t.statusGatewayRestarting
-        ? 'connecting'
-        : 'connected';
-  const terminalStatus = <WorkbenchStatusPill state={terminalStatusState}>{status}</WorkbenchStatusPill>;
-
   return (
     <div className={`session-detail-page${embedded ? ' terminal-embedded-page' : ''}`}>
       {!embedded ? (
@@ -828,16 +827,11 @@ export function TerminalPane({
         </SessionDetailHeader>
       ) : null}
       <main
+        ref={panelRef}
         className={`terminal-shell terminal-panel${isTerminalFullscreen ? ' terminal-panel-fullscreen' : ''}`}
         aria-label={t.terminalSurface}
         onMouseDown={() => terminal.current?.focus()}
       >
-        {embedded ? (
-          <div className="terminal-inline-actions" onMouseDown={(event) => event.stopPropagation()}>
-            {terminalActions}
-            {terminalStatus}
-          </div>
-        ) : null}
         <Button
           className="terminal-fullscreen-toggle"
           variant="outline"
@@ -846,23 +840,14 @@ export function TerminalPane({
           aria-label={isTerminalFullscreen ? t.exitTerminalFullscreen : t.enterTerminalFullscreen}
           title={isTerminalFullscreen ? t.exitTerminalFullscreen : t.enterTerminalFullscreen}
           onMouseDown={(event) => event.stopPropagation()}
-          onClick={() => setTerminalFullscreen((value) => !value)}
+          onClick={() => {
+            void toggleTerminalFullscreen();
+          }}
         >
           {isTerminalFullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
         </Button>
         <div ref={terminalRef} className="terminal-host" />
         {!isTerminalReady ? <TerminalSurfaceSkeleton /> : null}
-        {clients.length > 0 ? (
-          <aside className="client-strip">
-            <span>{t.controllerLabel} {controllerClientId ? controllerClientId.slice(0, 8) : '-'}</span>
-            <span>{clients.length} {t.clients}</span>
-          </aside>
-        ) : (
-          <aside className="client-strip">
-            <span>{t.relay}</span>
-            <span>{clientModeLabel(effectiveClientMode, t)}</span>
-          </aside>
-        )}
       </main>
       {!replayOnly ? (
         <form className="composer-form" onSubmit={sendLine}>

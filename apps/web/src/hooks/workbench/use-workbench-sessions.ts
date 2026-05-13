@@ -1,7 +1,21 @@
 import * as React from 'react';
-import { gatewayAuthHeaders, getStoredNormalAccessToken, readGatewayData } from '../../lib/api.js';
+import { createHttpClient } from '@tether/http';
+import { getStoredNormalAccessToken } from '../../lib/api.js';
 import { fetchChatSessions } from '../../components/chats/chat-data.js';
 import type { WorkbenchSessionRecord, WorkbenchSidebarTab } from '../../components/workbench/types.js';
+
+async function fetchTerminalSessions(token?: string): Promise<WorkbenchSessionRecord[]> {
+  const http = createHttpClient();
+  const data = await http.get<{ sessions: WorkbenchSessionRecord[] }>(
+    '/api/server/sessions?transport=pty-event-stream&limit=30',
+    undefined,
+    {
+      token,
+      suppressGlobalError: true
+    }
+  );
+  return (data.sessions ?? []).filter((session) => session.transport === 'pty-event-stream');
+}
 
 export function useWorkbenchSessions({
   activeSessionId,
@@ -14,23 +28,56 @@ export function useWorkbenchSessions({
   relayRefreshKey?: number;
   tab: WorkbenchSidebarTab;
 }) {
-  const [sessions, setSessions] = React.useState<WorkbenchSessionRecord[]>([]);
+  const [sessionsByTab, setSessionsByTab] = React.useState<Record<WorkbenchSidebarTab, WorkbenchSessionRecord[]>>({
+    chats: [],
+    terminal: []
+  });
+  const [loadedByTab, setLoadedByTab] = React.useState<Record<WorkbenchSidebarTab, boolean>>({
+    chats: false,
+    terminal: false
+  });
+  const [loadingByTab, setLoadingByTab] = React.useState<Record<WorkbenchSidebarTab, boolean>>({
+    chats: false,
+    terminal: false
+  });
   const didHandleRelayRefreshRef = React.useRef(false);
+
+  const setCurrentSessions = React.useCallback((
+    next: WorkbenchSessionRecord[] | ((prev: WorkbenchSessionRecord[]) => WorkbenchSessionRecord[])
+  ) => {
+    setSessionsByTab((current) => {
+      const currentSessions = current[tab];
+      const nextSessions = typeof next === 'function' ? next(currentSessions) : next;
+      return { ...current, [tab]: nextSessions };
+    });
+  }, [tab]);
 
   const loadSessions = React.useCallback(() => {
     const token = getStoredNormalAccessToken();
+    setLoadingByTab((current) => ({ ...current, [tab]: true }));
     if (tab === 'terminal') {
-      void fetch('/api/server/sessions?transport=pty-event-stream&limit=30', { headers: gatewayAuthHeaders(token) })
-        .then((response) => response.ok ? readGatewayData<{ sessions: WorkbenchSessionRecord[] }>(response) : { sessions: [] })
-        .then((data) => setSessions((data.sessions ?? [])
-          .filter((session) => session.transport === 'pty-event-stream')
-          .map((session) => ({ ...session, kind: 'terminal' }))))
-        .catch(() => undefined);
+      void fetchTerminalSessions(token)
+        .then((nextSessions) => {
+          setSessionsByTab((current) => ({
+            ...current,
+            terminal: nextSessions.map((session) => ({ ...session, kind: 'terminal' }))
+          }));
+          setLoadedByTab((current) => ({ ...current, terminal: true }));
+        })
+        .catch(() => undefined)
+        .finally(() => setLoadingByTab((current) => ({ ...current, terminal: false })));
       return;
     }
     void fetchChatSessions(token, false)
-      .then((nextSessions) => setSessions(nextSessions.map((session) => ({ ...session, kind: 'chats' }))))
-      .catch(() => undefined);
+      .then((nextSessions) => {
+        setSessionsByTab((current) => ({
+          ...current,
+          chats: nextSessions.map((session) => ({ ...session, kind: 'chats' }))
+        }));
+        setLoadedByTab((current) => ({ ...current, chats: true }));
+      })
+      .catch(() => undefined)
+      .finally(() => setLoadingByTab((current) => ({ ...current, chats: false })));
   }, [tab]);
 
   React.useEffect(() => { loadSessions(); }, [activeSessionId, loadSessions, refreshKey]);
@@ -64,7 +111,9 @@ export function useWorkbenchSessions({
 
   return {
     loadSessions,
-    sessions,
-    setSessions
+    loaded: loadedByTab[tab],
+    loading: loadingByTab[tab],
+    sessions: sessionsByTab[tab],
+    setSessions: setCurrentSessions
   };
 }

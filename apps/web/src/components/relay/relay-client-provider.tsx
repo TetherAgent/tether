@@ -225,6 +225,14 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
             }
           }
         }
+        if (frame.type === 'hello' && typeof frame.gatewayId === 'string') {
+          const gatewayId = frame.gatewayId;
+          setGatewayIdsOnline((current) => {
+            const next = new Set(current);
+            next.add(gatewayId);
+            return next;
+          });
+        }
         if (frame.type === 'gateway.status' && typeof frame.gatewayId === 'string') {
           const gatewayId = frame.gatewayId;
           setGatewayIdsOnline((current) => {
@@ -238,7 +246,17 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
           });
         }
         if (frame.type === 'sessions' && Array.isArray(frame.sessions)) {
-          setRelaySessions(frame.sessions.filter(isRelaySessionSummary));
+          const nextSessions = frame.sessions.filter(isRelaySessionSummary);
+          setRelaySessions(nextSessions);
+          setGatewayIdsOnline((current) => {
+            const next = new Set(current);
+            for (const session of nextSessions) {
+              if (session.gatewayId && session.status === 'running') {
+                next.add(session.gatewayId);
+              }
+            }
+            return next;
+          });
           setRelaySessionsVersion((version) => version + 1);
         }
         for (const handler of frameHandlersRef.current) {

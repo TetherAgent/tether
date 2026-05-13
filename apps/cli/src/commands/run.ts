@@ -6,12 +6,27 @@ import { readFreshGatewayAuthState } from '../auth/gateway-auth-store.js';
 import { decodeTokenPayload } from '../auth/token.js';
 import { findPersistentGateway } from '../gateway/probe.js';
 import { createSessionViaRelay } from '../relay/sessions.js';
+import * as terminal from '../terminal.js';
 
 type StartOptions = {
+  detach?: boolean;
   title?: string;
   reconnect?: boolean;
   providerArgs?: string[];
 };
+
+function terminalUrlFromBase(baseUrl: string, sessionId: string): string {
+  const url = new URL(baseUrl);
+  if (url.protocol === 'ws:') {
+    url.protocol = 'http:';
+  } else if (url.protocol === 'wss:') {
+    url.protocol = 'https:';
+  }
+  url.pathname = `/terminal/${encodeURIComponent(sessionId)}`;
+  url.search = '';
+  url.hash = '';
+  return url.toString();
+}
 
 export function registerRunCommand(program: Command): void {
   program
@@ -19,6 +34,7 @@ export function registerRunCommand(program: Command): void {
     .argument('<provider>')
     .argument('[providerArgs...]')
     .description('为指定 provider 启动一个 PTY event-stream session')
+    .option('-d, --detach', '创建 session 后不本地 attach')
     .option('--title <title>', '前端展示的 session 标题')
     .option('--no-reconnect', '本地 attach 断开后不自动重连')
     .allowUnknownOption(true)
@@ -50,15 +66,22 @@ async function startProviderSession(provider: ProviderDefinition, options: Start
     throw new Error('gateway access token 缺少 gatewayId，请重新执行 tether login。');
   }
   const session = await createSessionViaRelay(provider, options, relay.url, auth.accessToken, gatewayId);
-  const remoteUrl = `${gatewayUrl}/remote/session/${session.id}`;
-  console.log(`Tether session: ${session.id}`);
-  console.log(`Remote URL: ${remoteUrl}`);
+  const remoteTerminalUrl = terminalUrlFromBase(auth.serverUrl || relay.url, session.id);
+  const localTerminalUrl = terminalUrlFromBase(gatewayUrl, session.id);
+  terminal.section('Tether session');
+  terminal.line('Session ID', session.id);
+  terminal.line('Open', remoteTerminalUrl);
+  terminal.line('Local', localTerminalUrl);
+  if (options.detach) {
+    terminal.success('已创建后台 session，可从 Terminal 页面接管。');
+    return;
+  }
   const result = await attachPtySession(session.id, {
     relayUrl: relay.url,
     mode: 'control',
     reconnect: options.reconnect
   });
   if (result === 'detached') {
-    console.error(`已断开本地 attach。常驻 Gateway 仍在托管 ${remoteUrl}`);
+    terminal.warn(`已断开本地 attach。常驻 Gateway 仍在托管 ${remoteTerminalUrl}`);
   }
 }

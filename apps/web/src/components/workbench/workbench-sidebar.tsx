@@ -34,7 +34,7 @@ export function WorkbenchSidebar({
   const navigate = useNavigate();
   const location = useLocation();
   const activeTab: WorkbenchSidebarTab = location.pathname.startsWith('/terminal') ? 'terminal' : 'chats';
-  const { loadSessions, sessions, setSessions } = useWorkbenchSessions({
+  const { loaded, loading, loadSessions, sessions, setSessions } = useWorkbenchSessions({
     activeSessionId,
     refreshKey,
     relayRefreshKey: relaySessionsVersion,
@@ -154,6 +154,8 @@ export function WorkbenchSidebar({
             onSelect={onSelect}
             onTerminalSelect={onTerminalSelect}
             relaySessions={relaySessions}
+            loaded={loaded}
+            loading={loading}
             sessions={sessions}
             tab={activeTab}
             t={t}
@@ -165,7 +167,7 @@ export function WorkbenchSidebar({
             <button
               type="button"
               onClick={() => switchTab('chats')}
-              className={`h-8 rounded-lg text-[12px] font-medium transition-colors ${
+              className={`h-8 rounded-lg text-[12px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/30 ${
                 activeTab === 'chats' ? 'bg-sidebar-accent text-foreground' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -174,7 +176,7 @@ export function WorkbenchSidebar({
             <button
               type="button"
               onClick={() => switchTab('terminal')}
-              className={`h-8 rounded-lg text-[12px] font-medium transition-colors ${
+              className={`h-8 rounded-lg text-[12px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/30 ${
                 activeTab === 'terminal' ? 'bg-sidebar-accent text-foreground' : 'text-muted-foreground hover:text-foreground'
               }`}
             >

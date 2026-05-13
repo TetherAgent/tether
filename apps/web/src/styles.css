@@ -3960,7 +3960,7 @@ a {
   position: relative;
   min-height: 0;
   overflow: hidden;
-  background: color-mix(in srgb, var(--background) 94%, black);
+  background: var(--background);
 }
 
 .terminal-host {
@@ -5126,26 +5126,6 @@ html.dark .hljs-deletion {
   width: min(48%, 420px);
 }
 
-.client-strip {
-  position: absolute;
-  top: 8px;
-  right: 46px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: nowrap;
-  max-width: min(70vw, 560px);
-  color: var(--muted-foreground);
-  font-size: 11px;
-  pointer-events: none;
-}
-
-.client-strip span {
-  padding: 3px 6px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--background) 86%, transparent);
-}
-
 pre {
   box-sizing: border-box;
   min-height: 100%;
@@ -5882,30 +5862,11 @@ textarea.composer-input {
 }
 
 .terminal-embedded-page .terminal-panel {
-  margin: 12px clamp(14px, 2vw, 22px);
-}
-
-.terminal-inline-actions {
-  position: absolute;
-  z-index: 4;
-  top: 8px;
-  right: 52px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  max-width: calc(100% - 78px);
-  flex-wrap: wrap;
-}
-
-.terminal-inline-actions .mode-select {
-  background: color-mix(in srgb, var(--background) 82%, transparent);
-  backdrop-filter: blur(12px);
-}
-
-.terminal-inline-actions .workbench-status-pill,
-.terminal-inline-actions .chat-topbar-pill {
-  max-width: min(32vw, 180px);
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--background);
+  box-shadow: none;
 }
 
 .chat-composer {
@@ -6202,13 +6163,19 @@ textarea.composer-input {
   box-shadow: none;
 }
 
+.session-detail-page .terminal-panel-fullscreen:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  background: var(--background);
+}
+
+.session-detail-page .terminal-panel-fullscreen::backdrop {
+  background: var(--background);
+}
+
 .session-detail-page .terminal-panel-fullscreen .terminal-host {
   height: 100dvh;
   padding: 12px;
-}
-
-.session-detail-page .terminal-panel-fullscreen .client-strip {
-  right: 46px;
 }
 
 .web-auth-shell {
@@ -7653,11 +7620,4 @@ textarea.composer-input {
     font-size: 16px;
   }
 
-  .client-strip {
-    left: 8px;
-    right: 8px;
-    top: auto;
-    bottom: 8px;
-    max-width: none;
-  }
 }

@@ -61,6 +61,20 @@ test('run command declares --title before provider args passthrough', () => {
   assert.match(source, /command\('run'\)[\s\S]*\.argument\('\[providerArgs\.\.\.\]'\)[\s\S]*\.option\('--title <title>', '前端展示的 session 标题'\)/);
 });
 
+test('run command supports detached start and prints terminal route', () => {
+  const source = commandSource('run');
+  assert.match(source, /\.option\('-d, --detach', '创建 session 后不本地 attach'\)/);
+  assert.match(source, /const remoteTerminalUrl = terminalUrlFromBase\(auth\.serverUrl \|\| relay\.url, session\.id\)/);
+  assert.match(source, /const localTerminalUrl = terminalUrlFromBase\(gatewayUrl, session\.id\)/);
+  assert.match(source, /terminal\.section\('Tether session'\)/);
+  assert.match(source, /terminal\.line\('Open', remoteTerminalUrl\)/);
+  assert.match(source, /terminal\.line\('Local', localTerminalUrl\)/);
+  assert.match(source, /terminal\.success\('已创建后台 session，可从 Terminal 页面接管。'\)/);
+  assert.match(source, /if \(options\.detach\) \{[\s\S]*return;/);
+  assert.match(source, /attachPtySession\(session\.id/);
+  assert.doesNotMatch(source, /\/remote\/session\/\$\{session\.id\}/);
+});
+
 test('top-level login wiring is present in main.ts', () => {
   const source = mainSource();
   const loginCommand = commandSource('login');

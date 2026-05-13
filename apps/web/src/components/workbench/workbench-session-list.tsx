@@ -13,6 +13,8 @@ export function WorkbenchSessionList({
   onSelect,
   onTerminalSelect,
   relaySessions,
+  loaded,
+  loading,
   sessions,
   tab,
   t
@@ -24,6 +26,8 @@ export function WorkbenchSessionList({
   onSelect?: () => void;
   onTerminalSelect?: (sessionId: string) => void;
   relaySessions: RelaySessionSummary[];
+  loaded: boolean;
+  loading: boolean;
   sessions: WorkbenchSessionRecord[];
   tab: WorkbenchSidebarTab;
   t: {
@@ -43,13 +47,29 @@ export function WorkbenchSessionList({
     [relaySessions]
   );
 
-  if (sessions.length === 0) {
+  if (!loaded && loading) {
     return (
-      <div className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
-        <div className="text-[13px] font-medium text-foreground">
+      <div className="space-y-2 px-4 pt-3">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div key={index} className="flex items-start gap-2.5 rounded-lg px-2 py-2">
+            <div className="mt-[7px] h-[7px] w-[7px] shrink-0 rounded-full bg-muted" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="h-3 w-24 rounded bg-muted" />
+              <div className="h-2.5 w-32 rounded bg-muted/70" />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (loaded && sessions.length === 0) {
+    return (
+      <div className="px-5 pt-6 text-left">
+        <div className="text-[12px] font-medium text-foreground">
           {tab === 'terminal' ? t.terminalEmptyTitle : t.chatsEmptyTitle}
         </div>
-        <div className="text-xs text-muted-foreground">
+        <div className="mt-1 text-[11px] leading-4 text-muted-foreground">
           {tab === 'terminal' ? t.terminalEmptyBody : t.chatsEmptyBody}
         </div>
       </div>
