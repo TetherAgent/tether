@@ -42,6 +42,7 @@ export function WorkbenchSidebar({
   });
   const [renameDialog, setRenameDialog] = React.useState<RenameDialogState>(null);
   const [archiveSessionState, setArchiveSessionState] = React.useState<WorkbenchSessionRecord | null>(null);
+  const [archivedSessionIds, setArchivedSessionIds] = React.useState<Set<string>>(() => new Set());
   const [stopSessionState, setStopSessionState] = React.useState<WorkbenchSessionRecord | null>(null);
 
   const startRename = (session: WorkbenchSessionRecord) => {
@@ -66,6 +67,7 @@ export function WorkbenchSidebar({
     const session = archiveSessionState;
     setArchiveSessionState(null);
     if (!session) return;
+    setArchivedSessionIds((current) => new Set(current).add(session.id));
     setSessions((prev) => prev.filter((item) => item.id !== session.id));
     if (activeSessionId === session.id) {
       navigate(session.kind === 'terminal' ? '/terminal' : '/chats', { replace: true });
@@ -73,6 +75,11 @@ export function WorkbenchSidebar({
     try {
       await archiveSession(session.id);
     } catch {
+      setArchivedSessionIds((current) => {
+        const next = new Set(current);
+        next.delete(session.id);
+        return next;
+      });
       loadSessions();
     }
   };
@@ -102,6 +109,14 @@ export function WorkbenchSidebar({
 
   const displayEmail = normalAuth?.identity?.email ?? normalAuth?.email ?? normalAuth?.displayName ?? '';
   const accountInitial = (displayEmail || normalAuth?.displayName || 'T').slice(0, 1).toUpperCase();
+  const visibleSessions = React.useMemo(
+    () => sessions.filter((session) => !archivedSessionIds.has(session.id)),
+    [archivedSessionIds, sessions]
+  );
+  const visibleRelaySessions = React.useMemo(
+    () => relaySessions.filter((session) => !archivedSessionIds.has(session.id)),
+    [archivedSessionIds, relaySessions]
+  );
 
   return (
     <>
@@ -196,10 +211,10 @@ export function WorkbenchSidebar({
             onSelect={onSelect}
             onStop={setStopSessionState}
             onTerminalSelect={onTerminalSelect}
-            relaySessions={relaySessions}
+            relaySessions={visibleRelaySessions}
             loaded={loaded}
             loading={loading}
-            sessions={sessions}
+            sessions={visibleSessions}
             tab={activeTab}
             t={t}
           />

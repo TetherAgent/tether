@@ -7480,6 +7480,14 @@ textarea.composer-input {
     margin: 0 12px 10px;
   }
 
+  .terminal-embedded-page {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .terminal-embedded-page .composer-form {
+    display: none;
+  }
+
   .chat-new-session-surface {
     min-height: 100dvh;
     justify-content: center;
