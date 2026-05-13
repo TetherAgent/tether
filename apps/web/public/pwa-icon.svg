@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Tether">
+  <defs>
+    <linearGradient id="tether-icon-gradient" x1="104" y1="104" x2="408" y2="408" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#05b8a7" />
+      <stop offset="1" stop-color="#2563eb" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#tether-icon-gradient)" />
+  <path d="M144 148h224v58h-80v176h-64V206h-80v-58Z" fill="#07111f" />
+</svg>

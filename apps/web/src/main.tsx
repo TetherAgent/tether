@@ -53,6 +53,7 @@ import { readWebRelayUrl } from './config/default-deployment.js';
 import { SessionControlPage } from './pages/session-control-page.js';
 import { SessionReplayPage } from './pages/session-replay-page.js';
 import { WebRoutes } from './routes.js';
+import { registerPwaServiceWorker } from './pwa.js';
 import './styles.css';
 
 type Session = {
@@ -805,6 +806,7 @@ function SessionCard({
 }
 
 const root = createRoot(document.getElementById('root')!);
+registerPwaServiceWorker();
 root.render(
   <StrictMode>
     <App />

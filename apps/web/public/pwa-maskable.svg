@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Tether">
+  <defs>
+    <linearGradient id="tether-maskable-gradient" x1="80" y1="80" x2="432" y2="432" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#05b8a7" />
+      <stop offset="1" stop-color="#2563eb" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#tether-maskable-gradient)" />
+  <circle cx="256" cy="256" r="176" fill="rgba(255,255,255,0.12)" />
+  <path d="M146 150h220v58h-78v172h-64V208h-78v-58Z" fill="#07111f" />
+</svg>
