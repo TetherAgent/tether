@@ -126,6 +126,33 @@ test('relay rejects unauthenticated sockets', async () => {
   }
 });
 
+test('relay rejects nested forbidden command-shaped keys after authentication', async () => {
+  const relay = await createRelay();
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+
+  try {
+    await authenticateClient(client);
+    client.send(JSON.stringify({
+      type: 'client.chat',
+      sessionId: null,
+      provider: 'codex',
+      model: 'auto',
+      cwd: process.cwd(),
+      message: 'hi',
+      gatewayId: 'gateway-test',
+      metadata: {
+        env: { OPENAI_API_KEY: 'sk-test' }
+      }
+    }));
+    const close = await waitForClose(client);
+    assert.equal(close.code, 1008);
+    assert.equal(close.reason, 'invalid frame');
+  } finally {
+    client.close();
+    await relay.close();
+  }
+});
+
 test('relay closes sockets that never send auth frame', async () => {
   const relay = await createRelay();
   const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);

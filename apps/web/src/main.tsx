@@ -49,6 +49,7 @@ import { useUiPreferences } from './hooks/use-ui-preferences.js';
 import { gatewayAuthHeaders, readGatewayData } from './lib/api.js';
 import { providerResumeCommand } from './lib/provider-resume-command.js';
 import { WebChromeControls } from './components/console/web-chrome-controls.js';
+import { readWebRelayUrl } from './config/default-deployment.js';
 import { SessionControlPage } from './pages/session-control-page.js';
 import { SessionReplayPage } from './pages/session-replay-page.js';
 import { WebRoutes } from './routes.js';
@@ -94,12 +95,10 @@ type RelayClientToServerFrame =
 
 const RELAY_URL_KEY = 'tether:relayUrl';
 const RELAY_SECRET_KEY = 'tether:relaySecret';
-const PRODUCT_DEFAULT_RELAY_URL = 'wss://tether.earntools.me';
-const DEFAULT_RELAY_URL = import.meta.env.VITE_TETHER_RELAY_URL ?? PRODUCT_DEFAULT_RELAY_URL;
 
 function readConnectionSettings(): ConnectionSettings {
   return {
-    relayUrl: window.localStorage.getItem(RELAY_URL_KEY) ?? DEFAULT_RELAY_URL ?? '',
+    relayUrl: readWebRelayUrl(),
     relaySecret: window.localStorage.getItem(RELAY_SECRET_KEY) ?? ''
   };
 }

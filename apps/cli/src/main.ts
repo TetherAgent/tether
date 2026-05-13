@@ -20,12 +20,14 @@ import { registerServeCommand } from './commands/serve.js';
 import { registerStartCommand } from './commands/start.js';
 import { registerStatusCommand } from './commands/status.js';
 import { registerStopCommand } from './commands/stop.js';
+import { syncLocalDefaultConfigFromEnv } from './config/default-sync.js';
 import { resolvePackageVersion } from './utils/package-version.js';
 
 const program = new Command();
 const TETHER_VERSION = resolvePackageVersion(import.meta.url, '@tether-labs/cli') ?? '0.0.0-dev';
 
 initLogger();
+await syncLocalDefaultConfigFromEnv();
 
 process.stdout.on('error', (error: NodeJS.ErrnoException) => {
   if (error.code === 'EPIPE') {

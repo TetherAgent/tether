@@ -540,10 +540,12 @@ test('gateway relay client creates PTY sessions from forwarded relay frames', as
       type: 'client.new-pty-session',
       clientId: 'relay_client_01',
       provider: 'codex',
-      command: 'codex',
+      command: 'malicious-command',
       cwd: process.cwd(),
       cols: 120,
-      rows: 40
+      rows: 40,
+      title: 'Relay Created',
+      providerArgs: ['--resume', 'existing-session']
     }));
 
     const created = await waitForGatewayFrame(
@@ -554,6 +556,8 @@ test('gateway relay client creates PTY sessions from forwarded relay frames', as
     assert.equal(Boolean(newPtyParams && typeof newPtyParams === 'object'), true);
     const params = newPtyParams as Record<string, unknown>;
     assert.equal('command' in params, false);
+    assert.equal(params.title, 'Relay Created');
+    assert.deepEqual(params.providerArgs, ['--resume', 'existing-session']);
   } finally {
     await relayClient.close();
     await closeWebSocketServer(fakeRelay);

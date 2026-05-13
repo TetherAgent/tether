@@ -418,7 +418,7 @@ nginx -t && nginx -s reload
 # 5. 设置生产环境变量
 export EGG_SERVER_ENV=prod
 export TETHER_SERVER_JWT_SECRET=<强随机密钥>
-export TETHER_SERVER_WEB_ORIGIN=https://tether.earntools.me
+export TETHER_SERVER_WEB_ORIGIN=https://tether.fundingrate.cn
 export TETHER_SERVER_HOST=127.0.0.1
 export TETHER_SERVER_PORT=4800
 
@@ -436,7 +436,7 @@ cd apps/server && pnpm start
 | `TETHER_SERVER_HOST` | — | 默认 `127.0.0.1` |
 | `TETHER_SERVER_PORT` | — | 默认 `4800` |
 
-访问 `https://tether.earntools.me/admin` 即为管理后台。
+访问 `https://tether.fundingrate.cn/admin` 即为管理后台。
 
 ## License
 

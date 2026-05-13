@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { PROVIDERS } from '@tether/core';
-import { buildNewPtySessionFrame } from '../src/relay/sessions.js';
+import { buildNewPtySessionFrame, relayClientUrl } from '../src/relay/sessions.js';
 
 const mainSource = () => readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
 const commandSource = (name: string) => readFileSync(new URL(`../src/commands/${name}.ts`, import.meta.url), 'utf8');
@@ -54,6 +54,24 @@ test('session title is Tether metadata and is not forwarded as provider args', (
   assert.deepEqual(frame.providerArgs, ['--resume', '99acd804-8250-43db-9503-884c1e7ca450']);
   assert.equal(frame.providerArgs?.includes('--title'), false);
   assert.equal(frame.providerArgs?.includes('登录问题'), false);
+});
+
+test('empty session title is omitted from new PTY session frame', () => {
+  const frame = buildNewPtySessionFrame(
+    PROVIDERS.codex,
+    { title: '   ', providerArgs: [] },
+    'gw_test',
+    { columns: 100, rows: 30 }
+  );
+
+  assert.equal(Object.hasOwn(frame, 'title'), false);
+  assert.equal(Object.hasOwn(frame, 'providerArgs'), false);
+});
+
+test('relay client URL normalizes http and websocket bases without preserving path', () => {
+  assert.equal(relayClientUrl('https://tether.example.com'), 'wss://tether.example.com/ws/client');
+  assert.equal(relayClientUrl('http://127.0.0.1:4889'), 'ws://127.0.0.1:4889/ws/client');
+  assert.equal(relayClientUrl('wss://tether.example.com/ws/gateway?x=1#frag'), 'wss://tether.example.com/ws/client');
 });
 
 test('run command declares --title before provider args passthrough', () => {

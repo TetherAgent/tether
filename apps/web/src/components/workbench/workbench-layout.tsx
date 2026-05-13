@@ -1,12 +1,10 @@
 import * as React from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
+import { readWebRelayUrl } from '../../config/default-deployment.js';
 import { useAuth } from '../../hooks/use-auth.js';
 import { RelayClientProvider } from '../relay/relay-client-provider.js';
 import { WorkbenchSidebar } from './workbench-sidebar.js';
-
-const RELAY_URL_KEY = 'tether:relayUrl';
-const DEFAULT_RELAY_URL = import.meta.env.VITE_TETHER_RELAY_URL ?? 'wss://tether.earntools.me';
 
 function activeSessionIdFromPath(pathname: string): string | undefined {
   const match = /^\/(?:chats|terminal)\/([^/]+)$/.exec(pathname);
@@ -21,7 +19,7 @@ export function WorkbenchLayout() {
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [sessionRefreshKey, setSessionRefreshKey] = React.useState(0);
   const relayUrl = React.useMemo(
-    () => window.localStorage.getItem(RELAY_URL_KEY) ?? DEFAULT_RELAY_URL,
+    () => readWebRelayUrl(),
     []
   );
   const activeSessionId = activeSessionIdFromPath(location.pathname);
