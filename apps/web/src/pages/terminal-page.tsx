@@ -3,8 +3,8 @@ import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { Menu, PanelLeftOpen } from 'lucide-react';
 
 import { NotificationBell } from '../components/chats/notification-bell.js';
+import { TerminalLaunchPage } from '../components/terminal/terminal-launch-page.js';
 import { TerminalPane } from '../components/terminal/terminal-pane.js';
-import { TerminalSessionPicker } from '../components/terminal/terminal-session-picker.js';
 import type { WorkbenchOutletContext } from '../components/workbench/workbench-layout.js';
 import { WorkbenchConnectionStatus } from '../components/workbench/workbench-status-pill.js';
 import { useI18n } from '../hooks/use-i18n.js';
@@ -49,7 +49,7 @@ export function TerminalPage() {
             embedded
           />
         ) : (
-          <TerminalSessionPicker onSelect={(id) => navigate(`/terminal/${encodeURIComponent(id)}`)} />
+          <TerminalLaunchPage onCreated={(id) => navigate(`/terminal/${encodeURIComponent(id)}`)} />
         )}
       </div>
     </div>

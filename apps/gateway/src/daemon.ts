@@ -13,6 +13,7 @@ import { initLogger, logger } from './utils/logger.js';
 import { createSessionId } from './utils/ids.js';
 import { createSessionEvent } from './utils/events.js';
 import { isValidTerminalSize, type PtySessionManager } from './pty/manager.js';
+import { openLocalTerminalForProvider, type LocalTerminalProvider } from './pty/local-terminal.js';
 import { registerGateway, touchGateway, unregisterGateway } from './registry.js';
 import { detectSelectOptions } from './pty/agent-select-detector.js';
 import { startRelayClient, type RunningRelayClient } from './relay-client.js';
@@ -330,9 +331,17 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       gatewayId,
       ptySessions: options.ptySessions,
       runnerClientForSession: getRunnerClient,
-      onNewPtySession: async ({ provider, cwd, cols, rows, title, providerArgs }) => {
+      onNewPtySession: async ({ provider, cwd, cols, rows, launchMode, title, providerArgs }) => {
         if (!isProviderName(provider)) {
           throw new Error(`unsupported provider: ${provider}`);
+        }
+        if (!isLaunchablePtyProvider(provider)) {
+          throw new Error(`unsupported provider: ${provider}`);
+        }
+        const projectPath = resolveProjectPath(cwd);
+        if (launchMode === 'local-terminal') {
+          await openLocalTerminalForProvider({ cwd: projectPath, provider });
+          return { launchMode, provider };
         }
         const authState = await loadGatewayAuthState();
         if (!authState.ok) {
@@ -349,10 +358,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             provider,
             command: providerCommand(provider, options.config),
             providerArgs: provider === 'shell' ? ['-l'] : providerArgs,
-            projectPath: path.resolve(cwd),
+            projectPath,
             title,
-            cols,
-            rows,
+            cols: cols ?? 120,
+            rows: rows ?? 40,
             owner: {
               accountId: identity.accountId,
               userId: identity.userId,
@@ -364,8 +373,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           }
         });
         options.ptySessions.restoreSession(session);
-        logger.info('daemon', 'pty session created', { sessionId: session.id, provider, cwd });
-        return { sessionId: session.id };
+        logger.info('daemon', 'pty session created', { sessionId: session.id, provider, cwd: projectPath });
+        return { launchMode: 'background', sessionId: session.id };
       }
     });
   }
@@ -444,6 +453,24 @@ function providerCommand(provider: string, config = readTetherConfig()): string 
     throw new Error(`unsupported provider: ${provider}`);
   }
   return PROVIDERS[provider].command;
+}
+
+function isLaunchablePtyProvider(provider: string): provider is LocalTerminalProvider {
+  return provider === 'shell' || provider === 'claude' || provider === 'codex';
+}
+
+function resolveProjectPath(cwd: string | undefined): string {
+  const trimmed = cwd?.trim();
+  if (!trimmed) {
+    return process.cwd();
+  }
+  if (trimmed === '~') {
+    return os.homedir();
+  }
+  if (trimmed.startsWith('~/')) {
+    return path.join(os.homedir(), trimmed.slice(2));
+  }
+  return path.resolve(trimmed);
 }
 
 function pathListIncludes(value: string | undefined, needle: string): boolean {

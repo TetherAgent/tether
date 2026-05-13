@@ -25,6 +25,17 @@ export type RelaySessionSummary = {
   transport?: string;
 };
 
+export type CreatePtySessionInput = {
+  cwd?: string;
+  gatewayId?: string;
+  provider: 'shell' | 'claude' | 'codex';
+  launchMode: 'background' | 'local-terminal';
+};
+
+export type CreatePtySessionResult =
+  | { launchMode: 'background'; sessionId: string }
+  | { launchMode: 'local-terminal'; provider: 'shell' | 'claude' | 'codex' };
+
 export type GatewayRuntimeStatus = {
   gatewayId: string;
   lastSeenAt: number;
@@ -47,6 +58,7 @@ type RelayClientContextValue = RelayClientApi & {
   relaySessions: RelaySessionSummary[];
   relaySessionsVersion: number;
   acquireSessionSubscription: (input: RelaySessionSubscriptionInput) => () => void;
+  createPtySession: (input: CreatePtySessionInput) => Promise<CreatePtySessionResult>;
   subscribeFrame: (handler: RelayFrameHandler) => () => void;
   subscribeClose: (handler: RelayCloseHandler) => () => void;
 };
@@ -59,6 +71,13 @@ type RelayClientProviderProps = {
 
 const RelayClientContext = React.createContext<RelayClientContextValue | null>(null);
 const RECONNECT_DELAYS_MS = [500, 1000, 2000, 5000];
+const CREATE_PTY_TIMEOUT_MS = 15_000;
+
+type PendingCreatePtySession = {
+  reject: (error: Error) => void;
+  resolve: (result: CreatePtySessionResult) => void;
+  timer: number;
+};
 
 function buildRelayUrl(value: string): string {
   const url = new URL(value);
@@ -106,6 +125,7 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
   const reconnectTimerRef = React.useRef<number | undefined>(undefined);
   const frameHandlersRef = React.useRef(new Set<RelayFrameHandler>());
   const closeHandlersRef = React.useRef(new Set<RelayCloseHandler>());
+  const pendingCreatePtySessionsRef = React.useRef(new Map<string, PendingCreatePtySession>());
   const sessionSubscriptionsRef = React.useRef(new Map<string, Map<string, RelaySessionSubscriptionInput>>());
 
   const sendFrame = React.useCallback((frame: Record<string, unknown>): boolean => {
@@ -197,6 +217,30 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
     };
   }, [sendFrame, sendSubscribeFrame]);
 
+  const createPtySession = React.useCallback((input: CreatePtySessionInput): Promise<CreatePtySessionResult> => {
+    const clientRequestId = globalThis.crypto?.randomUUID?.() ?? `pty-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return new Promise<CreatePtySessionResult>((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        pendingCreatePtySessionsRef.current.delete(clientRequestId);
+        reject(new Error('terminal session create timeout'));
+      }, CREATE_PTY_TIMEOUT_MS);
+      pendingCreatePtySessionsRef.current.set(clientRequestId, { reject, resolve, timer });
+      const sent = sendFrame({
+        type: 'client.new-pty-session',
+        clientRequestId,
+        ...(input.cwd?.trim() ? { cwd: input.cwd.trim() } : {}),
+        ...(input.gatewayId ? { gatewayId: input.gatewayId } : {}),
+        provider: input.provider,
+        launchMode: input.launchMode
+      });
+      if (!sent) {
+        window.clearTimeout(timer);
+        pendingCreatePtySessionsRef.current.delete(clientRequestId);
+        reject(new Error('relay is not connected'));
+      }
+    });
+  }, [sendFrame]);
+
   React.useEffect(() => {
     if (!accessToken) {
       setWsReady(false);
@@ -285,6 +329,34 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
           }
           setRelaySessionsVersion((version) => version + 1);
         }
+        if (frame.type === 'gateway.session-created' && typeof frame.clientRequestId === 'string') {
+          const pending = pendingCreatePtySessionsRef.current.get(frame.clientRequestId);
+          if (pending && typeof frame.sessionId === 'string') {
+            window.clearTimeout(pending.timer);
+            pendingCreatePtySessionsRef.current.delete(frame.clientRequestId);
+            pending.resolve({ launchMode: 'background', sessionId: frame.sessionId });
+          }
+        }
+        if (
+          frame.type === 'gateway.local-terminal-opened' &&
+          typeof frame.clientRequestId === 'string' &&
+          (frame.provider === 'shell' || frame.provider === 'claude' || frame.provider === 'codex')
+        ) {
+          const pending = pendingCreatePtySessionsRef.current.get(frame.clientRequestId);
+          if (pending) {
+            window.clearTimeout(pending.timer);
+            pendingCreatePtySessionsRef.current.delete(frame.clientRequestId);
+            pending.resolve({ launchMode: 'local-terminal', provider: frame.provider });
+          }
+        }
+        if (frame.type === 'error' && typeof frame.clientRequestId === 'string') {
+          const pending = pendingCreatePtySessionsRef.current.get(frame.clientRequestId);
+          if (pending) {
+            window.clearTimeout(pending.timer);
+            pendingCreatePtySessionsRef.current.delete(frame.clientRequestId);
+            pending.reject(new Error(typeof frame.message === 'string' ? frame.message : 'terminal session create failed'));
+          }
+        }
         for (const handler of frameHandlersRef.current) {
           handler(frame, { sendFrame });
         }
@@ -293,6 +365,11 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
         if (disposed || wsRef.current !== ws) return;
         wsRef.current = null;
         setWsReady(false);
+        for (const [requestId, pending] of pendingCreatePtySessionsRef.current) {
+          window.clearTimeout(pending.timer);
+          pending.reject(new Error('relay connection closed'));
+          pendingCreatePtySessionsRef.current.delete(requestId);
+        }
         for (const handler of closeHandlersRef.current) {
           handler();
         }
@@ -324,6 +401,11 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
       setGatewayStatusById({});
       setRelaySessions([]);
       setRelaySessionsVersion(0);
+      for (const [requestId, pending] of pendingCreatePtySessionsRef.current) {
+        window.clearTimeout(pending.timer);
+        pending.reject(new Error('relay connection closed'));
+        pendingCreatePtySessionsRef.current.delete(requestId);
+      }
       if (currentWs && currentWs.readyState !== WebSocket.CLOSED && currentWs.readyState !== WebSocket.CLOSING) {
         currentWs.close();
       }
@@ -352,6 +434,7 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
   const value = React.useMemo<RelayClientContextValue>(() => ({
     acquireSessionSubscription,
     connectionEpoch,
+    createPtySession,
     defaultGatewayId,
     gatewayConnected,
     gatewayIdsOnline,
@@ -362,7 +445,7 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
     subscribeClose,
     subscribeFrame,
     wsReady
-  }), [acquireSessionSubscription, connectionEpoch, defaultGatewayId, gatewayConnected, gatewayIdsOnline, gatewayStatusById, relaySessions, relaySessionsVersion, sendFrame, subscribeClose, subscribeFrame, wsReady]);
+  }), [acquireSessionSubscription, connectionEpoch, createPtySession, defaultGatewayId, gatewayConnected, gatewayIdsOnline, gatewayStatusById, relaySessions, relaySessionsVersion, sendFrame, subscribeClose, subscribeFrame, wsReady]);
 
   return (
     <RelayClientContext.Provider value={value}>

@@ -169,6 +169,24 @@ export function WorkbenchSidebar({
           </div>
         )}
 
+        {activeTab === 'terminal' && (
+          <div className="px-3 pb-2">
+            <Link
+              to="/terminal"
+              onClick={onSelect}
+              className="flex h-9 w-full items-center gap-2 rounded-xl border border-border bg-card px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-sidebar-accent"
+            >
+              <span
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[11px] font-bold text-black"
+                style={{ background: 'var(--gradient-brand)' }}
+              >
+                +
+              </span>
+              新建终端
+            </Link>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto pt-1">
           <WorkbenchSessionList
             activeSessionId={activeSessionId}

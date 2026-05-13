@@ -1,10 +1,14 @@
 import * as React from 'react';
-import { Menu, PanelLeftOpen } from 'lucide-react';
+import { HelpCircle, Menu, PanelLeftOpen } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { NotificationBell } from './notification-bell.js';
+
+const HELP_HINT_STORAGE_KEY = 'tether:helpHintSeen';
 
 export function NewChatSurface({
   composer,
   connectionStatusChips,
+  connectionReady,
   gatewayNamesById,
   onExpandSidebar,
   onOpenDrawer,
@@ -12,14 +16,40 @@ export function NewChatSurface({
 }: {
   composer: React.ReactNode;
   connectionStatusChips: React.ReactNode;
+  connectionReady: boolean;
   gatewayNamesById: Record<string, string>;
   onExpandSidebar?: () => void;
   onOpenDrawer?: () => void;
   t: {
     chatsCwdNote: string;
     chatsWelcomeGreeting: string;
+    helpHintText: string;
+    helpNavLabel: string;
   };
 }) {
+  const [showHelpHint, setShowHelpHint] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!connectionReady) {
+      setShowHelpHint(false);
+      return undefined;
+    }
+    if (window.localStorage.getItem(HELP_HINT_STORAGE_KEY) === '1') {
+      return undefined;
+    }
+    setShowHelpHint(true);
+    const timer = window.setTimeout(() => {
+      setShowHelpHint(false);
+      window.localStorage.setItem(HELP_HINT_STORAGE_KEY, '1');
+    }, 3000);
+    return () => window.clearTimeout(timer);
+  }, [connectionReady]);
+
+  const dismissHelpHint = () => {
+    window.localStorage.setItem(HELP_HINT_STORAGE_KEY, '1');
+    setShowHelpHint(false);
+  };
+
   return (
     <div className="chat-surface chat-new-session-surface relative flex h-full flex-col items-center justify-center bg-background px-6">
       {onOpenDrawer && (
@@ -41,6 +71,24 @@ export function NewChatSurface({
       <div className="absolute right-3 top-3 flex items-center gap-2">
         <div className="chat-header-connection-status">
           {connectionStatusChips}
+        </div>
+        <div className="relative">
+          {showHelpHint ? (
+            <div className="chat-help-hint absolute right-0 top-9 hidden whitespace-nowrap rounded-full border border-brand/25 bg-card px-3 py-1.5 text-[12px] font-medium text-foreground shadow-card md:block">
+              {t.helpHintText}
+            </div>
+          ) : null}
+          <Link
+            to="/help"
+            onClick={dismissHelpHint}
+            title={t.helpNavLabel}
+            aria-label={t.helpNavLabel}
+            className={`chat-help-button flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground ${
+              showHelpHint ? 'chat-help-button--pulse' : ''
+            }`}
+          >
+            <HelpCircle className="h-[15px] w-[15px]" />
+          </Link>
         </div>
         <NotificationBell gatewayNamesById={gatewayNamesById} />
       </div>

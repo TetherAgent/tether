@@ -191,6 +191,51 @@ export const WEB_MESSAGES = {
     creatingAccount: '创建中…',
     noAccountYet: '创建账户',
     alreadyHaveAccount: '返回登录',
+    helpNavLabel: '使用帮助',
+    helpHintText: '不知道怎么开始？',
+    helpEyebrow: '无需登录即可查看',
+    helpTitle: 'Tether 使用帮助',
+    helpDescription: '先在本机安装 CLI、登录并启动 Gateway，然后用 Chats 做 AI 对话，用 Terminal 接回正在运行的终端 session。',
+    helpOpenChats: '进入 Chats',
+    helpOpenTerminal: '进入 Terminal',
+    helpQuickStartTitle: '安装与登录',
+    helpQuickStartDescription: '按顺序完成一次，本机 Gateway 就会绑定到你的账号。',
+    helpQuickStartSteps: [
+      { label: '安装 CLI', cmd: 'npm install -g @tether-labs/cli@latest' },
+      { label: '登录账号并绑定本机 Gateway', cmd: 'tether login' },
+      { label: '启动本机 Gateway', cmd: 'tether start' },
+    ],
+    helpBestForLabel: '适合',
+    helpHowToUseLabel: '怎么用',
+    helpChatTitle: 'Chats 怎么用',
+    helpChatDescription: 'Chats 是浏览器里的 AI 对话工作台。',
+    helpChatUseCases: [
+      '日常问答、项目分析、生成方案、整理文档。',
+      '不需要完整终端画面，只需要一轮轮对话推进的任务。'
+    ],
+    helpChatSteps: [
+      '进入 Chats，选择本机 Gateway。',
+      '选择模型和工作目录。',
+      '发送第一条消息创建对话；创建后工作目录会锁定。',
+      '之后从左侧 Chats 列表继续、重命名或归档。'
+    ],
+    helpTerminalTitle: 'Terminal 怎么用',
+    helpTerminalDescription: 'Terminal 用来接回本机 CLI 启动的 PTY session。',
+    helpTerminalUseCases: [
+      '长时间运行的 CLI、完整 TUI/PTY 输出、需要接管电脑终端的场景。',
+      '从手机或浏览器继续控制本机已经启动的 agent。'
+    ],
+    helpTerminalSteps: [
+      '先在本机终端启动一个 session。',
+      '进入 Web 的 Terminal 页面。',
+      '选择 running session，查看输出并继续输入。',
+      '停止按钮只会出现在 terminal 且 running 的 session 上。'
+    ],
+    helpTerminalCommands: [
+      { label: '启动 Codex', cmd: 'tether run codex' },
+      { label: '启动 Claude', cmd: 'tether run claude' },
+      { label: '启动普通 shell', cmd: 'tether run shell' },
+    ],
     authSurface: 'Chats 访问域',
     authTransportEventStream: 'PTY 事件流',
     authDemoGatewayOnline: 'Gateway 已在线',
@@ -285,6 +330,8 @@ export const WEB_MESSAGES = {
     chatsConnLost: '连接中断，正在重试…',
     chatsGatewayConnecting: 'Gateway 连接中…',
     chatsGatewayConnected: 'Gateway 已连接',
+    chatsGatewayWaiting: '等待 Gateway 在线',
+    chatsGatewayUnknown: 'Gateway 状态等待确认',
     chatsRelayConnecting: 'Relay 连接中…',
     chatsRelayConnected: 'Relay 已连接',
     chatsRelayDisconnected: 'Relay 已断开',
@@ -491,6 +538,51 @@ export const WEB_MESSAGES = {
     creatingAccount: 'Creating account…',
     noAccountYet: 'Create account',
     alreadyHaveAccount: 'Back to sign in',
+    helpNavLabel: 'Help',
+    helpHintText: 'Not sure where to start?',
+    helpEyebrow: 'Available without signing in',
+    helpTitle: 'Tether help',
+    helpDescription: 'Install the CLI, sign in, and start Gateway on this machine. Use Chats for AI conversations and Terminal to reconnect to running terminal sessions.',
+    helpOpenChats: 'Open Chats',
+    helpOpenTerminal: 'Open Terminal',
+    helpQuickStartTitle: 'Install and sign in',
+    helpQuickStartDescription: 'Complete this once to bind your local Gateway to your account.',
+    helpQuickStartSteps: [
+      { label: 'Install CLI', cmd: 'npm install -g @tether-labs/cli@latest' },
+      { label: 'Sign in and bind local Gateway', cmd: 'tether login' },
+      { label: 'Start local Gateway', cmd: 'tether start' },
+    ],
+    helpBestForLabel: 'Best for',
+    helpHowToUseLabel: 'How to use',
+    helpChatTitle: 'How Chats work',
+    helpChatDescription: 'Chats is the browser workspace for AI conversations.',
+    helpChatUseCases: [
+      'Daily questions, project analysis, planning, and documentation.',
+      'Tasks that move forward through conversation and do not need a full terminal surface.'
+    ],
+    helpChatSteps: [
+      'Open Chats and choose your local Gateway.',
+      'Choose a model and working directory.',
+      'Send the first message to create the chat. The working directory is locked afterward.',
+      'Continue, rename, or archive chats from the Chats sidebar.'
+    ],
+    helpTerminalTitle: 'How Terminal works',
+    helpTerminalDescription: 'Terminal reconnects to PTY sessions launched by the local CLI.',
+    helpTerminalUseCases: [
+      'Long-running CLIs, full TUI/PTY output, and taking over a desktop terminal.',
+      'Continuing a local agent session from phone or browser.'
+    ],
+    helpTerminalSteps: [
+      'Start a session from your local terminal.',
+      'Open the Web Terminal page.',
+      'Choose a running session, view output, and continue typing.',
+      'Stop only appears for terminal sessions that are running.'
+    ],
+    helpTerminalCommands: [
+      { label: 'Start Codex', cmd: 'tether run codex' },
+      { label: 'Start Claude', cmd: 'tether run claude' },
+      { label: 'Start a shell', cmd: 'tether run shell' },
+    ],
     authSurface: 'Chats access realm',
     authTransportEventStream: 'PTY event stream',
     authDemoGatewayOnline: 'Gateway online',
@@ -585,6 +677,8 @@ export const WEB_MESSAGES = {
     chatsConnLost: 'Connection lost. Reconnecting…',
     chatsGatewayConnecting: 'Connecting to Gateway…',
     chatsGatewayConnected: 'Gateway connected',
+    chatsGatewayWaiting: 'Waiting for Gateway',
+    chatsGatewayUnknown: 'Gateway status pending',
     chatsRelayConnecting: 'Connecting to Relay…',
     chatsRelayConnected: 'Relay connected',
     chatsRelayDisconnected: 'Relay disconnected',

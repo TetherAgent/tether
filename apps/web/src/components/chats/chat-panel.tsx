@@ -1,6 +1,5 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUp, Loader2 } from 'lucide-react';
 import {
   Button,
   Select,
@@ -21,8 +20,9 @@ import { ChatComposer } from './chat-composer.js';
 import { ChatMessageList } from './chat-message-list.js';
 import { NewChatSurface } from './new-chat-surface.js';
 import { type RelayFrame, useRelayClient } from '../relay/use-relay-client.js';
+import { ComposerSubmitButton } from '../workbench/composer-submit-button.js';
 import { PathPicker } from '../workbench/path-picker.js';
-import { WorkbenchStatusPill } from '../workbench/workbench-status-pill.js';
+import { WorkbenchCompactConnectionStatus } from '../workbench/workbench-status-pill.js';
 import { GatewaySelector } from './gateway-selector.js';
 import { SlashCommandMenu } from './slash-command-menu.js';
 import { useSlashMenu } from './use-slash-menu.js';
@@ -1094,48 +1094,34 @@ export function ChatPanel({
   const isGatewayInputBlocked = Boolean(gatewayInputMessage);
   const canSend = wsReady && !isInflight && !connectionError && !sessionAccessError && !isGatewayInputBlocked && inputText.trim().length > 0;
   const isInputDisabled = isInflight || !wsReady || Boolean(connectionError) || Boolean(sessionAccessError) || isGatewayInputBlocked;
-  const relayStatusChip = (() => {
+  const relayConnection = (() => {
     if (wsReady) {
-      return (
-        <WorkbenchStatusPill state="connected">Relay</WorkbenchStatusPill>
-      );
+      return { state: 'connected' as const, label: t.chatsRelayConnected };
     }
     if (hasEverConnectedRef.current) {
-      return (
-        <WorkbenchStatusPill state="error">{t.chatsRelayDisconnected}</WorkbenchStatusPill>
-      );
+      return { state: 'error' as const, label: t.chatsRelayDisconnected };
     }
-    return (
-      <WorkbenchStatusPill state="connecting">{t.chatsRelayConnecting}</WorkbenchStatusPill>
-    );
+    return { state: 'connecting' as const, label: t.chatsRelayConnecting };
   })();
 
-  const gatewayStatusChip = (() => {
+  const gatewayConnection = (() => {
     if (connectionError) {
-      return (
-        <WorkbenchStatusPill state="error">{connectionError}</WorkbenchStatusPill>
-      );
-    }
-    if (wsReady && hasEverConnectedRef.current && !gatewayConnected) {
-      return (
-        <WorkbenchStatusPill state="connecting">{t.chatsGatewayConnecting}</WorkbenchStatusPill>
-      );
+      return { state: 'error' as const, label: connectionError };
     }
     if (wsReady && gatewayConnected) {
-      return (
-        <WorkbenchStatusPill state="connected">Gateway</WorkbenchStatusPill>
-      );
+      return { state: 'connected' as const, label: t.chatsGatewayConnected };
     }
-    return (
-      <WorkbenchStatusPill state="connecting">{t.chatsGatewayConnecting}</WorkbenchStatusPill>
-    );
+    if (wsReady) {
+      return { state: 'connecting' as const, label: t.chatsGatewayWaiting };
+    }
+    return { state: 'unknown' as const, label: t.chatsGatewayUnknown };
   })();
 
   const connectionStatusChips = (
-    <>
-      {gatewayStatusChip}
-      {relayStatusChip}
-    </>
+    <WorkbenchCompactConnectionStatus
+      gateway={gatewayConnection}
+      relay={relayConnection}
+    />
   );
 
   const gatewaySelector = (
@@ -1174,19 +1160,12 @@ export function ChatPanel({
   );
 
   const sendButton = (
-    <button
+    <ComposerSubmitButton
       onClick={sendMessage}
       disabled={!canSend}
-      className={`chat-send-button flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all ${
-        canSend
-          ? 'bg-brand text-black hover:opacity-90'
-          : 'bg-muted text-muted-foreground cursor-not-allowed'
-      }`}
-    >
-      {isInflight
-        ? <Loader2 className="h-4 w-4 animate-spin" />
-        : <ArrowUp className="h-4 w-4" />}
-    </button>
+      loading={isInflight}
+      title={t.send}
+    />
   );
 
   const displayProvider = currentSessionId ? (activeSessionProvider ?? 'agent') : selectedProvider;
@@ -1311,6 +1290,7 @@ export function ChatPanel({
           </div>
         )}
         connectionStatusChips={connectionStatusChips}
+        connectionReady={wsReady && gatewayConnected && !connectionError}
         gatewayNamesById={gatewayNamesById}
         onExpandSidebar={onExpandSidebar}
         onOpenDrawer={onOpenDrawer}

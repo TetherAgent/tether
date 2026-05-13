@@ -10,12 +10,14 @@ import type { SubscriptionManager } from './subscription-manager.js';
 export type NewPtySessionHandler = (params: {
   clientId: string;
   provider: string;
-  cwd: string;
-  cols: number;
-  rows: number;
+  cwd?: string;
+  cols?: number;
+  rows?: number;
+  launchMode: 'background' | 'local-terminal';
+  clientRequestId?: string;
   title?: string;
   providerArgs?: string[];
-}) => Promise<{ sessionId: string }>;
+}) => Promise<{ launchMode: 'background'; sessionId: string } | { launchMode: 'local-terminal'; provider: 'shell' | 'claude' | 'codex' }>;
 
 type NewPtySessionFrame = Extract<RelayServerToGatewayFrame, { type: 'client.new-pty-session' }>;
 
@@ -97,7 +99,13 @@ export class PtyHandler {
 
   handleNewSession(frame: NewPtySessionFrame): void {
     if (!this.options.onNewPtySession) {
-      this.options.relaySender.error(frame.clientId, '', 'session_create_not_supported', 'gateway cannot create PTY sessions over relay');
+      this.options.relaySender.error(
+        frame.clientId,
+        '',
+        'session_create_not_supported',
+        'gateway cannot create PTY sessions over relay',
+        frame.clientRequestId
+      );
       return;
     }
     void this.options.onNewPtySession({
@@ -106,15 +114,24 @@ export class PtyHandler {
       cwd: frame.cwd,
       cols: frame.cols,
       rows: frame.rows,
+      launchMode: frame.launchMode === 'local-terminal' ? 'local-terminal' : 'background',
+      clientRequestId: frame.clientRequestId,
       title: frame.title,
       providerArgs: frame.providerArgs
-    }).then(({ sessionId }) => {
-      this.options.relaySender.sessionCreated(frame.clientId, sessionId);
+    }).then((result) => {
+      if (result.launchMode === 'local-terminal') {
+        if (!frame.clientRequestId) {
+          throw new Error('clientRequestId is required for local terminal launch');
+        }
+        this.options.relaySender.localTerminalOpened(frame.clientId, frame.clientRequestId, result.provider);
+        return;
+      }
+      this.options.relaySender.sessionCreated(frame.clientId, result.sessionId, frame.clientRequestId);
       void this.options.sendSessions();
     }).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       logger.error('pty', 'session create failed', { error: message });
-      this.options.relaySender.error(frame.clientId, '', 'session_create_failed', message);
+      this.options.relaySender.error(frame.clientId, '', 'session_create_failed', message, frame.clientRequestId);
     });
   }
 

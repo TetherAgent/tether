@@ -53,6 +53,9 @@ export function LoginPage() {
           <Link className="auth-footer-link" to="/register">
             {t.noAccountYet}
           </Link>
+          <Link className="auth-footer-link" to="/help">
+            {t.helpNavLabel}
+          </Link>
         </div>
       )}
     >

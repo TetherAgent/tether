@@ -23,6 +23,7 @@ import { gatewayAuthHeaders, readGatewayData } from '../../lib/api.js';
 import { RelayClientProvider } from '../relay/relay-client-provider.js';
 import { type RelayFrame, useRelayClient } from '../relay/use-relay-client.js';
 import { SessionDetailHeader, TerminalSurfaceSkeleton } from '../session/session-detail-chrome.js';
+import { ComposerSubmitButton } from '../workbench/composer-submit-button.js';
 
 type Session = {
   id: string;
@@ -868,7 +869,11 @@ export function TerminalPane({
               }
             }}
           />
-          <Button type="submit" disabled={isComposerSubmitDisabled} title={composerSubmitTitle}>{t.send}</Button>
+          <ComposerSubmitButton
+            type="submit"
+            disabled={isComposerSubmitDisabled}
+            title={composerSubmitTitle}
+          />
         </form>
       ) : null}
     </div>

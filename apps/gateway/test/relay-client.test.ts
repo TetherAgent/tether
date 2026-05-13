@@ -528,7 +528,7 @@ test('gateway relay client creates PTY sessions from forwarded relay frames', as
     ptySessions: store.ptySessions,
     onNewPtySession: async (params) => {
       newPtyParams = params;
-      return { sessionId: 'tth_created_from_relay' };
+      return { launchMode: 'background', sessionId: 'tth_created_from_relay' };
     }
   });
 
@@ -544,18 +544,24 @@ test('gateway relay client creates PTY sessions from forwarded relay frames', as
       cwd: process.cwd(),
       cols: 120,
       rows: 40,
+      clientRequestId: 'create-pty-01',
       title: 'Relay Created',
       providerArgs: ['--resume', 'existing-session']
     }));
 
     const created = await waitForGatewayFrame(
       gatewaySocket,
-      (frame) => frame.type === 'gateway.session-created' && frame.sessionId === 'tth_created_from_relay'
+      (frame) =>
+        frame.type === 'gateway.session-created' &&
+        frame.sessionId === 'tth_created_from_relay' &&
+        frame.clientRequestId === 'create-pty-01'
     );
     assert.equal(created.type, 'gateway.session-created');
     assert.equal(Boolean(newPtyParams && typeof newPtyParams === 'object'), true);
     const params = newPtyParams as Record<string, unknown>;
     assert.equal('command' in params, false);
+    assert.equal(params.clientRequestId, 'create-pty-01');
+    assert.equal(params.launchMode, 'background');
     assert.equal(params.title, 'Relay Created');
     assert.deepEqual(params.providerArgs, ['--resume', 'existing-session']);
   } finally {

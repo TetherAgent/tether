@@ -29,23 +29,35 @@ export class RelaySender {
     });
   }
 
-  error(clientId: string | undefined, sessionId: string | undefined, code: string, message: string): void {
+  error(clientId: string | undefined, sessionId: string | undefined, code: string, message: string, clientRequestId?: string): void {
     this.sendFrame({
       type: 'gateway.error',
       gatewayId: this.gatewayId(),
       clientId,
       sessionId,
       code,
-      message
+      message,
+      ...(clientRequestId ? { clientRequestId } : {})
     });
   }
 
-  sessionCreated(clientId: string, sessionId: string): void {
+  sessionCreated(clientId: string, sessionId: string, clientRequestId?: string): void {
     this.sendFrame({
       type: 'gateway.session-created',
       gatewayId: this.gatewayId(),
       clientId,
-      sessionId
+      sessionId,
+      ...(clientRequestId ? { clientRequestId } : {})
+    });
+  }
+
+  localTerminalOpened(clientId: string, clientRequestId: string, provider: 'shell' | 'claude' | 'codex'): void {
+    this.sendFrame({
+      type: 'gateway.local-terminal-opened',
+      gatewayId: this.gatewayId(),
+      clientId,
+      clientRequestId,
+      provider
     });
   }
 

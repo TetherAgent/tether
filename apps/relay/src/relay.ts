@@ -566,7 +566,19 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         if (targetClient) {
           sendToSocket<RelayServerToClientFrame>(targetClient.socket, {
             type: 'gateway.session-created',
-            sessionId: frame.sessionId
+            sessionId: frame.sessionId,
+            ...(typeof frame.clientRequestId === 'string' ? { clientRequestId: frame.clientRequestId } : {})
+          });
+        }
+        break;
+      }
+      case 'gateway.local-terminal-opened': {
+        const targetClient = clients.get(frame.clientId);
+        if (targetClient) {
+          sendToSocket<RelayServerToClientFrame>(targetClient.socket, {
+            type: 'gateway.local-terminal-opened',
+            clientRequestId: frame.clientRequestId,
+            provider: frame.provider
           });
         }
         break;
@@ -991,9 +1003,14 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         break;
       case 'client.new-pty-session': {
         const client = clients.get(clientId);
-        const targetGatewayId = client?.gatewayId;
+        const targetGatewayId = client?.scope?.gatewayId ?? (typeof frame.gatewayId === 'string' ? frame.gatewayId : client?.gatewayId);
         if (!client || !targetGatewayId) {
-          sendToClient(clientId, { type: 'error', code: 'gateway_not_bound', message: 'client has no bound gateway' });
+          sendToClient(clientId, {
+            type: 'error',
+            code: 'gateway_not_bound',
+            message: 'client has no bound gateway',
+            ...(typeof frame.clientRequestId === 'string' ? { clientRequestId: frame.clientRequestId } : {})
+          });
           break;
         }
         const targetGateway = gateways.get(targetGatewayId);
@@ -1001,7 +1018,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           sendToClient(clientId, {
             type: 'error',
             code: 'gateway_not_found',
-            message: `gateway ${targetGatewayId} is not connected`
+            message: `gateway ${targetGatewayId} is not connected`,
+            ...(typeof frame.clientRequestId === 'string' ? { clientRequestId: frame.clientRequestId } : {})
           });
           break;
         }
@@ -1009,7 +1027,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           sendToClient(clientId, {
             type: 'error',
             code: 'gateway_unauthorized',
-            message: 'client cannot use this gateway'
+            message: 'client cannot use this gateway',
+            ...(typeof frame.clientRequestId === 'string' ? { clientRequestId: frame.clientRequestId } : {})
           });
           break;
         }
@@ -1017,10 +1036,12 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           type: 'client.new-pty-session',
           clientId,
           provider: frame.provider,
-          command: frame.command,
-          cwd: frame.cwd,
-          cols: frame.cols,
-          rows: frame.rows,
+          ...(typeof frame.command === 'string' ? { command: frame.command } : {}),
+          ...(typeof frame.cwd === 'string' ? { cwd: frame.cwd } : {}),
+          ...(typeof frame.cols === 'number' ? { cols: frame.cols } : {}),
+          ...(typeof frame.rows === 'number' ? { rows: frame.rows } : {}),
+          ...(frame.launchMode === 'local-terminal' || frame.launchMode === 'background' ? { launchMode: frame.launchMode } : {}),
+          ...(typeof frame.clientRequestId === 'string' ? { clientRequestId: frame.clientRequestId } : {}),
           ...(typeof frame.title === 'string' ? { title: frame.title } : {}),
           ...(Array.isArray(frame.providerArgs) ? { providerArgs: frame.providerArgs } : {})
         });
@@ -1292,7 +1313,13 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
   }
 
   function sendGatewayError(frame: Extract<RelayGatewayToServerFrame, { type: 'gateway.error' }>): void {
-    const error = { type: 'error' as const, sessionId: frame.sessionId, code: frame.code, message: frame.message };
+    const error = {
+      type: 'error' as const,
+      sessionId: frame.sessionId,
+      code: frame.code,
+      message: frame.message,
+      ...(typeof frame.clientRequestId === 'string' ? { clientRequestId: frame.clientRequestId } : {})
+    };
     if (frame.clientId) {
       sendToClient(frame.clientId, error);
       return;
@@ -1438,6 +1465,7 @@ function gatewayFrameWithinScope(frame: RelayGatewayToServerFrame, gatewayScope:
     case 'gateway.error':
       return gatewayScope.sessionId ? gatewayScope.sessionId === frame.sessionId : true;
     case 'gateway.session-created':
+    case 'gateway.local-terminal-opened':
     case 'gateway.chat-session-created':
     case 'gateway.chat-catchup':
     case 'gateway.auth':

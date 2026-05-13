@@ -5,6 +5,7 @@ import { useAuth } from './hooks/use-auth.js';
 import { readStoredNormalAuth } from './lib/api.js';
 
 const GatewayAuthPage = React.lazy(() => import('./pages/gateway-auth-page.js').then((module) => ({ default: module.GatewayAuthPage })));
+const HelpPage = React.lazy(() => import('./pages/help-page.js').then((module) => ({ default: module.HelpPage })));
 const LoginPage = React.lazy(() => import('./pages/login-page.js').then((module) => ({ default: module.LoginPage })));
 const RegisterPage = React.lazy(() => import('./pages/register-page.js').then((module) => ({ default: module.RegisterPage })));
 const ChatsPage = React.lazy(() => import('./pages/chats-page.js').then((module) => ({ default: module.ChatsPage })));
@@ -33,6 +34,7 @@ export function WebRoutes() {
             </RedirectAuthenticated>
           )}
         />
+        <Route path="/help" element={<HelpPage />} />
         <Route path="/" element={<Navigate replace to="/chats" />} />
         <Route path="/gateway-auth" element={<GatewayAuthPage />} />
         <Route

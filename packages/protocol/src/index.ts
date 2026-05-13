@@ -70,10 +70,11 @@ export type RelayGatewayToServerFrame =
   | { type: 'gateway.sessions'; gatewayId: string; sessions: RelaySession[] }
   | { type: 'gateway.replay'; gatewayId: string; clientId: string; sessionId: string; events: RelayTerminalEvent[]; done?: boolean; latestEventId?: number }
   | { type: 'gateway.event'; gatewayId: string; event: RelayTerminalEvent }
-  | { type: 'gateway.session-created'; gatewayId: string; clientId: string; sessionId: string }
+  | { type: 'gateway.session-created'; gatewayId: string; clientId: string; sessionId: string; clientRequestId?: string }
+  | { type: 'gateway.local-terminal-opened'; gatewayId: string; clientId: string; clientRequestId: string; provider: 'shell' | 'claude' | 'codex' }
   | { type: 'gateway.chat-catchup'; gatewayId: string; clientId: string; sessionId: string; text: string }
   | { type: 'gateway.chat-session-created'; gatewayId: string; clientId: string; session: TrustedChatSessionMetadata }
-  | { type: 'gateway.error'; gatewayId: string; clientId?: string; sessionId?: string; code: string; message: string };
+  | { type: 'gateway.error'; gatewayId: string; clientId?: string; sessionId?: string; code: string; message: string; clientRequestId?: string };
 
 export type RelayServerToGatewayFrame =
   | { type: 'gateway.auth.ok'; gatewayId: string }
@@ -106,10 +107,12 @@ export type RelayServerToGatewayFrame =
       type: 'client.new-pty-session';
       clientId: string;
       provider: string;
-      command: string;
-      cwd: string;
-      cols: number;
-      rows: number;
+      command?: string;
+      cwd?: string;
+      cols?: number;
+      rows?: number;
+      launchMode?: 'background' | 'local-terminal';
+      clientRequestId?: string;
       title?: string;
       providerArgs?: string[];
     };
@@ -133,11 +136,13 @@ export type RelayClientToServerFrame =
   | {
       type: 'client.new-pty-session';
       provider: string;
-      command: string;
-      cwd: string;
-      cols: number;
-      rows: number;
-      gatewayId: string;
+      command?: string;
+      cwd?: string;
+      cols?: number;
+      rows?: number;
+      gatewayId?: string;
+      launchMode?: 'background' | 'local-terminal';
+      clientRequestId?: string;
       title?: string;
       providerArgs?: string[];
     };
@@ -151,7 +156,8 @@ export type RelayServerToClientFrame =
   | { type: 'event'; event: RelayTerminalEvent }
   | { type: 'replay.output'; sessionId: string; data: string; latestEventId: number }
   | { type: 'replay.done'; sessionId: string; latestEventId: number }
-  | { type: 'gateway.session-created'; sessionId: string }
+  | { type: 'gateway.session-created'; sessionId: string; clientRequestId?: string }
+  | { type: 'gateway.local-terminal-opened'; clientRequestId: string; provider: 'shell' | 'claude' | 'codex' }
   | { type: 'user.message'; sessionId: string; text: string; eventId?: number }
   | { type: 'agent.delta'; sessionId: string; text: string; eventId?: number }
   | { type: 'agent.result'; sessionId: string; text: string; usage: { input_tokens: number; output_tokens: number; cost_usd?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }; stop_reason?: string; contextWindow?: number; rateLimitInfo?: { resetsAt: number; rateLimitType: string; status: string }; nextSuggestions?: RelayNextSuggestion[] }
@@ -160,4 +166,4 @@ export type RelayServerToClientFrame =
   | { type: 'gateway.chat-catchup'; sessionId: string; text: string; lastEventId?: number }
   | { type: 'gateway.providers'; gatewayId?: string; providers: Array<{ provider: string; models: string[] }> }
   | { type: 'gateway.cwd-suggestions'; gatewayId?: string; cwd: string; suggestions: string[] }
-  | { type: 'error'; sessionId?: string; code: string; message: string };
+  | { type: 'error'; sessionId?: string; code: string; message: string; clientRequestId?: string };
