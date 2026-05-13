@@ -11,6 +11,7 @@ export function WorkbenchSessionList({
   onArchive,
   onRename,
   onSelect,
+  onStop,
   onTerminalSelect,
   relaySessions,
   loaded,
@@ -24,6 +25,7 @@ export function WorkbenchSessionList({
   onArchive: (session: WorkbenchSessionRecord) => void;
   onRename: (session: WorkbenchSessionRecord) => void;
   onSelect?: () => void;
+  onStop: (session: WorkbenchSessionRecord) => void;
   onTerminalSelect?: (sessionId: string) => void;
   relaySessions: RelaySessionSummary[];
   loaded: boolean;
@@ -38,6 +40,7 @@ export function WorkbenchSessionList({
     groupLastWeek: string;
     groupToday: string;
     renameSession: string;
+    stop: string;
     terminalEmptyBody: string;
     terminalEmptyTitle: string;
   };
@@ -128,6 +131,7 @@ export function WorkbenchSessionList({
                     active={active}
                     onArchive={onArchive}
                     onRename={onRename}
+                    onStop={onStop}
                     session={{ ...session, status }}
                     t={t}
                   />

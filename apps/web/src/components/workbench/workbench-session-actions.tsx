@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Archive, MoreHorizontal, Pencil } from 'lucide-react';
+import { Archive, MoreHorizontal, Pencil, Square } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@tether/design';
 import type { WorkbenchSessionRecord } from './types.js';
 
@@ -7,16 +7,19 @@ export function WorkbenchSessionActions({
   active,
   onArchive,
   onRename,
+  onStop,
   session,
   t
 }: {
   active: boolean;
   onArchive: (session: WorkbenchSessionRecord) => void;
   onRename: (session: WorkbenchSessionRecord) => void;
+  onStop: (session: WorkbenchSessionRecord) => void;
   session: WorkbenchSessionRecord;
-  t: { archiveSession: string; renameSession: string };
+  t: { archiveSession: string; renameSession: string; stop: string };
 }) {
   const canArchive = session.kind === 'chats' || session.status !== 'running';
+  const canStop = session.kind === 'terminal' && session.status === 'running';
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -29,6 +32,18 @@ export function WorkbenchSessionActions({
           <Pencil className="h-3.5 w-3.5" />
           {t.renameSession}
         </DropdownMenuItem>
+        {canStop && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => onStop(session)}
+              className="gap-2 text-destructive focus:text-destructive"
+            >
+              <Square className="h-3.5 w-3.5" />
+              {t.stop}
+            </DropdownMenuItem>
+          </>
+        )}
         {canArchive && (
           <>
             <DropdownMenuSeparator />

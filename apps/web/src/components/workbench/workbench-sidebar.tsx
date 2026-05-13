@@ -30,7 +30,7 @@ export function WorkbenchSidebar({
   const { t } = useI18n();
   const { normalAuth, logoutNormal } = useAuth();
   const { isDark, toggleTheme } = useUiPreferences();
-  const { gatewayIdsOnline, relaySessions, relaySessionsVersion } = useRelayClient();
+  const { gatewayIdsOnline, relaySessions, relaySessionsVersion, sendFrame } = useRelayClient();
   const navigate = useNavigate();
   const location = useLocation();
   const activeTab: WorkbenchSidebarTab = location.pathname.startsWith('/terminal') ? 'terminal' : 'chats';
@@ -42,6 +42,7 @@ export function WorkbenchSidebar({
   });
   const [renameDialog, setRenameDialog] = React.useState<RenameDialogState>(null);
   const [archiveSessionState, setArchiveSessionState] = React.useState<WorkbenchSessionRecord | null>(null);
+  const [stopSessionState, setStopSessionState] = React.useState<WorkbenchSessionRecord | null>(null);
 
   const startRename = (session: WorkbenchSessionRecord) => {
     setRenameDialog({ id: session.id, value: sessionDisplayTitle(session) });
@@ -76,6 +77,20 @@ export function WorkbenchSidebar({
     }
   };
 
+  const confirmStop = () => {
+    const session = stopSessionState;
+    setStopSessionState(null);
+    if (!session) return;
+    const subscribed = sendFrame({ type: 'client.subscribe', sessionId: session.id, mode: 'control' });
+    const stopped = subscribed && sendFrame({ type: 'client.stop', sessionId: session.id });
+    if (!stopped) {
+      loadSessions();
+      return;
+    }
+    setSessions((prev) => prev.map((item) => item.id === session.id ? { ...item, status: 'stopped' } : item));
+    window.setTimeout(() => loadSessions(), 300);
+  };
+
   const switchTab = (tab: WorkbenchSidebarTab) => {
     if (tab === activeTab) return;
     if (tab === 'terminal') {
@@ -98,6 +113,15 @@ export function WorkbenchSidebar({
         onOpenChange={(open) => { if (!open) setArchiveSessionState(null); }}
         open={!!archiveSessionState}
         title={t.archiveSessionConfirmTitle}
+      />
+      <ArchiveSessionDialog
+        cancelLabel={t.cancel}
+        confirmLabel={t.confirmStop}
+        description={t.stopSessionConfirmDescription.replace('{session}', stopSessionState ? sessionDisplayTitle(stopSessionState) : '')}
+        onConfirm={confirmStop}
+        onOpenChange={(open) => { if (!open) setStopSessionState(null); }}
+        open={!!stopSessionState}
+        title={t.stopSessionConfirmTitle}
       />
       <RenameSessionDialog
         cancelLabel={t.cancel}
@@ -152,6 +176,7 @@ export function WorkbenchSidebar({
             onArchive={setArchiveSessionState}
             onRename={startRename}
             onSelect={onSelect}
+            onStop={setStopSessionState}
             onTerminalSelect={onTerminalSelect}
             relaySessions={relaySessions}
             loaded={loaded}
