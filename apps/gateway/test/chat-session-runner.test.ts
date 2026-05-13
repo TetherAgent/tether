@@ -2,9 +2,22 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { ChatSessionRunner, CodexChatRunner } from '../src/chat/chat-session-runner.js';
 import { tempSessionState, type TestSessionState } from './helpers/test-session-state.js';
+
+const previousZdotdir = process.env.ZDOTDIR;
+const testZdotdir = mkdtempSync(path.join(tmpdir(), 'tether-chat-runner-zdotdir-'));
+process.env.ZDOTDIR = testZdotdir;
+
+after(() => {
+  if (previousZdotdir === undefined) {
+    delete process.env.ZDOTDIR;
+  } else {
+    process.env.ZDOTDIR = previousZdotdir;
+  }
+  rmSync(testZdotdir, { recursive: true, force: true });
+});
 
 function tempStore(): { store: TestSessionState; cleanup: () => void } {
   return tempSessionState();
@@ -229,6 +242,80 @@ test('chat runner ignores non-fatal Codex stderr diagnostics', async () => {
       process.env.TETHER_FAKE_CODEX_ARGS_FILE = previousArgsFile;
     }
     fakeCodex.cleanup();
+    cleanupStore();
+  }
+});
+
+test('chat runner emits Claude agent session id only when it changes', async () => {
+  const { store, cleanup: cleanupStore } = tempStore();
+  const fakeClaude = installFakeClaude([
+    {
+      type: 'message_start',
+      message: {
+        session_id: 'claude-session-stable',
+        usage: { input_tokens: 1, output_tokens: 0 }
+      }
+    },
+    {
+      type: 'assistant',
+      session_id: 'claude-session-stable',
+      message: {
+        session_id: 'claude-session-stable',
+        usage: { input_tokens: 1, output_tokens: 1 },
+        content: [{ type: 'text', text: 'OK' }]
+      }
+    },
+    {
+      type: 'message_delta',
+      session_id: 'claude-session-stable',
+      usage: { input_tokens: 1, output_tokens: 1 }
+    },
+    {
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result: 'OK',
+      session_id: 'claude-session-stable',
+      usage: { input_tokens: 1, output_tokens: 1 }
+    }
+  ]);
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${fakeClaude.pathPrefix}${path.delimiter}${previousPath ?? ''}`;
+  try {
+    const agentIds: string[] = [];
+    let resolveResult: (() => void) | undefined;
+    const resultPromise = new Promise<void>((resolve) => {
+      resolveResult = resolve;
+    });
+    const runner = new ChatSessionRunner({
+      gatewayId: () => 'gateway-test',
+      onSessionCreated: () => undefined,
+      onChatSessionCreated: () => undefined,
+      onUserMessage: () => undefined,
+      onDelta: () => undefined,
+      onResult: () => { resolveResult?.(); },
+      onTool: () => undefined,
+      onPermissionRequest: () => undefined,
+      onError: () => undefined,
+      onAgentIdUpdate: (_sessionId, agentSessionId) => {
+        agentIds.push(agentSessionId);
+      }
+    });
+
+    await runner.run({
+      clientId: 'client-test',
+      sessionId: null,
+      provider: 'claude',
+      model: 'claude-sonnet-4-5',
+      cwd: '',
+      message: 'test'
+    });
+    await resultPromise;
+
+    assert.deepEqual(agentIds, ['claude-session-stable']);
+  } finally {
+    process.env.PATH = previousPath;
+    fakeClaude.cleanup();
     cleanupStore();
   }
 });

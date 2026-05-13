@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { isProviderName, PROVIDERS, type ProviderDefinition } from '@tether/core';
@@ -61,10 +62,10 @@ export function providerChildEnv(provider: string): Record<string, string> | und
 
 export function providerEffectiveEnv(provider: string, cwd?: string): NodeJS.ProcessEnv {
   const childEnv = providerChildEnv(provider) ?? {};
-  const shellPathEnv = readShellPathEnv(process.env);
-  const preSettingsEnv = { ...process.env, ...shellPathEnv, ...childEnv };
+  const shellEnv = readZshLoginInteractiveEnv(process.env);
+  const preSettingsEnv = { ...process.env, ...shellEnv, ...childEnv };
   const settingsEnv = provider === 'claude' ? readClaudeSettingsEnv(cwd, preSettingsEnv.CLAUDE_CONFIG_DIR) : {};
-  const baseEnv = { ...process.env, ...shellPathEnv, ...settingsEnv };
+  const baseEnv = { ...process.env, ...shellEnv, ...settingsEnv };
   const envFile = provider === 'claude'
     ? readEnvFile(({ ...baseEnv, ...childEnv }).CLAUDE_ENV_FILE)
     : {};
@@ -75,61 +76,85 @@ export function providerEffectiveEnv(provider: string, cwd?: string): NodeJS.Pro
   };
 }
 
-function readShellPathEnv(baseEnv: NodeJS.ProcessEnv): Record<string, string> {
-  const zshrc = path.join(os.homedir(), '.zshrc');
-  let content = '';
-  try {
-    content = readFileSync(zshrc, 'utf8');
-  } catch {
-    return {};
+export type ProviderLaunchCommand = {
+  command: string;
+  args: string[];
+  mode: 'direct' | 'zsh-function';
+};
+
+export function providerLaunchCommand(provider: string, command: string, args: string[], env: NodeJS.ProcessEnv = providerEffectiveEnv(provider)): ProviderLaunchCommand {
+  const functionName = providerShellFunction(provider);
+  if (functionName && !directCommandLooksUsable(command, env)) {
+    return {
+      command: 'zsh',
+      args: ['-lic', `${functionName} "$@"`, functionName, ...args],
+      mode: 'zsh-function'
+    };
   }
-  let pathValue = baseEnv.PATH ?? '';
-  const shellEnv: NodeJS.ProcessEnv = { ...baseEnv, PATH: pathValue };
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) {
-      continue;
-    }
-    const match = trimmed.match(/^export\s+([A-Za-z_]\w*)=(.+)$/);
-    if (!match?.[1]) {
-      continue;
-    }
-    const key = match[1];
-    const expanded = expandShellEnvValue(match[2] ?? '', shellEnv);
-    shellEnv[key] = expanded;
-    if (key === 'PATH') {
-      pathValue = expanded;
-      shellEnv.PATH = expanded;
-    }
-  }
-  return pathValue && pathValue !== baseEnv.PATH ? { PATH: pathValue } : {};
+  return { command, args, mode: 'direct' };
 }
 
-function expandShellEnvValue(raw: string, env: NodeJS.ProcessEnv): string {
-  let value = raw.trim();
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
-    value = value.slice(1, -1);
+export function providerShellFunction(provider: string): string | undefined {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(provider)) {
+    return undefined;
   }
-  value = value.replace(/^\~(?=\/|$)/, os.homedir());
-  return value.replace(/\$(\w+)|\$\{([^}]+)\}/g, (_match, bareKey: string | undefined, bracedKey: string | undefined) => {
-    const key = bareKey ?? bracedKey ?? '';
-    if (key === 'HOME') {
-      return env.HOME ?? os.homedir();
-    }
-    return env[key] ?? '';
+  const content = readZshrc(process.env);
+  if (!content) {
+    return undefined;
+  }
+  return extractShellFunction(content, provider) ? provider : undefined;
+}
+
+function directCommandLooksUsable(command: string, env: NodeJS.ProcessEnv): boolean {
+  const result = spawnSync(command, ['--version'], { stdio: 'ignore', timeout: 2000, env });
+  return result.status === 0;
+}
+
+function readZshLoginInteractiveEnv(baseEnv: NodeJS.ProcessEnv): Record<string, string> {
+  const result = spawnSync('zsh', ['-lic', 'env -0'], {
+    encoding: 'buffer',
+    timeout: 3000,
+    env: baseEnv
   });
+  if (result.status !== 0 || !result.stdout) {
+    return {};
+  }
+  const env: Record<string, string> = {};
+  for (const entry of result.stdout.toString('utf8').split('\0')) {
+    if (!entry) {
+      continue;
+    }
+    const separator = entry.indexOf('=');
+    if (separator <= 0) {
+      continue;
+    }
+    env[entry.slice(0, separator)] = entry.slice(separator + 1);
+  }
+  return pickProviderEnv(env);
+}
+
+function pickProviderEnv(env: Record<string, string>): Record<string, string> {
+  const picked: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (
+      key === 'PATH' ||
+      key === 'HOME' ||
+      key === 'USER' ||
+      key === 'SHELL' ||
+      key === 'LANG' ||
+      key.startsWith('LC_') ||
+      PROVIDER_ENV_KEYS.includes(key)
+    ) {
+      picked[key] = value;
+    }
+  }
+  return picked;
 }
 
 function readShellWrapperEnv(provider: string): Record<string, string> {
   const result: Record<string, string> = {};
-  const zshrc = path.join(os.homedir(), '.zshrc');
-  let content = '';
-  try {
-    content = readFileSync(zshrc, 'utf8');
-  } catch {
+  const content = readZshrc(process.env);
+  if (!content) {
     return result;
   }
   const wrapper = extractShellFunction(content, provider);
@@ -143,6 +168,15 @@ function readShellWrapperEnv(provider: string): Record<string, string> {
     }
   }
   return result;
+}
+
+function readZshrc(env: NodeJS.ProcessEnv): string {
+  const dir = env.ZDOTDIR && env.ZDOTDIR.length > 0 ? env.ZDOTDIR : os.homedir();
+  try {
+    return readFileSync(path.join(dir, '.zshrc'), 'utf8');
+  } catch {
+    return '';
+  }
 }
 
 function extractShellFunction(content: string, name: string): string | undefined {

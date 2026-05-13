@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createSessionId } from '../utils/ids.js';
 import { nextEventId } from '../utils/events.js';
-import { providerEffectiveEnv } from '../utils/provider-env.js';
+import { providerEffectiveEnv, providerLaunchCommand } from '../utils/provider-env.js';
 import type { ChatEvent, ChatEventType } from '../types.js';
 import type { TrustedChatSessionMetadata } from '@tether/protocol';
 
@@ -224,6 +224,7 @@ type ActiveSubprocess = {
   lastStderr?: string;
   lastUsage: ChatUsage;
   agentSessionId?: string;
+  lastEmittedAgentSessionId?: string;
   lineBuffer: string;
   completed: boolean;
   nextDeltaId: number;
@@ -283,10 +284,12 @@ class CliChatRunner implements IChatRunner {
     });
 
     logger.info('chat', 'session started', { sessionId, provider: this.adapter.provider });
-    const child = spawn(this.adapter.command, args, {
+    const env = providerEffectiveEnv(this.adapter.provider, cwd);
+    const launch = providerLaunchCommand(this.adapter.provider, this.adapter.command, args, env);
+    const child = spawn(launch.command, launch.args, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: providerEffectiveEnv(this.adapter.provider, cwd)
+      env
     });
 
     const userEvent = createChatEvent(sessionId, 'user.message', { message: params.message });
@@ -301,6 +304,7 @@ class CliChatRunner implements IChatRunner {
       lastStderr: undefined,
       lastUsage: ZERO_USAGE,
       agentSessionId: session.agentSessionId,
+      lastEmittedAgentSessionId: undefined,
       lineBuffer: '',
       completed: false,
       nextDeltaId: 1,
@@ -393,8 +397,7 @@ class CliChatRunner implements IChatRunner {
       contextWindow: (tokens) => { active.contextWindow = tokens; },
       contextInputTokens: (tokens) => { active.contextInputTokens = tokens; },
       agentSessionId: (id) => {
-        active.agentSessionId = id;
-        this.options.onAgentIdUpdate(sessionId, id);
+        this.emitAgentSessionId(sessionId, active, id);
       },
       tool: (name, input) => { this.emitTool(sessionId, active.clientId, name, input); },
       permissionRequest: (requestId, toolName, input) => {
@@ -424,7 +427,7 @@ class CliChatRunner implements IChatRunner {
       lastDeltaEventId,
       ...(stopReason ? { stop_reason: stopReason } : {})
     });
-    this.options.onAgentIdUpdate(sessionId, agentSessionId);
+    this.emitAgentSessionId(sessionId, active, agentSessionId);
     this.options.onResult({
       clientId: active.clientId,
       sessionId,
@@ -438,6 +441,16 @@ class CliChatRunner implements IChatRunner {
       nextSuggestions
     });
     this.activeSubprocesses.delete(sessionId);
+  }
+
+  private emitAgentSessionId(sessionId: string, active: ActiveSubprocess, agentSessionId: string): void {
+    if (active.lastEmittedAgentSessionId === agentSessionId) {
+      active.agentSessionId = agentSessionId;
+      return;
+    }
+    active.agentSessionId = agentSessionId;
+    active.lastEmittedAgentSessionId = agentSessionId;
+    this.options.onAgentIdUpdate(sessionId, agentSessionId);
   }
 
   private emitTool(sessionId: string, clientId: string, name: string, input: Record<string, unknown>): void {

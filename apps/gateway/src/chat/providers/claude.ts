@@ -1,9 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { providerEffectiveEnv } from '../../utils/provider-env.js';
+import { providerEffectiveEnv, providerLaunchCommand } from '../../utils/provider-env.js';
 import { uniqueStrings } from '../provider-utils.js';
 
 export function isClaudeInstalled(): boolean {
-  return isInstalled('claude');
+  const env = providerEffectiveEnv('claude', process.cwd());
+  return isInstalled('claude', env);
 }
 
 export async function claudeModels(): Promise<string[]> {
@@ -68,7 +69,8 @@ async function claudeModelsFromGateway(env: NodeJS.ProcessEnv): Promise<string[]
 }
 
 function claudeModelAliases(env: NodeJS.ProcessEnv): string[] {
-  const result = spawnSync('claude', ['--help'], { encoding: 'utf8', timeout: 2000, env });
+  const launch = providerLaunchCommand('claude', 'claude', ['--help'], env);
+  const result = spawnSync(launch.command, launch.args, { encoding: 'utf8', timeout: 2000, env });
   const help = typeof result.stdout === 'string' ? result.stdout : '';
   const modelLine = help.split('\n').find((line) => line.includes('--model'));
   if (!modelLine) {
@@ -82,7 +84,8 @@ function claudeModelAliases(env: NodeJS.ProcessEnv): string[] {
   return normalized.length > 0 ? normalized : ['sonnet', 'opus', 'haiku'];
 }
 
-function isInstalled(command: string): boolean {
-  const result = spawnSync(command, ['--version'], { stdio: 'ignore' });
-  return result.status === 0 || result.error === undefined;
+function isInstalled(command: string, env: NodeJS.ProcessEnv): boolean {
+  const launch = providerLaunchCommand('claude', command, ['--version'], env);
+  const result = spawnSync(launch.command, launch.args, { stdio: 'ignore', timeout: 2000, env });
+  return result.status === 0;
 }
