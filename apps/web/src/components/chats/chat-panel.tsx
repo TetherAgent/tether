@@ -1,12 +1,8 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUp, Folder, Loader2 } from 'lucide-react';
+import { ArrowUp, Loader2 } from 'lucide-react';
 import {
   Button,
-  Input,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
   Select,
   SelectContent,
   SelectItem,
@@ -25,13 +21,13 @@ import { ChatComposer } from './chat-composer.js';
 import { ChatMessageList } from './chat-message-list.js';
 import { NewChatSurface } from './new-chat-surface.js';
 import { type RelayFrame, useRelayClient } from '../relay/use-relay-client.js';
+import { PathPicker } from '../workbench/path-picker.js';
 import { WorkbenchStatusPill } from '../workbench/workbench-status-pill.js';
 import { GatewaySelector } from './gateway-selector.js';
 import { SlashCommandMenu } from './slash-command-menu.js';
 import { useSlashMenu } from './use-slash-menu.js';
 import type { GatewayInfo, HistoryUsage, MessageItem, Usage, UsageStats } from './chat-types.js';
 import {
-  compactPathLabel,
   compactProjectPath,
   findLastAgentIndex,
   findLatestLostAgentId,
@@ -192,6 +188,7 @@ export function ChatPanel({
   const [subscribeRetryKey, setSubscribeRetryKey] = React.useState(0);
   const [cwd, setCwd] = React.useState('~');
   const [cwdSuggestions, setCwdSuggestions] = React.useState<string[]>([]);
+  const [cwdSuggestionsLoading, setCwdSuggestionsLoading] = React.useState(false);
   const [cwdPickerOpen, setCwdPickerOpen] = React.useState(false);
   const [cwdActiveIndex, setCwdActiveIndex] = React.useState(0);
   const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(undefined);
@@ -538,6 +535,7 @@ export function ChatPanel({
             ? frame.suggestions.filter((item: unknown): item is string => typeof item === 'string')
             : [];
           setCwdSuggestions(suggestions);
+          setCwdSuggestionsLoading(false);
           setCwdActiveIndex(0);
         }
         return;
@@ -899,10 +897,12 @@ export function ChatPanel({
   React.useEffect(() => {
     if (!cwdPickerOpen || currentSessionId || !wsReady || !selectedGatewayId) {
       setCwdSuggestions([]);
+      setCwdSuggestionsLoading(false);
       setCwdActiveIndex(0);
       return;
     }
     const timer = window.setTimeout(() => {
+      setCwdSuggestionsLoading(true);
       sendFrame({ type: 'client.cwd-suggest', cwd, gatewayId: selectedGatewayId });
     }, 120);
     return () => window.clearTimeout(timer);
@@ -918,6 +918,7 @@ export function ChatPanel({
     previousSelectedGatewayIdRef.current = selectedGatewayId;
     setCwd('~');
     setCwdSuggestions([]);
+    setCwdSuggestionsLoading(false);
     setCwdActiveIndex(0);
     setProviderOptions(DEFAULT_PROVIDER_OPTIONS);
     setSelectedProvider(DEFAULT_PROVIDER_OPTIONS[0]!.provider);
@@ -926,6 +927,7 @@ export function ChatPanel({
       providerRequestKeyRef.current = selectedGatewayId;
       sendFrame({ type: 'client.list-providers', gatewayId: selectedGatewayId });
       if (cwdPickerOpen) {
+        setCwdSuggestionsLoading(true);
         sendFrame({ type: 'client.cwd-suggest', cwd: '~', gatewayId: selectedGatewayId });
       }
     }
@@ -1147,11 +1149,13 @@ export function ChatPanel({
         setSelectedGatewayName(name);
         setCwd('~');
         setCwdSuggestions([]);
+        setCwdSuggestionsLoading(false);
         setCwdActiveIndex(0);
         if (wsReady) {
           providerRequestKeyRef.current = id;
           sendFrame({ type: 'client.list-providers', gatewayId: id });
           if (cwdPickerOpen) {
+            setCwdSuggestionsLoading(true);
             sendFrame({ type: 'client.cwd-suggest', cwd: '~', gatewayId: id });
           }
         }
@@ -1245,84 +1249,30 @@ export function ChatPanel({
               </SelectContent>
             </Select>
             {gatewaySelector}
-            <Popover
-              open={cwdPickerOpen}
+            <PathPicker
+              activeIndex={cwdActiveIndex}
+              emptyLabel={wsReady ? t.chatsCwd : t.gatewayNotConnected}
+              inputPlaceholder={t.chatsCwd}
+              loading={cwdSuggestionsLoading}
+              loadingLabel={t.chatsCwdLoading}
+              onActiveIndexChange={setCwdActiveIndex}
               onOpenChange={(open) => {
                 setCwdPickerOpen(open);
                 if (open && wsReady && selectedGatewayId) {
+                  setCwdSuggestionsLoading(true);
                   sendFrame({ type: 'client.cwd-suggest', cwd, gatewayId: selectedGatewayId });
                 }
+                if (!open) {
+                  setCwdSuggestionsLoading(false);
+                }
               }}
-            >
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  title={cwd}
-                  className="chat-cwd-trigger flex h-7 max-w-[260px] min-w-[132px] items-center rounded-full bg-muted px-3 font-mono text-[12px] text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  <Folder className="chat-cwd-icon" />
-                  <span className="chat-cwd-label">{t.chatsCwdShort}</span>
-                  <span className="chat-cwd-value truncate">{cwd ? compactPathLabel(cwd) : t.chatsCwdSelect}</span>
-                </button>
-              </PopoverTrigger>
-              <PopoverContent side="top" align="start" sideOffset={10} className="chat-cwd-popover w-[520px] gap-2 p-2">
-                <Input
-                  value={cwd}
-                  onChange={(event) => setCwd(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'ArrowDown') {
-                      event.preventDefault();
-                      setCwdActiveIndex((index) => Math.min(index + 1, Math.max(cwdSuggestions.length - 1, 0)));
-                      return;
-                    }
-                    if (event.key === 'ArrowUp') {
-                      event.preventDefault();
-                      setCwdActiveIndex((index) => Math.max(index - 1, 0));
-                      return;
-                    }
-                    if (event.key === 'Enter') {
-                      const suggestion = cwdSuggestions[cwdActiveIndex];
-                      if (suggestion) {
-                        event.preventDefault();
-                        setCwd(suggestion);
-                        setCwdPickerOpen(false);
-                      }
-                      return;
-                    }
-                    if (event.key === 'Escape') {
-                      setCwdPickerOpen(false);
-                    }
-                  }}
-                  autoFocus
-                  placeholder={t.chatsCwd}
-                  className="h-9 rounded-lg bg-muted font-mono text-[12px]"
-                />
-                <div className="max-h-64 overflow-y-auto">
-                  {cwdSuggestions.length > 0 ? (
-                    cwdSuggestions.map((suggestion, index) => (
-                      <button
-                        key={suggestion}
-                        type="button"
-                        onClick={() => {
-                          setCwd(suggestion);
-                          setCwdPickerOpen(false);
-                        }}
-                        onMouseEnter={() => setCwdActiveIndex(index)}
-                        className={`block w-full truncate rounded-lg px-3 py-2 text-left font-mono text-[12px] text-popover-foreground ${
-                          index === cwdActiveIndex ? 'bg-accent' : 'hover:bg-accent'
-                        }`}
-                      >
-                        {suggestion}
-                      </button>
-                    ))
-                  ) : (
-                    <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">
-                      {wsReady ? t.chatsCwd : t.gatewayNotConnected}
-                    </div>
-                  )}
-                </div>
-              </PopoverContent>
-            </Popover>
+              onValueChange={setCwd}
+              open={cwdPickerOpen}
+              selectLabel={t.chatsCwdSelect}
+              suggestions={cwdSuggestions}
+              triggerLabel={t.chatsCwdShort}
+              value={cwd}
+            />
             <div className="flex-1" />
           </>
         )}
