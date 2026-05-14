@@ -497,9 +497,10 @@ export function ChatPanel({
         return;
       }
       if (frame.type === 'gateway.chat-catchup' && typeof frame.text === 'string') {
-        if (frame.sessionId !== currentSessionIdRef.current) {
+        if (typeof frame.sessionId !== 'string' || frame.sessionId !== currentSessionIdRef.current) {
           return;
         }
+        const sessionId = frame.sessionId;
         setConnectionError(undefined);
         setSessionAccessError(undefined);
         const frameText = frame.text;
@@ -527,6 +528,7 @@ export function ChatPanel({
             }
           ];
         });
+        void loadActiveSessionHistory(sessionId, { protectNewerLocal: true }).catch(() => undefined);
         return;
       }
       if (frame.type === 'user.message' && typeof frame.text === 'string') {
@@ -797,7 +799,7 @@ export function ChatPanel({
           setIsInflight(false);
         }
       }
-  }, [clearGatewayNotConnectedError, navigate, selectedGatewayId, t.chatsProviderFail, t.chatsSessionOutsideGateway, t.chatsSessionStarted, t.gatewayNotConnected, t.gatewaySelectorNoSelection]);
+  }, [clearGatewayNotConnectedError, loadActiveSessionHistory, navigate, selectedGatewayId, t.chatsProviderFail, t.chatsSessionOutsideGateway, t.chatsSessionStarted, t.gatewayNotConnected, t.gatewaySelectorNoSelection]);
 
   React.useEffect(() => subscribeFrame(handleRelayFrame), [handleRelayFrame, subscribeFrame]);
   React.useEffect(() => subscribeClose(handleRelayClose), [handleRelayClose, subscribeClose]);
