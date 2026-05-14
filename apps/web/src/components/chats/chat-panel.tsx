@@ -75,86 +75,6 @@ function UsageStatsChip({ contextPct, rateLimitResetsAt, rateLimitType }: { cont
   );
 }
 
-function UsageStatsRows({ contextPct, rateLimitResetsAt, rateLimitType, primary, secondary }: {
-  contextPct?: number;
-  rateLimitResetsAt?: number;
-  rateLimitType?: string;
-  primary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
-  secondary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
-}) {
-  const [, forceUpdate] = React.useReducer((n: number) => n + 1, 0);
-  React.useEffect(() => {
-    const hasTimer = rateLimitResetsAt || primary?.resetsAt || secondary?.resetsAt;
-    if (!hasTimer) return;
-    const id = window.setInterval(() => forceUpdate(), 60000);
-    return () => window.clearInterval(id);
-  }, [rateLimitResetsAt, primary?.resetsAt, secondary?.resetsAt]);
-
-  // Resolve usage row
-  let usagePct: number | undefined;
-  let usageResetsAt: number | undefined;
-  let weeklyPct: number | undefined;
-  let weeklyResetsAt: number | undefined;
-
-  if (primary) {
-    usagePct = primary.usedPercent;
-    usageResetsAt = primary.resetsAt;
-    if (secondary) {
-      weeklyPct = secondary.usedPercent;
-      weeklyResetsAt = secondary.resetsAt;
-    }
-  } else if (rateLimitResetsAt) {
-    const windowMs = rateLimitType === 'five_hour' ? 5 * 60 * 60 * 1000 : undefined;
-    if (windowMs) {
-      const remainingMs = Math.max(0, rateLimitResetsAt * 1000 - Date.now());
-      usagePct = Math.min(100, Math.round(((windowMs - remainingMs) / windowMs) * 100));
-    }
-    usageResetsAt = rateLimitResetsAt;
-  }
-
-  if (contextPct === undefined && usageResetsAt === undefined) return null;
-
-  return (
-    <div className="flex flex-col gap-2 pt-0.5">
-      {contextPct !== undefined && (
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] text-muted-foreground">Context</span>
-            <span className="font-mono text-[11px] tabular-nums">{contextPct}%</span>
-          </div>
-          <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full bg-amber-500/70" style={{ width: `${Math.min(100, contextPct)}%` }} />
-          </div>
-        </div>
-      )}
-      {usageResetsAt !== undefined && (
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] text-muted-foreground">Usage</span>
-            <span className="font-mono text-[11px] tabular-nums text-muted-foreground/70">resets {formatResetCountdown(usageResetsAt)}</span>
-          </div>
-          {usagePct !== undefined && (
-            <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
-              <div className="h-full rounded-full bg-blue-500/70" style={{ width: `${usagePct}%` }} />
-            </div>
-          )}
-        </div>
-      )}
-      {weeklyResetsAt !== undefined && weeklyPct !== undefined && (
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] text-muted-foreground">Weekly</span>
-            <span className="font-mono text-[11px] tabular-nums text-muted-foreground/70">resets {formatResetCountdown(weeklyResetsAt)}</span>
-          </div>
-          <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full bg-violet-500/70" style={{ width: `${weeklyPct}%` }} />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function ChatPanel({
   activeSessionId,
   onExpandSidebar,
@@ -1330,15 +1250,6 @@ export function ChatPanel({
         slashMenuEl={slashMenuEl}
         t={t}
         usageStats={usageStats}
-        usageStatsRows={(usageStats?.contextPct !== undefined || usageStats?.rateLimitResetsAt || usageStats?.primary) ? (
-          <UsageStatsRows
-            contextPct={usageStats?.contextPct}
-            rateLimitResetsAt={usageStats?.rateLimitResetsAt}
-            rateLimitType={usageStats?.rateLimitType}
-            primary={usageStats?.primary}
-            secondary={usageStats?.secondary}
-          />
-        ) : null}
       />
     </div>
   );

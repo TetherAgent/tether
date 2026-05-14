@@ -1,18 +1,9 @@
 import * as React from 'react';
-import { Settings } from 'lucide-react';
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Textarea
 } from '@tether/design';
 import type { UsageStats } from './chat-types.js';
-import { compactPathLabel } from './chat-utils.js';
+import { ChatSessionStatusPopover } from './chat-session-status-popover.js';
 
 export function ChatComposer({
   activeSessionProjectPath,
@@ -34,8 +25,7 @@ export function ChatComposer({
   setSessionSettingsOpen,
   slashMenuEl,
   t,
-  usageStats,
-  usageStatsRows
+  usageStats
 }: {
   activeSessionProjectPath?: string;
   buildInputPlaceholder: (provider: string, model: string, gatewayName?: string) => string;
@@ -61,73 +51,22 @@ export function ChatComposer({
     chatsSessionSettings: string;
   };
   usageStats?: UsageStats;
-  usageStatsRows: React.ReactNode;
 }) {
   return (
     <div className="px-4 pb-4 pt-2">
       <div className="mx-auto max-w-3xl flex flex-col gap-1.5">
         <div className="flex items-center gap-2 self-start min-w-0">
-          <Popover open={sessionSettingsOpen} onOpenChange={setSessionSettingsOpen}>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                title={t.chatsSessionSettings}
-                className="flex items-center gap-1.5 rounded px-1 py-0.5 text-[11px] text-muted-foreground/55 transition-colors hover:text-muted-foreground"
-              >
-                {displayGatewayName && (
-                  <>
-                    <span className="max-w-[80px] truncate font-medium text-brand">{displayGatewayName}</span>
-                    <span className="opacity-40">·</span>
-                  </>
-                )}
-                {displayModel && <span className="font-medium">{displayModel}</span>}
-                {activeSessionProjectPath && (
-                  <>
-                    <span className="hidden opacity-40 md:inline">·</span>
-                    <span className="hidden max-w-[200px] truncate font-mono md:inline">{compactPathLabel(activeSessionProjectPath)}</span>
-                  </>
-                )}
-                {usageStats?.contextPct !== undefined && (
-                  <>
-                    <span className="opacity-40">·</span>
-                    <span className="tabular-nums">ctx {usageStats.contextPct}%</span>
-                  </>
-                )}
-                <Settings className="ml-1 h-3 w-3 opacity-50" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent side="top" align="start" sideOffset={8} className="w-64 p-3">
-              <div className="flex flex-col gap-2.5">
-                {displayModelOptions.length > 0 && displayModel && (
-                  <div className="flex items-center gap-2">
-                    <span className="w-10 shrink-0 text-[12px] text-muted-foreground">{t.chatsLabelModel}</span>
-                    <Select value={displayModel} onValueChange={setActiveSessionModel}>
-                      <SelectTrigger className="h-7 flex-1 text-[12px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {displayModelOptions.map((model) => (
-                          <SelectItem key={model} value={model}>{model}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                {activeSessionProjectPath && (
-                  <div className="flex items-center gap-2">
-                    <span className="w-10 shrink-0 text-[12px] text-muted-foreground">{t.chatsCwdShort}</span>
-                    <span
-                      title={activeSessionProjectPath}
-                      className="flex h-7 min-w-0 flex-1 items-center rounded-lg bg-muted px-3 font-mono text-[12px] font-medium text-muted-foreground"
-                    >
-                      <span className="truncate">{compactPathLabel(activeSessionProjectPath)}</span>
-                    </span>
-                  </div>
-                )}
-                {usageStatsRows}
-              </div>
-            </PopoverContent>
-          </Popover>
+          <ChatSessionStatusPopover
+            activeSessionProjectPath={activeSessionProjectPath}
+            displayGatewayName={displayGatewayName}
+            displayModel={displayModel}
+            displayModelOptions={displayModelOptions}
+            onModelChange={setActiveSessionModel}
+            onOpenChange={setSessionSettingsOpen}
+            open={sessionSettingsOpen}
+            t={t}
+            usageStats={usageStats}
+          />
         </div>
 
         <div className="relative">
