@@ -21,6 +21,7 @@ import {
 import * as terminal from '../terminal.js';
 import { readFreshGatewayAuthState } from '../auth/gateway-auth-store.js';
 import { isNodeError } from '../utils/errors.js';
+import { resolvePackageVersion } from '../utils/package-version.js';
 import { sleep } from '../utils/sleep.js';
 import { numberValue, stringValue } from '../utils/values.js';
 import { ensureClaudeHudHook } from './hooks.js';
@@ -28,8 +29,11 @@ import { fetchFirstGatewayStatus, fetchGatewayStatusBody, waitForStartedGateway 
 import { formatRelayConnectionState } from './status.js';
 import { gatewayApiUrl } from './urls.js';
 
+const TETHER_CLI_VERSION = resolvePackageVersion(import.meta.url, '@tether-labs/cli') ?? '0.0.0-dev';
+
 export async function startGatewayBackground(): Promise<void> {
   terminal.section('Gateway 启动');
+  terminal.line('Tether 版本', TETHER_CLI_VERSION);
   let profile = gatewayProfileFromEnv();
   if (!fs.existsSync(configPath())) {
     terminal.line('配置检查', '未找到配置，正在初始化');
@@ -55,6 +59,7 @@ export async function startGatewayBackground(): Promise<void> {
   const existing = await fetchGatewayStatusBody(gatewayApiUrl(resolved.gateway.host, resolved.gateway.port));
   if (existing && (profile !== 'relay' || stringValue(existing.relay?.state) === 'connected')) {
     terminal.line('Gateway 状态', `已运行 (${stringValue(existing.url) ?? gatewayUrl})`);
+    terminal.line('Gateway 版本', stringValue(existing.version) ?? '未知');
     if (profile === 'relay') {
       terminal.line('Relay 连接', formatRelayConnectionState(stringValue(existing.relay?.state)));
     }
@@ -73,6 +78,7 @@ export async function startGatewayBackground(): Promise<void> {
     terminal.success(`LaunchAgent 已安装：${status.path}`);
   }
   terminal.line('Gateway 状态', `运行中 (${stringValue(gatewayStatus.url) ?? 'URL 未知'})`);
+  terminal.line('Gateway 版本', stringValue(gatewayStatus.version) ?? '未知');
   if (profile === 'relay') {
     terminal.line('Relay 连接', formatRelayConnectionState(stringValue(gatewayStatus.relay?.state)));
   }
@@ -101,7 +107,9 @@ export async function startGatewayForeground(profile?: GatewayProfileName): Prom
     config: file
   });
   terminal.section('Gateway 前台运行');
+  terminal.line('Tether 版本', TETHER_CLI_VERSION);
   terminal.line('Gateway 模式', resolved.profile);
+  terminal.line('Gateway 版本', TETHER_CLI_VERSION);
   terminal.line('Tether Gateway', daemon.url);
   if (resolved.profile === 'direct') {
     terminal.line('Web 直连地址', `http://${localLanAddress() ?? '你的Mac局域网IP'}:${resolved.gateway.port}`);

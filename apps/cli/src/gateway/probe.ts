@@ -8,6 +8,7 @@ import { gatewayApiUrl } from './urls.js';
 export type GatewayStatus = {
   ok?: unknown;
   pid?: unknown;
+  version?: unknown;
   url?: unknown;
   host?: unknown;
   port?: unknown;
