@@ -12,7 +12,7 @@ import {
 import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { rememberGatewayVersion } from '../../hooks/use-update-check.js';
-import { gatewayAuthHeaders, getStoredNormalAccessToken, readGatewayData } from '../../lib/api.js';
+import { getStoredNormalAccessToken } from '../../lib/api.js';
 import { providerResumeCommand } from '../../lib/provider-resume-command.js';
 import { fetchChatMessages, fetchChatSessions, type ChatSessionRecord, type ProviderOption } from './chat-data.js';
 import { ChatHeader } from './chat-header.js';
@@ -26,13 +26,12 @@ import { WorkbenchCompactConnectionStatus } from '../workbench/workbench-status-
 import { GatewaySelector } from './gateway-selector.js';
 import { SlashCommandMenu } from './slash-command-menu.js';
 import { useSlashMenu } from './use-slash-menu.js';
-import type { GatewayInfo, HistoryUsage, MessageItem, Usage, UsageStats } from './chat-types.js';
+import type { HistoryUsage, MessageItem, Usage, UsageStats } from './chat-types.js';
 import {
   compactProjectPath,
   findLastAgentIndex,
   findLatestLostAgentId,
   findLatestOpenAgentId,
-  gatewayDisplayName,
   historyMessagesToItems,
   historySnapshotLooksOlder,
   isProviderOption,
@@ -184,7 +183,6 @@ export function ChatPanel({
   const [activeSessionMetadataReady, setActiveSessionMetadataReady] = React.useState(!activeSessionId);
   const [selectedGatewayId, setSelectedGatewayId] = React.useState<string | undefined>(undefined);
   const [selectedGatewayName, setSelectedGatewayName] = React.useState<string | undefined>(undefined);
-  const [gatewayNamesById, setGatewayNamesById] = React.useState<Record<string, string>>({});
   const [subscribeRetryKey, setSubscribeRetryKey] = React.useState(0);
   const [cwd, setCwd] = React.useState('~');
   const [cwdSuggestions, setCwdSuggestions] = React.useState<string[]>([]);
@@ -232,6 +230,7 @@ export function ChatPanel({
     defaultGatewayId,
     gatewayConnected,
     gatewayIdsOnline,
+    gatewayNamesById,
     relaySessions: providerRelaySessions,
     sendFrame,
     subscribeClose,
@@ -417,28 +416,6 @@ export function ChatPanel({
     }
     void loadActiveSessionMetadata(activeSessionId).catch(() => setActiveSessionMetadataReady(true));
   }, [activeSessionId, loadActiveSessionMetadata]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    void fetch('/api/server/gateways', { headers: gatewayAuthHeaders(normalAuth?.accessToken) })
-      .then((response) => response.ok ? readGatewayData<GatewayInfo[]>(response) : [])
-      .then((items) => {
-        if (cancelled || !Array.isArray(items)) return;
-        setGatewayNamesById(Object.fromEntries(
-          items
-            .filter((gateway) => gateway.status !== 'revoked')
-            .map((gateway) => [gateway.gatewayId, gatewayDisplayName(gateway)])
-        ));
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setGatewayNamesById({});
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [normalAuth?.accessToken]);
 
   const handleRelayClose = React.useCallback(() => {
     subscribedSessionIdRef.current = null;

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { gatewayAuthHeaders, readGatewayData } from '../../lib/api.js';
 
 export type RelayFrame = Record<string, unknown>;
 
@@ -44,6 +45,13 @@ export type GatewayRuntimeStatus = {
   version?: string;
 };
 
+type GatewayInfo = {
+  gatewayId: string;
+  hostname?: string;
+  name?: string;
+  status?: string;
+};
+
 export type RelayClientApi = {
   sendFrame: (frame: Record<string, unknown>) => boolean;
 };
@@ -54,6 +62,7 @@ type RelayClientContextValue = RelayClientApi & {
   defaultGatewayId?: string;
   gatewayConnected: boolean;
   gatewayIdsOnline: Set<string>;
+  gatewayNamesById: Record<string, string>;
   gatewayStatusById: Record<string, GatewayRuntimeStatus>;
   relaySessions: RelaySessionSummary[];
   relaySessionsVersion: number;
@@ -72,6 +81,14 @@ type RelayClientProviderProps = {
 const RelayClientContext = React.createContext<RelayClientContextValue | null>(null);
 const RECONNECT_DELAYS_MS = [500, 1000, 2000, 5000];
 const CREATE_PTY_TIMEOUT_MS = 15_000;
+
+function gatewayDisplayName(gateway: GatewayInfo): string {
+  const name = gateway.name?.trim();
+  if (name) return name;
+  const hostname = gateway.hostname?.trim();
+  if (hostname) return hostname;
+  return gateway.gatewayId.slice(0, 8);
+}
 
 type PendingCreatePtySession = {
   reject: (error: Error) => void;
@@ -117,6 +134,7 @@ function preferredSubscription(
 export function RelayClientProvider({ accessToken, children, relayUrl }: RelayClientProviderProps) {
   const [wsReady, setWsReady] = React.useState(false);
   const [connectionEpoch, setConnectionEpoch] = React.useState(0);
+  const [gatewayNamesById, setGatewayNamesById] = React.useState<Record<string, string>>({});
   const [gatewayStatusById, setGatewayStatusById] = React.useState<Record<string, GatewayRuntimeStatus>>({});
   const [relaySessions, setRelaySessions] = React.useState<RelaySessionSummary[]>([]);
   const [relaySessionsVersion, setRelaySessionsVersion] = React.useState(0);
@@ -240,6 +258,32 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
       }
     });
   }, [sendFrame]);
+
+  React.useEffect(() => {
+    if (!accessToken) {
+      setGatewayNamesById({});
+      return undefined;
+    }
+    let cancelled = false;
+    void fetch('/api/server/gateways', { headers: gatewayAuthHeaders(accessToken) })
+      .then((response) => response.ok ? readGatewayData<GatewayInfo[]>(response) : [])
+      .then((items) => {
+        if (cancelled || !Array.isArray(items)) return;
+        setGatewayNamesById(Object.fromEntries(
+          items
+            .filter((gateway) => gateway.status !== 'revoked')
+            .map((gateway) => [gateway.gatewayId, gatewayDisplayName(gateway)])
+        ));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setGatewayNamesById({});
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
 
   React.useEffect(() => {
     if (!accessToken) {
@@ -438,6 +482,7 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
     defaultGatewayId,
     gatewayConnected,
     gatewayIdsOnline,
+    gatewayNamesById,
     gatewayStatusById,
     relaySessions,
     relaySessionsVersion,
@@ -445,7 +490,7 @@ export function RelayClientProvider({ accessToken, children, relayUrl }: RelayCl
     subscribeClose,
     subscribeFrame,
     wsReady
-  }), [acquireSessionSubscription, connectionEpoch, createPtySession, defaultGatewayId, gatewayConnected, gatewayIdsOnline, gatewayStatusById, relaySessions, relaySessionsVersion, sendFrame, subscribeClose, subscribeFrame, wsReady]);
+  }), [acquireSessionSubscription, connectionEpoch, createPtySession, defaultGatewayId, gatewayConnected, gatewayIdsOnline, gatewayNamesById, gatewayStatusById, relaySessions, relaySessionsVersion, sendFrame, subscribeClose, subscribeFrame, wsReady]);
 
   return (
     <RelayClientContext.Provider value={value}>

@@ -2,6 +2,7 @@ import * as React from 'react';
 import { HelpCircle, Menu, PanelLeftOpen } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { NotificationBell } from '../chats/notification-bell.js';
+import { useRelayClient } from '../relay/use-relay-client.js';
 
 type WorkbenchTopbarProps = {
   children?: React.ReactNode;
@@ -27,6 +28,8 @@ export function WorkbenchTopbar({
   onOpenDrawer,
   position = 'static'
 }: WorkbenchTopbarProps) {
+  const relay = useRelayClient();
+  const resolvedGatewayNamesById = gatewayNamesById ?? relay.gatewayNamesById;
   const positionClass = position === 'absolute'
     ? 'absolute inset-x-0 top-0 z-10'
     : 'shrink-0';
@@ -71,7 +74,7 @@ export function WorkbenchTopbar({
           </Link>
         </div>
       ) : null}
-      <NotificationBell gatewayNamesById={gatewayNamesById} />
+      <NotificationBell gatewayNamesById={resolvedGatewayNamesById} />
     </div>
   );
 }

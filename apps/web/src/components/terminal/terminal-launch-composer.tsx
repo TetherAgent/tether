@@ -159,7 +159,7 @@ export function TerminalLaunchComposer({
           {providerCopy.command}
         </code>
       </div>
-      <div className="chat-input-toolbar terminal-launch-toolbar relative flex flex-wrap items-center gap-2 border-t border-border/50 px-3 py-2.5">
+      <div className="chat-input-toolbar chat-input-toolbar-controls terminal-launch-toolbar relative flex flex-wrap items-center gap-2 border-t border-border/50 px-3 py-2.5">
         <Select
           value={provider}
           onValueChange={(value) => {
@@ -181,7 +181,7 @@ export function TerminalLaunchComposer({
           value={launchMode}
           onValueChange={(value) => setLaunchMode(value as LaunchMode)}
         >
-          <SelectTrigger className="chat-toolbar-trigger terminal-launch-mode-trigger w-auto">
+          <SelectTrigger className="chat-model-trigger chat-toolbar-trigger terminal-launch-mode-trigger w-auto">
             <SelectValue>{LAUNCH_MODES.find((item) => item.id === launchMode)?.label ?? '后台启动'}</SelectValue>
           </SelectTrigger>
           <SelectContent>
