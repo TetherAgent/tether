@@ -11,8 +11,6 @@ const RegisterPage = React.lazy(() => import('./pages/register-page.js').then((m
 const ChatsPage = React.lazy(() => import('./pages/chats-page.js').then((module) => ({ default: module.ChatsPage })));
 const TerminalPage = React.lazy(() => import('./pages/terminal-page.js').then((module) => ({ default: module.TerminalPage })));
 const WorkbenchLayout = React.lazy(() => import('./components/workbench/workbench-layout.js').then((module) => ({ default: module.WorkbenchLayout })));
-const LegacySessionsPage = React.lazy(() => import('./pages/legacy-sessions-page.js').then((module) => ({ default: module.LegacySessionsPage })));
-const LegacySessionViewPage = React.lazy(() => import('./pages/legacy-session-view-page.js').then((module) => ({ default: module.LegacySessionViewPage })));
 
 export function WebRoutes() {
   return (
@@ -37,30 +35,6 @@ export function WebRoutes() {
         <Route path="/help" element={<HelpPage />} />
         <Route path="/" element={<Navigate replace to="/chats" />} />
         <Route path="/gateway-auth" element={<GatewayAuthPage />} />
-        <Route
-          path="/sessions"
-          element={(
-            <RequireUserAuth>
-              <LegacySessionsPage />
-            </RequireUserAuth>
-          )}
-        />
-        <Route
-          path="/remote/session/:sessionId/replay"
-          element={(
-            <RequireUserAuth>
-              <LegacySessionViewPage mode="replay" />
-            </RequireUserAuth>
-          )}
-        />
-        <Route
-          path="/remote/session/:sessionId"
-          element={(
-            <RequireUserAuth>
-              <LegacySessionViewPage mode="control" />
-            </RequireUserAuth>
-          )}
-        />
         <Route element={<RequireUserAuth><WorkbenchLayout /></RequireUserAuth>}>
           <Route path="/chats" element={<ChatsPage />} />
           <Route path="/chats/:sessionId" element={<ChatsPage />} />

@@ -1,17 +1,17 @@
 import * as React from 'react';
 import type { MessageItem } from './chat-types.js';
+import { ChatBubbleAgent } from './messages/chat-bubble-agent.js';
 import { ChatBubbleUser } from './messages/chat-bubble-user.js';
 import { PermissionPrompt } from './messages/permission-prompt.js';
 import { SystemMessage } from './messages/system-message.js';
 import { ToolCard } from './messages/tool-card.js';
-
-const ChatBubbleAgent = React.lazy(() => import('./messages/chat-bubble-agent.js').then((module) => ({ default: module.ChatBubbleAgent })));
 
 export function ChatMessageList({
   lastAgentIndex,
   messageEndRef,
   messageScrollRef,
   messages,
+  onChoiceClick,
   onCommandClick,
   onPermissionResponse,
   onSuggestionClick
@@ -20,33 +20,34 @@ export function ChatMessageList({
   messageEndRef: React.RefObject<HTMLDivElement | null>;
   messageScrollRef: React.RefObject<HTMLDivElement | null>;
   messages: MessageItem[];
+  onChoiceClick: (text: string) => void;
   onCommandClick: (text: string) => void;
   onPermissionResponse: (requestId: string, decision: 'allow' | 'deny') => void;
   onSuggestionClick: (text: string) => void;
 }) {
   return (
     <div ref={messageScrollRef} className="flex-1 overflow-y-auto px-4 py-5">
-      <div className="mx-auto max-w-3xl space-y-4">
+      <div className="mx-auto w-full max-w-5xl space-y-4 2xl:max-w-6xl">
         {messages.map((message, index) => {
           if (message.kind === 'user') {
             return <ChatBubbleUser key={message.id} content={message.content} />;
           }
           if (message.kind === 'agent') {
             return (
-              <React.Suspense key={message.id} fallback={<SystemMessage text={message.text} />}>
-                <ChatBubbleAgent
-                  text={message.text}
-                  isStreaming={message.isStreaming}
-                  isWaiting={message.isWaiting}
-                  isLost={message.isLost}
-                  provider={message.provider}
-                  usage={message.usage}
-                  durationMs={message.durationMs}
-                  nextSuggestions={index === lastAgentIndex ? message.nextSuggestions : undefined}
-                  onSuggestionClick={onSuggestionClick}
-                  onCommandClick={onCommandClick}
-                />
-              </React.Suspense>
+              <ChatBubbleAgent
+                key={message.id}
+                text={message.text}
+                isStreaming={message.isStreaming}
+                isWaiting={message.isWaiting}
+                isLost={message.isLost}
+                provider={message.provider}
+                usage={message.usage}
+                durationMs={message.durationMs}
+                nextSuggestions={index === lastAgentIndex ? message.nextSuggestions : undefined}
+                onSuggestionClick={onSuggestionClick}
+                onCommandClick={onCommandClick}
+                onChoiceClick={onChoiceClick}
+              />
             );
           }
           if (message.kind === 'tool') {

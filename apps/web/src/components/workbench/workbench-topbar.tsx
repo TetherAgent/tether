@@ -32,10 +32,10 @@ export function WorkbenchTopbar({
   const resolvedGatewayNamesById = gatewayNamesById ?? relay.gatewayNamesById;
   const positionClass = position === 'absolute'
     ? 'absolute inset-x-0 top-0 z-10'
-    : 'shrink-0';
+    : 'relative shrink-0';
 
   return (
-    <div className={`${positionClass} flex items-center gap-2 border-b border-border bg-card/60 px-4 py-2.5 backdrop-blur-sm ${className}`}>
+    <div className={`${positionClass} workbench-topbar flex items-center gap-2 bg-card/60 px-4 py-2.5 backdrop-blur-sm ${className}`}>
       {onOpenDrawer && (
         <button
           onClick={onOpenDrawer}

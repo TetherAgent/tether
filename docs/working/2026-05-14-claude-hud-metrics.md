@@ -244,6 +244,11 @@ Tether 不要求用户手写 `~/.claude/settings.json`，也不新增 `tether ho
 
 ```text
 tether start
+  -> 检查现有 Gateway
+  -> 如果 Gateway 已运行且 relay 已就绪：
+       打印 Gateway 已运行
+       保持现有 early return 行为
+       不安装/更新 Claude hook
   -> 启动 Gateway，拿到 host/port
   -> 检查 Claude Code 是否存在
   -> 检查 ~/.claude/settings.json
@@ -266,6 +271,16 @@ tether start
 - `apps/cli/src/gateway/supervisor.ts`：`tether start` 成功确定 Gateway host/port 后，调用 hook 检测/安装逻辑。
 - `apps/gateway/src/daemon.ts`：只提供 hook endpoint 和当前 host/port 事实，不直接改用户 Claude 配置。
 - `apps/gateway/src/chat/chat-session-runner.ts`：启动 Claude 子进程时注入/记录 Tether session identity。
+
+架构约束：
+
+- 保持 `apps/cli/src/gateway/supervisor.ts` 现有 early return 语义：如果 `tether start` 检测到 Gateway 已运行并直接返回，不顺手安装或更新 Claude hook。
+- Hook 自动安装只发生在本次 `tether start` 确实启动 Gateway、并通过 `waitForStartedGateway()` 拿到 host/port 之后。
+- CLI 只负责本机配置文件管理和启动编排；Gateway runtime 不直接写 `~/.claude/settings.json`。
+- Gateway 只负责 hook HTTP endpoint、session-scoped metrics store、Claude child env 注入和 `agent.result` 合并。
+- Relay / Server / Web 只消费协议字段，不参与 Claude settings 安装。
+- Codex / Copilot 不接入 Claude hook，不应因为 Claude hook 安装或 `TETHER_SESSION_ID` 注入改变行为。
+- PTY event stream 不在本期接入 Claude HUD hook；本期只覆盖 Chat runtime 的 Claude provider。
 
 本机文件位置：
 
@@ -310,7 +325,8 @@ node ~/.tether/hooks/claude-hud-hook.js --endpoint http://127.0.0.1:<port>/api/h
 
 - [ ] Hook 安装
   - 不新增 `tether hooks install claude` / `tether hooks uninstall claude` 命令。
-  - 在 `tether start` 成功拿到 Gateway host/port 后，自动检查/安装/更新 Tether-managed Claude hook。
+  - 保持 `tether start` 已有 Gateway 运行时直接 return 的行为，不在 early return 分支安装/更新 hook。
+  - 仅在本次 `tether start` 确实启动 Gateway 并成功拿到 Gateway host/port 后，自动检查/安装/更新 Tether-managed Claude hook。
   - 把 Tether hook wrapper 安装到 `~/.tether/hooks/claude-hud-hook.js`。
   - 使用当前 Gateway host/port 生成 hook endpoint。
   - 只维护 Tether 标记的 hook block，不覆盖用户已有 hook。
@@ -346,6 +362,7 @@ node ~/.tether/hooks/claude-hud-hook.js --endpoint http://127.0.0.1:<port>/api/h
   - 刷新页面后 Web 仍能从历史消息恢复 HUD 指标。
 
 - [ ] `apps/web`
+  - Web `contextWindow` gate 是现有 Bug，必须随本阶段同步修复；即使 Claude hook 因采样不满足而不启用，也要修复 live/history 对 `rateLimitInfo` 的展示。
   - 复用现有 `ProviderUsageRows`。
   - `ChatHistoryUsage` 增加 `contextUsedPercentage?: number`。
   - 支持优先读取 `contextUsedPercentage`。

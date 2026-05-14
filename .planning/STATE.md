@@ -144,6 +144,7 @@ Recent decisions affecting current work:
 - Phase 14 context gathered: 2026-05-11 — 4 个区域讨论完成，CONTEXT.md 已就绪
 - Phase 17 added: Chat Multi-client Realtime Sync — 多端同时订阅同一 chat session，按 session 广播 delta/result，Gateway in-flight 锁防并发发送；参考 docs/working/2026-05-11-chat-multi-client-realtime.md
 - Phase 17 complete: Relay 多 client chat 广播 + Gateway `chatInFlight` 锁已实现并通过 relay/gateway/web 验证；剩余为 live 双端人工 UAT。
+- Phase 19 added: 将 Web 界面完整迁移到 Flutter App（不含 gateway-auth 模块）——包括页面布局、颜色主题、组件结构等
 
 ### Blockers/Concerns
 

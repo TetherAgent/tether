@@ -1,18 +1,11 @@
 import * as React from 'react';
-import { Link, useLocation } from 'react-router-dom';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import type { ITheme } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
-import { Maximize2, Minimize2, Power } from 'lucide-react';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import {
   Button,
-  Label,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Textarea
 } from '@tether/design';
 
@@ -20,10 +13,9 @@ import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { useUiPreferences } from '../../hooks/use-ui-preferences.js';
 import { gatewayAuthHeaders, readGatewayData } from '../../lib/api.js';
-import { RelayClientProvider } from '../relay/relay-client-provider.js';
 import { type RelayFrame, useRelayClient } from '../relay/use-relay-client.js';
-import { SessionDetailHeader, TerminalSurfaceSkeleton } from '../session/session-detail-chrome.js';
 import { ComposerSubmitButton } from '../workbench/composer-submit-button.js';
+import { TerminalSurfaceSkeleton } from './terminal-surface-skeleton.js';
 
 type Session = {
   id: string;
@@ -98,10 +90,6 @@ function gatewayRequest(input: RequestInfo | URL, init: RequestInit = {}): Promi
     }
   }
   return fetch(input, { ...init, headers });
-}
-
-function clientModeLabel(mode: ClientMode, t: WebMessages): string {
-  return mode === 'observe' ? t.observe : t.control;
 }
 
 function displayMessage(message: string, t: WebMessages): string {
@@ -206,34 +194,6 @@ function buildTerminalTheme(isDark: boolean, override?: TerminalThemeOverride): 
   };
 }
 
-export type SessionSurfaceMode = 'control' | 'replay';
-
-export type SessionSurfaceProps = {
-  sessionId: string;
-  surfaceMode: SessionSurfaceMode;
-  connectionSettings: ConnectionSettings;
-  onConnectionSettingsChange: (settings: ConnectionSettings) => void;
-};
-
-export function SessionSurface({
-  sessionId,
-  surfaceMode,
-  connectionSettings
-}: SessionSurfaceProps) {
-  const { t } = useI18n();
-  const { normalAuth } = useAuth();
-  return (
-    <RelayClientProvider accessToken={normalAuth?.accessToken} relayUrl={connectionSettings.relayUrl}>
-      <TerminalPane
-        sessionId={sessionId}
-        replayOnly={surfaceMode === 'replay'}
-        initialStatus={t.statusConnecting}
-        connectionSettings={connectionSettings}
-      />
-    </RelayClientProvider>
-  );
-}
-
 export function TerminalPane({
   sessionId,
   replayOnly,
@@ -251,20 +211,16 @@ export function TerminalPane({
   const { t } = useI18n();
   const { isDark } = useUiPreferences();
   const { acquireSessionSubscription, sendFrame, subscribeClose, subscribeFrame } = useRelayClient();
-  const location = useLocation();
-  const locationState = location.state as { agentSessionId?: string; provider?: string } | null;
   const terminalRef = React.useRef<HTMLDivElement>(null);
   const panelRef = React.useRef<HTMLElement>(null);
   const terminal = React.useRef<Terminal | undefined>(undefined);
-  const [clientMode, setClientMode] = React.useState<ClientMode>(readClientMode);
-  const [replayMode, setReplayMode] = React.useState<ReplayMode>(readReplayMode);
+  const [clientMode] = React.useState<ClientMode>(readClientMode);
+  const [replayMode] = React.useState<ReplayMode>(readReplayMode);
   const effectiveClientMode = replayOnly ? 'observe' : clientMode;
   const [isTerminalFullscreen, setTerminalFullscreen] = React.useState(false);
   const [status, setStatus] = React.useState(initialStatus);
   const [agentRuntimeStatus, setAgentRuntimeStatus] = React.useState<AgentRuntimeStatus>('idle');
   const [terminalThemeOverride, setTerminalThemeOverride] = React.useState<TerminalThemeOverride | undefined>();
-  const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(locationState?.agentSessionId);
-  const [sessionProvider, setSessionProvider] = React.useState<string | undefined>(locationState?.provider);
   const [isTerminalReady, setTerminalReady] = React.useState(false);
   const [isInputReady, setInputReady] = React.useState(false);
   const [isComposerSending, setComposerSending] = React.useState(false);
@@ -273,16 +229,6 @@ export function TerminalPane({
     () => sessionCursorKey(sessionId, normalAuth?.identity, connectionSettings),
     [connectionSettings, normalAuth?.identity, sessionId]
   );
-  const changeClientMode = React.useCallback((mode: ClientMode) => {
-    window.localStorage.setItem(WEB_CLIENT_MODE_KEY, mode);
-    setClientMode(mode);
-  }, []);
-
-  const changeReplayMode = React.useCallback((mode: ReplayMode) => {
-    window.localStorage.setItem(WEB_REPLAY_MODE_KEY, mode);
-    setReplayMode(mode);
-  }, []);
-
   const sendRelayInput = React.useCallback((data: string): boolean => {
     if (effectiveClientMode === 'observe') {
       setStatus(t.statusObserveCannotInput);
@@ -750,19 +696,6 @@ export function TerminalPane({
     t
   ]);
 
-  function stopSession(): void {
-    if (effectiveClientMode === 'observe') {
-      setStatus(t.statusObserveCannotInput);
-      return;
-    }
-    const sent = sendFrame({ type: 'client.stop', sessionId });
-    if (!sent) {
-      setStatus(t.statusRelayUnavailable);
-      return;
-    }
-    setStatus(t.statusStopRequested);
-  }
-
   async function toggleTerminalFullscreen(): Promise<void> {
     const panel = panelRef.current;
     if (!panel) {
@@ -779,55 +712,8 @@ export function TerminalPane({
     }
   }
 
-  const terminalActions = replayOnly ? (
-    <div className="mode-select">
-      <Label>{t.replay}</Label>
-      <Select value={replayMode} onValueChange={(value) => changeReplayMode(value as ReplayMode)}>
-        <SelectTrigger className="connection-select-trigger">
-          <SelectValue>{replayMode === 'recent' ? t.replayRecent : t.replayAll}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="recent">{t.replayRecent}</SelectItem>
-          <SelectItem value="all">{t.replayAll}</SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
-  ) : (
-    <>
-      <div className="mode-select">
-        <Label>{t.mode}</Label>
-        <Select value={clientMode} onValueChange={(value) => changeClientMode(value as ClientMode)}>
-          <SelectTrigger className="connection-select-trigger">
-            <SelectValue>{clientModeLabel(clientMode, t)}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="control">{t.control}</SelectItem>
-            <SelectItem value="observe">{t.observe}</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      <Button asChild variant="outline" size="sm" type="button">
-        <Link to={`/remote/session/${encodeURIComponent(sessionId)}/replay`}>{t.replay}</Link>
-      </Button>
-      <Button variant="outline" size="sm" type="button" onClick={() => stopSession()}>
-        <Power aria-hidden="true" />
-        {t.stop}
-      </Button>
-    </>
-  );
-
   return (
     <div className={`session-detail-page${embedded ? ' terminal-embedded-page' : ''}`}>
-      {!embedded ? (
-        <SessionDetailHeader
-          sessionId={sessionId}
-          status={status}
-          provider={sessionProvider}
-          agentSessionId={agentSessionId}
-        >
-          {terminalActions}
-        </SessionDetailHeader>
-      ) : null}
       <main
         ref={panelRef}
         className={`terminal-shell terminal-panel${isTerminalFullscreen ? ' terminal-panel-fullscreen' : ''}`}

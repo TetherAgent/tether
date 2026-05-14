@@ -125,6 +125,178 @@ function createMdComponents(onCommandClick?: (text: string) => void): Components
   };
 }
 
+type GsdChoice = {
+  key: string;
+  title: string;
+  body: string;
+};
+
+type GsdQuestion = {
+  number: string;
+  title: string;
+  description: string;
+  body: string;
+  choices: GsdChoice[];
+};
+
+type GsdDiscussion = {
+  intro: string;
+  questions: GsdQuestion[];
+};
+
+const GSD_QUESTION_RE = /^\*\*\[(\d+)\]\s+(.+?)\*\*\s*(?:[—-]\s*(.*))?$/;
+const GSD_CHOICE_RE = /^([A-Z])\.\s+\*\*(.+?)\*\*\s*(.*)$/;
+
+function parseGsdDiscussion(text: string): GsdDiscussion | null {
+  if (!text.includes('/gsd-discuss-phase') && !text.includes('Phase 19') && !text.includes('需要讨论的')) {
+    return null;
+  }
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const firstQuestionIndex = lines.findIndex((line) => GSD_QUESTION_RE.test(line.trim()));
+  if (firstQuestionIndex < 0) {
+    return null;
+  }
+
+  const intro = lines.slice(0, firstQuestionIndex).join('\n').trim();
+  const questions: GsdQuestion[] = [];
+  let index = firstQuestionIndex;
+
+  while (index < lines.length) {
+    const header = lines[index].trim();
+    const match = GSD_QUESTION_RE.exec(header);
+    if (!match) {
+      index += 1;
+      continue;
+    }
+
+    const [, number, title, description = ''] = match;
+    index += 1;
+    const block: string[] = [];
+    while (index < lines.length && !GSD_QUESTION_RE.test(lines[index].trim())) {
+      const line = lines[index];
+      if (line.trim() !== '---') {
+        block.push(line);
+      }
+      index += 1;
+    }
+
+    const bodyLines: string[] = [];
+    const choices: GsdChoice[] = [];
+    let activeChoice: GsdChoice | null = null;
+
+    for (const line of block) {
+      const choiceMatch = GSD_CHOICE_RE.exec(line.trim());
+      if (choiceMatch) {
+        const [, key, choiceTitle, rest = ''] = choiceMatch;
+        activeChoice = {
+          key,
+          title: choiceTitle,
+          body: rest.trim()
+        };
+        choices.push(activeChoice);
+        continue;
+      }
+      if (activeChoice) {
+        activeChoice.body = `${activeChoice.body}${activeChoice.body && line.trim() ? '\n' : ''}${line}`.trim();
+      } else {
+        bodyLines.push(line);
+      }
+    }
+
+    questions.push({
+      number,
+      title: title.trim(),
+      description: description.trim(),
+      body: bodyLines.join('\n').trim(),
+      choices
+    });
+  }
+
+  return questions.length > 0 ? { intro, questions } : null;
+}
+
+function GsdDiscussionView({
+  discussion,
+  components,
+  onChoiceClick
+}: {
+  discussion: GsdDiscussion;
+  components: Components;
+  onChoiceClick?: (text: string) => void;
+}) {
+  const makeChoiceText = React.useCallback((question: GsdQuestion, choice: GsdChoice) => {
+    const body = choice.body.trim();
+    return `${question.number}:${choice.key}${choice.title}${body ? `\n${body}` : ''}`;
+  }, []);
+
+  return (
+    <div className="gsd-discussion">
+      {discussion.intro ? (
+        <div className="gsd-discussion-intro">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeHighlight]}
+            components={components}
+          >
+            {discussion.intro}
+          </ReactMarkdown>
+        </div>
+      ) : null}
+      <div className="gsd-question-list">
+        {discussion.questions.map((question) => (
+          <section className="gsd-question-card" key={question.number}>
+            <div className="gsd-question-head">
+              <span className="gsd-question-index">[{question.number}]</span>
+              <div className="gsd-question-title">
+                <h3>{question.title}</h3>
+                {question.description ? <p>{question.description}</p> : null}
+              </div>
+            </div>
+            {question.body ? (
+              <div className="gsd-question-body">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeHighlight]}
+                  components={components}
+                >
+                  {question.body}
+                </ReactMarkdown>
+              </div>
+            ) : null}
+            {question.choices.length > 0 ? (
+              <div className="gsd-choice-grid">
+                {question.choices.map((choice) => (
+                  <button
+                    className="gsd-choice-card"
+                    key={choice.key}
+                    type="button"
+                    title="点击填入输入框"
+                    onClick={() => onChoiceClick?.(makeChoiceText(question, choice))}
+                  >
+                    <div className="gsd-choice-label">{choice.key}</div>
+                    <div className="gsd-choice-content">
+                      <strong>{choice.title}</strong>
+                      {choice.body ? (
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeHighlight]}
+                          components={components}
+                        >
+                          {choice.body}
+                        </ReactMarkdown>
+                      ) : null}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function ChatBubbleAgent({
   text,
   isStreaming,
@@ -135,7 +307,8 @@ export function ChatBubbleAgent({
   durationMs,
   nextSuggestions,
   onSuggestionClick,
-  onCommandClick
+  onCommandClick,
+  onChoiceClick
 }: {
   text: string;
   isStreaming: boolean;
@@ -147,13 +320,15 @@ export function ChatBubbleAgent({
   nextSuggestions?: ChatNextSuggestion[];
   onSuggestionClick?: (description: string) => void;
   onCommandClick?: (text: string) => void;
+  onChoiceClick?: (text: string) => void;
 }) {
   const renderText = isStreaming ? closeUnclosedFence(text) : text;
   const components = React.useMemo(() => createMdComponents(onCommandClick), [onCommandClick]);
+  const gsdDiscussion = React.useMemo(() => (isStreaming ? null : parseGsdDiscussion(text)), [isStreaming, text]);
   return (
     <div className="flex min-w-0 max-w-full items-start gap-3 overflow-hidden">
       <ModelAvatar provider={provider} label={provider} />
-      <div className="min-w-0 max-w-[calc(100%-44px)] pb-0.5 sm:max-w-[80%]">
+      <div className="min-w-0 max-w-[calc(100%-44px)] pb-0.5 lg:max-w-[92%] 2xl:max-w-[88%]">
         <div className="min-w-0 max-w-full overflow-hidden rounded-3xl rounded-bl-md bg-[var(--agent-bubble)] px-4 py-3 text-sm shadow-sm">
           {isWaiting ? (
             <div className="flex items-center gap-2 text-muted-foreground">
@@ -161,13 +336,21 @@ export function ChatBubbleAgent({
             </div>
           ) : (
             <div className="chat-markdown prose prose-sm dark:prose-invert min-w-0 max-w-full overflow-x-auto">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeHighlight]}
-                components={components}
-              >
-                {renderText}
-              </ReactMarkdown>
+              {gsdDiscussion ? (
+                <GsdDiscussionView
+                  discussion={gsdDiscussion}
+                  components={components}
+                  onChoiceClick={onChoiceClick}
+                />
+              ) : (
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeHighlight]}
+                  components={components}
+                >
+                  {renderText}
+                </ReactMarkdown>
+              )}
               {isStreaming ? <StreamingCursor /> : null}
             </div>
           )}

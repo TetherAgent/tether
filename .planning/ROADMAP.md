@@ -438,6 +438,16 @@ Plans:
   - **Wave 3** *(blocked on Plan 02)*:
     - [x] `18-03-PLAN.md` — 删 store.ts、better-sqlite3、所有残留引用，清理 apps/cli 中 Store 使用（D-09 验收）
 
+### Phase 19: 将 Web 界面完整迁移到 Flutter App（不含 gateway-auth 模块）
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 18
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 19 to break down)
+
 ---
 *Roadmap created: 2026-05-01*
 *Milestone reordered: 2026-05-01 — personal Relay MVP moved to Phase 1*

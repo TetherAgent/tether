@@ -940,6 +940,18 @@ export function ChatPanel({
     });
   }, []);
 
+  const appendNextSuggestion = React.useCallback((description: string) => {
+    setInputText((current) => {
+      const prefix = current.trim().length > 0 ? `${current.trimEnd()}\n\n` : '';
+      return `${prefix}${description}`;
+    });
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      const length = inputRef.current?.value.length ?? 0;
+      inputRef.current?.setSelectionRange(length, length);
+    });
+  }, []);
+
   const isNewSession = !currentSessionId && messages.length === 0;
 
   const slashMenu = useSlashMenu({
@@ -1079,7 +1091,7 @@ export function ChatPanel({
   );
 
   const inputCard = (withControls: boolean) => (
-    <div className="chat-input-card relative overflow-hidden rounded-2xl border border-border bg-card" style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
+    <div className="chat-input-card relative overflow-hidden rounded-2xl border border-border" style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
       <Textarea
         ref={withControls ? newSessionInputRef : undefined}
         value={inputText}
@@ -1090,7 +1102,7 @@ export function ChatPanel({
           withControls && selectedGatewayOnline ? selectedGatewayName : undefined
         )}
         disabled={isInputDisabled}
-        className="max-h-44 min-h-[88px] resize-none rounded-none border-0 bg-transparent px-4 pt-4 text-[15px] leading-relaxed shadow-none focus-visible:ring-0"
+        className="max-h-44 min-h-[88px] resize-none rounded-none border-0 bg-transparent px-4 pt-4 text-[15px] leading-relaxed shadow-none focus-visible:bg-transparent focus-visible:ring-0 dark:bg-transparent dark:focus-visible:bg-transparent"
         onKeyDown={onKeyDown}
         onCompositionStart={handleCompositionStart}
         onCompositionEnd={handleCompositionEnd}
@@ -1224,6 +1236,7 @@ export function ChatPanel({
         messageEndRef={messageEndRef}
         messageScrollRef={messageScrollRef}
         messages={messages}
+        onChoiceClick={appendNextSuggestion}
         onCommandClick={applyNextSuggestion}
         onPermissionResponse={sendPermissionResponse}
         onSuggestionClick={applyNextSuggestion}

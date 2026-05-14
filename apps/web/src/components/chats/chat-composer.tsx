@@ -53,8 +53,8 @@ export function ChatComposer({
   usageStats?: UsageStats;
 }) {
   return (
-    <div className="px-4 pb-4 pt-2">
-      <div className="mx-auto max-w-3xl flex flex-col gap-1.5">
+    <div className="chat-composer-shell px-4 pb-4 pt-2">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-1.5 2xl:max-w-6xl">
         <div className="flex items-center gap-2 self-start min-w-0">
           <ChatSessionStatusPopover
             activeSessionProjectPath={activeSessionProjectPath}
@@ -71,7 +71,7 @@ export function ChatComposer({
 
         <div className="relative">
           {slashMenuEl}
-          <div className="chat-input-card relative overflow-hidden rounded-2xl border border-border bg-card" style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
+          <div className="chat-input-card relative overflow-hidden rounded-2xl border border-border" style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
             <div className="flex items-end gap-2 px-3 py-2.5">
               <Textarea
                 ref={inputRef}
@@ -79,7 +79,7 @@ export function ChatComposer({
                 onChange={(event) => onInputChange(event.target.value)}
                 placeholder={buildInputPlaceholder(displayProvider, displayModel ?? '')}
                 disabled={isInputDisabled}
-                className="flex-1 max-h-44 min-h-[36px] resize-none border-0 bg-transparent py-1 text-[15px] leading-relaxed shadow-none focus-visible:ring-0"
+                className="flex-1 max-h-44 min-h-[36px] resize-none border-0 bg-transparent py-1 text-[15px] leading-relaxed shadow-none focus-visible:bg-transparent focus-visible:ring-0 dark:bg-transparent dark:focus-visible:bg-transparent"
                 onKeyDown={onKeyDown}
                 onCompositionStart={onCompositionStart}
                 onCompositionEnd={onCompositionEnd}

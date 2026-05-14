@@ -200,6 +200,159 @@
   border-bottom: none;
 }
 
+.gsd-discussion {
+  display: grid;
+  gap: 12px;
+}
+
+.gsd-discussion-intro {
+  display: grid;
+  gap: 6px;
+}
+
+.gsd-question-list {
+  display: grid;
+  gap: 12px;
+}
+
+.gsd-question-card {
+  overflow: hidden;
+  border-radius: 14px;
+  border: 0;
+  background: color-mix(in srgb, var(--background) 62%, var(--agent-bubble));
+}
+
+.gsd-question-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px 13px;
+  border-bottom: 1px solid color-mix(in srgb, var(--foreground) 7%, transparent);
+}
+
+.gsd-question-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  color: var(--brand);
+  font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.gsd-question-title {
+  min-width: 0;
+}
+
+.gsd-question-title h3 {
+  margin: 1px 0 3px;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.gsd-question-title p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.gsd-question-body {
+  padding: 10px 13px 4px;
+  color: color-mix(in srgb, var(--foreground) 82%, var(--muted-foreground));
+}
+
+.gsd-question-body li::marker,
+.gsd-choice-content li::marker {
+  color: var(--brand);
+}
+
+.gsd-question-body > :first-child,
+.gsd-choice-content > :first-child {
+  margin-top: 0;
+}
+
+.gsd-question-body > :last-child,
+.gsd-choice-content > :last-child {
+  margin-bottom: 0;
+}
+
+.gsd-choice-grid {
+  display: grid;
+  gap: 8px;
+  padding: 10px 13px 13px;
+}
+
+.gsd-choice-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  min-width: 0;
+  width: 100%;
+  padding: 10px;
+  border-radius: 12px;
+  border: 0;
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .14s ease, background-color .14s ease, transform .14s ease;
+}
+
+.gsd-choice-card:hover {
+  background: color-mix(in srgb, var(--brand) 10%, var(--foreground) 5%);
+}
+
+.gsd-choice-card:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--brand) 70%, transparent);
+  outline-offset: 2px;
+}
+
+.gsd-choice-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  color: var(--brand);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.gsd-choice-content {
+  min-width: 0;
+  color: var(--muted-foreground);
+}
+
+.gsd-choice-content strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--foreground);
+  font-size: 13.5px;
+  line-height: 1.35;
+}
+
+.gsd-choice-content p,
+.gsd-choice-content ul,
+.gsd-choice-content ol {
+  margin-top: 3px;
+  margin-bottom: 3px;
+}
+
+@media (min-width: 760px) {
+  .gsd-choice-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* ── hljs token overrides for light mode ── */
 /* Dark mode uses github-dark.css (imported globally).
    These rules restore github.css token colors when not in dark mode. */
