@@ -147,6 +147,14 @@ export function historySnapshotLooksOlder(currentItems: MessageItem[], snapshotI
   if (!currentLastAgent || !snapshotLastAgent) {
     return false;
   }
+  if (
+    currentLastAgent.isStreaming &&
+    !snapshotLastAgent.isStreaming &&
+    !snapshotLastAgent.isWaiting &&
+    snapshotLastAgent.text.length > 0
+  ) {
+    return false;
+  }
   return currentLastAgent.text.length > snapshotLastAgent.text.length &&
     currentLastAgent.text.startsWith(snapshotLastAgent.text);
 }

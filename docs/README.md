@@ -38,6 +38,7 @@
 | [2026-05-11-chat-multi-client-realtime.md](working/2026-05-11-chat-multi-client-realtime.md) | **Working** | PC/手机多端同时打开同一 chat session 的实时广播、发送锁、TODO 和验收项 |
 | [2026-05-11-multi-device-gateway-routing.md](working/2026-05-11-multi-device-gateway-routing.md) | **Working** | 同一账号多电脑多 Gateway 的设备绑定、Gateway 选择、Relay 路由和防串设计 |
 | [2026-05-14-claude-hud-metrics.md](working/2026-05-14-claude-hud-metrics.md) | **Working** | Claude HUD 指标接入：Context、5 小时 Usage、Weekly 用量的 hook 数据源、协议字段、安全边界、TODO 和验收项 |
+| [2026-05-14-chat-event-ordering-and-web-refactor.md](working/2026-05-14-chat-event-ordering-and-web-refactor.md) | **Working** | Chat 事件时序契约与 Web Chat 重构方案：`eventSeq`、`turnId`、`clientRequestId`、`snapshotEventSeq`、Create/Restore flow、组件拆分、测试和验收 |
 
 ## 归档记录 (`archive/`)
 
