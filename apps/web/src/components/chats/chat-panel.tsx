@@ -14,7 +14,11 @@ import { useI18n } from '../../hooks/use-i18n.js';
 import { rememberGatewayVersion } from '../../hooks/use-update-check.js';
 import { getStoredNormalAccessToken } from '../../lib/api.js';
 import { providerResumeCommand } from '../../lib/provider-resume-command.js';
-import { fetchChatMessages, fetchChatSessions, type ChatSessionRecord, type ProviderOption } from './chat-data.js';
+import { fetchChatEventsAfter, fetchChatMessages, fetchChatSessions, type ChatRuntimeEventResponse, type ChatSessionRecord, type ProviderOption } from './chat-data.js';
+import { applyChatStreamEvent, applyChatStreamEvents, historySnapshotToReducerState, type ChatStreamEvent } from './chat-event-reducer.js';
+import { mapRelayFrameToChatEvent, mapStructuredCatchupResponse } from './chat-event-mappers.js';
+import { createClientRequestId, createOptimisticTurn } from './chat-create-flow.js';
+import { bufferLiveEvent, createRestoreBuffer, drainBufferedEvents, type ChatRestoreBuffer } from './chat-restore-buffer.js';
 import { ChatHeader } from './chat-header.js';
 import { ChatComposer } from './chat-composer.js';
 import { ChatMessageList } from './chat-message-list.js';
@@ -26,16 +30,11 @@ import { WorkbenchCompactConnectionStatus } from '../workbench/workbench-status-
 import { GatewaySelector } from './gateway-selector.js';
 import { SlashCommandMenu } from './slash-command-menu.js';
 import { useSlashMenu } from './use-slash-menu.js';
-import type { HistoryUsage, MessageItem, Usage, UsageStats } from './chat-types.js';
+import type { HistoryUsage, MessageItem, UsageStats } from './chat-types.js';
 import {
   compactProjectPath,
   findLastAgentIndex,
-  findLatestLostAgentId,
-  findLatestOpenAgentId,
-  historyMessagesToItems,
-  historySnapshotLooksOlder,
   isProviderOption,
-  normalizeNextSuggestions,
   usageStatsFromHistory
 } from './chat-utils.js';
 
@@ -43,9 +42,18 @@ const DEFAULT_PROVIDER_OPTIONS: ProviderOption[] = [
   { provider: 'claude', models: ['sonnet', 'opus', 'haiku'] }
 ];
 const RECENT_CWD_LIMIT = 2;
+const RESTORE_BUFFER_MAX_EVENTS = 1000;
+const RESTORE_BUFFER_MAX_PAYLOAD_BYTES = 1024 * 1024;
 
 function recentCwdKey(gatewayId: string, provider: string): string {
   return `tether.recentCwds.v1.${gatewayId}.${provider}`;
+}
+
+function errorAgentId(frame: RelayFrame, fallbackClientRequestId: string | null): string | undefined {
+  const clientRequestId = typeof frame.clientRequestId === 'string' && frame.clientRequestId.trim()
+    ? frame.clientRequestId
+    : fallbackClientRequestId;
+  return clientRequestId ? `agent-${clientRequestId}` : undefined;
 }
 
 function readRecentCwds(gatewayId?: string, provider?: string): string[] {
@@ -138,6 +146,8 @@ export function ChatPanel({
   const [agentSessionId, setAgentSessionId] = React.useState<string | undefined>(undefined);
   const [connectionError, setConnectionError] = React.useState<string | undefined>(undefined);
   const [sessionAccessError, setSessionAccessError] = React.useState<string | undefined>(undefined);
+  const [restoreError, setRestoreError] = React.useState<string | undefined>(undefined);
+  const [isRestoring, setIsRestoring] = React.useState(false);
   const hasEverConnectedRef = React.useRef(false);
   const [usageStats, setUsageStats] = React.useState<UsageStats | undefined>(undefined);
   const [copiedAgentId, setCopiedAgentId] = React.useState(false);
@@ -146,7 +156,7 @@ export function ChatPanel({
   const messageEndRef = React.useRef<HTMLDivElement | null>(null);
   const inputRef = React.useRef<HTMLTextAreaElement | null>(null);
   const newSessionInputRef = React.useRef<HTMLTextAreaElement | null>(null);
-  const currentAgentIdRef = React.useRef<string | null>(null);
+  const pendingClientRequestIdRef = React.useRef<string | null>(null);
   const inflightStartedAtRef = React.useRef<number>(0);
   const revealTimerRef = React.useRef<number | undefined>(undefined);
   const messagesRef = React.useRef<MessageItem[]>([]);
@@ -157,7 +167,6 @@ export function ChatPanel({
   const activeSessionGatewayIdRef = React.useRef(activeSessionGatewayId);
   const subscribedSessionIdRef = React.useRef<string | null>(null);
   const releaseSessionSubscriptionRef = React.useRef<(() => void) | null>(null);
-  const lastDeltaEventIdRef = React.useRef<number>(0);
   const cwdRef = React.useRef(cwd);
   const skipNextHistoryLoadSessionIdRef = React.useRef<string | null>(null);
   const pendingCreatedSessionIdRef = React.useRef<string | null>(null);
@@ -168,6 +177,9 @@ export function ChatPanel({
   const previousSelectedGatewayIdRef = React.useRef<string | undefined>(undefined);
   const providerRequestKeyRef = React.useRef<string | undefined>(undefined);
   const isComposingRef = React.useRef(false);
+  const lastAppliedEventSeqRef = React.useRef(0);
+  const lastSubscriptionAckKeyRef = React.useRef<string | null>(null);
+  const restoreBufferRef = React.useRef<ChatRestoreBuffer | null>(null);
 
   const relay = useRelayClient();
   const {
@@ -183,6 +195,44 @@ export function ChatPanel({
     subscribeFrame,
     wsReady
   } = relay;
+
+  const applyStructuredEvent = React.useCallback((event: ChatStreamEvent) => {
+    setMessages((items) => {
+      const nextState = applyChatStreamEvent(
+        {
+          completedTurnIds: new Set(
+            items
+              .filter((item): item is Extract<MessageItem, { kind: 'agent' }> => item.kind === 'agent' && !item.isStreaming && !item.isWaiting)
+              .map((item) => item.id)
+          ),
+          lastEventSeq: lastAppliedEventSeqRef.current,
+          messages: items
+        },
+        event
+      );
+      lastAppliedEventSeqRef.current = nextState.lastEventSeq;
+      return nextState.messages;
+    });
+  }, []);
+
+  const handleStructuredEvent = React.useCallback((sessionId: string, event: ChatStreamEvent) => {
+    const buffer = restoreBufferRef.current;
+    if (buffer?.sessionId === sessionId && buffer.status === 'open') {
+      const next = bufferLiveEvent({
+        buffer,
+        event,
+        maxEvents: RESTORE_BUFFER_MAX_EVENTS,
+        maxPayloadBytes: RESTORE_BUFFER_MAX_PAYLOAD_BYTES
+      });
+      restoreBufferRef.current = next.buffer;
+      if (!next.rejectedEvent) {
+        return;
+      }
+      applyStructuredEvent(next.rejectedEvent);
+      return;
+    }
+    applyStructuredEvent(event);
+  }, [applyStructuredEvent]);
 
   React.useEffect(() => {
     cwdRef.current = cwd;
@@ -250,6 +300,8 @@ export function ChatPanel({
       revealTimerRef.current = undefined;
     }
     setSessionAccessError(undefined);
+    setRestoreError(undefined);
+    setIsRestoring(false);
     currentSessionIdRef.current = activeSessionId;
     setCurrentSessionId(activeSessionId);
     setAgentSessionId(undefined);
@@ -270,32 +322,40 @@ export function ChatPanel({
 
   const loadActiveSessionHistory = React.useCallback(async (sessionId: string, opts?: { protectNewerLocal?: boolean }) => {
     const token = normalAuth?.accessToken ?? getStoredNormalAccessToken();
-    lastDeltaEventIdRef.current = 0;
-    const { messages: historyMessages, lastEventId: historyLastEventId } = await fetchChatMessages(sessionId, token);
-    const items = historyMessagesToItems(historyMessages, activeSessionProviderRef.current ?? 'agent');
-    let nextAgentId: string | null = null;
-    let nextIsInflight = false;
-    if (items.at(-1)?.kind === 'user') {
-      items.push({
-        kind: 'agent',
-        id: 'history-waiting',
-        text: '',
-        isStreaming: false,
-        isWaiting: true,
-        isLost: false,
-        provider: activeSessionProviderRef.current ?? 'agent'
-      });
-      nextAgentId = 'history-waiting';
-      nextIsInflight = true;
+    const { messages: historyMessages, snapshotEventSeq } = await fetchChatMessages(sessionId, token);
+    const reducerState = historySnapshotToReducerState(historyMessages, activeSessionProviderRef.current ?? 'agent', snapshotEventSeq);
+    const catchupEvents = mapStructuredCatchupResponse({
+      events: await fetchChatEventsAfter(sessionId, snapshotEventSeq, token),
+      provider: activeSessionProviderRef.current ?? 'agent',
+      sessionId
+    });
+    const buffer = restoreBufferRef.current;
+    const drained = buffer?.sessionId === sessionId
+      ? drainBufferedEvents({ buffer, catchupEvents, snapshotEventSeq })
+      : undefined;
+    if (drained) {
+      restoreBufferRef.current = drained.buffer;
     }
-    if (opts?.protectNewerLocal && historySnapshotLooksOlder(messagesRef.current, items)) {
+    const shouldKeepPendingOptimistic =
+      opts?.protectNewerLocal &&
+      historyMessages.length === 0 &&
+      catchupEvents.length === 0 &&
+      messagesRef.current.some((item) => item.kind === 'agent' && item.isWaiting && item.id.startsWith('agent-'));
+    if (shouldKeepPendingOptimistic) {
+      lastAppliedEventSeqRef.current = Math.max(lastAppliedEventSeqRef.current, snapshotEventSeq);
       return;
     }
-    lastDeltaEventIdRef.current = Math.max(lastDeltaEventIdRef.current, historyLastEventId);
-    currentAgentIdRef.current = nextAgentId;
-    setIsInflight(nextIsInflight);
+    const items = reducerState.messages;
+    let nextIsInflight = false;
+    const lastItem = items.at(-1);
+    if (lastItem?.kind === 'agent' && lastItem.isWaiting) {
+      nextIsInflight = true;
+    }
+    const nextState = applyChatStreamEvents(reducerState, drained?.eventsToApply ?? catchupEvents);
+    lastAppliedEventSeqRef.current = nextState.lastEventSeq;
+    setIsInflight(nextIsInflight || nextState.messages.some((item) => item.kind === 'agent' && (item.isWaiting || item.isStreaming)));
     setUsageStats(usageStatsFromHistory(historyMessages));
-    setMessages(items);
+    setMessages(nextState.messages);
   }, [normalAuth?.accessToken]);
 
   const loadActiveSessionMetadata = React.useCallback(async (sessionId: string) => {
@@ -341,12 +401,15 @@ export function ChatPanel({
     if (!activeSessionId) {
       setMessages([]);
       setIsInflight(false);
+      setRestoreError(undefined);
+      setIsRestoring(false);
       setAgentSessionId(undefined);
       setActiveSessionProjectPath(undefined);
       setActiveSessionGatewayId(undefined);
       setActiveSessionMetadataReady(true);
       return;
     }
+    lastSubscriptionAckKeyRef.current = null;
     if (
       skipNextHistoryLoadSessionIdRef.current === activeSessionId ||
       pendingCreatedSessionIdRef.current === activeSessionId
@@ -354,10 +417,7 @@ export function ChatPanel({
       skipNextHistoryLoadSessionIdRef.current = null;
       return;
     }
-    void loadActiveSessionHistory(activeSessionId, { protectNewerLocal: true }).catch(() => {
-      setMessages([{ kind: 'system', id: 'history-error', text: t.chatsHistoryFail }]);
-    });
-  }, [activeSessionId, loadActiveSessionHistory, t.chatsHistoryFail]);
+  }, [activeSessionId]);
 
   React.useEffect(() => {
     if (!activeSessionId) {
@@ -370,7 +430,7 @@ export function ChatPanel({
     subscribedSessionIdRef.current = null;
     setConnectionError(t.gatewayNotConnected);
     setIsInflight(false);
-    currentAgentIdRef.current = null;
+    pendingClientRequestIdRef.current = null;
   }, [t.gatewayNotConnected]);
 
   const clearGatewayNotConnectedError = React.useCallback(() => {
@@ -483,6 +543,32 @@ export function ChatPanel({
         setMessages((items) => [...items, { kind: 'system', id: `started-${frame.sessionId}`, text: t.chatsSessionStarted }]);
         return;
       }
+      if (frame.type === 'subscription.ack' && typeof frame.sessionId === 'string') {
+        if (frame.sessionId !== currentSessionIdRef.current) {
+          return;
+        }
+        const ackKey = `${frame.sessionId}:${connectionEpoch}`;
+        if (lastSubscriptionAckKeyRef.current === ackKey) {
+          return;
+        }
+        lastSubscriptionAckKeyRef.current = ackKey;
+        setRestoreError(undefined);
+        setIsRestoring(true);
+        void loadActiveSessionHistory(frame.sessionId, { protectNewerLocal: true })
+          .then(() => {
+            setRestoreError(undefined);
+          })
+          .catch(() => {
+            restoreBufferRef.current = null;
+            setRestoreError(t.chatsHistoryFail);
+            setMessages((items) => [
+              ...items,
+              { kind: 'system', id: `history-error-${Date.now()}`, text: t.chatsHistoryFail }
+            ]);
+          })
+          .finally(() => setIsRestoring(false));
+        return;
+      }
       if (frame.type === 'event' && typeof frame.event === 'object' && frame.event) {
         const relayEvent = frame.event as { sessionId?: unknown; type?: unknown; payload?: unknown };
         if (
@@ -496,242 +582,65 @@ export function ChatPanel({
         }
         return;
       }
-      if (frame.type === 'gateway.chat-catchup' && typeof frame.text === 'string') {
-        if (typeof frame.sessionId !== 'string' || frame.sessionId !== currentSessionIdRef.current) {
-          return;
-        }
-        const sessionId = frame.sessionId;
-        setConnectionError(undefined);
-        setSessionAccessError(undefined);
-        const frameText = frame.text;
-        const agentId = currentAgentIdRef.current ?? findLatestOpenAgentId(messagesRef.current) ?? `agent-catchup-${Date.now()}`;
-        currentAgentIdRef.current = agentId;
-        setIsInflight(true);
-        setMessages((items) => {
-          if (items.some((item) => item.kind === 'agent' && item.id === agentId)) {
-            return items.map((item) =>
-              item.kind === 'agent' && item.id === agentId
-                ? { ...item, text: frameText, isWaiting: false, isStreaming: true }
-                : item
-            );
-          }
-          return [
-            ...items,
-            {
-              kind: 'agent',
-              id: agentId,
-              text: frameText,
-              isStreaming: true,
-              isWaiting: false,
-              isLost: false,
-              provider: activeSessionProviderRef.current ?? 'agent'
-            }
-          ];
-        });
-        void loadActiveSessionHistory(sessionId, { protectNewerLocal: true }).catch(() => undefined);
+      if (frame.type === 'gateway.chat-catchup') {
         return;
       }
       if (frame.type === 'user.message' && typeof frame.text === 'string') {
-        if (frame.sessionId !== currentSessionIdRef.current) {
+        const frameSessionId = typeof frame.sessionId === 'string' ? frame.sessionId : undefined;
+        if (!frameSessionId || frameSessionId !== currentSessionIdRef.current) {
           return;
         }
-        setConnectionError(undefined);
-        setSessionAccessError(undefined);
-        const messageText = frame.text;
-        const id = typeof frame.eventId === 'number' && frame.eventId > 0
-          ? `user-remote-${frame.eventId}`
-          : `user-remote-${Date.now()}`;
-        setMessages((items) => {
-          if (items.some((item) => item.kind === 'user' && item.id === id)) {
-            return items;
-          }
-          return [...items, { kind: 'user', id, content: messageText, ts: Date.now() }];
-        });
+        const structuredEvent = mapRelayFrameToChatEvent({ frame, provider: activeSessionProviderRef.current ?? 'agent' });
+        if (structuredEvent) {
+          handleStructuredEvent(frameSessionId, structuredEvent);
+          return;
+        }
         return;
       }
       if (frame.type === 'agent.delta' && typeof frame.text === 'string') {
-        if (frame.sessionId !== currentSessionIdRef.current) {
+        const frameSessionId = typeof frame.sessionId === 'string' ? frame.sessionId : undefined;
+        if (!frameSessionId || frameSessionId !== currentSessionIdRef.current) {
           return;
         }
-        if (typeof frame.eventId === 'number' && frame.eventId > 0) {
-          if (frame.eventId <= lastDeltaEventIdRef.current) {
-            return;
-          }
-          lastDeltaEventIdRef.current = frame.eventId;
+        const structuredEvent = mapRelayFrameToChatEvent({ frame, provider: activeSessionProviderRef.current ?? 'agent' });
+        if (structuredEvent) {
+          handleStructuredEvent(frameSessionId, structuredEvent);
         }
-        setConnectionError(undefined);
-        setSessionAccessError(undefined);
-        if (revealTimerRef.current !== undefined) {
-          window.clearInterval(revealTimerRef.current);
-          revealTimerRef.current = undefined;
-        }
-        const frameText = frame.text;
-        const fallbackAgentId = currentAgentIdRef.current ?? findLatestOpenAgentId(messagesRef.current);
-        if (fallbackAgentId) {
-          currentAgentIdRef.current = fallbackAgentId;
-        }
-        setMessages((items) => {
-          const existingId = currentAgentIdRef.current;
-          if (existingId) {
-            return items.map((item) =>
-              item.kind === 'agent' && item.id === existingId
-                ? { ...item, text: item.text + frameText, isWaiting: false, isStreaming: true }
-                : item
-            );
-          }
-          const id = `agent-${Date.now()}`;
-          currentAgentIdRef.current = id;
-          return [
-            ...items,
-            {
-              kind: 'agent',
-              id,
-              text: frameText,
-              isStreaming: true,
-              isWaiting: false,
-              isLost: false,
-              provider: activeSessionProviderRef.current ?? 'agent'
-            }
-          ];
-        });
         return;
       }
       if (frame.type === 'agent.result' && typeof frame.text === 'string') {
-        if (frame.sessionId !== currentSessionIdRef.current) {
+        const frameSessionId = typeof frame.sessionId === 'string' ? frame.sessionId : undefined;
+        if (!frameSessionId || frameSessionId !== currentSessionIdRef.current) {
           return;
         }
-        setConnectionError(undefined);
-        setSessionAccessError(undefined);
-        if (typeof frame.sessionId === 'string' && frame.sessionId === pendingCreatedSessionIdRef.current) {
-          pendingCreatedSessionIdRef.current = null;
+        const structuredEvent = mapRelayFrameToChatEvent({ frame, provider: activeSessionProviderRef.current ?? 'agent' });
+        if (structuredEvent) {
+          handleStructuredEvent(frameSessionId, structuredEvent);
+          pendingClientRequestIdRef.current = null;
+          setIsInflight(false);
         }
-        // Update usage stats (context % and rate limit)
-        const resultContextWindow = typeof frame.contextWindow === 'number' ? frame.contextWindow : undefined;
-        const resultUsage = frame.usage as { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | undefined;
-        const rateLimitInfo = frame.rateLimitInfo as {
-          resetsAt?: number;
-          rateLimitType?: string;
-          primary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
-          secondary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
-        } | undefined;
-        const contextPct = typeof frame.contextUsedPercentage === 'number'
-          ? frame.contextUsedPercentage
-          : resultContextWindow && resultUsage
-            ? Math.min(100, Math.round(((typeof frame.contextInputTokens === 'number'
-                ? frame.contextInputTokens
-                : (resultUsage.input_tokens ?? 0) + (resultUsage.cache_read_input_tokens ?? 0) + (resultUsage.cache_creation_input_tokens ?? 0)) / resultContextWindow) * 100))
-            : undefined;
-        if (contextPct !== undefined || rateLimitInfo) {
-          const stats = {
-            contextPct,
-            rateLimitResetsAt: rateLimitInfo?.resetsAt,
-            rateLimitType: rateLimitInfo?.rateLimitType,
-            primary: rateLimitInfo?.primary,
-            secondary: rateLimitInfo?.secondary
-          };
-          setUsageStats(stats);
-        }
-        const frameText = frame.text;
-        const usage = typeof frame.usage === 'object' && frame.usage && !Array.isArray(frame.usage)
-          ? frame.usage as Usage
-          : undefined;
-        const nextSuggestions = normalizeNextSuggestions(frame.nextSuggestions);
-        const durationMs = Date.now() - inflightStartedAtRef.current;
-        const existingOpenAgentId = currentAgentIdRef.current ?? findLatestOpenAgentId(messagesRef.current) ?? findLatestLostAgentId(messagesRef.current);
-        const agentId = existingOpenAgentId ?? `agent-${Date.now()}`;
-        const existingById = messagesRef.current.find((item) => item.kind === 'agent' && item.id === agentId);
-        const duplicateIndex = messagesRef.current.findIndex(
-          (item) => item.kind === 'agent' && item.text === frameText && !item.isWaiting
-        );
-        const existingText = existingById?.kind === 'agent' ? existingById.text : '';
-        const shouldReveal =
-          duplicateIndex < 0 &&
-          frameText.length > 80 &&
-          (!existingText || frameText.length - existingText.length > 80);
-        const revealStartLength = shouldReveal ? existingText.length : 0;
-        currentAgentIdRef.current = null;
-        setMessages((items) => {
-          if (duplicateIndex >= 0 && !existingById) {
-            return items.map((item, index) =>
-              index === duplicateIndex && item.kind === 'agent'
-                ? { ...item, isStreaming: false, isWaiting: false, usage, durationMs, nextSuggestions }
-                : item
-            );
-          }
-          const replacement: MessageItem = {
-            kind: 'agent',
-            id: agentId,
-            text: shouldReveal ? existingText : frameText,
-            isStreaming: shouldReveal,
-            isWaiting: false,
-            isLost: false,
-            provider: activeSessionProviderRef.current ?? 'agent',
-            usage: shouldReveal ? undefined : usage,
-            durationMs: shouldReveal ? undefined : durationMs,
-            nextSuggestions: shouldReveal ? undefined : nextSuggestions
-          };
-          return items.some((item) => item.kind === 'agent' && item.id === agentId)
-            ? items.map((item) => item.kind === 'agent' && item.id === agentId ? { ...item, ...replacement } : item)
-            : [...items, replacement];
-        });
-        if (shouldReveal) {
-          let cursor = revealStartLength;
-          if (revealTimerRef.current !== undefined) {
-            window.clearInterval(revealTimerRef.current);
-          }
-          revealTimerRef.current = window.setInterval(() => {
-            cursor = Math.min(cursor + 18, frameText.length);
-            setMessages((items) =>
-              items.map((item) =>
-                item.kind === 'agent' && item.id === agentId
-                  ? {
-                      ...item,
-                      text: frameText.slice(0, cursor),
-                      isStreaming: cursor < frameText.length,
-                      usage: cursor >= frameText.length ? usage : item.usage,
-                      durationMs: cursor >= frameText.length ? durationMs : item.durationMs,
-                      nextSuggestions: cursor >= frameText.length ? nextSuggestions : item.nextSuggestions
-                    }
-                  : item
-              )
-            );
-            if (cursor >= frameText.length && revealTimerRef.current !== undefined) {
-              window.clearInterval(revealTimerRef.current);
-              revealTimerRef.current = undefined;
-            }
-          }, 16);
-        }
-        setIsInflight(false);
         return;
       }
       if (frame.type === 'agent.tool' && typeof frame.name === 'string') {
-        if (frame.sessionId !== currentSessionIdRef.current) {
+        const frameSessionId = typeof frame.sessionId === 'string' ? frame.sessionId : undefined;
+        if (!frameSessionId || frameSessionId !== currentSessionIdRef.current) {
           return;
         }
-        const toolName = frame.name;
-        setMessages((items) => [
-          ...items,
-          {
-            kind: 'tool',
-            id: `tool-${Date.now()}`,
-            toolName,
-            input: (frame.input as Record<string, unknown>) ?? {},
-            result: typeof frame.result === 'string' ? frame.result : undefined,
-            isError: Boolean(frame.isError),
-            isInFlight: false
-          }
-        ]);
+        const structuredEvent = mapRelayFrameToChatEvent({ frame, provider: activeSessionProviderRef.current ?? 'agent' });
+        if (structuredEvent) {
+          handleStructuredEvent(frameSessionId, structuredEvent);
+        }
         return;
       }
       if (frame.type === 'agent.permission_request' && typeof frame.requestId === 'string' && typeof frame.toolName === 'string') {
-        if (frame.sessionId !== currentSessionIdRef.current) {
+        const frameSessionId = typeof frame.sessionId === 'string' ? frame.sessionId : undefined;
+        if (!frameSessionId || frameSessionId !== currentSessionIdRef.current) {
           return;
         }
-        const { requestId, toolName } = frame as { requestId: string; toolName: string; input?: Record<string, unknown> };
-        setMessages((items) => [
-          ...items,
-          { kind: 'permission', id: `permission-${requestId}`, requestId, toolName }
-        ]);
+        const structuredEvent = mapRelayFrameToChatEvent({ frame, provider: activeSessionProviderRef.current ?? 'agent' });
+        if (structuredEvent) {
+          handleStructuredEvent(frameSessionId, structuredEvent);
+        }
         return;
       }
       if (frame.type === 'error' && typeof frame.message === 'string') {
@@ -748,13 +657,13 @@ export function ChatPanel({
         if (frame.code === 'gateway_required') {
           setConnectionError(t.gatewaySelectorNoSelection);
           setIsInflight(false);
-          currentAgentIdRef.current = null;
+          pendingClientRequestIdRef.current = null;
           return;
         }
         if (frame.code === 'gateway_unauthorized') {
           setConnectionError('Gateway 不属于当前账号');
           setIsInflight(false);
-          currentAgentIdRef.current = null;
+          pendingClientRequestIdRef.current = null;
           return;
         }
         if (
@@ -768,13 +677,14 @@ export function ChatPanel({
             setConnectionError(frame.code === 'gateway_unavailable' ? t.gatewayNotConnected : frameMessage);
           }
           setIsInflight(false);
-          currentAgentIdRef.current = null;
+          pendingClientRequestIdRef.current = null;
           return;
         }
         if (frame.code === 'session_lost') {
+          const agentId = errorAgentId(frame, pendingClientRequestIdRef.current);
           setMessages((items) =>
             items.map((item) =>
-              item.kind === 'agent' && item.id === currentAgentIdRef.current
+              item.kind === 'agent' && item.id === agentId
                 ? { ...item, isStreaming: false, isWaiting: false, isLost: true }
                 : item
             )
@@ -784,8 +694,8 @@ export function ChatPanel({
             pendingCreatedSessionIdRef.current = null;
           }
         } else {
-          const agentId = currentAgentIdRef.current;
-          currentAgentIdRef.current = null;
+          const agentId = errorAgentId(frame, pendingClientRequestIdRef.current);
+          pendingClientRequestIdRef.current = null;
           setMessages((items) => {
             const nextItems = agentId
               ? items.map((item) =>
@@ -799,7 +709,7 @@ export function ChatPanel({
           setIsInflight(false);
         }
       }
-  }, [clearGatewayNotConnectedError, loadActiveSessionHistory, navigate, selectedGatewayId, t.chatsProviderFail, t.chatsSessionOutsideGateway, t.chatsSessionStarted, t.gatewayNotConnected, t.gatewaySelectorNoSelection]);
+  }, [clearGatewayNotConnectedError, connectionEpoch, handleStructuredEvent, loadActiveSessionHistory, navigate, selectedGatewayId, t.chatsHistoryFail, t.chatsProviderFail, t.chatsSessionOutsideGateway, t.chatsSessionStarted, t.gatewayNotConnected, t.gatewaySelectorNoSelection]);
 
   React.useEffect(() => subscribeFrame(handleRelayFrame), [handleRelayFrame, subscribeFrame]);
   React.useEffect(() => subscribeClose(handleRelayClose), [handleRelayClose, subscribeClose]);
@@ -828,11 +738,9 @@ export function ChatPanel({
     if (!sessionId) {
       return;
     }
-    void Promise.all([
-      loadActiveSessionMetadata(sessionId).catch(() => setActiveSessionMetadataReady(true)),
-      loadActiveSessionHistory(sessionId, { protectNewerLocal: true }).catch(() => undefined)
-    ]);
-  }, [connectionEpoch, loadActiveSessionHistory, loadActiveSessionMetadata, onReconnectCatchup, wsReady]);
+    lastSubscriptionAckKeyRef.current = null;
+    void loadActiveSessionMetadata(sessionId).catch(() => setActiveSessionMetadataReady(true));
+  }, [connectionEpoch, loadActiveSessionMetadata, onReconnectCatchup, wsReady]);
 
   React.useEffect(() => {
     if (!cwdPickerOpen || currentSessionId || !wsReady || !selectedGatewayId) {
@@ -905,6 +813,7 @@ export function ChatPanel({
       releaseSessionSubscriptionRef.current?.();
       releaseSessionSubscriptionRef.current = null;
       subscribedSessionIdRef.current = null;
+      restoreBufferRef.current = null;
     }
     if (!currentSessionId || !activeSessionMetadataReady) {
       return;
@@ -913,14 +822,18 @@ export function ChatPanel({
       return;
     }
     setSessionAccessError(undefined);
+    restoreBufferRef.current = createRestoreBuffer({
+      attemptId: `restore-${currentSessionId}-${connectionEpoch}`,
+      sessionId: currentSessionId
+    });
     releaseSessionSubscriptionRef.current = acquireSessionSubscription({
       owner: `chat:${currentSessionId}`,
       sessionId: currentSessionId,
       mode: 'control',
-      after: lastDeltaEventIdRef.current
+      after: 0
     });
     subscribedSessionIdRef.current = currentSessionId;
-  }, [acquireSessionSubscription, activeSessionMetadataReady, currentSessionId, wsReady, subscribeRetryKey]);
+  }, [acquireSessionSubscription, activeSessionMetadataReady, connectionEpoch, currentSessionId, wsReady, subscribeRetryKey]);
 
   React.useEffect(() => {
     return () => {
@@ -931,6 +844,21 @@ export function ChatPanel({
         subscribedSessionIdRef.current = null;
       }
     };
+  }, []);
+
+  const retryRestore = React.useCallback(() => {
+    const sessionId = currentSessionIdRef.current;
+    if (!sessionId) {
+      return;
+    }
+    releaseSessionSubscriptionRef.current?.();
+    releaseSessionSubscriptionRef.current = null;
+    subscribedSessionIdRef.current = null;
+    restoreBufferRef.current = null;
+    lastSubscriptionAckKeyRef.current = null;
+    setRestoreError(undefined);
+    setIsRestoring(false);
+    setSubscribeRetryKey((key) => key + 1);
   }, []);
 
   const sendMessage = React.useCallback(() => {
@@ -948,17 +876,24 @@ export function ChatPanel({
       return;
     }
     inflightStartedAtRef.current = Date.now();
-    const pendingAgentId = `agent-${Date.now()}`;
-    currentAgentIdRef.current = pendingAgentId;
+    const now = Date.now();
+    const clientRequestId = createClientRequestId(now);
+    const optimisticTurn = createOptimisticTurn({
+      clientRequestId,
+      now,
+      provider: messageProvider,
+      text
+    });
+    pendingClientRequestIdRef.current = clientRequestId;
     setMessages((items) => [
       ...items,
-      { kind: 'user', id: `user-${Date.now()}`, content: text, ts: Date.now() },
-      { kind: 'agent', id: pendingAgentId, text: '', isStreaming: false, isWaiting: true, isLost: false, provider: messageProvider }
+      optimisticTurn.user,
+      optimisticTurn.agent
     ]);
     setInputText('');
     setIsInflight(true);
     if (currentSessionId) {
-      sendFrame({ type: 'client.chat', sessionId: currentSessionId, message: text, model: messageModel });
+      sendFrame({ type: 'client.chat', sessionId: currentSessionId, message: text, model: messageModel, clientRequestId });
       return;
     }
     pendingSessionProviderRef.current = selectedProvider;
@@ -971,7 +906,8 @@ export function ChatPanel({
       model: selectedModel,
       cwd,
       message: text,
-      gatewayId: selectedGatewayId
+      gatewayId: selectedGatewayId,
+      clientRequestId
     });
   }, [activeSessionModel, activeSessionProvider, connectionError, cwd, currentSessionId, gatewayIdsOnline, inputText, isInflight, providerOptions, selectedGatewayId, selectedModel, selectedProvider, sendFrame, sessionAccessError, t.gatewaySelectorNoSelection, t.gatewaySelectorOffline, wsReady]);
 
@@ -1284,6 +1220,17 @@ export function ChatPanel({
         sessionAccessError={sessionAccessError}
         t={t}
       />
+
+      {(isRestoring || restoreError) && (
+        <div className="flex items-center gap-3 border-b border-border bg-muted/40 px-4 py-2 text-sm text-muted-foreground">
+          <span className="min-w-0 flex-1">{restoreError ?? t.chatsRestoring}</span>
+          {restoreError && (
+            <Button size="sm" variant="outline" onClick={retryRestore}>
+              {t.chatRetry}
+            </Button>
+          )}
+        </div>
+      )}
 
       <ChatMessageList
         lastAgentIndex={lastAgentIndex}

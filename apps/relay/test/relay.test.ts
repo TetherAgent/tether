@@ -2253,7 +2253,7 @@ test('Phase15-A7: relay rejects client.chat for PTY sessions (transport mismatch
   }
 });
 
-test('Phase16: chat catch-up is isolated by account', async () => {
+test('Phase16: chat subscribe no longer emits blob catch-up', async () => {
   const chatEventsBySession: Record<string, Array<{ eventId: number; rawJson: string }>> = {
     tth_chat_acct_a: [{ eventId: 1, rawJson: JSON.stringify({ payload: { text: 'hello-a' } }) }],
     tth_chat_acct_b: []
@@ -2344,12 +2344,8 @@ test('Phase16: chat catch-up is isolated by account', async () => {
         (message.sessions as RelaySession[]).some((session) => session.id === 'tth_chat_acct_b')
     );
     clientA.send(JSON.stringify({ type: 'client.subscribe', sessionId: 'tth_chat_acct_a', mode: 'control', after: 0 }));
-    const catchupA = await waitForJson(clientA, (message) => message.type === 'gateway.chat-catchup');
-    assert.equal(catchupA.sessionId, 'tth_chat_acct_a');
-    assert.equal(catchupA.text, 'hello-a');
-    assert.equal(catchupA.lastEventId, 1);
-
     await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal(requests.some((request) => request.method === 'GET' && request.url?.startsWith('/api/relay/chat-events/')), false);
     assert.equal(clientBFrames.some((frame) => frame.type === 'gateway.chat-catchup'), false);
   } finally {
     gatewayB.close();

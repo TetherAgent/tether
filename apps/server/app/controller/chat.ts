@@ -29,8 +29,21 @@ export default class ChatController extends Controller {
       ctx.throw(400, 'sessionId is required');
       return;
     }
-    const { messages, lastEventId } = await ctx.service.chatRepository.listMessages(sessionId, accountId, userId);
-    ctx.success({ messages, lastEventId });
+    const { messages, snapshotEventSeq } = await ctx.service.chatRepository.listMessages(sessionId, accountId, userId);
+    ctx.success({ messages, snapshotEventSeq, lastEventId: snapshotEventSeq });
+  }
+
+  public async events(): Promise<void> {
+    const { ctx } = this;
+    const { accountId, userId } = authScope(ctx);
+    const { sessionId } = ctx.params as { sessionId: string };
+    if (!sessionId) {
+      ctx.throw(400, 'sessionId is required');
+      return;
+    }
+    const after = Number(ctx.query['after'] ?? 0);
+    const events = await ctx.service.chatEventsRepository.listClientEventsAfter(sessionId, after, { accountId, userId });
+    ctx.success({ events });
   }
 
   public async renameSession(): Promise<void> {

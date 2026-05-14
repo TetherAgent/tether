@@ -18,6 +18,8 @@ export type ChatMessageRecord = {
   sessionId: string;
   role: 'user' | 'assistant';
   content: string;
+  turnId?: string;
+  clientRequestId?: string;
   usageJson?: {
     input_tokens: number;
     output_tokens: number;
@@ -41,7 +43,7 @@ export type ChatMessageRecord = {
 
 export type ChatMessagesResult = {
   messages: ChatMessageRecord[];
-  lastEventId: number;
+  snapshotEventSeq: number;
 };
 
 export type ChatSessionMetadata = {
@@ -139,7 +141,7 @@ export default class ChatRepositoryService extends Service {
     userId: string
   ): Promise<ChatMessagesResult> {
     if (!this.mysqlModeEnabled()) {
-      return { messages: [], lastEventId: 0 };
+      return { messages: [], snapshotEventSeq: 0 };
     }
     const sessionRows = await this.ctx.service.db.query(
       `SELECT id FROM gateway_sessions
@@ -151,15 +153,15 @@ export default class ChatRepositoryService extends Service {
       this.ctx.throw(403, 'Session not found or access denied');
     }
     const rows = await this.ctx.service.db.query(
-      `SELECT id, session_id, role, content, usage_json, created_at
+      `SELECT id, session_id, role, content, usage_json, raw_json, created_at
        FROM gateway_chat_messages
        WHERE session_id = ?
        ORDER BY created_at ASC, id ASC`,
       [sessionId]
     );
     const messages = (rows as Record<string, unknown>[]).map((row) => this.messageFromRow(row));
-    const lastEventId = await this.lastAssistantDeltaEventId(sessionId);
-    return { messages, lastEventId };
+    const snapshotEventSeq = await this.snapshotEventSeq(sessionId);
+    return { messages, snapshotEventSeq };
   }
 
   public async updateAgentSessionId(
@@ -230,43 +232,46 @@ export default class ChatRepositoryService extends Service {
         usageJson = undefined;
       }
     }
+    const rawEvent = this.parseRawEvent(String(row.raw_json ?? ''));
     return {
       id: Number(row.id ?? 0),
       sessionId: String(row.session_id ?? ''),
       role: row.role === 'user' ? 'user' : 'assistant',
       content: String(row.content ?? ''),
+      turnId: rawEvent.turnId,
+      clientRequestId: rawEvent.clientRequestId,
       usageJson,
       createdAt: String(row.created_at ?? '')
     };
   }
 
-  private async lastAssistantDeltaEventId(sessionId: string): Promise<number> {
+  private async snapshotEventSeq(sessionId: string): Promise<number> {
     const rows = await this.ctx.service.db.query(
-      `SELECT raw_json FROM gateway_chat_messages
-       WHERE session_id = ? AND role = 'assistant'
-       ORDER BY created_at DESC, id DESC LIMIT 1`,
+      `SELECT MAX(source_event_id) AS snapshot_event_seq FROM gateway_chat_messages
+       WHERE session_id = ?`,
       [sessionId]
     );
     if (!Array.isArray(rows) || rows.length === 0) {
       return 0;
     }
-    const rawJson = String((rows[0] as Record<string, unknown>).raw_json ?? '');
-    if (!rawJson) {
-      return 0;
-    }
+    const value = Number((rows[0] as Record<string, unknown>).snapshot_event_seq ?? 0);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  }
+
+  private parseRawEvent(rawJson: string): { turnId?: string; clientRequestId?: string } {
+    if (!rawJson) return {};
     try {
       const parsed = JSON.parse(rawJson) as unknown;
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return 0;
+        return {};
       }
-      const payload = (parsed as Record<string, unknown>).payload;
-      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-        return 0;
-      }
-      const lastDeltaEventId = (payload as Record<string, unknown>).lastDeltaEventId;
-      return typeof lastDeltaEventId === 'number' && Number.isFinite(lastDeltaEventId) ? lastDeltaEventId : 0;
+      const record = parsed as Record<string, unknown>;
+      return {
+        turnId: typeof record.turnId === 'string' ? record.turnId : undefined,
+        clientRequestId: typeof record.clientRequestId === 'string' ? record.clientRequestId : undefined
+      };
     } catch {
-      return 0;
+      return {};
     }
   }
 }

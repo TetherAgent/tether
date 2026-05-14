@@ -1289,40 +1289,40 @@ Wave 0 目标：只补前端纯逻辑和单测，不接生产 UI，不改 Gatewa
 
 | 状态 | TODO | 验收方式 |
 | --- | --- | --- |
-| [ ] | `reconcileOptimisticTurn()` 必须同时更新 optimistic user 和 waiting agent 的临时身份，把二者绑定到真实 `turnId`。 | C5 单测：echo 到达后，后续 delta 只更新原 waiting assistant，不新增第二个 assistant。 |
-| [ ] | `chat-restore-buffer.ts` 必须实现 `open -> drained` 单向状态切换；drain 后同 attempt 的 live event 不再进入 buffer。 | B11/B12 单测：drained buffer 返回 `rejectedEvent`，重复 drain 被拒绝或保持幂等，不乱序。 |
-| [ ] | subscribe ack 必须有超时处理，默认 5 秒。超时后当前 attempt failed，buffer 丢弃，进入可重试恢复失败或触发重连。 | S1-S3 单测：ack 成功继续 restore；ack 超时失败；重连后新 attempt 重新 restore。 |
-| [ ] | `snapshotEventSeq` 的测试和图示必须明确水位来源：它是 derived messages 已覆盖的最大 session `eventSeq`，通常是上一条已派生 message 的 source eventSeq。 | reducer/server mapper 测试：snapshotEventSeq=103 时，`eventSeq <= 103` 被丢弃，`104+` 进入 catch-up。 |
+| [x] | `reconcileOptimisticTurn()` 必须同时更新 optimistic user 和 waiting agent 的临时身份，把二者绑定到真实 `turnId`。 | C5 单测：echo 到达后，后续 delta 只更新原 waiting assistant，不新增第二个 assistant。 |
+| [x] | `chat-restore-buffer.ts` 必须实现 `open -> drained` 单向状态切换；drain 后同 attempt 的 live event 不再进入 buffer。 | B11/B12 单测：drained buffer 返回 `rejectedEvent`，重复 drain 被拒绝或保持幂等，不乱序。 |
+| [x] | subscribe ack 必须有超时处理，默认 5 秒。超时后当前 attempt failed，buffer 丢弃，进入可重试恢复失败或触发重连。 | S1-S3 单测：ack 成功继续 restore；ack 超时失败；重连后新 attempt 重新 restore。 |
+| [x] | `snapshotEventSeq` 的测试和图示必须明确水位来源：它是 derived messages 已覆盖的最大 session `eventSeq`，通常是上一条已派生 message 的 source eventSeq。 | reducer/server mapper 测试：snapshotEventSeq=103 时，`eventSeq <= 103` 被丢弃，`104+` 进入 catch-up。 |
 
 ### Wave 0 文件 TODO
 
 | 状态 | TODO | 文件 |
 | --- | --- | --- |
-| [ ] | 定义 chat flow 类型：`ChatStructuredEvent`、`ChatReducerSnapshot`、`ChatRestoreAttempt`、`clientRequestId`、`turnId`、`eventSeq` | `apps/web/src/components/chats/chat-flow-types.ts` |
-| [ ] | 重写/补齐 reducer：`stateFromSnapshot()` 接收 `snapshotEventSeq`，`applyChatEvents()` 内部排序，legacy history 不伪装真实 completed turn gate | `apps/web/src/components/chats/chat-event-reducer.ts` |
-| [ ] | 补 reducer 单测 R1-R24，尤其覆盖 T1 turnId 巧合、completedTurnIds 无效、result 先到、eventSeq 重复、tool/permission/error | `apps/web/test/chat-event-reducer.test.ts` |
-| [ ] | 新增 mapper：history response、Relay structured frame、structured catch-up、legacy blob、client error 都转成明确类型 | `apps/web/src/components/chats/chat-event-mappers.ts` |
-| [ ] | 补 mapper 单测 M1-M14，缺字段和 malformed payload 必须覆盖 | `apps/web/test/chat-event-mappers.test.ts` |
-| [ ] | 新增 guard：sessionId、restoreAttemptId、subscription release、restore start 判断 | `apps/web/src/components/chats/chat-session-guards.ts` |
-| [ ] | 补 guard 单测 G1-G12，必须覆盖 A -> B 和 A -> B -> A | `apps/web/test/chat-session-guards.test.ts` |
-| [ ] | 新增 restore buffer：buffer live、cap、overflow、drain、按 `snapshotEventSeq` 丢旧事件 | `apps/web/src/components/chats/chat-restore-buffer.ts` |
-| [ ] | 补 buffer 单测 B1-B12，必须覆盖 maxEvents/maxPayloadBytes、drained 单向切换、rejectedEvent | `apps/web/test/chat-restore-buffer.test.ts` |
-| [ ] | 新增 create flow 纯函数：`clientRequestId`、optimistic turn、echo reconcile turn、rollback | `apps/web/src/components/chats/chat-create-flow.ts` |
-| [ ] | 补 create flow 单测 C1-C8，必须覆盖同文本不同 request 不去重、`session_inflight` 回滚、echo 后 waiting agent 绑定真实 turnId | `apps/web/test/chat-create-flow.test.ts` |
-| [ ] | 新增 restore plan：进入 session、切换 session、重连时生成可测试步骤 | `apps/web/src/components/chats/chat-restore-plan.ts` |
-| [ ] | 补 restore plan 单测 P1-P6，必须覆盖 subscribe 初始 `after=0` 和 snapshot 后 catch-up `after=snapshotEventSeq` | `apps/web/test/chat-restore-plan.test.ts` |
-| [ ] | 补 subscribe ack 超时测试 S1-S3，覆盖 5 秒超时、attempt failed、重连后新 attempt | `apps/web/test/use-chat-session.test.ts` |
-| [ ] | 如果当前已有 prototype 测试与新契约冲突，改成新契约测试，不保留靠巧合通过的断言 | `apps/web/test/chat-event-reducer.test.ts` |
-| [ ] | 运行 Web 单测 | `pnpm --filter @tether/web test` |
-| [ ] | 运行 Web typecheck | `pnpm --filter @tether/web typecheck` |
+| [x] | 定义 chat flow 类型：`ChatStructuredEvent`、`ChatReducerSnapshot`、`ChatRestoreAttempt`、`clientRequestId`、`turnId`、`eventSeq` | `apps/web/src/components/chats/chat-flow-types.ts` |
+| [x] | 重写/补齐 reducer：`stateFromSnapshot()` 接收 `snapshotEventSeq`，`applyChatEvents()` 内部排序，legacy history 不伪装真实 completed turn gate | `apps/web/src/components/chats/chat-event-reducer.ts` |
+| [x] | 补 reducer 单测 R1-R24，尤其覆盖 T1 turnId 巧合、completedTurnIds 无效、result 先到、eventSeq 重复、tool/permission/error | `apps/web/test/chat-event-reducer.test.ts` |
+| [x] | 新增 mapper：history response、Relay structured frame、structured catch-up、legacy blob、client error 都转成明确类型 | `apps/web/src/components/chats/chat-event-mappers.ts` |
+| [x] | 补 mapper 单测 M1-M14，缺字段和 malformed payload 必须覆盖 | `apps/web/test/chat-event-mappers.test.ts` |
+| [x] | 新增 guard：sessionId、restoreAttemptId、subscription release、restore start 判断 | `apps/web/src/components/chats/chat-session-guards.ts` |
+| [x] | 补 guard 单测 G1-G12，必须覆盖 A -> B 和 A -> B -> A | `apps/web/test/chat-session-guards.test.ts` |
+| [x] | 新增 restore buffer：buffer live、cap、overflow、drain、按 `snapshotEventSeq` 丢旧事件 | `apps/web/src/components/chats/chat-restore-buffer.ts` |
+| [x] | 补 buffer 单测 B1-B12，必须覆盖 maxEvents/maxPayloadBytes、drained 单向切换、rejectedEvent | `apps/web/test/chat-restore-buffer.test.ts` |
+| [x] | 新增 create flow 纯函数：`clientRequestId`、optimistic turn、echo reconcile turn、rollback | `apps/web/src/components/chats/chat-create-flow.ts` |
+| [x] | 补 create flow 单测 C1-C8，必须覆盖同文本不同 request 不去重、`session_inflight` 回滚、echo 后 waiting agent 绑定真实 turnId | `apps/web/test/chat-create-flow.test.ts` |
+| [x] | 新增 restore plan：进入 session、切换 session、重连时生成可测试步骤 | `apps/web/src/components/chats/chat-restore-plan.ts` |
+| [x] | 补 restore plan 单测 P1-P6，必须覆盖 subscribe 初始 `after=0` 和 snapshot 后 catch-up `after=snapshotEventSeq` | `apps/web/test/chat-restore-plan.test.ts` |
+| [x] | 补 subscribe ack 超时测试 S1-S3，覆盖 5 秒超时、attempt failed、重连后新 attempt | `apps/web/test/chat-session-guards.test.ts` |
+| [x] | 如果当前已有 prototype 测试与新契约冲突，改成新契约测试，不保留靠巧合通过的断言 | `apps/web/test/chat-event-reducer.test.ts` |
+| [x] | 运行 Web 单测 | `pnpm --filter @tether/web test` |
+| [x] | 运行 Web typecheck | `pnpm --filter @tether/web typecheck` |
 
-Wave 0 明确不做：
+原 Wave 0 边界（已被后续全链路实现推进，保留为历史说明）：
 
 - 不接入 `chat-panel.tsx` 生产数据流。
 - 不改 Gateway `eventSeq/turnId` 协议。
 - 不改 Relay subscribe/catch-up 行为。
 - 不改 Server `/messages` 和 `/chat-events` 返回结构。
-- 不删除现有 `historySnapshotLooksOlder()`、`currentAgentIdRef`、`lastDeltaEventIdRef` 等生产路径；这些等 Wave 3/4 再删。
+- 原计划不删除现有 `historySnapshotLooksOlder()`、`currentAgentIdRef`、`lastDeltaEventIdRef` 等生产路径；当前实现已在 `chat-panel.tsx` 删除这些生产启发式。
 
 ## Wave 0 验收
 
@@ -1371,25 +1371,25 @@ Wave 0 明确不做：
 
 | 状态 | TODO | 模块 |
 | --- | --- | --- |
-| [ ] | 更新协议类型：`client.chat.clientRequestId`、chat live frame 的 `eventSeq/turnId/clientRequestId`、subscribe ack、`snapshotEventSeq`、structured catch-up response | `packages/protocol/src/index.ts` |
-| [ ] | 补协议测试和类型使用点，确保旧 `eventId` 兼容路径不会被误当作新 `eventSeq` | `packages/protocol`、调用方 |
-| [ ] | Gateway 为每个 chat session 建立 event sequencer，所有 chat event 共用 session 单调 `eventSeq` | `apps/gateway/src/chat/*` |
-| [ ] | Gateway 为每次 user turn 生成 `turnId`，并贯穿 `user.message/delta/result/tool/permission/error` | `apps/gateway/src/chat/*` |
-| [ ] | Gateway 接收并回传 `clientRequestId`，支持 optimistic echo 合并 | `apps/gateway/src/relay/*`、`apps/gateway/src/chat/*` |
-| [ ] | Gateway provider error/close without result 产出 turn-scoped `session.error` 或 synthetic result | `apps/gateway/src/chat/chat-session-runner.ts` |
-| [ ] | Relay chat event 改为 `sync-before-broadcast`，Server sync ok 后再发 Web live frame | `apps/relay/src/relay.ts` |
-| [ ] | Relay 处理 Server sync 失败：不广播未持久化事件，返回明确 degraded/error，避免 Web 收到无法恢复的 live event | `apps/relay/src/relay.ts` |
-| [ ] | Relay subscribe 增加 ack/registered 语义 | `apps/relay/src/relay.ts`、`apps/web/src/components/relay/*` |
-| [ ] | Relay 新 Restore flow 不再发 `gateway.chat-catchup` blob，legacy path 只供旧 Web 兼容 | `apps/relay/src/relay.ts` |
-| [ ] | Server runtime event 查询改成 structured all-events catch-up，不再 delta-only | `apps/server/app/service/chatEventsRepository.ts` |
-| [ ] | Server `/messages` 返回 `snapshotEventSeq`，history message 返回可选 `turnId/clientRequestId` | `apps/server/app/service/chatRepository.ts`、controller |
-| [ ] | Server 派生 `gateway_chat_messages` 时保留 source event 的 turn 信息，供 completed history 建 gate | `apps/server/app/service/runtimeSyncRepository.ts` |
-| [ ] | Web Wave 0 纯函数和完整单测落地 | `apps/web/src/components/chats/*`、`apps/web/test/*` |
-| [ ] | Web `use-chat-session.ts` 接入 Restore flow：subscribe ack -> buffer -> snapshot -> structured catch-up -> reducer | `apps/web/src/components/chats/use-chat-session.ts` |
-| [ ] | Web 处理 Relay/Server 断线重启：snapshot/catch-up 失败不清空消息，显示 recovering/error，支持重试 | `apps/web/src/components/chats/use-chat-session.ts` |
-| [ ] | Web Create flow 接入 `clientRequestId` optimistic 合并 | `apps/web/src/components/chats/chat-create-flow.ts`、`use-chat-session.ts` |
-| [ ] | Web 删除旧启发式生产路径：`lastDeltaEventIdRef`、`currentAgentIdRef`、`historySnapshotLooksOlder()`、blob catch-up 写 streaming | `apps/web/src/components/chats/chat-panel.tsx` |
-| [ ] | 更新 Relay/Gateway/Server/Web 测试，覆盖刷新、重连、左侧切换、多轮、error、tool/permission | 全链路 |
+| [x] | 更新协议类型：`client.chat.clientRequestId`、chat live frame 的 `eventSeq/turnId/clientRequestId`、subscribe ack、`snapshotEventSeq`、structured catch-up response | `packages/protocol/src/index.ts` |
+| [x] | 补协议测试和类型使用点，确保旧 `eventId` 兼容路径不会被误当作新 `eventSeq` | `packages/protocol`、调用方 |
+| [x] | Gateway 为每个 chat session 建立 event sequencer，所有 chat event 共用 session 单调 `eventSeq` | `apps/gateway/src/chat/*` |
+| [x] | Gateway 为每次 user turn 生成 `turnId`，并贯穿 `user.message/delta/result/tool/permission/error` | `apps/gateway/src/chat/*` |
+| [x] | Gateway 接收并回传 `clientRequestId`，支持 optimistic echo 合并 | `apps/gateway/src/relay/*`、`apps/gateway/src/chat/*` |
+| [x] | Gateway provider error/close without result 产出 turn-scoped `session.error` 或 synthetic result | `apps/gateway/src/chat/chat-session-runner.ts` |
+| [x] | Relay chat event 改为 `sync-before-broadcast`，Server sync ok 后再发 Web live frame | `apps/relay/src/relay.ts` |
+| [x] | Relay 处理 Server sync 失败：不广播未持久化事件，返回明确 degraded/error，避免 Web 收到无法恢复的 live event | `apps/relay/src/relay.ts` |
+| [x] | Relay subscribe 增加 ack/registered 语义 | `apps/relay/src/relay.ts`、`apps/web/src/components/relay/*` |
+| [x] | Relay 新 Restore flow 不再发 `gateway.chat-catchup` blob，legacy path 只供旧 Web 兼容 | `apps/relay/src/relay.ts` |
+| [x] | Server runtime event 查询改成 structured all-events catch-up，不再 delta-only | `apps/server/app/service/chatEventsRepository.ts` |
+| [x] | Server `/messages` 返回 `snapshotEventSeq`，history message 返回可选 `turnId/clientRequestId` | `apps/server/app/service/chatRepository.ts`、controller |
+| [x] | Server 派生 `gateway_chat_messages` 时保留 source event 的 turn 信息，供 completed history 建 gate | `apps/server/app/service/runtimeSyncRepository.ts` |
+| [x] | Web Wave 0 纯函数和完整单测落地 | `apps/web/src/components/chats/*`、`apps/web/test/*` |
+| [x] | Web 生产聊天入口接入 Restore flow：subscribe ack -> buffer -> snapshot -> structured catch-up -> reducer | `apps/web/src/components/chats/chat-panel.tsx` |
+| [x] | Web 处理 Relay/Server 断线重启：snapshot/catch-up 失败不清空消息，显示 recovering/error，支持重试 | `apps/web/src/components/chats/chat-panel.tsx` |
+| [x] | Web Create flow 接入 `clientRequestId` optimistic 合并 | `apps/web/src/components/chats/chat-create-flow.ts`、`apps/web/src/components/chats/chat-panel.tsx` |
+| [x] | Web 删除旧启发式生产路径：`lastDeltaEventIdRef`、`currentAgentIdRef`、`historySnapshotLooksOlder()`、blob catch-up 写 streaming | `apps/web/src/components/chats/chat-panel.tsx` |
+| [x] | 更新 Relay/Gateway/Server/Web 测试，覆盖刷新、重连、左侧切换、多轮、error、tool/permission | 全链路 |
 | [ ] | 人工 UAT：复测已知问题 session、新建运行中刷新、已完成刷新、断线重连、A -> B -> A 快速切换 | Web + Relay + Gateway + Server |
 
 ## 全链路验收

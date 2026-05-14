@@ -7,6 +7,18 @@
 - `packages/design`
 - `packages/theme`
 
+## 0. 相关规范入口
+
+前端规范按层级阅读：
+
+1. 本文件：仓库级前端边界和验证要求。
+2. `apps/web/CLAUDE.md` / `apps/admin-web/CLAUDE.md`：具体 app 的路由、目录、文案和页面实现规则。
+3. `packages/design/CLAUDE.md`：共享 UI primitive 的组件 API、导出、状态和 authoring 规则。
+4. `packages/theme/SPEC.md`：主题 token、Tailwind utility、颜色/字号/行高准入规则。
+
+当规则冲突时，组件实现以 `packages/design/CLAUDE.md` 为准；token 和 utility
+以 `packages/theme/SPEC.md` 为准。
+
 ## 1. 设计系统优先
 
 - 设计 token 必须定义在共享 `packages/theme` 中，app 不得各自再起一套基础 token。

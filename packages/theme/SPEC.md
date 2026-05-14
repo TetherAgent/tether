@@ -1,6 +1,6 @@
-# @earntools/theme 规范
+# @tether/theme 规范
 
-本包提供 EarnTools 共享主题 token，面向 Tailwind CSS v4 应用使用。
+本包提供 Tether 共享主题 token，面向 Tailwind CSS v4 应用使用。
 它应当可以被独立消费：使用方只需要导入本包并阅读本文档，不需要依赖
 monorepo 内其他说明。
 
@@ -258,25 +258,25 @@ src/
 应用入口（推荐）：
 
 ```ts
-import "@earntools/theme/globals.css";
+import "@tether/theme/globals.css";
 ```
 
 仅引入主题 token（不包含 Tailwind runtime）：
 
 ```css
-@import "@earntools/theme/theme.css";
+@import "@tether/theme/theme.css";
 ```
 
 仅引入 token 文件本身：
 
 ```css
-@import "@earntools/theme/tokens";
+@import "@tether/theme/tokens";
 ```
 
 独立引用业务 token：
 
 ```css
-@import "@earntools/theme/business";
+@import "@tether/theme/business";
 ```
 
 主题切换由文档根节点上的 `.dark` 或 `[data-theme="dark"]` 驱动。

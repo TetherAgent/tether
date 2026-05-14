@@ -36,7 +36,8 @@ export class ChatHandler {
         cwd: frame.cwd,
         message: frame.message,
         accountId: frame.accountId,
-        userId: frame.userId
+        userId: frame.userId,
+        clientRequestId: frame.clientRequestId
       });
       return;
     }
@@ -60,7 +61,8 @@ export class ChatHandler {
       sessionId: frame.sessionId,
       message: frame.message,
       model: frame.model,
-      session: frame.session
+      session: frame.session,
+      clientRequestId: frame.clientRequestId
     }).catch((err: unknown) => {
       this.options.chatRegistry.releaseInFlight(frame.sessionId);
       this.options.sendError(frame.clientId, frame.sessionId, 'chat_runner_failed', String(err));

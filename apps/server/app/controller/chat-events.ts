@@ -9,7 +9,7 @@ export default class ChatEventsController extends Controller {
       return;
     }
     const after = Number(ctx.query['after'] ?? 0);
-    const events = await ctx.service.chatEventsRepository.listDeltaEventsAfter(sessionId, after);
+    const events = await ctx.service.chatEventsRepository.listEventsAfter(sessionId, after);
     ctx.success({ events });
   }
 }

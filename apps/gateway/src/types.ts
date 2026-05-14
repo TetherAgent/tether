@@ -55,12 +55,21 @@ export type SessionEvent<TPayload extends Record<string, unknown> = Record<strin
   payload: TPayload;
 };
 
-export type ChatEventType = 'user.message' | 'agent.result' | 'agent.tool' | 'session.error';
+export type ChatEventType =
+  | 'user.message'
+  | 'agent.delta'
+  | 'agent.result'
+  | 'agent.tool'
+  | 'agent.permission_request'
+  | 'session.error';
 
 export type ChatEvent<TPayload extends Record<string, unknown> = Record<string, unknown>> = {
   id: number;
   sessionId: string;
   type: ChatEventType;
   ts: number;
+  eventSeq: number;
+  turnId: string;
+  clientRequestId?: string;
   payload: TPayload;
 };

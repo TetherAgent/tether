@@ -47,6 +47,7 @@ export default (app: Application): void => {
   router.get('/api/server/sessions/:id/events', requireNormalAccess, controller.session.events);             // 终端事件流
   router.get('/api/server/chat-sessions', requireNormalAccess, controller.chat.sessions);
   router.get('/api/server/chat-sessions/:sessionId/messages', requireNormalAccess, controller.chat.messages);
+  router.get('/api/server/chat-sessions/:sessionId/events', requireNormalAccess, controller.chat.events);
   router.put('/api/server/chat-sessions/:sessionId', requireNormalAccess, controller.chat.renameSession);
   router.delete('/api/server/chat-sessions/:sessionId', requireNormalAccess, controller.chat.deleteSession);
   router.get('/api/relay/chat-events/:sessionId', requireRuntimeSyncSecret, controller.chatEvents.list);

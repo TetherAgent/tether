@@ -157,23 +157,6 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     return undefined;
   }
 
-  function textFromRawChatEvent(rawJson: string): string {
-    try {
-      const parsed = JSON.parse(rawJson) as unknown;
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return '';
-      }
-      const payload = (parsed as Record<string, unknown>).payload;
-      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-        return '';
-      }
-      const text = (payload as Record<string, unknown>).text;
-      return typeof text === 'string' ? text : '';
-    } catch {
-      return '';
-    }
-  }
-
   function metadataToRelaySession(metadata: FetchedChatSessionMetadata): RelaySession | undefined {
     const transport = metadataTransport(metadata.transport);
     if (!transport) {
@@ -212,6 +195,22 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
       if (!clientCanAccessSession(client.scope, client.authMethod, sessionId)) continue;
       sendToClient(subscriberId, frame);
     }
+  }
+
+  function notifyChatSyncFailed(event: RelayTerminalEvent): void {
+    const clientId = typeof event.payload.clientId === 'string' ? event.payload.clientId : undefined;
+    const frame: RelayServerToClientFrame = {
+      type: 'error',
+      sessionId: event.sessionId,
+      code: 'relay_sync_failed',
+      message: 'chat event could not be persisted before broadcast',
+      ...(typeof event.clientRequestId === 'string' ? { clientRequestId: event.clientRequestId } : {})
+    };
+    if (clientId) {
+      sendToClient(clientId, frame);
+      return;
+    }
+    sendChatEventToSubscribers(event.sessionId, frame);
   }
 
   function removeChatSubscriber(sessionId: string, clientId: string): void {
@@ -465,13 +464,31 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           const sourceClientId = typeof frame.event.payload.clientId === 'string'
             ? frame.event.payload.clientId
             : undefined;
+          const synced = await syncToServer('/api/relay/runtime-sync/gateway/event', {
+            gatewayId: frame.gatewayId,
+            event: frame.event,
+            scope: {
+              ...gatewayScope,
+              transport: 'chat'
+            }
+          });
+          if (options.serverSyncUrl && !synced) {
+            notifyChatSyncFailed(frame.event);
+            break;
+          }
           sendChatEventToSubscribers(frame.event.sessionId, {
             type: 'user.message',
             sessionId: frame.event.sessionId,
             text: String(frame.event.payload.message ?? ''),
-            ...(typeof frame.event.id === 'number' ? { eventId: frame.event.id } : {})
+            ...(typeof frame.event.id === 'number' ? { eventId: frame.event.id } : {}),
+            ...(typeof frame.event.eventSeq === 'number' ? { eventSeq: frame.event.eventSeq } : {}),
+            ...(typeof frame.event.turnId === 'string' ? { turnId: frame.event.turnId } : {}),
+            ...(typeof frame.event.clientRequestId === 'string' ? { clientRequestId: frame.event.clientRequestId } : {})
           }, sourceClientId);
-          void syncToServer('/api/relay/runtime-sync/gateway/event', {
+          break;
+        }
+        if (frame.event.type === 'agent.delta') {
+          const synced = await syncToServer('/api/relay/runtime-sync/gateway/event', {
             gatewayId: frame.gatewayId,
             event: frame.event,
             scope: {
@@ -479,16 +496,22 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
               transport: 'chat'
             }
           });
-          break;
-        }
-        if (frame.event.type === 'agent.delta') {
+          if (options.serverSyncUrl && !synced) {
+            notifyChatSyncFailed(frame.event);
+            break;
+          }
           sendChatEventToSubscribers(frame.event.sessionId, {
             type: 'agent.delta',
             sessionId: frame.event.sessionId,
             text: String(frame.event.payload.text ?? ''),
-            ...(typeof frame.event.id === 'number' ? { eventId: frame.event.id } : {})
+            ...(typeof frame.event.id === 'number' ? { eventId: frame.event.id } : {}),
+            ...(typeof frame.event.eventSeq === 'number' ? { eventSeq: frame.event.eventSeq } : {}),
+            ...(typeof frame.event.turnId === 'string' ? { turnId: frame.event.turnId } : {})
           });
-          void syncToServer('/api/relay/runtime-sync/gateway/event', {
+          break;
+        }
+        if (frame.event.type === 'agent.result') {
+          const synced = await syncToServer('/api/relay/runtime-sync/gateway/event', {
             gatewayId: frame.gatewayId,
             event: frame.event,
             scope: {
@@ -496,9 +519,10 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
               transport: 'chat'
             }
           });
-          break;
-        }
-        if (frame.event.type === 'agent.result') {
+          if (options.serverSyncUrl && !synced) {
+            notifyChatSyncFailed(frame.event);
+            break;
+          }
           sendChatEventToSubscribers(frame.event.sessionId, {
             type: 'agent.result',
             sessionId: frame.event.sessionId,
@@ -527,9 +551,24 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
               : {}),
             ...(Array.isArray(frame.event.payload.nextSuggestions)
               ? { nextSuggestions: frame.event.payload.nextSuggestions.filter(isNextSuggestion) }
-              : {})
+              : {}),
+            ...(typeof frame.event.eventSeq === 'number' ? { eventSeq: frame.event.eventSeq } : {}),
+            ...(typeof frame.event.turnId === 'string' ? { turnId: frame.event.turnId } : {})
           });
+          break;
         } else if (frame.event.type === 'agent.permission_request') {
+          const synced = await syncToServer('/api/relay/runtime-sync/gateway/event', {
+            gatewayId: frame.gatewayId,
+            event: frame.event,
+            scope: {
+              ...gatewayScope,
+              transport: 'chat'
+            }
+          });
+          if (options.serverSyncUrl && !synced) {
+            notifyChatSyncFailed(frame.event);
+            break;
+          }
           sendChatEventToSubscribers(frame.event.sessionId, {
             type: 'agent.permission_request',
             sessionId: frame.event.sessionId,
@@ -537,16 +576,45 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             toolName: String(frame.event.payload.toolName ?? ''),
             input: (frame.event.payload.input && typeof frame.event.payload.input === 'object'
               ? frame.event.payload.input
-              : {}) as Record<string, unknown>
+              : {}) as Record<string, unknown>,
+            ...(typeof frame.event.eventSeq === 'number' ? { eventSeq: frame.event.eventSeq } : {}),
+            ...(typeof frame.event.turnId === 'string' ? { turnId: frame.event.turnId } : {})
           });
+          break;
         } else if (frame.event.type === 'session.error') {
+          const synced = await syncToServer('/api/relay/runtime-sync/gateway/event', {
+            gatewayId: frame.gatewayId,
+            event: frame.event,
+            scope: {
+              ...gatewayScope,
+              transport: 'chat'
+            }
+          });
+          if (options.serverSyncUrl && !synced) {
+            notifyChatSyncFailed(frame.event);
+            break;
+          }
           sendChatEventToSubscribers(frame.event.sessionId, {
             type: 'error',
             sessionId: frame.event.sessionId,
             code: String(frame.event.payload.code ?? 'session_error'),
-            message: String(frame.event.payload.message ?? 'session error')
+            message: String(frame.event.payload.message ?? 'session error'),
+            ...(typeof frame.event.clientRequestId === 'string' ? { clientRequestId: frame.event.clientRequestId } : {})
           });
+          break;
         } else if (frame.event.type === 'agent.tool') {
+          const synced = await syncToServer('/api/relay/runtime-sync/gateway/event', {
+            gatewayId: frame.gatewayId,
+            event: frame.event,
+            scope: {
+              ...gatewayScope,
+              transport: 'chat'
+            }
+          });
+          if (options.serverSyncUrl && !synced) {
+            notifyChatSyncFailed(frame.event);
+            break;
+          }
           sendChatEventToSubscribers(frame.event.sessionId, {
             type: 'agent.tool',
             sessionId: frame.event.sessionId,
@@ -556,8 +624,11 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
                 ? (frame.event.payload.input as Record<string, unknown>)
                 : {},
             ...(typeof frame.event.payload.result === 'string' ? { result: frame.event.payload.result } : {}),
-            ...(typeof frame.event.payload.isError === 'boolean' ? { isError: frame.event.payload.isError } : {})
+            ...(typeof frame.event.payload.isError === 'boolean' ? { isError: frame.event.payload.isError } : {}),
+            ...(typeof frame.event.eventSeq === 'number' ? { eventSeq: frame.event.eventSeq } : {}),
+            ...(typeof frame.event.turnId === 'string' ? { turnId: frame.event.turnId } : {})
           });
+          break;
         } else if (frame.event.type === 'gateway.providers') {
           const clientId = typeof frame.event.payload.clientId === 'string' ? frame.event.payload.clientId : undefined;
           if (clientId) {
@@ -892,43 +963,15 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           broadcastSessionList();
         }
         subscriptions.set(frame.sessionId, frame.mode);
+        sendToClient(clientId, {
+          type: 'subscription.ack',
+          sessionId: frame.sessionId,
+          mode: frame.mode
+        });
         if (session.transport === 'chat') {
           const chatSubscribers = chatSessionSubscribers.get(frame.sessionId) ?? new Set<string>();
           chatSubscribers.add(clientId);
           chatSessionSubscribers.set(frame.sessionId, chatSubscribers);
-          if (session.status === 'running' && options.serverSyncUrl && options.runtimeSyncSecret) {
-            const after = typeof frame.after === 'number' ? frame.after : 0;
-            try {
-              const catchupResponse = await fetch(
-                `${options.serverSyncUrl}/api/relay/chat-events/${encodeURIComponent(frame.sessionId)}?after=${after}`,
-                {
-                  method: 'GET',
-                  headers: { 'x-tether-runtime-sync-secret': options.runtimeSyncSecret },
-                  signal: AbortSignal.timeout(3000)
-                }
-              );
-              if (catchupResponse.ok) {
-                const catchupJson = await catchupResponse.json() as { data?: { events?: unknown } };
-                const events = Array.isArray(catchupJson.data?.events)
-                  ? catchupJson.data.events as Array<{ eventId: number; rawJson: string }>
-                  : [];
-                if (events.length > 0) {
-                  const blob = events.map((event) => textFromRawChatEvent(event.rawJson)).join('');
-                  const lastEventId = events[events.length - 1]?.eventId ?? after;
-                  sendToClient(clientId, {
-                    type: 'gateway.chat-catchup',
-                    sessionId: frame.sessionId,
-                    text: blob,
-                    lastEventId
-                  });
-                }
-              } else {
-                console.warn(`[relay] chat catch-up failed: HTTP ${catchupResponse.status} for ${frame.sessionId}`);
-              }
-            } catch (error) {
-              console.warn(`[relay] chat catch-up error for ${frame.sessionId}:`, String(error));
-            }
-          }
           break;
         }
         forwardToSessionGateway({
@@ -1006,7 +1049,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             cwd: frame.cwd,
             message: frame.message,
             accountId: clientScope.accountId,
-            userId: clientScope.userId
+            userId: clientScope.userId,
+            ...(typeof frame.clientRequestId === 'string' ? { clientRequestId: frame.clientRequestId } : {})
           });
           // Eagerly bind client to gateway so bindClientToSessionGateway does not
           // fire redundant hello + gateway.status frames when client.subscribe arrives.
@@ -1057,7 +1101,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             sessionId: frame.sessionId,
             message: frame.message,
             model: frame.model,
-            session: trustedMetadata
+            session: trustedMetadata,
+            ...(typeof frame.clientRequestId === 'string' ? { clientRequestId: frame.clientRequestId } : {})
           });
         }
         break;

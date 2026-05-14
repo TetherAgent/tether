@@ -25,13 +25,25 @@ export type ChatHistoryUsage = ChatUsage & {
 export type ChatHistoryMessage = {
   role: string;
   content: string;
+  turnId?: string;
+  clientRequestId?: string;
   usageJson?: ChatHistoryUsage;
   createdAt: string;
 };
 
 export type ChatMessagesResponse = {
   messages: ChatHistoryMessage[];
-  lastEventId: number;
+  snapshotEventSeq: number;
+};
+
+export type ChatRuntimeEventResponse = {
+  eventId: number;
+  eventSeq: number;
+  turnId?: string;
+  clientRequestId?: string;
+  type: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
 };
 
 export type ProviderOption = {
@@ -53,15 +65,29 @@ export type ChatSessionRecord = {
 
 export async function fetchChatMessages(sessionId: string, token?: string): Promise<ChatMessagesResponse> {
   const http = createHttpClient();
-  const data = await http.get<{ messages: ChatHistoryMessage[]; lastEventId?: number }>(
+  const data = await http.get<{ messages: ChatHistoryMessage[]; snapshotEventSeq?: number; lastEventId?: number }>(
     `/api/server/chat-sessions/${sessionId}/messages`,
     undefined,
     { token }
   );
   return {
     messages: data.messages ?? [],
-    lastEventId: typeof data.lastEventId === 'number' ? data.lastEventId : 0
+    snapshotEventSeq: typeof data.snapshotEventSeq === 'number'
+      ? data.snapshotEventSeq
+      : typeof data.lastEventId === 'number'
+        ? data.lastEventId
+        : 0
   };
+}
+
+export async function fetchChatEventsAfter(sessionId: string, after: number, token?: string): Promise<ChatRuntimeEventResponse[]> {
+  const http = createHttpClient();
+  const data = await http.get<{ events: ChatRuntimeEventResponse[] }>(
+    `/api/server/chat-sessions/${encodeURIComponent(sessionId)}/events?after=${after}`,
+    undefined,
+    { token }
+  );
+  return data.events ?? [];
 }
 
 export async function fetchChatSessions(token?: string, suppressGlobalError = true): Promise<ChatSessionRecord[]> {

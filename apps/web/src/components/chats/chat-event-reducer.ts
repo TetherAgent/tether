@@ -1,36 +1,8 @@
 import type { ChatHistoryMessage } from './chat-data.js';
+import type { ChatReducerSnapshot, ChatStreamEvent } from './chat-flow-types.js';
 import type { MessageItem, Usage } from './chat-types.js';
 
-export type ChatStreamEvent =
-  | {
-      type: 'user.message';
-      eventSeq: number;
-      turnId: string;
-      content: string;
-      ts?: number;
-    }
-  | {
-      type: 'agent.delta';
-      eventSeq: number;
-      turnId: string;
-      text: string;
-      provider: string;
-    }
-  | {
-      type: 'agent.result';
-      eventSeq: number;
-      turnId: string;
-      text: string;
-      provider: string;
-      usage?: Usage;
-    }
-  | {
-      type: 'session.error';
-      eventSeq: number;
-      turnId: string;
-      message: string;
-      provider: string;
-    };
+export type { ChatStreamEvent } from './chat-flow-types.js';
 
 export type ChatEventReducerState = {
   completedTurnIds: Set<string>;
@@ -45,6 +17,7 @@ export function createChatEventReducerState(messages: MessageItem[] = []): ChatE
         .filter((item): item is Extract<MessageItem, { kind: 'agent' }> =>
           item.kind === 'agent' && !item.isStreaming && !item.isWaiting
         )
+        .filter((item) => !item.id.startsWith('history-agent-'))
         .map((item) => item.id)
     ),
     lastEventSeq: 0,
@@ -52,16 +25,26 @@ export function createChatEventReducerState(messages: MessageItem[] = []): ChatE
   };
 }
 
+export function stateFromSnapshot(snapshot: ChatReducerSnapshot, provider: string): ChatEventReducerState {
+  return historySnapshotToReducerState(snapshot.messages, provider, snapshot.snapshotEventSeq);
+}
+
 export function historySnapshotToReducerState(
   historyMessages: ChatHistoryMessage[],
-  provider: string
+  provider: string,
+  snapshotEventSeq = 0
 ): ChatEventReducerState {
   const messages: MessageItem[] = historyMessages.map((message, index) =>
     message.role === 'user'
-      ? { kind: 'user', id: `history-user-${index}`, content: message.content, ts: Date.parse(message.createdAt) }
+      ? {
+          kind: 'user',
+          id: message.turnId ? `${message.turnId}-user` : `history-user-${index}`,
+          content: message.content,
+          ts: Date.parse(message.createdAt)
+        }
       : {
           kind: 'agent',
-          id: `history-agent-${index}`,
+          id: message.turnId ?? `history-agent-${index}`,
           text: message.content,
           isStreaming: false,
           isWaiting: false,
@@ -71,9 +54,11 @@ export function historySnapshotToReducerState(
         }
   );
   if (messages.at(-1)?.kind === 'user') {
+    const lastHistoryMessage = historyMessages.at(-1);
+    const waitingAgentId = lastHistoryMessage?.turnId ?? `turn-${historyMessages.length}`;
     messages.push({
       kind: 'agent',
-      id: `turn-${historyMessages.length}`,
+      id: waitingAgentId,
       text: '',
       isStreaming: false,
       isWaiting: true,
@@ -81,7 +66,10 @@ export function historySnapshotToReducerState(
       provider
     });
   }
-  return createChatEventReducerState(messages);
+  return {
+    ...createChatEventReducerState(messages),
+    lastEventSeq: snapshotEventSeq
+  };
 }
 
 export function applyChatStreamEvent(
@@ -105,7 +93,12 @@ export function applyChatStreamEvent(
     case 'user.message':
       return {
         ...nextState,
-        messages: appendUniqueUser(nextState.messages, event.turnId, event.content, event.ts)
+        messages: reconcileUserMessage(nextState.messages, {
+          turnId: event.turnId,
+          clientRequestId: event.clientRequestId,
+          content: event.content,
+          ts: event.ts
+        })
       };
     case 'agent.delta':
       return {
@@ -149,6 +142,42 @@ export function applyChatStreamEvent(
           { kind: 'system', id: `error-${event.eventSeq}`, text: event.message }
         ]
       };
+    case 'agent.tool':
+      return {
+        ...nextState,
+        messages: [
+          ...nextState.messages,
+          {
+            kind: 'tool',
+            id: `tool-${event.turnId}-${event.eventSeq}`,
+            toolName: event.name,
+            input: event.input,
+            result: event.result,
+            isError: event.isError,
+            isInFlight: false
+          }
+        ]
+      };
+    case 'agent.permission_request':
+      return {
+        ...nextState,
+        messages: [
+          ...upsertAgent(nextState.messages, {
+            id: event.turnId,
+            provider: 'agent',
+            textTransform: (text) => text,
+            isStreaming: false,
+            isWaiting: true,
+            isLost: false
+          }),
+          {
+            kind: 'permission',
+            id: `permission-${event.requestId}`,
+            requestId: event.requestId,
+            toolName: event.toolName
+          }
+        ]
+      };
   }
 }
 
@@ -156,15 +185,34 @@ export function applyChatStreamEvents(
   state: ChatEventReducerState,
   events: ChatStreamEvent[]
 ): ChatEventReducerState {
-  return events.reduce((current, event) => applyChatStreamEvent(current, event), state);
+  return [...events]
+    .sort((a, b) => a.eventSeq - b.eventSeq)
+    .reduce((current, event) => applyChatStreamEvent(current, event), state);
 }
 
-function appendUniqueUser(messages: MessageItem[], turnId: string, content: string, ts = Date.now()): MessageItem[] {
-  const id = `${turnId}-user`;
+function reconcileUserMessage(
+  messages: MessageItem[],
+  input: { turnId: string; clientRequestId?: string; content: string; ts?: number }
+): MessageItem[] {
+  const optimisticId = input.clientRequestId ? `user-${input.clientRequestId}` : undefined;
+  const waitingId = input.clientRequestId ? `agent-${input.clientRequestId}` : undefined;
+  const id = `${input.turnId}-user`;
   if (messages.some((item) => item.kind === 'user' && item.id === id)) {
     return messages;
   }
-  return [...messages, { kind: 'user', id, content, ts }];
+  return messages.map((item) => {
+    if (optimisticId && item.kind === 'user' && item.id === optimisticId) {
+      return { ...item, id, content: input.content, ts: input.ts ?? item.ts };
+    }
+    if (waitingId && item.kind === 'agent' && item.id === waitingId) {
+      return { ...item, id: input.turnId };
+    }
+    return item;
+  }).concat(
+    messages.some((item) => optimisticId && item.kind === 'user' && item.id === optimisticId)
+      ? []
+      : [{ kind: 'user', id, content: input.content, ts: input.ts ?? Date.now() }]
+  );
 }
 
 function upsertAgent(

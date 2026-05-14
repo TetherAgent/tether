@@ -35,13 +35,14 @@ export class ChatRuntime {
         options.relaySender.chatSessionCreated(clientId, metadata);
       },
       onUserMessage: ({ clientId, sessionId, event }) => {
-        this.sendChatEvent(event.id, sessionId, 'user.message', {
+        this.sendChatEvent(event, {
           clientId,
-          message: event.payload.message
+          message: event.payload.message,
+          ...(event.clientRequestId ? { clientRequestId: event.clientRequestId } : {})
         });
       },
-      onDelta: ({ clientId, sessionId, text, deltaEventId, providerRaw }) => {
-        this.sendChatEvent(deltaEventId, sessionId, 'agent.delta', {
+      onDelta: ({ clientId, event, text, providerRaw }) => {
+        this.sendChatEvent(event, {
           clientId,
           text,
           ...(providerRaw !== undefined ? { providerRaw } : {})
@@ -49,7 +50,7 @@ export class ChatRuntime {
       },
       onResult: ({ clientId, sessionId, event, text, usage, stopReason, contextWindow, rateLimitInfo, contextInputTokens, contextUsedPercentage, nextSuggestions, providerRaw }) => {
         options.chatRegistry.releaseInFlight(sessionId);
-        this.sendChatEvent(event.id, sessionId, 'agent.result', {
+        this.sendChatEvent(event, {
           clientId,
           text,
           usage,
@@ -63,7 +64,7 @@ export class ChatRuntime {
         });
       },
       onPermissionRequest: ({ clientId, sessionId, requestId, toolName, input }) => {
-        this.sendChatEvent(Date.now(), sessionId, 'agent.permission_request', {
+        this.sendLegacyGatewayEvent(Date.now(), sessionId, 'agent.permission_request', {
           clientId,
           requestId,
           toolName,
@@ -71,7 +72,7 @@ export class ChatRuntime {
         });
       },
       onTool: ({ clientId, sessionId, event, name, input, result, isError, providerRaw }) => {
-        this.sendChatEvent(event.id, sessionId, 'agent.tool', {
+        this.sendChatEvent(event, {
           clientId,
           name,
           input,
@@ -83,7 +84,7 @@ export class ChatRuntime {
       onError: ({ clientId, sessionId, code, message, event }) => {
         options.chatRegistry.releaseInFlight(sessionId);
         if (event) {
-          this.sendChatEvent(event.id, sessionId, 'session.error', {
+          this.sendChatEvent(event, {
             clientId,
             code,
             message
@@ -93,7 +94,7 @@ export class ChatRuntime {
       },
       onAgentIdUpdate: (sessionId, agentSessionId) => {
         options.chatRegistry.updateAgentSessionId(sessionId, agentSessionId);
-        this.sendChatEvent(Date.now(), sessionId, 'session.agent-id-updated', { sessionId, agentSessionId });
+        this.sendLegacyGatewayEvent(Date.now(), sessionId, 'session.agent-id-updated', { sessionId, agentSessionId });
       }
     };
     this.chatRunner = new ChatSessionRunner(runnerOptions);
@@ -114,7 +115,20 @@ export class ChatRuntime {
     }
   }
 
-  private sendChatEvent(id: number, sessionId: string, type: string, payload: Record<string, unknown>): void {
+  private sendChatEvent(event: { id: number; eventSeq?: number; turnId?: string; clientRequestId?: string; sessionId: string; type: string; ts: number }, payload: Record<string, unknown>): void {
+    this.options.relaySender.event({
+      id: event.eventSeq ?? event.id,
+      eventSeq: event.eventSeq ?? event.id,
+      ...(event.turnId ? { turnId: event.turnId } : {}),
+      ...(event.clientRequestId ? { clientRequestId: event.clientRequestId } : {}),
+      sessionId: event.sessionId,
+      type: event.type,
+      ts: event.ts,
+      payload
+    });
+  }
+
+  private sendLegacyGatewayEvent(id: number, sessionId: string, type: string, payload: Record<string, unknown>): void {
     this.options.relaySender.event({
       id,
       sessionId,

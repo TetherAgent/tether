@@ -56,6 +56,9 @@ export type RelayTerminalEvent = {
   type: string;
   ts: number;
   payload: Record<string, unknown>;
+  eventSeq?: number;
+  turnId?: string;
+  clientRequestId?: string;
 };
 
 export type RelayNextSuggestion = {
@@ -78,6 +81,51 @@ export type RelayRateLimitInfo = {
   primary?: RelayRateLimitWindow;
   secondary?: RelayRateLimitWindow;
   planType?: string;
+};
+
+export type ChatHistoryUsage = {
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  contextWindow?: number;
+  contextInputTokens?: number;
+  contextUsedPercentage?: number;
+  rateLimitInfo?: RelayRateLimitInfo;
+};
+
+export type ChatHistoryMessageDto = {
+  role: string;
+  content: string;
+  turnId?: string;
+  clientRequestId?: string;
+  usageJson?: ChatHistoryUsage;
+  createdAt: string;
+};
+
+export type ChatMessagesResponseDto = {
+  messages: ChatHistoryMessageDto[];
+  snapshotEventSeq: number;
+  /**
+   * Retained only for older web builds. New restore code must use
+   * snapshotEventSeq as the catch-up watermark.
+   */
+  lastEventId?: number;
+};
+
+export type ChatRuntimeEventDto = {
+  eventId: number;
+  eventSeq: number;
+  turnId?: string;
+  clientRequestId?: string;
+  type: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+};
+
+export type ChatRuntimeEventsResponseDto = {
+  events: ChatRuntimeEventDto[];
 };
 
 export type RelayGatewayToServerFrame =
@@ -112,8 +160,9 @@ export type RelayServerToGatewayFrame =
       message: string;
       accountId?: string;
       userId?: string;
+      clientRequestId?: string;
     }
-  | { type: 'client.chat'; clientId: string; sessionId: string; message: string; model?: string; session: TrustedChatSessionMetadata }
+  | { type: 'client.chat'; clientId: string; sessionId: string; message: string; model?: string; session: TrustedChatSessionMetadata; clientRequestId?: string }
   | { type: 'client.cwd-suggest'; clientId: string; cwd: string }
   | { type: 'client.list-providers'; clientId: string }
   | { type: 'client.switch-model'; clientId: string; sessionId: string; provider: string; model: string }
@@ -142,8 +191,8 @@ export type RelayClientToServerFrame =
   | { type: 'client.stop'; sessionId: string }
   | { type: 'client.unsubscribe'; sessionId: string }
   | { type: 'client.detach'; sessionId: string }
-  | { type: 'client.chat'; sessionId: null; provider: string; model: string; cwd: string; message: string; gatewayId: string }
-  | { type: 'client.chat'; sessionId: string; message: string; model?: string }
+  | { type: 'client.chat'; sessionId: null; provider: string; model: string; cwd: string; message: string; gatewayId: string; clientRequestId?: string }
+  | { type: 'client.chat'; sessionId: string; message: string; model?: string; clientRequestId?: string }
   | { type: 'client.cwd-suggest'; cwd: string; gatewayId: string }
   | { type: 'client.list-providers'; gatewayId: string }
   | { type: 'client.switch-model'; sessionId: string; provider: string; model: string }
@@ -171,13 +220,14 @@ export type RelayServerToClientFrame =
   | { type: 'event'; event: RelayTerminalEvent }
   | { type: 'replay.output'; sessionId: string; data: string; latestEventId: number }
   | { type: 'replay.done'; sessionId: string; latestEventId: number }
+  | { type: 'subscription.ack'; sessionId: string; mode: RelayClientMode }
   | { type: 'gateway.session-created'; sessionId: string; clientRequestId?: string }
   | { type: 'gateway.local-terminal-opened'; clientRequestId: string; provider: 'shell' | 'claude' | 'codex' }
-  | { type: 'user.message'; sessionId: string; text: string; eventId?: number }
-  | { type: 'agent.delta'; sessionId: string; text: string; eventId?: number }
-  | { type: 'agent.result'; sessionId: string; text: string; usage: { input_tokens: number; output_tokens: number; cost_usd?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }; stop_reason?: string; contextWindow?: number; contextInputTokens?: number; contextUsedPercentage?: number; rateLimitInfo?: RelayRateLimitInfo; nextSuggestions?: RelayNextSuggestion[] }
-  | { type: 'agent.tool'; sessionId: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean }
-  | { type: 'agent.permission_request'; sessionId: string; requestId: string; toolName: string; input: Record<string, unknown> }
+  | { type: 'user.message'; sessionId: string; text: string; eventId?: number; eventSeq?: number; turnId?: string; clientRequestId?: string }
+  | { type: 'agent.delta'; sessionId: string; text: string; eventId?: number; eventSeq?: number; turnId?: string }
+  | { type: 'agent.result'; sessionId: string; text: string; usage: { input_tokens: number; output_tokens: number; cost_usd?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }; stop_reason?: string; contextWindow?: number; contextInputTokens?: number; contextUsedPercentage?: number; rateLimitInfo?: RelayRateLimitInfo; nextSuggestions?: RelayNextSuggestion[]; eventSeq?: number; turnId?: string }
+  | { type: 'agent.tool'; sessionId: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean; eventSeq?: number; turnId?: string }
+  | { type: 'agent.permission_request'; sessionId: string; requestId: string; toolName: string; input: Record<string, unknown>; eventSeq?: number; turnId?: string }
   | { type: 'gateway.chat-catchup'; sessionId: string; text: string; lastEventId?: number }
   | { type: 'gateway.providers'; gatewayId?: string; providers: Array<{ provider: string; models: string[] }> }
   | { type: 'gateway.cwd-suggestions'; gatewayId?: string; cwd: string; suggestions: string[] }

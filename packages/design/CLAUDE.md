@@ -1,7 +1,7 @@
 # Design Package Rules
 
 `packages/design` contains reusable UI primitives consumed through
-`@earntools/design/*`. Apps must not duplicate equivalent primitives in their
+`@tether/design/*`. Apps must not duplicate equivalent primitives in their
 own `src/components/` directories.
 
 Token rules and design tokens themselves live in
@@ -19,7 +19,7 @@ The package tracks the approved shadcn component list from
 - D: project-only components with no shadcn equivalent stay as extensions.
 
 Components must use the shadcn-style flat utilities mapped through
-`@earntools/theme/compat-shadcn.css` — `bg-card`, `text-foreground`,
+`@tether/theme/compat-shadcn.css` — `bg-card`, `text-foreground`,
 `bg-popover`, `border-input`, `ring-ring`, `bg-card-hover`,
 `text-foreground-tertiary`, etc. Do not introduce independent OKLCH variables
 or a second token system.
@@ -91,7 +91,7 @@ from `packages/design/src/index.ts`:
 - `resizable`
 
 Toast is provided by `sonner`; the recommended import is:
-`import { toast, Toaster } from '@earntools/design/sonner'`.
+`import { toast, Toaster } from '@tether/design/sonner'`.
 
 ## B-Class Replacements
 
@@ -161,7 +161,7 @@ Apply consistently across `packages/design/src/`:
 ## Token Rules
 
 Components must use project semantic tokens or the shadcn compatibility
-utilities mapped by `@earntools/theme/theme.css` — `bg-card`, `text-foreground`,
+utilities mapped by `@tether/theme/theme.css` — `bg-card`, `text-foreground`,
 `border-input`, `ring-ring`, `text-foreground-tertiary`, etc. The full token
 list lives in `packages/theme/SPEC.md`.
 

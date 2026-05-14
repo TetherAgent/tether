@@ -45,7 +45,13 @@ export type ChatRunnerOptions = {
   onChatSessionCreated: (clientId: string, metadata: TrustedChatSessionMetadata) => void;
   onPermissionRequest: (event: { clientId: string; sessionId: string; requestId: string; toolName: string; input: Record<string, unknown> }) => void;
   onUserMessage: (event: { clientId: string; sessionId: string; event: ChatEvent<{ message: string }> }) => void;
-  onDelta: (event: { clientId: string; sessionId: string; text: string; deltaEventId: number; providerRaw?: unknown }) => void;
+  onDelta: (event: {
+    clientId: string;
+    sessionId: string;
+    event: ChatEvent<{ text: string; providerRaw?: unknown }>;
+    text: string;
+    providerRaw?: unknown;
+  }) => void;
   onResult: (event: {
     clientId: string;
     sessionId: string;
@@ -97,21 +103,6 @@ function titleFromFirstMessage(message: string): string | undefined {
   return `${chars.slice(0, CHAT_TITLE_MAX_LENGTH).join('')}...`;
 }
 
-function createChatEvent<TPayload extends Record<string, unknown>>(
-  sessionId: string,
-  type: ChatEventType,
-  payload: TPayload,
-  ts = Date.now()
-): ChatEvent<TPayload> {
-  return {
-    id: nextEventId(ts),
-    sessionId,
-    type,
-    ts,
-    payload
-  };
-}
-
 export interface IChatRunner {
   run(
     params:
@@ -124,8 +115,9 @@ export interface IChatRunner {
           message: string;
           accountId?: string;
           userId?: string;
+          clientRequestId?: string;
         }
-      | { clientId: string; sessionId: string; message: string; model?: string; session: TrustedChatSessionMetadata }
+      | { clientId: string; sessionId: string; message: string; model?: string; session: TrustedChatSessionMetadata; clientRequestId?: string }
   ): Promise<void>;
   getCatchup(sessionId: string): string | undefined;
   kill(sessionId: string): void;
@@ -227,6 +219,8 @@ type ActiveSubprocess = {
   accumulatedText: string;
   startedAt: number;
   clientId: string;
+  turnId: string;
+  clientRequestId?: string;
   cwd: string;
   lastStderr?: string;
   lastUsage: ChatUsage;
@@ -234,7 +228,6 @@ type ActiveSubprocess = {
   lastEmittedAgentSessionId?: string;
   lineBuffer: string;
   completed: boolean;
-  nextDeltaId: number;
   rateLimitInfo?: RateLimitInfo;
   contextWindow?: number;
   contextInputTokens?: number;
@@ -263,8 +256,9 @@ class CliChatRunner implements IChatRunner {
           message: string;
           accountId?: string;
           userId?: string;
+          clientRequestId?: string;
         }
-      | { clientId: string; sessionId: string; message: string; model?: string; session: TrustedChatSessionMetadata }
+      | { clientId: string; sessionId: string; message: string; model?: string; session: TrustedChatSessionMetadata; clientRequestId?: string }
   ): Promise<void> {
     if ('provider' in params && params.provider !== this.adapter.provider) {
       this.options.onError({
@@ -306,7 +300,9 @@ class CliChatRunner implements IChatRunner {
       child.stdin?.end();
     }
 
-    const userEvent = createChatEvent(sessionId, 'user.message', { message: params.message });
+    const turnId = randomUUID();
+    const clientRequestId = 'clientRequestId' in params ? params.clientRequestId : undefined;
+    const userEvent = this.createSequencedChatEvent(sessionId, turnId, 'user.message', { message: params.message }, clientRequestId);
     this.options.onUserMessage({ clientId: params.clientId, sessionId, event: userEvent });
 
     const active: ActiveSubprocess = {
@@ -314,6 +310,8 @@ class CliChatRunner implements IChatRunner {
       accumulatedText: '',
       startedAt: Date.now(),
       clientId: params.clientId,
+      turnId,
+      clientRequestId,
       cwd,
       lastStderr: undefined,
       lastUsage: ZERO_USAGE,
@@ -321,7 +319,6 @@ class CliChatRunner implements IChatRunner {
       lastEmittedAgentSessionId: undefined,
       lineBuffer: '',
       completed: false,
-      nextDeltaId: 1,
       pendingPermissions: new Map()
     };
     this.activeSubprocesses.set(sessionId, active);
@@ -401,8 +398,11 @@ class CliChatRunner implements IChatRunner {
     return {
       delta: (text, providerRaw) => {
         active.accumulatedText += text;
-        const deltaEventId = active.nextDeltaId++;
-        this.options.onDelta({ clientId: active.clientId, sessionId, text, deltaEventId, providerRaw });
+        const deltaEvent = this.createSequencedChatEvent(sessionId, active.turnId, 'agent.delta', {
+          text,
+          ...(providerRaw !== undefined ? { providerRaw } : {})
+        });
+        this.options.onDelta({ clientId: active.clientId, sessionId, event: deltaEvent, text, providerRaw });
       },
       result: (text, usage, opts) => {
         void this.finishResult(sessionId, active, text, usage, opts?.stopReason, opts?.nextSuggestions, opts?.providerRaw);
@@ -443,11 +443,9 @@ class CliChatRunner implements IChatRunner {
       }
     }
     const agentSessionId = active.agentSessionId ?? randomUUID();
-    const lastDeltaEventId = active.nextDeltaId > 1 ? active.nextDeltaId - 1 : 0;
-    const resultEvent = createChatEvent(sessionId, 'agent.result', {
+    const resultEvent = this.createSequencedChatEvent(sessionId, active.turnId, 'agent.result', {
       text,
       usage,
-      lastDeltaEventId,
       ...(stopReason ? { stop_reason: stopReason } : {}),
       ...(providerRaw !== undefined ? { providerRaw } : {})
     });
@@ -480,7 +478,7 @@ class CliChatRunner implements IChatRunner {
   }
 
   private emitTool(sessionId: string, clientId: string, name: string, input: Record<string, unknown>, providerRaw?: unknown): void {
-    const event = createChatEvent(sessionId, 'agent.tool', {
+    const event = this.createSequencedChatEvent(sessionId, this.activeSubprocesses.get(sessionId)?.turnId ?? randomUUID(), 'agent.tool', {
       name,
       input,
       ...(providerRaw !== undefined ? { providerRaw } : {})
@@ -489,8 +487,34 @@ class CliChatRunner implements IChatRunner {
   }
 
   private emitError(clientId: string, sessionId: string, code: string, message: string): void {
-    const event = createChatEvent(sessionId, 'session.error', { code, message });
+    const active = this.activeSubprocesses.get(sessionId);
+    const event = this.createSequencedChatEvent(sessionId, active?.turnId ?? randomUUID(), 'session.error', { code, message });
     this.options.onError({ clientId, sessionId, code, message, event });
+  }
+
+  private nextEventSeq(): number {
+    return nextEventId();
+  }
+
+  private createSequencedChatEvent<TPayload extends Record<string, unknown>>(
+    sessionId: string,
+    turnId: string,
+    type: ChatEventType,
+    payload: TPayload,
+    clientRequestId?: string,
+    ts = Date.now()
+  ): ChatEvent<TPayload> {
+    const eventSeq = this.nextEventSeq();
+    return {
+      id: eventSeq,
+      eventSeq,
+      turnId,
+      ...(clientRequestId ? { clientRequestId } : {}),
+      sessionId,
+      type,
+      ts,
+      payload
+    };
   }
 
   private createChatSession(params: {
