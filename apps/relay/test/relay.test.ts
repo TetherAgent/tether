@@ -614,6 +614,111 @@ test('relay preserves first-message chat title when syncing new chat sessions', 
   }
 });
 
+test('relay preserves pending agent session id when update arrives during chat session creation', async () => {
+  const metadataServer = await createMetadataServer({});
+  const relay = await createRelay({ serverSyncUrl: metadataServer.url, runtimeSyncSecret: 'runtime-secret' });
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+  const sessionId = 'tth_pending_agent_id';
+
+  try {
+    await authenticateGateway(gateway);
+    const clientId = await authenticateClient(client);
+
+    gateway.send(JSON.stringify({
+      type: 'gateway.event',
+      gatewayId: 'gateway-test',
+      event: {
+        id: 7001,
+        sessionId,
+        type: 'session.agent-id-updated',
+        ts: Date.now(),
+        payload: { agentSessionId: 'agent-pending' }
+      }
+    }));
+    gateway.send(JSON.stringify({
+      type: 'gateway.chat-session-created',
+      gatewayId: 'gateway-test',
+      clientId,
+      session: {
+        id: sessionId,
+        provider: 'claude',
+        title: 'pending id',
+        projectPath: process.cwd(),
+        accountId: 'acct_1',
+        gatewayId: 'gateway-test',
+        userId: 'user_1',
+        transport: 'chat'
+      }
+    }));
+
+    const sessions = await waitForJson(client, (message) =>
+      message.type === 'sessions' &&
+      (message.sessions as RelaySession[]).some((session) => session.id === sessionId)
+    );
+    const visible = (sessions.sessions as RelaySession[]).find((session) => session.id === sessionId);
+    assert.equal(visible?.agentSessionId, 'agent-pending');
+    const syncRequest = metadataServer.requests.find((request) => request.url === '/api/relay/runtime-sync/gateway/sessions');
+    assert(syncRequest);
+    const syncBody = JSON.parse(syncRequest.body) as { sessions: Array<{ agentSessionId?: string }> };
+    assert.equal(syncBody.sessions[0]?.agentSessionId, 'agent-pending');
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+    await metadataServer.close();
+  }
+});
+
+test('relay keeps agent session id when later gateway.sessions omits it', async () => {
+  const relay = await createRelay();
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+  const session = {
+    id: 'tth_agent_id_preserve',
+    provider: 'claude',
+    title: 'Agent ID Preserve',
+    projectPath: process.cwd(),
+    accountId: 'acct_1',
+    gatewayId: 'gateway-test',
+    userId: 'user_1',
+    status: 'running' as const,
+    transport: 'chat' as const,
+    lastActiveAt: Date.now()
+  };
+
+  try {
+    await authenticateGateway(gateway);
+    await authenticateClient(client);
+
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [{ ...session, agentSessionId: 'agent-stable' }]
+    }));
+    await waitForJson(client, (message) =>
+      message.type === 'sessions' &&
+      (message.sessions as RelaySession[]).some((item) => item.id === session.id && item.agentSessionId === 'agent-stable')
+    );
+
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [session]
+    }));
+    const refreshed = await waitForJson(client, (message) =>
+      message.type === 'sessions' &&
+      (message.sessions as RelaySession[]).some((item) => item.id === session.id)
+    );
+    const visible = (refreshed.sessions as RelaySession[]).find((item) => item.id === session.id);
+    assert.equal(visible?.agentSessionId, 'agent-stable');
+  } finally {
+    gateway.close();
+    client.close();
+    await relay.close();
+  }
+});
+
 test('relay waits for final paged replay frame before replay.done', async () => {
   const relay = await createRelay();
   const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);

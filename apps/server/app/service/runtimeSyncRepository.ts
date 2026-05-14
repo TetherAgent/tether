@@ -8,7 +8,8 @@ const RUNTIME_EVENT_WHITELIST = new Set([
   'session.exited',
   'agent.status',
   'agent.result',
-  'agent.tool'
+  'agent.tool',
+  'session.agent-id-updated'
 ]);
 
 const MASK = '[REDACTED]';
@@ -139,7 +140,7 @@ export default class RuntimeSyncRepositoryService extends Service {
            title = IF(title_source = 'user', title, VALUES(title)),
            title_source = COALESCE(title_source, 'gateway'),
            project_path = VALUES(project_path),
-           agent_session_id = VALUES(agent_session_id),
+           agent_session_id = IF(VALUES(agent_session_id) IS NULL, agent_session_id, VALUES(agent_session_id)),
            status = VALUES(status),
            transport = VALUES(transport),
            last_active_at = IF(VALUES(last_active_at) IS NULL, last_active_at, GREATEST(COALESCE(last_active_at, VALUES(last_active_at)), VALUES(last_active_at))),
@@ -269,6 +270,7 @@ export default class RuntimeSyncRepositoryService extends Service {
         return;
       }
       const { event: sanitizedEvent, providerRaw } = this.extractProviderRawEvent(event);
+      await this.updateAgentSessionIdFromEvent(connection, sessionId, eventType, sanitizedEvent, scope);
       const rawJson = truncatePayload(maskPayload(sanitizedEvent));
       const providerRawJson = providerRaw === undefined ? null : truncatePayload(maskPayload(providerRaw));
       await connection.query(
@@ -313,6 +315,30 @@ export default class RuntimeSyncRepositoryService extends Service {
          last_synced_at = CURRENT_TIMESTAMP,
          updated_at = CURRENT_TIMESTAMP`,
       [scope.gatewayId, sessionId, lastEventId, lastTurnIndex]
+    );
+  }
+
+  private async updateAgentSessionIdFromEvent(
+    db: Queryable,
+    sessionId: string,
+    eventType: string,
+    eventInput: unknown,
+    scope: RuntimeSyncScope
+  ): Promise<void> {
+    if (eventType !== 'session.agent-id-updated') {
+      return;
+    }
+    const event = this.normalizePayload(eventInput);
+    const payload = this.normalizePayload(event.payload);
+    const agentSessionId = typeof payload.agentSessionId === 'string' ? payload.agentSessionId : undefined;
+    if (!agentSessionId) {
+      return;
+    }
+    await db.query(
+      `UPDATE gateway_sessions
+       SET agent_session_id = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND account_id = ? AND gateway_id = ?`,
+      [agentSessionId, sessionId, scope.accountId, scope.gatewayId]
     );
   }
 

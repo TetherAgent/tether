@@ -76,6 +76,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     'agent.result',
     'agent.tool',
     'agent.permission_request',
+    'session.agent-id-updated',
     'gateway.session-created'
   ]);
   const CHAT_RUNTIME_EVENT_TYPES = new Set([
@@ -195,6 +196,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
 
   const clients = new Map<string, ClientState>();
   const latestSessions = new Map<string, RelaySession>();
+  const pendingAgentSessionIds = new Map<string, string>();
   const gateways = new Map<string, GatewayState>();
   // Relay-side routing for chat sessions: updated on every client.subscribe/unsubscribe.
   // Overrides the stale clientId embedded by Gateway in event payloads.
@@ -382,10 +384,25 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           broadcastSessionList();
           break;
         }
+        const previousGatewaySessions = new Map<string, RelaySession>();
+        for (const [sessionId, session] of latestSessions.entries()) {
+          if (session.gatewayId === frame.gatewayId) {
+            previousGatewaySessions.set(sessionId, session);
+          }
+        }
         dropSessionsForGateway(frame.gatewayId);
         for (const session of frame.sessions) {
+          const agentSessionId =
+            session.agentSessionId ??
+            previousGatewaySessions.get(session.id)?.agentSessionId ??
+            pendingAgentSessionIds.get(session.id);
+          pendingAgentSessionIds.delete(session.id);
           // Ensure every session carries its source gatewayId for correct routing
-          latestSessions.set(session.id, { ...session, gatewayId: session.gatewayId ?? frame.gatewayId });
+          latestSessions.set(session.id, {
+            ...session,
+            gatewayId: session.gatewayId ?? frame.gatewayId,
+            ...(agentSessionId ? { agentSessionId } : {})
+          });
         }
         broadcastSessionList();
         void syncToServer('/api/relay/runtime-sync/gateway/sessions', {
@@ -411,6 +428,22 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           const payload = frame.event.payload as { agentSessionId?: unknown };
           if (typeof payload.agentSessionId === 'string') {
             const session = latestSessions.get(frame.event.sessionId);
+            if (session) {
+              latestSessions.set(frame.event.sessionId, {
+                ...session,
+                agentSessionId: payload.agentSessionId
+              });
+            } else {
+              pendingAgentSessionIds.set(frame.event.sessionId, payload.agentSessionId);
+            }
+            void syncToServer('/api/relay/runtime-sync/gateway/event', {
+              gatewayId: frame.gatewayId,
+              event: frame.event,
+              scope: {
+                ...gatewayScope,
+                transport: 'chat'
+              }
+            });
             void syncToServer(
               `/api/relay/gateway-sessions/${frame.event.sessionId}/agent-session-id`,
               {
@@ -603,6 +636,22 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
       }
       case 'gateway.chat-session-created': {
         const { clientId, session } = frame;
+        const agentSessionId = session.agentSessionId ?? pendingAgentSessionIds.get(session.id);
+        pendingAgentSessionIds.delete(session.id);
+        const relaySession: RelaySession = {
+          id: session.id,
+          provider: session.provider,
+          title: session.title ?? '',
+          projectPath: session.projectPath,
+          accountId: session.accountId,
+          gatewayId: session.gatewayId,
+          userId: session.userId,
+          agentSessionId,
+          status: 'running',
+          transport: 'chat',
+          lastActiveAt: Date.now()
+        };
+        latestSessions.set(session.id, relaySession);
         const synced = await syncToServer(
           '/api/relay/runtime-sync/gateway/sessions',
           {
@@ -612,7 +661,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
               id: session.id,
               provider: session.provider,
               projectPath: session.projectPath,
-              agentSessionId: session.agentSessionId,
+              agentSessionId,
               gatewayId: session.gatewayId,
               userId: session.userId,
               transport: 'chat',
@@ -623,6 +672,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           }
         );
         if (!synced) {
+          latestSessions.delete(session.id);
           sendToClient(clientId, {
             type: 'error',
             sessionId: session.id,
@@ -631,19 +681,22 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           });
           break;
         }
-        latestSessions.set(session.id, {
-          id: session.id,
-          provider: session.provider,
-          title: session.title ?? '',
-          projectPath: session.projectPath,
-          accountId: session.accountId,
-          gatewayId: session.gatewayId,
-          userId: session.userId,
-          agentSessionId: session.agentSessionId,
-          status: 'running',
-          transport: 'chat',
-          lastActiveAt: Date.now()
-        });
+        const latestAgentSessionId = latestSessions.get(session.id)?.agentSessionId;
+        if (latestAgentSessionId && latestAgentSessionId !== agentSessionId) {
+          void syncToServer(
+            `/api/relay/gateway-sessions/${session.id}/agent-session-id`,
+            {
+              sessionId: session.id,
+              agentSessionId: latestAgentSessionId,
+              scope: {
+                accountId: gatewayScope.accountId,
+                gatewayId: gatewayScope.gatewayId ?? frame.gatewayId,
+                userId: session.userId
+              }
+            },
+            'PATCH'
+          );
+        }
         broadcastSessionList();
         sendToClient(clientId, { type: 'gateway.session-created', sessionId: session.id });
         break;

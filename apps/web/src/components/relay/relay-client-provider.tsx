@@ -22,6 +22,7 @@ export type RelaySessionSummary = {
   gatewayId?: string;
   provider?: string;
   projectPath?: string;
+  agentSessionId?: string;
   status?: string;
   transport?: string;
 };

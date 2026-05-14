@@ -305,6 +305,9 @@ export function ChatPanel({
     if (session.projectPath) {
       setActiveSessionProjectPath(session.projectPath);
     }
+    if (session.agentSessionId) {
+      setAgentSessionId(session.agentSessionId);
+    }
     setActiveSessionMetadataReady(true);
   }, [currentSessionId, providerRelaySessions]);
 

@@ -171,6 +171,7 @@ describe('test/runtime-sync.test.ts', () => {
     assert(upsert)
     assert.match(upsert.sql, /title = IF\(title_source = 'user', title, VALUES\(title\)\)/)
     assert.match(upsert.sql, /title_source = COALESCE\(title_source, 'gateway'\)/)
+    assert.match(upsert.sql, /agent_session_id = IF\(VALUES\(agent_session_id\) IS NULL, agent_session_id, VALUES\(agent_session_id\)\)/)
   })
 
   it('runtimeSyncRepository.upsertRuntimeEvent — 非白名单事件不写入', async () => {
