@@ -507,13 +507,30 @@ export function ChatPanel({
         if (fallbackAgentId) {
           currentAgentIdRef.current = fallbackAgentId;
         }
-        setMessages((items) =>
-          items.map((item) =>
-            item.kind === 'agent' && item.id === currentAgentIdRef.current
-              ? { ...item, text: frameText, isWaiting: false, isStreaming: true }
-              : item
-          )
-        );
+        setMessages((items) => {
+          const existingId = currentAgentIdRef.current;
+          if (existingId) {
+            return items.map((item) =>
+              item.kind === 'agent' && item.id === existingId
+                ? { ...item, text: frameText, isWaiting: false, isStreaming: true }
+                : item
+            );
+          }
+          const id = `agent-catchup-${Date.now()}`;
+          currentAgentIdRef.current = id;
+          return [
+            ...items,
+            {
+              kind: 'agent',
+              id,
+              text: frameText,
+              isStreaming: true,
+              isWaiting: false,
+              isLost: false,
+              provider: activeSessionProviderRef.current ?? 'agent'
+            }
+          ];
+        });
         if (typeof frame.lastEventId === 'number' && frame.lastEventId > lastDeltaEventIdRef.current) {
           lastDeltaEventIdRef.current = frame.lastEventId;
         }
