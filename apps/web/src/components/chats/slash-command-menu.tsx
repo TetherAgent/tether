@@ -28,7 +28,7 @@ export function SlashCommandMenu({ open, commands, activeIndex, onSelect, onActi
           {t.slashMenuEmpty}
         </div>
       ) : (
-        <div className="max-h-72 overflow-y-auto py-1">
+        <div className="max-h-44 overflow-y-auto py-1 sm:max-h-72">
           {commands.map((cmd, i) => (
             <button
               key={cmd.name}
