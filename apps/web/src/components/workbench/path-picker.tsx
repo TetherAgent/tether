@@ -47,6 +47,8 @@ export function PathPicker({
   onOpenChange,
   onValueChange,
   open,
+  recentSuggestions = [],
+  recentTitle,
   selectLabel,
   suggestions,
   triggerLabel,
@@ -61,11 +63,17 @@ export function PathPicker({
   onOpenChange: (open: boolean) => void;
   onValueChange: (value: string) => void;
   open: boolean;
+  recentSuggestions?: string[];
+  recentTitle?: string;
   selectLabel: string;
   suggestions: string[];
   triggerLabel: string;
   value: string;
 }) {
+  const normalizedRecent = recentSuggestions.filter(Boolean);
+  const recentSet = new Set(normalizedRecent);
+  const regularSuggestions = suggestions.filter((suggestion) => !recentSet.has(suggestion));
+  const allSuggestions = [...normalizedRecent, ...regularSuggestions];
   const applySuggestion = (suggestion: string, close: boolean) => {
     onValueChange(suggestion);
     if (close) {
@@ -86,14 +94,14 @@ export function PathPicker({
           <span className="chat-cwd-value truncate">{value ? compactPathLabel(value) : selectLabel}</span>
         </button>
       </PopoverTrigger>
-      <PopoverContent side="top" align="start" sideOffset={10} className="chat-cwd-popover w-[520px] gap-2 p-2">
+      <PopoverContent side="top" align="start" sideOffset={10} className="chat-cwd-popover w-[520px] max-w-[calc(100vw-2rem)] gap-2 p-2">
         <Input
           value={value}
           onChange={(event) => onValueChange(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'ArrowDown') {
               event.preventDefault();
-              onActiveIndexChange((index) => Math.min(index + 1, Math.max(suggestions.length - 1, 0)));
+              onActiveIndexChange((index) => Math.min(index + 1, Math.max(allSuggestions.length - 1, 0)));
               return;
             }
             if (event.key === 'ArrowUp') {
@@ -102,7 +110,7 @@ export function PathPicker({
               return;
             }
             if (event.key === 'Enter') {
-              const suggestion = suggestions[activeIndex];
+              const suggestion = allSuggestions[activeIndex];
               if (suggestion) {
                 event.preventDefault();
                 applySuggestion(suggestion, true);
@@ -110,7 +118,7 @@ export function PathPicker({
               return;
             }
             if (event.key === 'Tab') {
-              const suggestion = suggestions[activeIndex];
+              const suggestion = allSuggestions[activeIndex];
               if (suggestion) {
                 event.preventDefault();
                 applySuggestion(suggestion, false);
@@ -125,29 +133,41 @@ export function PathPicker({
           placeholder={inputPlaceholder}
           className="h-9 rounded-lg bg-muted font-mono text-[12px]"
         />
-        <div className="h-64 overflow-y-auto">
-          {loading ? (
-            <div className="flex h-full items-center justify-center gap-2 px-3 text-[12px] text-muted-foreground">
+        <div className="chat-cwd-list max-h-[45vh] overflow-y-auto sm:max-h-64">
+          {loading && allSuggestions.length === 0 ? (
+            <div className="flex min-h-40 items-center justify-center gap-2 px-3 text-[12px] text-muted-foreground sm:min-h-64">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               {loadingLabel}
             </div>
-          ) : suggestions.length > 0 ? (
-            suggestions.map((suggestion, index) => (
-              <button
-                key={suggestion}
-                type="button"
-                onClick={() => applySuggestion(suggestion, true)}
-                onMouseEnter={() => onActiveIndexChange(index)}
-                className={`block w-full truncate rounded-lg px-3 py-2 text-left font-mono text-[12px] text-popover-foreground ${
-                  index === activeIndex ? 'bg-accent' : ''
-                }`}
-                title={suggestion}
-              >
-                {fullPathLabel(suggestion)}
-              </button>
-            ))
+          ) : allSuggestions.length > 0 ? (
+            <>
+              {normalizedRecent.length > 0 && recentTitle ? (
+                <div className="px-3 pb-1 pt-1 text-[10px] font-medium text-muted-foreground">{recentTitle}</div>
+              ) : null}
+              {allSuggestions.map((suggestion, index) => {
+                const showRegularTitle = recentTitle && normalizedRecent.length > 0 && index === normalizedRecent.length;
+                return (
+                  <React.Fragment key={suggestion}>
+                    {showRegularTitle ? (
+                      <div className="border-t border-border/60 px-3 pb-1 pt-2 text-[10px] font-medium text-muted-foreground">{selectLabel}</div>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => applySuggestion(suggestion, true)}
+                      onMouseEnter={() => onActiveIndexChange(index)}
+                      className={`block w-full truncate rounded-lg px-3 py-2 text-left font-mono text-[12px] text-popover-foreground ${
+                        index === activeIndex ? 'bg-accent' : ''
+                      }`}
+                      title={suggestion}
+                    >
+                      {fullPathLabel(suggestion)}
+                    </button>
+                  </React.Fragment>
+                );
+              })}
+            </>
           ) : (
-            <div className="flex h-full items-center justify-center px-3 text-center text-[12px] text-muted-foreground">
+            <div className="flex min-h-40 items-center justify-center px-3 text-center text-[12px] text-muted-foreground sm:min-h-64">
               {emptyLabel}
             </div>
           )}

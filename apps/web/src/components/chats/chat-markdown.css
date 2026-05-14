@@ -314,6 +314,15 @@
   outline-offset: 2px;
 }
 
+.gsd-choice-full {
+  padding: 10px 13px 13px;
+}
+
+.gsd-choice-card-large {
+  display: block;
+  padding: 12px 13px;
+}
+
 .gsd-choice-label {
   display: inline-flex;
   align-items: center;

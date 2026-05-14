@@ -42,6 +42,31 @@ import {
 const DEFAULT_PROVIDER_OPTIONS: ProviderOption[] = [
   { provider: 'claude', models: ['sonnet', 'opus', 'haiku'] }
 ];
+const RECENT_CWD_LIMIT = 2;
+
+function recentCwdKey(gatewayId: string, provider: string): string {
+  return `tether.recentCwds.v1.${gatewayId}.${provider}`;
+}
+
+function readRecentCwds(gatewayId?: string, provider?: string): string[] {
+  if (!gatewayId || !provider) return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(recentCwdKey(gatewayId, provider)) ?? '[]') as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).slice(0, RECENT_CWD_LIMIT)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberRecentCwd(gatewayId: string | undefined, provider: string | undefined, cwd: string): string[] {
+  const normalized = cwd.trim();
+  if (!gatewayId || !provider || !normalized) return [];
+  const next = [normalized, ...readRecentCwds(gatewayId, provider).filter((item) => item !== normalized)].slice(0, RECENT_CWD_LIMIT);
+  window.localStorage.setItem(recentCwdKey(gatewayId, provider), JSON.stringify(next));
+  return next;
+}
 
 function formatResetCountdown(resetsAt: number): string {
   const diffMs = resetsAt * 1000 - Date.now();
@@ -106,6 +131,7 @@ export function ChatPanel({
   const [subscribeRetryKey, setSubscribeRetryKey] = React.useState(0);
   const [cwd, setCwd] = React.useState('~');
   const [cwdSuggestions, setCwdSuggestions] = React.useState<string[]>([]);
+  const [recentCwdSuggestions, setRecentCwdSuggestions] = React.useState<string[]>([]);
   const [cwdSuggestionsLoading, setCwdSuggestionsLoading] = React.useState(false);
   const [cwdPickerOpen, setCwdPickerOpen] = React.useState(false);
   const [cwdActiveIndex, setCwdActiveIndex] = React.useState(0);
@@ -836,6 +862,14 @@ export function ChatPanel({
   }, [currentSessionId, cwdPickerOpen, selectedGatewayId, sendFrame, wsReady]);
 
   React.useEffect(() => {
+    if (currentSessionId) {
+      setRecentCwdSuggestions([]);
+      return;
+    }
+    setRecentCwdSuggestions(readRecentCwds(selectedGatewayId, selectedProvider));
+  }, [currentSessionId, selectedGatewayId, selectedProvider]);
+
+  React.useEffect(() => {
     if (currentSessionId || !wsReady || !selectedGatewayId || providerRequestKeyRef.current === selectedGatewayId) {
       return;
     }
@@ -917,6 +951,7 @@ export function ChatPanel({
     }
     pendingSessionProviderRef.current = selectedProvider;
     pendingSessionModelRef.current = selectedModel;
+    setRecentCwdSuggestions(rememberRecentCwd(selectedGatewayId, selectedProvider, cwd));
     sendFrame({
       type: 'client.chat',
       sessionId: null,
@@ -1161,6 +1196,8 @@ export function ChatPanel({
               }}
               onValueChange={setCwd}
               open={cwdPickerOpen}
+              recentSuggestions={recentCwdSuggestions}
+              recentTitle="最近使用"
               selectLabel={t.chatsCwdSelect}
               suggestions={cwdSuggestions}
               triggerLabel={t.chatsCwdShort}
