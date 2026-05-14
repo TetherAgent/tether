@@ -37,6 +37,7 @@
 | [2026-05-11-chat-runtime-raw-events.md](working/2026-05-11-chat-runtime-raw-events.md) | **Working** | Chat 链路新增 `gateway_runtime_chats_events` 和 `raw_json`，记录 delta 流、完整 rawjson、TODO 和验收项 |
 | [2026-05-11-chat-multi-client-realtime.md](working/2026-05-11-chat-multi-client-realtime.md) | **Working** | PC/手机多端同时打开同一 chat session 的实时广播、发送锁、TODO 和验收项 |
 | [2026-05-11-multi-device-gateway-routing.md](working/2026-05-11-multi-device-gateway-routing.md) | **Working** | 同一账号多电脑多 Gateway 的设备绑定、Gateway 选择、Relay 路由和防串设计 |
+| [2026-05-14-claude-hud-metrics.md](working/2026-05-14-claude-hud-metrics.md) | **Working** | Claude HUD 指标接入：Context、5 小时 Usage、Weekly 用量的 hook 数据源、协议字段、安全边界、TODO 和验收项 |
 
 ## 归档记录 (`archive/`)
 

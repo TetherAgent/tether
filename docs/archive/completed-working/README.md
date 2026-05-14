@@ -1,7 +1,7 @@
 # 已完成 Working 文档归档
 
 状态：Completed Archive  
-更新时间：2026-05-11
+更新时间：2026-05-14
 
 这些文档原位于 `docs/working/`。它们对应的讨论、迁移或修复主线已完成，不再作为当前工作草稿入口。
 
@@ -35,3 +35,10 @@
 | [2026-05-11-chat-remote-session-metadata.md](2026-05-11-chat-remote-session-metadata.md) | Chat 去本地 DB / Relay 补 metadata 方案 | Phase 15 已完成自动实现，人工 UAT 记录在 `.planning/phases/15-chat-remote-session-metadata/15-HUMAN-UAT.md` |
 | [2026-05-11-chat-session-title-ownership.md](2026-05-11-chat-session-title-ownership.md) | Chat title ownership / `title_source` 方案 | 已通过 quick fix 落地并有对应 summary |
 | [2026-05-11-pty-remote-event-store.md](2026-05-11-pty-remote-event-store.md) | PTY 远端事件存储边界方案 | 已明确为后续阶段边界，归档为历史拆分依据 |
+| [2026-05-12-cli-runtime-split.md](2026-05-12-cli-runtime-split.md) | CLI runtime 拆分方案与验收清单 | 用户确认已完成，归档为历史拆分记录 |
+| [2026-05-12-gateway-runtime-split.md](2026-05-12-gateway-runtime-split.md) | Gateway relay/chat/PTY runtime 拆分方案 | 用户确认已完成，归档为历史架构拆分记录 |
+| [2026-05-12-remove-local-sqlite.md](2026-05-12-remove-local-sqlite.md) | Gateway/CLI 去本地 SQLite 方案 | 用户确认已完成，归档为历史迁移记录 |
+| [2026-05-13-chat-provider-raw-json.md](2026-05-13-chat-provider-raw-json.md) | Provider 原始 JSON 落库方案 | 用户确认已完成，归档为历史数据留存方案 |
+| [2026-05-13-pty-runner-health-sync.md](2026-05-13-pty-runner-health-sync.md) | PTY runner 健康检查与远程状态同步方案 | 用户确认已完成，归档为历史同步方案 |
+| [2026-05-13-web-chat-terminal-layout.md](2026-05-13-web-chat-terminal-layout.md) | Web Chat / Terminal 统一布局重构方案 | 用户确认已完成，归档为历史布局重构记录 |
+| [2026-05-13-web-terminal-create-session.md](2026-05-13-web-terminal-create-session.md) | Web 创建 PTY session 方案 | 用户确认已完成，归档为历史创建链路方案 |

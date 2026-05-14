@@ -82,7 +82,6 @@ type RelayClientToServerFrame =
   | { type: 'client.subscribe'; sessionId: string; after?: number; tail?: number; mode: ClientMode }
   | { type: 'client.stop'; sessionId: string };
 
-const RELAY_URL_KEY = 'tether:relayUrl';
 const RELAY_SECRET_KEY = 'tether:relaySecret';
 
 function readConnectionSettings(): ConnectionSettings {
@@ -233,7 +232,6 @@ export function LegacySessionsPage() {
   const [connectionSettings, setConnectionSettings] = React.useState<ConnectionSettings>(readConnectionSettings);
 
   const updateConnectionSettings = React.useCallback((next: ConnectionSettings) => {
-    window.localStorage.setItem(RELAY_URL_KEY, next.relayUrl);
     window.localStorage.setItem(RELAY_SECRET_KEY, next.relaySecret);
     setConnectionSettings(next);
   }, []);
@@ -753,4 +751,3 @@ function SessionCard({
     </div>
   );
 }
-
