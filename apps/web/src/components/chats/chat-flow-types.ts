@@ -24,6 +24,7 @@ export type ChatStreamEvent =
       type: 'agent.delta';
       eventSeq: ChatEventSeq;
       turnId: ChatTurnId;
+      clientRequestId?: ChatClientRequestId;
       text: string;
       provider: string;
     }
@@ -31,6 +32,7 @@ export type ChatStreamEvent =
       type: 'agent.result';
       eventSeq: ChatEventSeq;
       turnId: ChatTurnId;
+      clientRequestId?: ChatClientRequestId;
       text: string;
       provider: string;
       usage?: Usage;

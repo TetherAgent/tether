@@ -105,6 +105,7 @@ export function applyChatStreamEvent(
         ...nextState,
         messages: upsertAgent(nextState.messages, {
           id: event.turnId,
+          clientRequestId: event.clientRequestId,
           provider: event.provider,
           textTransform: (text) => `${text}${event.text}`,
           isStreaming: true,
@@ -118,6 +119,7 @@ export function applyChatStreamEvent(
         ...nextState,
         messages: upsertAgent(nextState.messages, {
           id: event.turnId,
+          clientRequestId: event.clientRequestId,
           provider: event.provider,
           textTransform: () => event.text,
           isStreaming: false,
@@ -219,6 +221,7 @@ function upsertAgent(
   messages: MessageItem[],
   input: {
     id: string;
+    clientRequestId?: string;
     isLost: boolean;
     isStreaming: boolean;
     isWaiting: boolean;
@@ -227,12 +230,16 @@ function upsertAgent(
     usage?: Usage;
   }
 ): MessageItem[] {
-  const existingIndex = messages.findIndex((item) => item.kind === 'agent' && item.id === input.id);
+  const optimisticId = input.clientRequestId ? `agent-${input.clientRequestId}` : undefined;
+  const existingIndex = messages.findIndex((item) =>
+    item.kind === 'agent' && (item.id === input.id || (optimisticId !== undefined && item.id === optimisticId))
+  );
   if (existingIndex >= 0) {
     return messages.map((item, index) =>
       index === existingIndex && item.kind === 'agent'
         ? {
             ...item,
+            id: input.id,
             text: input.textTransform(item.text),
             isStreaming: input.isStreaming,
             isWaiting: input.isWaiting,

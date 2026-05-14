@@ -125,6 +125,7 @@ function eventPayloadToChatEvent(input: {
       type: 'agent.delta',
       eventSeq: input.eventSeq,
       turnId: input.turnId,
+      ...(input.clientRequestId ? { clientRequestId: input.clientRequestId } : {}),
       text: input.payload.text,
       provider: input.provider
     };
@@ -134,6 +135,7 @@ function eventPayloadToChatEvent(input: {
       type: 'agent.result',
       eventSeq: input.eventSeq,
       turnId: input.turnId,
+      ...(input.clientRequestId ? { clientRequestId: input.clientRequestId } : {}),
       text: input.payload.text,
       provider: input.provider,
       usage: parseUsage(input.payload.usage)

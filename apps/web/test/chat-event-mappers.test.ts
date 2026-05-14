@@ -45,10 +45,17 @@ test('mapRuntimeEventToChatEvent maps user and clientRequestId', () => {
 test('mapRelayFrameToChatEvent maps structured agent delta', () => {
   const event = mapRelayFrameToChatEvent({
     provider: 'claude',
-    frame: { type: 'agent.delta', sessionId: 's1', eventSeq: 11, turnId: 'turn-a', text: 'hi' }
+    frame: { type: 'agent.delta', sessionId: 's1', eventSeq: 11, turnId: 'turn-a', clientRequestId: 'req-a', text: 'hi' }
   });
 
-  assert.deepEqual(event, { type: 'agent.delta', eventSeq: 11, turnId: 'turn-a', text: 'hi', provider: 'claude' });
+  assert.deepEqual(event, {
+    type: 'agent.delta',
+    eventSeq: 11,
+    turnId: 'turn-a',
+    clientRequestId: 'req-a',
+    text: 'hi',
+    provider: 'claude'
+  });
 });
 
 test('mapRelayFrameToChatEvent maps structured tool and permission events', () => {

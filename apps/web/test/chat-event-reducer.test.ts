@@ -25,8 +25,16 @@ function delta(eventSeq: number, turnId: string, text: string): ChatStreamEvent 
   return { type: 'agent.delta', eventSeq, turnId, text, provider: 'claude' };
 }
 
+function deltaForRequest(eventSeq: number, turnId: string, clientRequestId: string, text: string): ChatStreamEvent {
+  return { type: 'agent.delta', eventSeq, turnId, clientRequestId, text, provider: 'claude' };
+}
+
 function result(eventSeq: number, turnId: string, text: string): ChatStreamEvent {
   return { type: 'agent.result', eventSeq, turnId, text, provider: 'claude' };
+}
+
+function resultForRequest(eventSeq: number, turnId: string, clientRequestId: string, text: string): ChatStreamEvent {
+  return { type: 'agent.result', eventSeq, turnId, clientRequestId, text, provider: 'claude' };
 }
 
 function tool(eventSeq: number, turnId: string, name: string): ChatStreamEvent {
@@ -192,6 +200,50 @@ test('provider 只返回 result 时，直接生成 completed assistant', () => {
   assert.deepEqual(agentTexts(state), ['final only']);
   assert.equal(lastAgent(state).isStreaming, false);
   assert.equal(state.completedTurnIds.has('turn-a'), true);
+});
+
+test('agent.delta 带 clientRequestId 时绑定 optimistic waiting assistant', () => {
+  let state = createChatEventReducerState([
+    { kind: 'user', id: 'user-req-a', content: 'hello', ts: 100 },
+    {
+      kind: 'agent',
+      id: 'agent-req-a',
+      text: '',
+      isStreaming: false,
+      isWaiting: true,
+      isLost: false,
+      provider: 'claude'
+    }
+  ]);
+
+  state = applyChatStreamEvent(state, deltaForRequest(1, 'turn-a', 'req-a', 'hi'));
+
+  assert.deepEqual(agentTexts(state), ['hi']);
+  assert.equal(lastAgent(state).id, 'turn-a');
+  assert.equal(lastAgent(state).isWaiting, false);
+  assert.equal(state.messages.filter((item) => item.kind === 'agent').length, 1);
+});
+
+test('agent.result 带 clientRequestId 时关闭 optimistic waiting assistant，不新增第二个 assistant', () => {
+  let state = createChatEventReducerState([
+    { kind: 'user', id: 'user-req-a', content: 'hello', ts: 100 },
+    {
+      kind: 'agent',
+      id: 'agent-req-a',
+      text: '',
+      isStreaming: false,
+      isWaiting: true,
+      isLost: false,
+      provider: 'claude'
+    }
+  ]);
+
+  state = applyChatStreamEvent(state, resultForRequest(1, 'turn-a', 'req-a', 'final only'));
+
+  assert.deepEqual(agentTexts(state), ['final only']);
+  assert.equal(lastAgent(state).id, 'turn-a');
+  assert.equal(lastAgent(state).isWaiting, false);
+  assert.equal(state.messages.filter((item) => item.kind === 'agent').length, 1);
 });
 
 test('result 先到，旧 delta 后到：旧 delta 不污染最终文本', () => {

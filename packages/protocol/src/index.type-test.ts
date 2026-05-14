@@ -46,6 +46,25 @@ const legacyDeltaFrame: RelayServerToClientFrame = {
   eventId: 11
 };
 
+const structuredDeltaFrame: RelayServerToClientFrame = {
+  type: 'agent.delta',
+  sessionId: 'session-1',
+  text: 'partial',
+  eventSeq: 11,
+  turnId: 'turn-1',
+  clientRequestId: 'request-1'
+};
+
+const structuredResultFrame: RelayServerToClientFrame = {
+  type: 'agent.result',
+  sessionId: 'session-1',
+  text: 'done',
+  usage: { input_tokens: 1, output_tokens: 2 },
+  eventSeq: 12,
+  turnId: 'turn-1',
+  clientRequestId: 'request-1'
+};
+
 const historyResponse: ChatMessagesResponseDto = {
   snapshotEventSeq: 12,
   lastEventId: 12,
@@ -79,6 +98,8 @@ void [
   subscriptionAckFrame,
   structuredUserFrame,
   legacyDeltaFrame,
+  structuredDeltaFrame,
+  structuredResultFrame,
   historyResponse,
   catchupResponse
 ];

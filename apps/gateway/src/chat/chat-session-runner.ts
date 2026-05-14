@@ -401,7 +401,7 @@ class CliChatRunner implements IChatRunner {
         const deltaEvent = this.createSequencedChatEvent(sessionId, active.turnId, 'agent.delta', {
           text,
           ...(providerRaw !== undefined ? { providerRaw } : {})
-        });
+        }, active.clientRequestId);
         this.options.onDelta({ clientId: active.clientId, sessionId, event: deltaEvent, text, providerRaw });
       },
       result: (text, usage, opts) => {
@@ -448,7 +448,7 @@ class CliChatRunner implements IChatRunner {
       usage,
       ...(stopReason ? { stop_reason: stopReason } : {}),
       ...(providerRaw !== undefined ? { providerRaw } : {})
-    });
+    }, active.clientRequestId);
     this.emitAgentSessionId(sessionId, active, agentSessionId);
     this.options.onResult({
       clientId: active.clientId,

@@ -243,6 +243,9 @@ Chat 消息必须以结构化事件为事实源。Web 侧只能按 `clientReques
   和 Gateway echo 的 `user.message` 对齐。
 - 当前 Web 生产路径只消费结构化事件：`user.message`、`agent.delta`、
   `agent.result`、`agent.tool`、`agent.permission_request`、`session.error`。
+- `agent.delta` / `agent.result` 可以携带同一个 `clientRequestId`，作为
+  `user.message` 乱序或延迟时绑定 optimistic waiting assistant 的兜底；主路径仍以
+  `user.message(clientRequestId, turnId, eventSeq)` 确认 turn。
 
 ### Create Flow
 

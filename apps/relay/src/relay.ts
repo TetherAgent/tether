@@ -461,9 +461,6 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           break;
         }
         if (frame.event.type === 'user.message') {
-          const sourceClientId = typeof frame.event.payload.clientId === 'string'
-            ? frame.event.payload.clientId
-            : undefined;
           const synced = await syncToServer('/api/relay/runtime-sync/gateway/event', {
             gatewayId: frame.gatewayId,
             event: frame.event,
@@ -484,7 +481,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             ...(typeof frame.event.eventSeq === 'number' ? { eventSeq: frame.event.eventSeq } : {}),
             ...(typeof frame.event.turnId === 'string' ? { turnId: frame.event.turnId } : {}),
             ...(typeof frame.event.clientRequestId === 'string' ? { clientRequestId: frame.event.clientRequestId } : {})
-          }, sourceClientId);
+          });
           break;
         }
         if (frame.event.type === 'agent.delta') {
@@ -506,7 +503,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             text: String(frame.event.payload.text ?? ''),
             ...(typeof frame.event.id === 'number' ? { eventId: frame.event.id } : {}),
             ...(typeof frame.event.eventSeq === 'number' ? { eventSeq: frame.event.eventSeq } : {}),
-            ...(typeof frame.event.turnId === 'string' ? { turnId: frame.event.turnId } : {})
+            ...(typeof frame.event.turnId === 'string' ? { turnId: frame.event.turnId } : {}),
+            ...(typeof frame.event.clientRequestId === 'string' ? { clientRequestId: frame.event.clientRequestId } : {})
           });
           break;
         }
@@ -553,7 +551,8 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
               ? { nextSuggestions: frame.event.payload.nextSuggestions.filter(isNextSuggestion) }
               : {}),
             ...(typeof frame.event.eventSeq === 'number' ? { eventSeq: frame.event.eventSeq } : {}),
-            ...(typeof frame.event.turnId === 'string' ? { turnId: frame.event.turnId } : {})
+            ...(typeof frame.event.turnId === 'string' ? { turnId: frame.event.turnId } : {}),
+            ...(typeof frame.event.clientRequestId === 'string' ? { clientRequestId: frame.event.clientRequestId } : {})
           });
           break;
         } else if (frame.event.type === 'agent.permission_request') {

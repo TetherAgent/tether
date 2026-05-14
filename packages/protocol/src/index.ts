@@ -224,8 +224,8 @@ export type RelayServerToClientFrame =
   | { type: 'gateway.session-created'; sessionId: string; clientRequestId?: string }
   | { type: 'gateway.local-terminal-opened'; clientRequestId: string; provider: 'shell' | 'claude' | 'codex' }
   | { type: 'user.message'; sessionId: string; text: string; eventId?: number; eventSeq?: number; turnId?: string; clientRequestId?: string }
-  | { type: 'agent.delta'; sessionId: string; text: string; eventId?: number; eventSeq?: number; turnId?: string }
-  | { type: 'agent.result'; sessionId: string; text: string; usage: { input_tokens: number; output_tokens: number; cost_usd?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }; stop_reason?: string; contextWindow?: number; contextInputTokens?: number; contextUsedPercentage?: number; rateLimitInfo?: RelayRateLimitInfo; nextSuggestions?: RelayNextSuggestion[]; eventSeq?: number; turnId?: string }
+  | { type: 'agent.delta'; sessionId: string; text: string; eventId?: number; eventSeq?: number; turnId?: string; clientRequestId?: string }
+  | { type: 'agent.result'; sessionId: string; text: string; usage: { input_tokens: number; output_tokens: number; cost_usd?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }; stop_reason?: string; contextWindow?: number; contextInputTokens?: number; contextUsedPercentage?: number; rateLimitInfo?: RelayRateLimitInfo; nextSuggestions?: RelayNextSuggestion[]; eventSeq?: number; turnId?: string; clientRequestId?: string }
   | { type: 'agent.tool'; sessionId: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean; eventSeq?: number; turnId?: string }
   | { type: 'agent.permission_request'; sessionId: string; requestId: string; toolName: string; input: Record<string, unknown>; eventSeq?: number; turnId?: string }
   | { type: 'gateway.chat-catchup'; sessionId: string; text: string; lastEventId?: number }

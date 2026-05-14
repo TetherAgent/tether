@@ -2607,7 +2607,7 @@ test('Phase17-T2: relay does not leak chat delta to another account', async () =
   }
 });
 
-test('Phase17-T8: relay broadcasts user.message to other chat subscribers only', async () => {
+test('Phase17-T8: relay broadcasts user.message to all chat subscribers including source client', async () => {
   const harness = await createPhase17RelayHarness();
   const gateway = await openPhase17Gateway(harness, 'a');
   const source = await openPhase17ClientWithId(harness, 'client-a1');
@@ -2622,21 +2622,29 @@ test('Phase17-T8: relay broadcasts user.message to other chat subscribers only',
     await subscribePhase17Chat(harness, source.client, sessionId);
     await subscribePhase17Chat(harness, peer.client, sessionId);
     const peerMessagePromise = waitForJson(peer.client, (message) => message.type === 'user.message');
+    const sourceMessagePromise = waitForJson(source.client, (message) => message.type === 'user.message');
     gateway.send(JSON.stringify({
       type: 'gateway.event',
       gatewayId: 'gateway-a',
       event: {
         id: 1708,
+        eventSeq: 1708,
+        turnId: 'turn-a',
+        clientRequestId: 'req-a',
         type: 'user.message',
         sessionId,
         payload: { clientId: source.clientId, message: 'hello from laptop' }
       }
     }));
-    const peerMessage = await peerMessagePromise;
+    const [peerMessage, sourceMessage] = await Promise.all([peerMessagePromise, sourceMessagePromise]);
     assert.equal(peerMessage.text, 'hello from laptop');
     assert.equal(peerMessage.eventId, 1708);
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    assert.equal(sourceUserMessages.length, 0);
+    assert.equal(peerMessage.clientRequestId, 'req-a');
+    assert.equal(sourceMessage.text, 'hello from laptop');
+    assert.equal(sourceMessage.eventSeq, 1708);
+    assert.equal(sourceMessage.turnId, 'turn-a');
+    assert.equal(sourceMessage.clientRequestId, 'req-a');
+    assert.equal(sourceUserMessages.length, 1);
   } finally {
     gateway.close();
     source.client.close();
