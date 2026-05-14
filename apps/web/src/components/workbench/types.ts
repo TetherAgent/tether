@@ -1,4 +1,4 @@
-import type { ChatSessionRecord } from '../chats/chat-data.js';
+import type { ChatSessionRecord } from '../chats/data/chat-data.js';
 
 export type WorkbenchSidebarTab = 'chats' | 'terminal';
 

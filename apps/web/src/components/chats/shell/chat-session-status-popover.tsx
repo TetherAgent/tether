@@ -10,8 +10,8 @@ import {
   SelectTrigger,
   SelectValue
 } from '@tether/design';
-import type { UsageStats } from './chat-types.js';
-import { compactPathLabel } from './chat-utils.js';
+import type { UsageStats } from '../model/chat-types.js';
+import { compactPathLabel } from '../model/chat-utils.js';
 
 type ChatSessionStatusPopoverProps = {
   activeSessionProjectPath?: string;

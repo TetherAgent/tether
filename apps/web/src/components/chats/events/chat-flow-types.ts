@@ -1,5 +1,5 @@
-import type { ChatHistoryMessage } from './chat-data.js';
-import type { Usage } from './chat-types.js';
+import type { ChatHistoryMessage } from '../data/chat-data.js';
+import type { Usage } from '../model/chat-types.js';
 
 export type ChatEventSeq = number;
 export type ChatTurnId = string;

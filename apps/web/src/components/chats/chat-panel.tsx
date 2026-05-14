@@ -14,29 +14,29 @@ import { useI18n } from '../../hooks/use-i18n.js';
 import { rememberGatewayVersion } from '../../hooks/use-update-check.js';
 import { getStoredNormalAccessToken } from '../../lib/api.js';
 import { providerResumeCommand } from '../../lib/provider-resume-command.js';
-import { fetchChatEventsAfter, fetchChatMessages, fetchChatSessions, type ChatRuntimeEventResponse, type ChatSessionRecord, type ProviderOption } from './chat-data.js';
-import { applyChatStreamEvent, applyChatStreamEvents, historySnapshotToReducerState, type ChatStreamEvent } from './chat-event-reducer.js';
-import { mapRelayFrameToChatEvent, mapStructuredCatchupResponse } from './chat-event-mappers.js';
-import { createClientRequestId, createOptimisticTurn } from './chat-create-flow.js';
-import { bufferLiveEvent, createRestoreBuffer, drainBufferedEvents, type ChatRestoreBuffer } from './chat-restore-buffer.js';
-import { ChatHeader } from './chat-header.js';
-import { ChatComposer } from './chat-composer.js';
-import { ChatMessageList } from './chat-message-list.js';
-import { NewChatSurface } from './new-chat-surface.js';
+import { fetchChatEventsAfter, fetchChatMessages, fetchChatSessions, type ChatRuntimeEventResponse, type ChatSessionRecord, type ProviderOption } from './data/chat-data.js';
+import { applyChatStreamEvent, applyChatStreamEvents, historySnapshotToReducerState, type ChatStreamEvent } from './events/chat-event-reducer.js';
+import { mapRelayFrameToChatEvent, mapStructuredCatchupResponse } from './events/chat-event-mappers.js';
+import { createClientRequestId, createOptimisticTurn } from './flow/chat-create-flow.js';
+import { bufferLiveEvent, createRestoreBuffer, drainBufferedEvents, type ChatRestoreBuffer } from './flow/chat-restore-buffer.js';
+import { ChatHeader } from './shell/chat-header.js';
+import { ChatComposer } from './composer/chat-composer.js';
+import { ChatMessageList } from './shell/chat-message-list.js';
+import { NewChatSurface } from './shell/new-chat-surface.js';
 import { type RelayFrame, useRelayClient } from '../relay/use-relay-client.js';
 import { ComposerSubmitButton } from '../workbench/composer-submit-button.js';
 import { PathPicker } from '../workbench/path-picker.js';
 import { WorkbenchCompactConnectionStatus } from '../workbench/workbench-status-pill.js';
-import { GatewaySelector } from './gateway-selector.js';
-import { SlashCommandMenu } from './slash-command-menu.js';
-import { useSlashMenu } from './use-slash-menu.js';
-import type { HistoryUsage, MessageItem, UsageStats } from './chat-types.js';
+import { GatewaySelector } from './shell/gateway-selector.js';
+import { SlashCommandMenu } from './composer/slash-command-menu.js';
+import { useSlashMenu } from './composer/use-slash-menu.js';
+import type { HistoryUsage, MessageItem, UsageStats } from './model/chat-types.js';
 import {
   compactProjectPath,
   findLastAgentIndex,
   isProviderOption,
   usageStatsFromHistory
-} from './chat-utils.js';
+} from './model/chat-utils.js';
 
 const DEFAULT_PROVIDER_OPTIONS: ProviderOption[] = [
   { provider: 'claude', models: ['sonnet', 'opus', 'haiku'] }

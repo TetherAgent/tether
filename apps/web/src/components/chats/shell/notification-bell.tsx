@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Bell } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@tether/design';
-import { useI18n } from '../../hooks/use-i18n.js';
-import { useUpdateCheck } from '../../hooks/use-update-check.js';
+import { useI18n } from '../../../hooks/use-i18n.js';
+import { useUpdateCheck } from '../../../hooks/use-update-check.js';
 
 type NotificationBellProps = {
   gatewayNamesById?: Record<string, string>;

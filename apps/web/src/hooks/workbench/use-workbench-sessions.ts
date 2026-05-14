@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createHttpClient } from '@tether/http';
 import { getStoredNormalAccessToken } from '../../lib/api.js';
-import { fetchChatSessions } from '../../components/chats/chat-data.js';
+import { fetchChatSessions } from '../../components/chats/data/chat-data.js';
 import type { WorkbenchSessionRecord, WorkbenchSidebarTab } from '../../components/workbench/types.js';
 
 async function fetchTerminalSessions(token?: string): Promise<WorkbenchSessionRecord[]> {

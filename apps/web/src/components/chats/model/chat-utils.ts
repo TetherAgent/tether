@@ -1,5 +1,5 @@
-import type { ChatHistoryMessage, ProviderOption } from './chat-data.js';
-import type { ChatNextSuggestion } from './messages/chat-bubble-agent.js';
+import type { ChatHistoryMessage, ProviderOption } from '../data/chat-data.js';
+import type { ChatNextSuggestion } from '../messages/chat-bubble-agent.js';
 import type { GatewayInfo, MessageItem, RelaySessionSummary, UsageStats } from './chat-types.js';
 
 export function isProviderOption(value: unknown): value is ProviderOption {

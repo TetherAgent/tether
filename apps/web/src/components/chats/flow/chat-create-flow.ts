@@ -1,4 +1,4 @@
-import type { MessageItem } from './chat-types.js';
+import type { MessageItem } from '../model/chat-types.js';
 
 export function createClientRequestId(now = Date.now()): string {
   return globalThis.crypto?.randomUUID?.() ?? `chat-${now}-${Math.random().toString(16).slice(2)}`;

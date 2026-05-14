@@ -2,8 +2,8 @@ import * as React from 'react';
 import {
   Textarea
 } from '@tether/design';
-import type { UsageStats } from './chat-types.js';
-import { ChatSessionStatusPopover } from './chat-session-status-popover.js';
+import type { UsageStats } from '../model/chat-types.js';
+import { ChatSessionStatusPopover } from '../shell/chat-session-status-popover.js';
 
 export function ChatComposer({
   activeSessionProjectPath,

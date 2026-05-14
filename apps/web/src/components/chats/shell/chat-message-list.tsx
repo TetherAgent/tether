@@ -1,10 +1,10 @@
 import * as React from 'react';
-import type { MessageItem } from './chat-types.js';
-import { ChatBubbleAgent } from './messages/chat-bubble-agent.js';
-import { ChatBubbleUser } from './messages/chat-bubble-user.js';
-import { PermissionPrompt } from './messages/permission-prompt.js';
-import { SystemMessage } from './messages/system-message.js';
-import { ToolCard } from './messages/tool-card.js';
+import type { MessageItem } from '../model/chat-types.js';
+import { ChatBubbleAgent } from '../messages/chat-bubble-agent.js';
+import { ChatBubbleUser } from '../messages/chat-bubble-user.js';
+import { PermissionPrompt } from '../messages/permission-prompt.js';
+import { SystemMessage } from '../messages/system-message.js';
+import { ToolCard } from '../messages/tool-card.js';
 
 export function ChatMessageList({
   lastAgentIndex,

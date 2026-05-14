@@ -1,6 +1,6 @@
-import type { ChatHistoryMessage } from './chat-data.js';
+import type { ChatHistoryMessage } from '../data/chat-data.js';
 import type { ChatReducerSnapshot, ChatStreamEvent } from './chat-flow-types.js';
-import type { MessageItem, Usage } from './chat-types.js';
+import type { MessageItem, Usage } from '../model/chat-types.js';
 
 export type { ChatStreamEvent } from './chat-flow-types.js';
 

@@ -1,7 +1,7 @@
-import type { ChatMessagesResponse, ChatRuntimeEventResponse } from './chat-data.js';
+import type { ChatMessagesResponse, ChatRuntimeEventResponse } from '../data/chat-data.js';
 import type { ChatClientFailure, ChatReducerSnapshot, ChatStreamEvent, LegacyChatCatchup } from './chat-flow-types.js';
-import type { RelayFrame } from '../relay/use-relay-client.js';
-import type { Usage } from './chat-types.js';
+import type { RelayFrame } from '../../relay/use-relay-client.js';
+import type { Usage } from '../model/chat-types.js';
 
 export function mapHistoryResponseToSnapshot(input: {
   response: ChatMessagesResponse;

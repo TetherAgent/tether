@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { HelpCircle, Menu, PanelLeftOpen } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { NotificationBell } from '../chats/notification-bell.js';
+import { NotificationBell } from '../chats/shell/notification-bell.js';
 import { useRelayClient } from '../relay/use-relay-client.js';
 
 type WorkbenchTopbarProps = {

@@ -11,7 +11,7 @@ import {
 import { PathPicker } from '../workbench/path-picker.js';
 import { ComposerSubmitButton } from '../workbench/composer-submit-button.js';
 import { useRelayClient, type RelayFrame, type RelaySessionSummary } from '../relay/use-relay-client.js';
-import { GatewaySelector } from '../chats/gateway-selector.js';
+import { GatewaySelector } from '../chats/shell/gateway-selector.js';
 import type { TerminalProviderId } from './terminal-command-shortcuts.js';
 
 type LaunchMode = 'background' | 'local-terminal';

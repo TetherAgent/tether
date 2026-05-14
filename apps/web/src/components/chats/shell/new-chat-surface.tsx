@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { WorkbenchTopbar } from '../workbench/workbench-topbar.js';
+import { WorkbenchTopbar } from '../../workbench/workbench-topbar.js';
 
 const HELP_HINT_STORAGE_KEY = 'tether:helpHintSeen';
 

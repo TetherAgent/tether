@@ -1,4 +1,4 @@
-import type { ChatStreamEvent } from './chat-event-reducer.js';
+import type { ChatStreamEvent } from '../events/chat-event-reducer.js';
 
 export type ChatRestoreBufferStatus = 'open' | 'drained';
 

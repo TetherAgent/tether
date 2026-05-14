@@ -2,8 +2,8 @@ import * as React from 'react';
 import * as ReactDOM from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
 import { Button } from '@tether/design';
-import { useI18n } from '../../hooks/use-i18n.js';
-import { gatewayAuthHeaders, readGatewayData } from '../../lib/api.js';
+import { useI18n } from '../../../hooks/use-i18n.js';
+import { gatewayAuthHeaders, readGatewayData } from '../../../lib/api.js';
 
 type GatewayInfo = {
   gatewayId: string;

@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Check, Copy } from 'lucide-react';
-import { WorkbenchStatusPill } from '../workbench/workbench-status-pill.js';
-import { WorkbenchTopbar } from '../workbench/workbench-topbar.js';
+import { WorkbenchStatusPill } from '../../workbench/workbench-status-pill.js';
+import { WorkbenchTopbar } from '../../workbench/workbench-topbar.js';
 
 export function ChatHeader({
   agentSessionId,

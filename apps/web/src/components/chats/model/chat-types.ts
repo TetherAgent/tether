@@ -1,5 +1,5 @@
-import type { ChatHistoryUsage, ChatUsage } from './chat-data.js';
-import type { ChatNextSuggestion } from './messages/chat-bubble-agent.js';
+import type { ChatHistoryUsage, ChatUsage } from '../data/chat-data.js';
+import type { ChatNextSuggestion } from '../messages/chat-bubble-agent.js';
 
 export type Usage = ChatUsage;
 export type HistoryUsage = ChatHistoryUsage;

@@ -5,8 +5,8 @@ import rehypeHighlight from 'rehype-highlight';
 import type { Components } from 'react-markdown';
 import { Check, Copy } from 'lucide-react';
 import { StreamingCursor } from './streaming-cursor.js';
-import { ResultCard } from '../result-card.js';
-import { ModelAvatar } from '../model-avatar.js';
+import { ResultCard } from './result-card.js';
+import { ModelAvatar } from './model-avatar.js';
 import { ThinkingDots } from './thinking-dots.js';
 import { DiscussionChoiceCards, parseDiscussionCards } from './discussion-choice-cards.js';
 
