@@ -567,18 +567,20 @@ export function ChatPanel({
         // Update usage stats (context % and rate limit)
         const resultContextWindow = typeof frame.contextWindow === 'number' ? frame.contextWindow : undefined;
         const resultUsage = frame.usage as { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | undefined;
-        if (resultContextWindow && resultUsage) {
-          // Prefer contextInputTokens (last agentic iteration's input) over cumulative totals which can exceed contextWindow
-          const totalTokens = typeof frame.contextInputTokens === 'number'
-            ? frame.contextInputTokens
-            : (resultUsage.input_tokens ?? 0) + (resultUsage.cache_read_input_tokens ?? 0) + (resultUsage.cache_creation_input_tokens ?? 0);
-          const contextPct = Math.min(100, Math.round((totalTokens / resultContextWindow) * 100));
-          const rateLimitInfo = frame.rateLimitInfo as {
-            resetsAt?: number;
-            rateLimitType?: string;
-            primary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
-            secondary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
-          } | undefined;
+        const rateLimitInfo = frame.rateLimitInfo as {
+          resetsAt?: number;
+          rateLimitType?: string;
+          primary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
+          secondary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
+        } | undefined;
+        const contextPct = typeof frame.contextUsedPercentage === 'number'
+          ? frame.contextUsedPercentage
+          : resultContextWindow && resultUsage
+            ? Math.min(100, Math.round(((typeof frame.contextInputTokens === 'number'
+                ? frame.contextInputTokens
+                : (resultUsage.input_tokens ?? 0) + (resultUsage.cache_read_input_tokens ?? 0) + (resultUsage.cache_creation_input_tokens ?? 0)) / resultContextWindow) * 100))
+            : undefined;
+        if (contextPct !== undefined || rateLimitInfo) {
           const stats = {
             contextPct,
             rateLimitResetsAt: rateLimitInfo?.resetsAt,

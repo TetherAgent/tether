@@ -9,6 +9,7 @@ import { nextEventId } from '../utils/events.js';
 import { providerEffectiveEnv, providerLaunchCommand } from '../utils/provider-env.js';
 import type { ChatEvent, ChatEventType } from '../types.js';
 import type { TrustedChatSessionMetadata } from '@tether/protocol';
+import type { ClaudeHudMetrics } from './claude-hud-metrics.js';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -55,6 +56,7 @@ export type ChatRunnerOptions = {
     contextWindow?: number;
     rateLimitInfo?: RateLimitInfo;
     contextInputTokens?: number;
+    contextUsedPercentage?: number;
     nextSuggestions?: NextSuggestion[];
     providerRaw?: unknown;
   }) => void;
@@ -76,6 +78,9 @@ export type ChatRunnerOptions = {
     event?: ChatEvent<{ code: string; message: string }>;
   }) => void;
   onAgentIdUpdate: (sessionId: string, agentSessionId: string) => void;
+  claudeHudMetrics?: {
+    waitForMetrics(sessionId: string, timeoutMs?: number): Promise<ClaudeHudMetrics | null>;
+  };
 };
 
 const CHAT_TITLE_MAX_LENGTH = 64;
@@ -233,6 +238,7 @@ type ActiveSubprocess = {
   rateLimitInfo?: RateLimitInfo;
   contextWindow?: number;
   contextInputTokens?: number;
+  contextUsedPercentage?: number;
   pendingPermissions: Map<string, (decision: 'allow' | 'deny') => void>;
 };
 
@@ -287,6 +293,9 @@ class CliChatRunner implements IChatRunner {
 
     logger.info('chat', 'session started', { sessionId, provider: this.adapter.provider });
     const env = providerEffectiveEnv(this.adapter.provider, cwd);
+    if (this.adapter.provider === 'claude') {
+      env.TETHER_SESSION_ID = sessionId;
+    }
     const launch = providerLaunchCommand(this.adapter.provider, this.adapter.command, args, env);
     const child = spawn(launch.command, launch.args, {
       cwd,
@@ -424,6 +433,15 @@ class CliChatRunner implements IChatRunner {
     if (this.adapter.afterTurn && !active.rateLimitInfo) {
       active.rateLimitInfo = await this.adapter.afterTurn(active.cwd).catch(() => null) ?? undefined;
     }
+    if (this.adapter.provider === 'claude' && this.options.claudeHudMetrics) {
+      const metrics = await this.options.claudeHudMetrics.waitForMetrics(sessionId).catch(() => null);
+      if (metrics?.contextUsedPercentage !== undefined) {
+        active.contextUsedPercentage = metrics.contextUsedPercentage;
+      }
+      if (metrics?.rateLimitInfo) {
+        active.rateLimitInfo = { ...active.rateLimitInfo, ...metrics.rateLimitInfo };
+      }
+    }
     const agentSessionId = active.agentSessionId ?? randomUUID();
     const lastDeltaEventId = active.nextDeltaId > 1 ? active.nextDeltaId - 1 : 0;
     const resultEvent = createChatEvent(sessionId, 'agent.result', {
@@ -444,6 +462,7 @@ class CliChatRunner implements IChatRunner {
       contextWindow: active.contextWindow,
       rateLimitInfo: active.rateLimitInfo,
       contextInputTokens: active.contextInputTokens,
+      contextUsedPercentage: active.contextUsedPercentage,
       nextSuggestions,
       providerRaw
     });

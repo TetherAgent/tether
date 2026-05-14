@@ -19,6 +19,7 @@ import { detectSelectOptions } from './pty/agent-select-detector.js';
 import { startRelayClient, type RunningRelayClient } from './relay-client.js';
 import { SessionRunnerClient } from './pty/session-runner-client.js';
 import { spawnSessionRunnerProcess } from './pty/session-runner-spawn.js';
+import { ClaudeHudMetricsStore } from './chat/claude-hud-metrics.js';
 import type { Session, SessionStatus } from './types.js';
 import { decodeGatewayToken, loadGatewayAuthState, type GatewayAuthState } from './utils/gateway-auth.js';
 import { resolvePackageVersion } from './utils/package-version.js';
@@ -131,6 +132,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   let relayClient: RunningRelayClient | undefined;
   let lastServerHeartbeatAt: number | undefined;
   let lastServerHeartbeatError: string | undefined;
+  const claudeHudMetrics = new ClaudeHudMetricsStore();
 
   const getRunnerClient = (session: Session): SessionRunnerClient | undefined => {
     if (!session.runnerSocketPath) {
@@ -253,6 +255,24 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     });
   });
 
+  app.post('/api/hook/claude/context', async (c) => {
+    if (!isLoopbackHost(options.host)) {
+      return c.text('not found', 404);
+    }
+    const raw = await c.req.text();
+    if (raw.length > 32_768) {
+      return c.json({ ok: false, error: 'payload_too_large' }, 413);
+    }
+    let payload: unknown;
+    try {
+      payload = raw ? JSON.parse(raw) : {};
+    } catch {
+      return c.json({ ok: false, error: 'invalid_json' }, 400);
+    }
+    const result = claudeHudMetrics.acceptHookPayload(payload);
+    return c.json({ ok: true, accepted: result.accepted });
+  });
+
   app.get('/assets/*', async (c) => {
     const assetPath = path.resolve(webDistDir, c.req.path.replace(/^\//, ''));
     if (!assetPath.startsWith(webDistDir)) {
@@ -331,6 +351,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       gatewayId,
       ptySessions: options.ptySessions,
       runnerClientForSession: getRunnerClient,
+      claudeHudMetrics,
       onNewPtySession: async ({ provider, cwd, cols, rows, launchMode, title, providerArgs }) => {
         if (!isProviderName(provider)) {
           throw new Error(`unsupported provider: ${provider}`);
@@ -475,4 +496,8 @@ function resolveProjectPath(cwd: string | undefined): string {
 
 function pathListIncludes(value: string | undefined, needle: string): boolean {
   return (value ?? '').split(path.delimiter).includes(needle);
+}
+
+function isLoopbackHost(host: string): boolean {
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1';
 }

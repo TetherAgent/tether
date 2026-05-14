@@ -19,6 +19,7 @@ import type { SessionRunnerClient } from './pty/session-runner-client.js';
 import type { Session, SessionEvent } from './types.js';
 import { decodeGatewayToken, loadGatewayAuthState } from './utils/gateway-auth.js';
 import { resolvePackageVersion } from './utils/package-version.js';
+import type { ClaudeHudMetricsStore } from './chat/claude-hud-metrics.js';
 
 const TETHER_VERSION = resolvePackageVersion(import.meta.url, ['@tether-labs/cli', '@tether/gateway']) ?? '0.0.0-dev';
 
@@ -34,6 +35,7 @@ export type RelayClientOptions = {
   heartbeatIntervalMs?: number;
   heartbeatTimeoutMs?: number;
   ptyHealthCheckIntervalMs?: number;
+  claudeHudMetrics?: ClaudeHudMetricsStore;
 };
 
 export type RunningRelayClient = {
@@ -111,7 +113,8 @@ export function startRelayClient(options: RelayClientOptions): RunningRelayClien
     gatewayId: () => effectiveGatewayId,
     chatRegistry,
     relaySender,
-    sendSessions: () => sendSessions()
+    sendSessions: () => sendSessions(),
+    claudeHudMetrics: options.claudeHudMetrics
   });
 
   const setConnectionState = (state: RelayConnectionStatus['state']) => {

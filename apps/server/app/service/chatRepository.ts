@@ -26,11 +26,14 @@ export type ChatMessageRecord = {
     cache_creation_input_tokens?: number;
     contextWindow?: number;
     contextInputTokens?: number;
+    contextUsedPercentage?: number;
     rateLimitInfo?: {
       resetsAt?: number;
       rateLimitType?: string;
+      status?: string;
       primary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
       secondary?: { usedPercent: number; windowMinutes?: number; resetsAt?: number };
+      planType?: string;
     };
   };
   createdAt: string;

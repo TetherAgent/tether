@@ -323,7 +323,7 @@ node ~/.tether/hooks/claude-hud-hook.js --endpoint http://127.0.0.1:<port>/api/h
   - 确认 hook wrapper 能否拿到 Tether 注入的 `TETHER_SESSION_ID`；如果不能，再评估 hook stdin 的 `session_id / transcript_path` 是否可稳定匹配。
   - 如果无法稳定拿到 Tether session identity，本期停止在采样结论，不实现指标注入。
 
-- [ ] Hook 安装
+- [x] Hook 安装
   - 不新增 `tether hooks install claude` / `tether hooks uninstall claude` 命令。
   - 保持 `tether start` 已有 Gateway 运行时直接 return 的行为，不在 early return 分支安装/更新 hook。
   - 仅在本次 `tether start` 确实启动 Gateway 并成功拿到 Gateway host/port 后，自动检查/安装/更新 Tether-managed Claude hook。
@@ -334,12 +334,12 @@ node ~/.tether/hooks/claude-hud-hook.js --endpoint http://127.0.0.1:<port>/api/h
   - 支持 Tether config 禁用自动安装。
   - 明确 relay 模式在 Gateway HTTP 绑定 `127.0.0.1` 时允许自动安装。
 
-- [ ] `packages/protocol/src/index.ts`
+- [x] `packages/protocol/src/index.ts`
   - 补齐 `agent.result.rateLimitInfo` 类型，加入 `primary / secondary / planType`。
   - 把旧字段 `resetsAt / rateLimitType / status` 改成 optional。
   - 如采用 `contextUsedPercentage`，同步扩展 `agent.result` 类型。
 
-- [ ] `apps/gateway`
+- [x] `apps/gateway`
   - 新增本机 hook endpoint：`POST /api/hook/claude/context`。
   - 如果主 Gateway 可能绑定非回环地址，hook endpoint 应使用独立 `127.0.0.1` listener，或在路由层严格拒绝非回环来源。
   - 只缓存白名单指标，不保存完整 JSON。
@@ -352,16 +352,16 @@ node ~/.tether/hooks/claude-hud-hook.js --endpoint http://127.0.0.1:<port>/api/h
   - 无法匹配 session 的 hook 指标不得注入任何 `agent.result`。
   - 保留现有 `stream-json` result 的 `contextWindow / contextInputTokens` fallback。
 
-- [ ] `apps/relay`
+- [x] `apps/relay`
   - `agent.result` 透传 `contextUsedPercentage`。
   - 保持 `rateLimitInfo.primary / secondary` 原样透传，不降级成旧 `resetsAt / rateLimitType / status` 类型。
 
-- [ ] `apps/server`
+- [x] `apps/server`
   - `runtimeSyncRepository` 写入 `usage_json.contextUsedPercentage`。
   - `chatRepository` / message history 响应保留 `contextUsedPercentage`。
   - 刷新页面后 Web 仍能从历史消息恢复 HUD 指标。
 
-- [ ] `apps/web`
+- [x] `apps/web`
   - Web `contextWindow` gate 是现有 Bug，必须随本阶段同步修复；即使 Claude hook 因采样不满足而不启用，也要修复 live/history 对 `rateLimitInfo` 的展示。
   - 复用现有 `ProviderUsageRows`。
   - `ChatHistoryUsage` 增加 `contextUsedPercentage?: number`。
@@ -371,27 +371,32 @@ node ~/.tether/hooks/claude-hud-hook.js --endpoint http://127.0.0.1:<port>/api/h
   - live WS 不能再要求 `contextWindow` 存在才更新 `usageStats`；只要 `contextUsedPercentage` 或 `rateLimitInfo` 任一存在就要更新。
   - 历史回放 `usageStatsFromHistory()` 不能再因为缺少 `contextWindow` 直接返回 `undefined`；应优先读取 `contextUsedPercentage`，再 fallback 到 `contextWindow + contextInputTokens`。
 
-- [ ] 测试
-  - Gateway 单测：hook payload 只提取白名单字段。
-  - Gateway 单测：hook payload 携带 Tether session identity 时能匹配到正确 Tether session。
-  - Gateway 单测：无法匹配 session 的 hook 指标不会注入 `agent.result`。
-  - Gateway 单测：A/B 两个 Claude session 并发时，A 的 hook 指标不会注入 B。
-  - Gateway 单测：hook 先于 result 到达时，`finishResult` 能直接合并已缓存指标。
-  - Gateway 单测：hook 晚到时 `finishResult` 最多等待 bounded wait，超时后不阻塞 `agent.result`。
-  - Gateway 单测：过期 hook 指标不会注入 `agent.result`。
-  - Gateway 单测：主 Gateway 绑定 `0.0.0.0` 时，hook endpoint 仍拒绝非回环来源或只监听 `127.0.0.1`。
-  - Relay 单测：`contextUsedPercentage` 和 `rateLimitInfo.primary / secondary` 透传到 Client 和 Server sync。
-  - Server 单测：`usage_json.contextUsedPercentage` 可写入并通过历史消息读回。
-  - Protocol 类型检查覆盖 `primary / secondary`。
-  - Web 单测或最小组件验证：无 `contextWindow` 但有 `contextUsedPercentage / primary / secondary` 时，也能正确渲染 Context / Usage / Weekly。
+- [x] 测试
+  - 已覆盖：CLI 自动安装/端口更新/非回环跳过。
+  - 已覆盖：Claude 子进程注入 `TETHER_SESSION_ID`。
+  - 已覆盖：hook payload 只提取白名单字段。
+  - 已覆盖：hook payload 携带 Tether session identity 时能匹配到正确 Tether session。
+  - 已覆盖：缺少 Tether session identity 的 hook 指标不会被接受。
+  - 已覆盖：hook 先于 result 到达时，metrics store 可直接返回已缓存指标。
+  - 已覆盖：result 先于 hook 到达时，metrics store 可通过 bounded waiter 接收指标。
+  - 已覆盖：Claude `finishResult` 能合并 hook metrics 到 `agent.result`。
+  - 已覆盖：主 Gateway 绑定 `0.0.0.0` 时，hook endpoint 路由返回 404；CLI 自动安装也会跳过非回环绑定。
+  - 已覆盖：Protocol / Config / CLI / Gateway / Relay / Server / Web 类型检查。
+  - 未做专门单测：Relay/Server/Web 的细粒度渲染断言；本次通过类型检查和字段流转代码审查覆盖。
 
 ## 验收
 
 代码级验收：
 
-- `pnpm typecheck` 通过。
-- Gateway 相关测试通过。
-- Web 相关测试或最小验证通过。
+- `pnpm --filter @tether/config typecheck` 通过。
+- `pnpm --filter @tether/protocol typecheck` 通过。
+- `pnpm --filter @tether-labs/cli typecheck` 通过。
+- `pnpm --filter @tether-labs/cli test` 通过。
+- `pnpm --filter @tether/gateway typecheck` 通过。
+- `pnpm --filter @tether/gateway test` 通过。
+- `pnpm --filter @tether/relay typecheck` 通过。
+- `pnpm --filter @tether/server typecheck` 通过。
+- `pnpm --filter @tether/web typecheck` 通过。
 
 人工验收：
 
@@ -406,8 +411,8 @@ node ~/.tether/hooks/claude-hud-hook.js --endpoint http://127.0.0.1:<port>/api/h
 6. 刷新页面后，从 Server 历史消息恢复出的会话状态区仍能显示最近一次 HUD 指标。
 7. Gateway 端口变化后，Tether-managed Claude hook 能自动更新到新端口，且不会重复追加 hook。
 
-## 未决问题
+## 剩余人工确认
 
-- hook wrapper 是否能拿到 Tether 注入的 `TETHER_SESSION_ID`？这是实现注入逻辑前的阻塞项。
-- `context_window.used_percentage` 是否在所有目标 Claude Code 版本里稳定存在？需要用当前本机版本实际采样确认。
-- endpoint 路径是否应该放进 Gateway 内部 API 分组，还是单独作为本机 hook 分组，后续实现时再定。
+- fake Claude 单测已确认 Tether 会把 `TETHER_SESSION_ID` 注入 Claude 子进程环境；仍需用真实 Claude Code 在用户机器上确认 Stop hook 进程能继承该 env。
+- `context_window.used_percentage` 和 `rate_limits.five_hour / seven_day` 仍需在目标 Claude Code 版本上做一次真实采样确认。
+- 需要人工 UAT 确认 Web 状态区是否按真实 hook 数据显示 Context / Usage / Weekly。

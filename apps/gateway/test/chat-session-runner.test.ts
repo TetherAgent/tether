@@ -28,7 +28,7 @@ function installFakeClaude(outputLines: Array<Record<string, unknown>>): { pathP
   const bin = path.join(dir, 'claude');
   writeFileSync(
     bin,
-    `#!/usr/bin/env node\nif (process.env.TETHER_FAKE_CLAUDE_ARGS_FILE) require('node:fs').writeFileSync(process.env.TETHER_FAKE_CLAUDE_ARGS_FILE, JSON.stringify(process.argv.slice(2)));\nfor (const line of ${JSON.stringify(outputLines)}) console.log(JSON.stringify(line));\n`,
+    `#!/usr/bin/env node\nif (process.env.TETHER_FAKE_CLAUDE_ARGS_FILE) require('node:fs').writeFileSync(process.env.TETHER_FAKE_CLAUDE_ARGS_FILE, JSON.stringify(process.argv.slice(2)));\nif (process.env.TETHER_FAKE_CLAUDE_ENV_FILE) require('node:fs').writeFileSync(process.env.TETHER_FAKE_CLAUDE_ENV_FILE, JSON.stringify({ TETHER_SESSION_ID: process.env.TETHER_SESSION_ID }));\nfor (const line of ${JSON.stringify(outputLines)}) console.log(JSON.stringify(line));\n`,
     'utf8'
   );
   chmodSync(bin, 0o755);
@@ -75,10 +75,13 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
     }
   ]);
   const argsFile = path.join(fakeClaude.pathPrefix, 'args.json');
+  const envFile = path.join(fakeClaude.pathPrefix, 'env.json');
   const previousPath = process.env.PATH;
   const previousArgsFile = process.env.TETHER_FAKE_CLAUDE_ARGS_FILE;
+  const previousEnvFile = process.env.TETHER_FAKE_CLAUDE_ENV_FILE;
   process.env.PATH = `${fakeClaude.pathPrefix}${path.delimiter}${previousPath ?? ''}`;
   process.env.TETHER_FAKE_CLAUDE_ARGS_FILE = argsFile;
+  process.env.TETHER_FAKE_CLAUDE_ENV_FILE = envFile;
   try {
     let createdSessionId = '';
     let createdProjectPath = '';
@@ -146,6 +149,7 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
     assert.equal(createdProjectPath, process.cwd());
     assert.equal(createdTitle, '帮我看一下这个登录问题');
     assert.equal(store.getSession(createdSessionId), undefined);
+    assert.deepEqual(JSON.parse(readFileSync(envFile, 'utf8')), { TETHER_SESSION_ID: createdSessionId });
     assert.deepEqual(chatEventTypes, ['user.message', 'agent.result']);
     assert.deepEqual(JSON.parse(readFileSync(argsFile, 'utf8')) as string[], [
       '-p',
@@ -163,6 +167,11 @@ test('chat runner parses Claude verbose stream assistant and result events', asy
       delete process.env.TETHER_FAKE_CLAUDE_ARGS_FILE;
     } else {
       process.env.TETHER_FAKE_CLAUDE_ARGS_FILE = previousArgsFile;
+    }
+    if (previousEnvFile === undefined) {
+      delete process.env.TETHER_FAKE_CLAUDE_ENV_FILE;
+    } else {
+      process.env.TETHER_FAKE_CLAUDE_ENV_FILE = previousEnvFile;
     }
     fakeClaude.cleanup();
     cleanupStore();
@@ -249,6 +258,78 @@ test('chat runner ignores non-fatal Codex stderr diagnostics', async () => {
       process.env.TETHER_FAKE_CODEX_ARGS_FILE = previousArgsFile;
     }
     fakeCodex.cleanup();
+    cleanupStore();
+  }
+});
+
+test('chat runner merges Claude HUD hook metrics into agent result', async () => {
+  const { store, cleanup: cleanupStore } = tempStore();
+  const fakeClaude = installFakeClaude([
+    {
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result: 'OK',
+      session_id: 'claude-session-1',
+      usage: { input_tokens: 3, output_tokens: 2 }
+    }
+  ]);
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${fakeClaude.pathPrefix}${path.delimiter}${previousPath ?? ''}`;
+  try {
+    let createdSessionId = '';
+    let resultContextUsedPercentage: number | undefined;
+    let resultPrimary: { usedPercent: number; windowMinutes?: number; resetsAt?: number } | undefined;
+    let resolveResult: (() => void) | undefined;
+    const resultPromise = new Promise<void>((resolve) => {
+      resolveResult = resolve;
+    });
+    const runner = new ChatSessionRunner({
+      gatewayId: () => 'gateway-test',
+      onSessionCreated: () => undefined,
+      onChatSessionCreated: (_clientId, metadata) => {
+        createdSessionId = metadata.id;
+      },
+      onUserMessage: () => undefined,
+      onDelta: () => undefined,
+      onResult: ({ contextUsedPercentage, rateLimitInfo }) => {
+        resultContextUsedPercentage = contextUsedPercentage;
+        resultPrimary = rateLimitInfo?.primary;
+        resolveResult?.();
+      },
+      onTool: () => undefined,
+      onPermissionRequest: () => undefined,
+      onError: () => undefined,
+      onAgentIdUpdate: () => undefined,
+      claudeHudMetrics: {
+        waitForMetrics: async (sessionId: string) => {
+          assert.equal(sessionId, createdSessionId);
+          return {
+            contextUsedPercentage: 51,
+            rateLimitInfo: {
+              primary: { usedPercent: 70, windowMinutes: 300, resetsAt: 1_800_000_000 }
+            }
+          };
+        }
+      }
+    });
+    await runner.run({
+      clientId: 'client-test',
+      sessionId: null,
+      provider: 'claude',
+      model: 'claude-sonnet-4-5',
+      cwd: '',
+      message: 'test',
+      accountId: 'acct-test',
+      userId: 'user-test'
+    });
+    await resultPromise;
+
+    assert.equal(resultContextUsedPercentage, 51);
+    assert.deepEqual(resultPrimary, { usedPercent: 70, windowMinutes: 300, resetsAt: 1_800_000_000 });
+  } finally {
+    process.env.PATH = previousPath;
+    fakeClaude.cleanup();
     cleanupStore();
   }
 });

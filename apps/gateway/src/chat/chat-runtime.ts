@@ -7,12 +7,14 @@ import {
   type IChatRunner
 } from './chat-session-runner.js';
 import type { RelaySender } from '../relay/relay-sender.js';
+import type { ClaudeHudMetricsStore } from './claude-hud-metrics.js';
 
 export type ChatRuntimeOptions = {
   gatewayId: () => string;
   chatRegistry: ChatSessionRegistry;
   relaySender: RelaySender;
   sendSessions: () => void | Promise<void>;
+  claudeHudMetrics?: ClaudeHudMetricsStore;
 };
 
 export class ChatRuntime {
@@ -23,6 +25,7 @@ export class ChatRuntime {
   constructor(private readonly options: ChatRuntimeOptions) {
     const runnerOptions: ChatRunnerOptions = {
       gatewayId: options.gatewayId,
+      claudeHudMetrics: options.claudeHudMetrics,
       onSessionCreated: (clientId, sessionId) => {
         options.relaySender.sessionCreated(clientId, sessionId);
         void options.sendSessions();
@@ -44,7 +47,7 @@ export class ChatRuntime {
           ...(providerRaw !== undefined ? { providerRaw } : {})
         });
       },
-      onResult: ({ clientId, sessionId, event, text, usage, stopReason, contextWindow, rateLimitInfo, contextInputTokens, nextSuggestions, providerRaw }) => {
+      onResult: ({ clientId, sessionId, event, text, usage, stopReason, contextWindow, rateLimitInfo, contextInputTokens, contextUsedPercentage, nextSuggestions, providerRaw }) => {
         options.chatRegistry.releaseInFlight(sessionId);
         this.sendChatEvent(event.id, sessionId, 'agent.result', {
           clientId,
@@ -54,6 +57,7 @@ export class ChatRuntime {
           ...(contextWindow !== undefined ? { contextWindow } : {}),
           ...(rateLimitInfo ? { rateLimitInfo } : {}),
           ...(contextInputTokens !== undefined ? { contextInputTokens } : {}),
+          ...(contextUsedPercentage !== undefined ? { contextUsedPercentage } : {}),
           ...(nextSuggestions && nextSuggestions.length > 0 ? { nextSuggestions } : {}),
           ...(providerRaw !== undefined ? { providerRaw } : {})
         });

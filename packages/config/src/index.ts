@@ -74,6 +74,9 @@ export type TetherConfig = {
     url?: string;
     secret?: string;
   };
+  claudeHook?: {
+    autoInstall?: boolean;
+  };
   providers?: Partial<Record<ProviderName, {
     command?: string;
   }>>;

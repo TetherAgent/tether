@@ -153,22 +153,31 @@ export function historySnapshotLooksOlder(currentItems: MessageItem[], snapshotI
 
 export function usageStatsFromHistory(messages: ChatHistoryMessage[]): UsageStats | undefined {
   const lastAssistant = messages.filter((message) => message.role === 'assistant').at(-1);
-  if (lastAssistant?.usageJson?.contextWindow == null) {
+  if (!lastAssistant?.usageJson) {
     return undefined;
   }
   const usage = lastAssistant.usageJson;
-  const contextWindow = usage.contextWindow!;
-  const totalTokens = usage.contextInputTokens !== undefined
-    ? usage.contextInputTokens
-    : (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
-  const contextPct = Math.min(100, Math.round((totalTokens / contextWindow) * 100));
+  const contextWindow = usage.contextWindow;
+  const contextPct = typeof usage.contextUsedPercentage === 'number'
+    ? usage.contextUsedPercentage
+    : typeof contextWindow === 'number' && contextWindow > 0
+      ? Math.min(100, Math.round(((usage.contextInputTokens !== undefined
+          ? usage.contextInputTokens
+          : (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0)) / contextWindow) * 100))
+      : undefined;
   const rateLimit = usage.rateLimitInfo;
-  const rateLimitStillValid = rateLimit?.resetsAt !== undefined && rateLimit.resetsAt * 1000 > Date.now();
+  const now = Date.now();
+  const rateLimitStillValid = rateLimit?.resetsAt !== undefined && rateLimit.resetsAt * 1000 > now;
+  const primaryStillValid = rateLimit?.primary?.resetsAt === undefined || rateLimit.primary.resetsAt * 1000 > now;
+  const secondaryStillValid = rateLimit?.secondary?.resetsAt === undefined || rateLimit.secondary.resetsAt * 1000 > now;
+  if (contextPct === undefined && !rateLimitStillValid && !rateLimit?.primary && !rateLimit?.secondary) {
+    return undefined;
+  }
   return {
     contextPct,
     rateLimitResetsAt: rateLimitStillValid ? rateLimit?.resetsAt : undefined,
     rateLimitType: rateLimitStillValid ? rateLimit?.rateLimitType : undefined,
-    primary: rateLimitStillValid ? rateLimit?.primary : undefined,
-    secondary: rateLimitStillValid ? rateLimit?.secondary : undefined
+    primary: primaryStillValid ? rateLimit?.primary : undefined,
+    secondary: secondaryStillValid ? rateLimit?.secondary : undefined
   };
 }

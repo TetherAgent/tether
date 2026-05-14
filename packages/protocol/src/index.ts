@@ -65,6 +65,21 @@ export type RelayNextSuggestion = {
   reason?: string;
 };
 
+export type RelayRateLimitWindow = {
+  usedPercent: number;
+  windowMinutes?: number;
+  resetsAt?: number;
+};
+
+export type RelayRateLimitInfo = {
+  resetsAt?: number;
+  rateLimitType?: string;
+  status?: string;
+  primary?: RelayRateLimitWindow;
+  secondary?: RelayRateLimitWindow;
+  planType?: string;
+};
+
 export type RelayGatewayToServerFrame =
   | { type: 'gateway.auth'; gatewayId: string; token?: string; secret?: string; scope?: RelayAuthScope; version?: string }
   | { type: 'gateway.sessions'; gatewayId: string; sessions: RelaySession[] }
@@ -160,7 +175,7 @@ export type RelayServerToClientFrame =
   | { type: 'gateway.local-terminal-opened'; clientRequestId: string; provider: 'shell' | 'claude' | 'codex' }
   | { type: 'user.message'; sessionId: string; text: string; eventId?: number }
   | { type: 'agent.delta'; sessionId: string; text: string; eventId?: number }
-  | { type: 'agent.result'; sessionId: string; text: string; usage: { input_tokens: number; output_tokens: number; cost_usd?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }; stop_reason?: string; contextWindow?: number; rateLimitInfo?: { resetsAt: number; rateLimitType: string; status: string }; nextSuggestions?: RelayNextSuggestion[] }
+  | { type: 'agent.result'; sessionId: string; text: string; usage: { input_tokens: number; output_tokens: number; cost_usd?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }; stop_reason?: string; contextWindow?: number; contextInputTokens?: number; contextUsedPercentage?: number; rateLimitInfo?: RelayRateLimitInfo; nextSuggestions?: RelayNextSuggestion[] }
   | { type: 'agent.tool'; sessionId: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean }
   | { type: 'agent.permission_request'; sessionId: string; requestId: string; toolName: string; input: Record<string, unknown> }
   | { type: 'gateway.chat-catchup'; sessionId: string; text: string; lastEventId?: number }

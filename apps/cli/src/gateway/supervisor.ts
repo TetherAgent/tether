@@ -23,6 +23,7 @@ import { readFreshGatewayAuthState } from '../auth/gateway-auth-store.js';
 import { isNodeError } from '../utils/errors.js';
 import { sleep } from '../utils/sleep.js';
 import { numberValue, stringValue } from '../utils/values.js';
+import { ensureClaudeHudHook } from './hooks.js';
 import { fetchFirstGatewayStatus, fetchGatewayStatusBody, waitForStartedGateway } from './probe.js';
 import { formatRelayConnectionState } from './status.js';
 import { gatewayApiUrl } from './urls.js';
@@ -75,6 +76,11 @@ export async function startGatewayBackground(): Promise<void> {
   if (profile === 'relay') {
     terminal.line('Relay 连接', formatRelayConnectionState(stringValue(gatewayStatus.relay?.state)));
   }
+  await ensureClaudeHudHook({
+    host: resolved.gateway.host,
+    port: resolved.gateway.port,
+    config: file
+  });
   terminal.success(`Gateway 已在后台启动：${status.path}`);
 }
 

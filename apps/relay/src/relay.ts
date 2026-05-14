@@ -5,6 +5,7 @@ import type {
   RelayClientToServerFrame,
   RelayClientMode,
   RelayGatewayToServerFrame,
+  RelayRateLimitInfo,
   RelayServerToClientFrame,
   RelayServerToGatewayFrame,
   RelaySession,
@@ -482,8 +483,14 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             ...(typeof frame.event.payload.contextWindow === 'number'
               ? { contextWindow: frame.event.payload.contextWindow }
               : {}),
+            ...(typeof frame.event.payload.contextInputTokens === 'number'
+              ? { contextInputTokens: frame.event.payload.contextInputTokens }
+              : {}),
+            ...(typeof frame.event.payload.contextUsedPercentage === 'number'
+              ? { contextUsedPercentage: frame.event.payload.contextUsedPercentage }
+              : {}),
             ...(frame.event.payload.rateLimitInfo && typeof frame.event.payload.rateLimitInfo === 'object'
-              ? { rateLimitInfo: frame.event.payload.rateLimitInfo as { resetsAt: number; rateLimitType: string; status: string } }
+              ? { rateLimitInfo: frame.event.payload.rateLimitInfo as RelayRateLimitInfo }
               : {}),
             ...(Array.isArray(frame.event.payload.nextSuggestions)
               ? { nextSuggestions: frame.event.payload.nextSuggestions.filter(isNextSuggestion) }
