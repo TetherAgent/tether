@@ -1,3 +1,8 @@
 export function StreamingCursor() {
-  return <span aria-hidden="true" className="streaming-cursor ml-0.5" />;
+  return (
+    <span className="streaming-status" role="status" aria-live="polite">
+      <span className="streaming-status-dot" aria-hidden="true" />
+      AI 思考中...
+    </span>
+  );
 }

@@ -1652,3 +1652,187 @@ test('Phase17-GW-T7: unsubscribed client cannot send permission_response', async
     await harness.close();
   }
 });
+
+// ─── Integration Chain Tests ────────────────────────────────────────────────
+
+type CodexGetCatchup = typeof CodexChatRunner.prototype.getCatchup;
+
+function patchCodexGetCatchup(getCatchup: CodexGetCatchup): () => void {
+  const original = CodexChatRunner.prototype.getCatchup;
+  CodexChatRunner.prototype.getCatchup = getCatchup;
+  return () => {
+    CodexChatRunner.prototype.getCatchup = original;
+  };
+}
+
+test('L2: gateway relay client clears subscriptions after reconnect — input returns not_subscribed', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = store.ptySessions;
+  const sessionId = createSessionId();
+  const fakeRelay = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  const port = await waitForWebSocketServerPort(fakeRelay);
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24,
+    owner: testOwner('gw_l2_reconnect')
+  });
+  const relayClient = startRelayClient({
+    url: `ws://127.0.0.1:${port}`,
+    secret: SECRET,
+    gatewayId: 'gw_l2_reconnect',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_l2_reconnect' },
+    ptySessions
+  });
+
+  try {
+    const socket1 = await waitForGatewaySocket(fakeRelay);
+    await waitForGatewayFrame(socket1, (f) => f.type === 'gateway.auth');
+    socket1.send(JSON.stringify({ type: 'gateway.auth.ok', gatewayId: 'gw_l2_reconnect' }));
+
+    // Subscribe relay_client_01 to the session
+    socket1.send(JSON.stringify({ type: 'client.subscribe', clientId: 'relay_client_01', sessionId, after: 0, mode: 'control' }));
+    await waitForGatewayFrame(socket1, (f) => f.type === 'gateway.replay' && f.clientId === 'relay_client_01');
+
+    // Buffer messages on the next socket before disconnecting
+    const socket2Frames: RelayGatewayToServerFrame[] = [];
+    const socket2Promise = new Promise<WebSocket>((resolve) => {
+      fakeRelay.once('connection', (sock) => {
+        sock.on('message', (raw) => {
+          socket2Frames.push(JSON.parse(raw.toString()) as RelayGatewayToServerFrame);
+        });
+        resolve(sock);
+      });
+    });
+
+    // Disconnect — gateway reconnects after ~1s
+    socket1.close();
+    const socket2 = await socket2Promise;
+
+    // Wait for gateway auth frame (might already be buffered)
+    await waitFor(() => socket2Frames.some((f) => f.type === 'gateway.auth'), 3000);
+    socket2.send(JSON.stringify({ type: 'gateway.auth.ok', gatewayId: 'gw_l2_reconnect' }));
+
+    // Subscription was cleared on disconnect — input should return not_subscribed
+    socket2.send(JSON.stringify({ type: 'client.input', clientId: 'relay_client_01', sessionId, data: 'test\r' }));
+    const error = await waitForGatewayFrame(socket2, (f) => f.type === 'gateway.error' && f.code === 'not_subscribed');
+    assert.equal(error.type, 'gateway.error');
+    assert.equal(error.code, 'not_subscribed');
+  } finally {
+    ptySessions.stop(sessionId);
+    await relayClient.close();
+    await closeWebSocketServer(fakeRelay);
+    cleanup();
+  }
+});
+
+test('L3: two subscribers both receive PTY terminal output — observe client sees control client input', async () => {
+  const { store, cleanup } = tempStore();
+  const ptySessions = store.ptySessions;
+  const sessionId = createSessionId();
+  const relay = await relayAuthServer({ gatewayId: 'gw_l3_multi' });
+  ptySessions.create({
+    id: sessionId,
+    provider: 'codex',
+    command: '/bin/cat',
+    projectPath: process.cwd(),
+    cols: 80,
+    rows: 24,
+    owner: testOwner('gw_l3_multi')
+  });
+  const relayClient = startRelayClient({
+    url: relay.url,
+    secret: SECRET,
+    gatewayId: 'gw_l3_multi',
+    token: 'gateway-token',
+    scope: { ...GATEWAY_SCOPE, gatewayId: 'gw_l3_multi' },
+    ptySessions
+  });
+  await waitForRelayClientConnected(relayClient);
+
+  const clientA = await connectRelayClient(relay.url);
+  const clientB = await connectRelayClient(relay.url);
+
+  try {
+    await waitForSessionList(clientA, sessionId);
+    await waitForSessionList(clientB, sessionId);
+
+    clientA.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control' }));
+    clientB.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'observe' }));
+    await Promise.all([
+      waitForFrame(clientA, (f) => f.type === 'replay.done' && f.sessionId === sessionId),
+      waitForFrame(clientB, (f) => f.type === 'replay.done' && f.sessionId === sessionId)
+    ]);
+
+    // Client A (control) writes; client B (observe) should also receive the echoed output
+    const aOutputPromise = waitForFrame(
+      clientA,
+      (f) => f.type === 'event' && f.event.type === 'terminal.output' &&
+        typeof f.event.payload.data === 'string' && f.event.payload.data.includes('l3-multi')
+    );
+    const bOutputPromise = waitForFrame(
+      clientB,
+      (f) => f.type === 'event' && f.event.type === 'terminal.output' &&
+        typeof f.event.payload.data === 'string' && f.event.payload.data.includes('l3-multi')
+    );
+
+    clientA.send(JSON.stringify({ type: 'client.input', sessionId, data: 'l3-multi\r' }));
+
+    const aOutput = await aOutputPromise;
+    const bOutput = await bOutputPromise;
+
+    assert.equal(aOutput.type, 'event');
+    assert.equal(bOutput.type, 'event');
+  } finally {
+    clientA.close();
+    clientB.close();
+    ptySessions.stop(sessionId);
+    await relayClient.close();
+    await relay.close();
+    cleanup();
+  }
+});
+
+test('L4: subscribing to an in-progress chat session delivers accumulated catchup text', async () => {
+  const sessionId = 'tth_l4_catchup';
+  const catchupText = 'partial agent response so far';
+  let runCount = 0;
+
+  const restoreRun = patchCodexRun(function () {
+    runCount += 1;
+    return new Promise<void>(() => {});
+  } as CodexRun);
+  const restoreGetCatchup = patchCodexGetCatchup(function (id: string) {
+    return id === sessionId ? catchupText : undefined;
+  } as CodexGetCatchup);
+
+  const harness = await startPhase17RelayClient();
+  try {
+    sendPhase17Chat(harness.gatewaySocket, 'client-a', sessionId, 'hello');
+    await waitFor(() => runCount === 1);
+
+    harness.gatewaySocket.send(JSON.stringify({
+      type: 'client.subscribe',
+      clientId: 'client-b',
+      sessionId,
+      after: 0,
+      mode: 'observe'
+    }));
+
+    const catchup = await waitForGatewayFrame(
+      harness.gatewaySocket,
+      (f) => f.type === 'gateway.chat-catchup' && f.sessionId === sessionId
+    );
+    assert.equal(catchup.type, 'gateway.chat-catchup');
+    assert.equal(catchup.text, catchupText);
+    assert.equal(catchup.clientId, 'client-b');
+  } finally {
+    restoreGetCatchup();
+    restoreRun();
+    await harness.close();
+  }
+});

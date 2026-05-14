@@ -283,13 +283,13 @@ async function attachPtySessionOnce(
   return result;
 }
 
-function closeReasonMessage(code: number, reason: string): string {
+export function closeReasonMessage(code: number, reason: string): string {
   if (reason) {
     return `WebSocket ${code} ${reason}`;
   }
   return `WebSocket ${code}`;
 }
 
-function isAttachAuthError(error: unknown): boolean {
+export function isAttachAuthError(error: unknown): boolean {
   return error instanceof Error && /relay auth failed/.test(error.message);
 }

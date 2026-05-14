@@ -272,7 +272,6 @@ export function ChatPanel({
     const token = normalAuth?.accessToken ?? getStoredNormalAccessToken();
     lastDeltaEventIdRef.current = 0;
     const { messages: historyMessages, lastEventId: historyLastEventId } = await fetchChatMessages(sessionId, token);
-    lastDeltaEventIdRef.current = historyLastEventId;
     const items = historyMessagesToItems(historyMessages, activeSessionProviderRef.current ?? 'agent');
     let nextAgentId: string | null = null;
     let nextIsInflight = false;
@@ -292,6 +291,7 @@ export function ChatPanel({
     if (opts?.protectNewerLocal && historySnapshotLooksOlder(messagesRef.current, items)) {
       return;
     }
+    lastDeltaEventIdRef.current = Math.max(lastDeltaEventIdRef.current, historyLastEventId);
     currentAgentIdRef.current = nextAgentId;
     setIsInflight(nextIsInflight);
     setUsageStats(usageStatsFromHistory(historyMessages));
@@ -354,7 +354,7 @@ export function ChatPanel({
       skipNextHistoryLoadSessionIdRef.current = null;
       return;
     }
-    void loadActiveSessionHistory(activeSessionId).catch(() => {
+    void loadActiveSessionHistory(activeSessionId, { protectNewerLocal: true }).catch(() => {
       setMessages([{ kind: 'system', id: 'history-error', text: t.chatsHistoryFail }]);
     });
   }, [activeSessionId, loadActiveSessionHistory, t.chatsHistoryFail]);
@@ -503,26 +503,22 @@ export function ChatPanel({
         setConnectionError(undefined);
         setSessionAccessError(undefined);
         const frameText = frame.text;
-        const fallbackAgentId = currentAgentIdRef.current ?? findLatestOpenAgentId(messagesRef.current);
-        if (fallbackAgentId) {
-          currentAgentIdRef.current = fallbackAgentId;
-        }
+        const agentId = currentAgentIdRef.current ?? findLatestOpenAgentId(messagesRef.current) ?? `agent-catchup-${Date.now()}`;
+        currentAgentIdRef.current = agentId;
+        setIsInflight(true);
         setMessages((items) => {
-          const existingId = currentAgentIdRef.current;
-          if (existingId) {
+          if (items.some((item) => item.kind === 'agent' && item.id === agentId)) {
             return items.map((item) =>
-              item.kind === 'agent' && item.id === existingId
+              item.kind === 'agent' && item.id === agentId
                 ? { ...item, text: frameText, isWaiting: false, isStreaming: true }
                 : item
             );
           }
-          const id = `agent-catchup-${Date.now()}`;
-          currentAgentIdRef.current = id;
           return [
             ...items,
             {
               kind: 'agent',
-              id,
+              id: agentId,
               text: frameText,
               isStreaming: true,
               isWaiting: false,
@@ -531,9 +527,6 @@ export function ChatPanel({
             }
           ];
         });
-        if (typeof frame.lastEventId === 'number' && frame.lastEventId > lastDeltaEventIdRef.current) {
-          lastDeltaEventIdRef.current = frame.lastEventId;
-        }
         return;
       }
       if (frame.type === 'user.message' && typeof frame.text === 'string') {

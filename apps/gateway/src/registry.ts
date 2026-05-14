@@ -12,7 +12,10 @@ export type GatewayRecord = {
   lastSeenAt: number;
 };
 
-const registryPath = path.join(os.homedir(), '.tether', 'gateways.json');
+function registryPath(): string {
+  return process.env.TETHER_REGISTRY_PATH ?? path.join(os.homedir(), '.tether', 'gateways.json');
+}
+
 const staleAfterMs = 30_000;
 
 export async function registerGateway(record: GatewayRecord): Promise<void> {
@@ -66,7 +69,7 @@ function isRecordLive(record: GatewayRecord): boolean {
 }
 
 async function readRegistry(): Promise<GatewayRecord[]> {
-  const text = await readFile(registryPath, 'utf8').catch(() => undefined);
+  const text = await readFile(registryPath(), 'utf8').catch(() => undefined);
   if (!text) {
     return [];
   }
@@ -78,11 +81,11 @@ async function readRegistry(): Promise<GatewayRecord[]> {
 }
 
 async function writeRegistry(records: GatewayRecord[]): Promise<void> {
-  const dir = path.dirname(registryPath);
+  const dir = path.dirname(registryPath());
   await mkdir(dir, { recursive: true });
   const tmpPath = path.join(dir, `.gateways.${process.pid}.${Date.now()}.tmp`);
   await writeFile(tmpPath, `${JSON.stringify(records, null, 2)}\n`);
-  await rename(tmpPath, registryPath);
+  await rename(tmpPath, registryPath());
 }
 
 function isGatewayRecord(value: unknown): value is GatewayRecord {

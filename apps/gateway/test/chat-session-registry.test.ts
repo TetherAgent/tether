@@ -12,6 +12,7 @@ function makeMetadata(overrides: Partial<TrustedChatSessionMetadata> = {}): Trus
     accountId: 'acct_1',
     userId: 'user_1',
     gatewayId: 'gw_1',
+    transport: 'chat' as const,
     agentSessionId: undefined,
     ...overrides
   };

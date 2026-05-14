@@ -189,19 +189,39 @@ if (
 
 ### 自动验证
 
-- [ ] 运行 Web 类型检查：
-
-```bash
-pnpm --filter @tether/web typecheck
-```
-
-- [ ] 如修改了 hook 或工具函数并新增测试，运行对应测试：
+- [x] 已新增 Web 单测入口：
 
 ```bash
 pnpm --filter @tether/web test
 ```
 
-如果当前 Web 包没有可用测试脚本，应在验收记录中明确说明。
+覆盖文件：
+
+- `apps/web/test/session-switch-guards.test.ts`
+- `apps/web/src/components/chats/session-switch-guards.ts`
+
+覆盖点：
+
+- stale history / metadata response 不应写入当前会话。
+- stale catch 分支不应覆盖当前会话。
+- 切换已有会话时应清理旧状态。
+- `pendingCreatedSessionIdRef` 不应清掉新建会话 optimistic 消息。
+- `skipNextHistoryLoadSessionIdRef` 不应清掉已创建会话的 optimistic 消息。
+- 左侧 session list 旧请求不应覆盖最新 tab / 最新请求。
+
+- [x] 运行 Web 类型检查：
+
+```bash
+pnpm --filter @tether/web typecheck
+```
+
+- [x] 如修改了 hook 或工具函数并新增测试，运行对应测试：
+
+```bash
+pnpm --filter @tether/web test
+```
+
+Web 包已新增 `test` 脚本，使用仓库现有的 `tsx --test` 风格。
 
 ### 手工验证
 
