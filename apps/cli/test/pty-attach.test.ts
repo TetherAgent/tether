@@ -10,7 +10,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 import {
   attachPtySession,
   closeReasonMessage,
-  isAttachAuthError
+  isAttachAuthError,
+  reconnectDelayMs
 } from '../src/attach/pty-attach.js';
 
 // ---------------------------------------------------------------------------
@@ -101,6 +102,13 @@ test('closeReasonMessage: non-empty reason → "WebSocket {code} {reason}"', () 
 
 test('closeReasonMessage: empty reason → "WebSocket {code}"', () => {
   assert.equal(closeReasonMessage(1000, ''), 'WebSocket 1000');
+});
+
+test('reconnectDelayMs: backs off by 500ms and caps at 5000ms', () => {
+  assert.equal(reconnectDelayMs(1), 500);
+  assert.equal(reconnectDelayMs(2), 1000);
+  assert.equal(reconnectDelayMs(10), 5000);
+  assert.equal(reconnectDelayMs(20), 5000);
 });
 
 // ---------------------------------------------------------------------------
@@ -300,6 +308,44 @@ test('attachPtySession: reconnect=false, WS closes unexpectedly → resolves det
       const result = await attachPtySession('sess_dc', { relayUrl, reconnect: false });
       // reconnect=false means on unexpected close we exit cleanly (returns 'detached')
       assert.equal(result, 'detached');
+    }
+  );
+});
+
+test('attachPtySession: reconnect=true carries latestEventId into next subscribe after reconnect', async () => {
+  const subscribeFrames: Array<Record<string, unknown>> = [];
+  let connectionCount = 0;
+
+  await withAttachEnv(
+    (ws) => {
+      connectionCount++;
+      ws.on('message', (raw) => {
+        const frame = JSON.parse(raw.toString()) as Record<string, unknown>;
+        if (frame.type === 'client.auth') {
+          ws.send(JSON.stringify({ type: 'client.auth.ok', clientId: `c${connectionCount}` }));
+          return;
+        }
+        if (frame.type === 'client.subscribe') {
+          subscribeFrames.push(frame);
+          if (connectionCount === 1) {
+            ws.send(JSON.stringify({ type: 'replay.output', sessionId: 'sess_reconnect', data: 'old', latestEventId: 7 }));
+            ws.close(1001, 'network restart');
+            return;
+          }
+          ws.send(JSON.stringify({
+            type: 'gateway.event',
+            event: { id: 8, type: 'session.exited', sessionId: 'sess_reconnect', ts: Date.now(), payload: {} }
+          }));
+        }
+      });
+    },
+    async (relayUrl) => {
+      const result = await attachPtySession('sess_reconnect', { relayUrl, reconnect: true });
+      assert.equal(result, 'exited');
+      assert.equal(connectionCount, 2);
+      assert.equal(subscribeFrames.length, 2);
+      assert.ok(!('after' in subscribeFrames[0]!), 'first subscribe should start from current cursor');
+      assert.equal(subscribeFrames[1]!.after, 7);
     }
   );
 });

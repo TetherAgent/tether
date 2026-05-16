@@ -5,7 +5,7 @@ import { Button } from '@tether/design';
 import { useI18n } from '../../../hooks/use-i18n.js';
 import { gatewayAuthHeaders, readGatewayData } from '../../../lib/api.js';
 
-type GatewayInfo = {
+export type GatewayInfo = {
   gatewayId: string;
   name: string;
   hostname?: string;
@@ -20,12 +20,27 @@ type GatewaySelectorProps = {
   readonly?: boolean;
 };
 
-function gatewayLabel(gateway: GatewayInfo): string {
+export function gatewayLabel(gateway: GatewayInfo): string {
   const name = gateway.name?.trim();
   if (name) return name;
   const hostname = gateway.hostname?.trim();
   if (hostname) return hostname;
   return gateway.gatewayId.slice(0, 8);
+}
+
+export function shouldAutoSelectGateway(input: {
+  onlineGateways: GatewayInfo[];
+  readonly: boolean;
+  selectedGatewayId: string | undefined;
+  visibleGateways: GatewayInfo[];
+}): GatewayInfo | undefined {
+  if (input.readonly || input.onlineGateways.length === 0) {
+    return undefined;
+  }
+  if (input.selectedGatewayId && input.visibleGateways.some((gateway) => gateway.gatewayId === input.selectedGatewayId)) {
+    return undefined;
+  }
+  return input.onlineGateways[0];
 }
 
 export function GatewaySelector({ selectedGatewayId, onSelect, onGatewayName, onlineGatewayIds, readonly = false }: GatewaySelectorProps) {
@@ -66,12 +81,13 @@ export function GatewaySelector({ selectedGatewayId, onSelect, onGatewayName, on
   );
 
   React.useEffect(() => {
-    if (
-      !readonly &&
-      onlineGateways.length > 0 &&
-      (!selectedGatewayId || !visibleGateways.some((gateway) => gateway.gatewayId === selectedGatewayId))
-    ) {
-      const first = onlineGateways[0]!;
+    const first = shouldAutoSelectGateway({
+      onlineGateways,
+      readonly,
+      selectedGatewayId,
+      visibleGateways
+    });
+    if (first) {
       onSelect(first.gatewayId, gatewayLabel(first));
     }
   }, [onSelect, onlineGateways, readonly, selectedGatewayId, visibleGateways]);

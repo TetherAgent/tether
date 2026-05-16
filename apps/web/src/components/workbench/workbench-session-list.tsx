@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Link } from 'react-router-dom';
 import type { RelaySessionSummary } from '../relay/use-relay-client.js';
-import { compactProjectPath, groupWorkbenchSessions, sessionDisplayTitle } from './session-utils.js';
+import { compactProjectPath, groupWorkbenchSessions, isWorkbenchSessionRunning, sessionDisplayTitle, workbenchSessionRoute } from './session-utils.js';
 import { WorkbenchSessionActions } from './workbench-session-actions.js';
 import type { WorkbenchSessionRecord, WorkbenchSidebarTab } from './types.js';
 
@@ -93,12 +93,13 @@ export function WorkbenchSessionList({
               const meta = `${session.provider || 'agent'} · ${compactProjectPath(session.projectPath ?? '')}`;
               const relaySession = relaySessionById.get(session.id);
               const status = relaySession?.status ?? session.status;
-              const gatewaySnapshotAvailable = gatewayIdsOnline.size > 0 && Boolean(session.gatewayId);
-              const gatewayOnline = session.gatewayId ? gatewayIdsOnline.has(session.gatewayId) : false;
-              const isRunning = status === 'running' && (
-                tab !== 'terminal' || !gatewaySnapshotAvailable || gatewayOnline
-              );
-              const to = tab === 'terminal' ? `/terminal/${encodeURIComponent(session.id)}` : `/chats/${session.id}`;
+              const isRunning = isWorkbenchSessionRunning({
+                gatewayId: session.gatewayId,
+                gatewayIdsOnline,
+                status,
+                tab
+              });
+              const to = workbenchSessionRoute(tab, session.id);
               const handleSelect = () => {
                 if (tab === 'terminal') {
                   onTerminalSelect?.(session.id);

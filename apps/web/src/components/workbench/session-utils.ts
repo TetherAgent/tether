@@ -1,4 +1,4 @@
-import type { WorkbenchSessionRecord, WorkbenchSessionGroup } from './types.js';
+import type { WorkbenchSessionRecord, WorkbenchSessionGroup, WorkbenchSidebarTab } from './types.js';
 
 export function compactProjectPath(projectPath: string): string {
   const value = projectPath.trim();
@@ -20,6 +20,23 @@ export function sessionDisplayTitle(session: WorkbenchSessionRecord): string {
   return session.title || (session.projectPath
     ? (session.projectPath.split('/').pop() ?? session.provider)
     : session.provider) || 'agent';
+}
+
+export function workbenchSessionRoute(tab: WorkbenchSidebarTab, sessionId: string): string {
+  return tab === 'terminal' ? `/terminal/${encodeURIComponent(sessionId)}` : `/chats/${sessionId}`;
+}
+
+export function isWorkbenchSessionRunning(input: {
+  gatewayIdsOnline: Set<string>;
+  gatewayId?: string;
+  status?: string;
+  tab: WorkbenchSidebarTab;
+}): boolean {
+  const gatewaySnapshotAvailable = input.gatewayIdsOnline.size > 0 && Boolean(input.gatewayId);
+  const gatewayOnline = input.gatewayId ? input.gatewayIdsOnline.has(input.gatewayId) : false;
+  return input.status === 'running' && (
+    input.tab !== 'terminal' || !gatewaySnapshotAvailable || gatewayOnline
+  );
 }
 
 export function groupWorkbenchSessions(

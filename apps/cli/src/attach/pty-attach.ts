@@ -65,7 +65,7 @@ export async function attachPtySession(
     }
 
     reconnectAttempt += 1;
-    const delayMs = Math.min(500 * reconnectAttempt, 5000);
+    const delayMs = reconnectDelayMs(reconnectAttempt);
     const reason = attempt.message ? `：${attempt.message}` : '';
     logger.warn('attach', 'disconnected, reconnecting', { sessionId: id, attempt: reconnectAttempt, error: attempt.message });
     console.error(`\nGateway 连接断开${reason}。${delayMs}ms 后自动重连；当前输入不会发送。按 Ctrl-C 停止 session，按 Ctrl-A 只退出本地 attach。`);
@@ -288,6 +288,10 @@ export function closeReasonMessage(code: number, reason: string): string {
     return `WebSocket ${code} ${reason}`;
   }
   return `WebSocket ${code}`;
+}
+
+export function reconnectDelayMs(attempt: number): number {
+  return Math.min(500 * attempt, 5000);
 }
 
 export function isAttachAuthError(error: unknown): boolean {
