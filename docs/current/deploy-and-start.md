@@ -3,6 +3,56 @@
 本文只记录当前有效的 Tether CLI 启动方式。旧的 Gateway 命名空间入口、provider
 快捷入口和零散 debug 命令已不再作为正式入口暴露。
 
+## 云服务器自动部署
+
+仓库通过 GitHub Actions 调用服务器上的 `deploy/deploy.sh` 完成部署。
+
+自动触发：
+
+```text
+push 到 main 分支后，自动在服务器执行：
+bash deploy/deploy.sh main all
+```
+
+手动触发：
+
+```text
+GitHub Actions -> Deploy -> Run workflow
+```
+
+手动触发时可以选择：
+
+```text
+all       部署 server + relay + web + admin
+backend   部署 server + relay
+web       部署 web + admin
+server    只部署 server
+relay     只部署 relay
+web-only  只部署 web
+admin     只部署 admin-web
+```
+
+GitHub 仓库需要配置这些 Actions secrets：
+
+```text
+SERVER_HOST         服务器 IP 或域名
+SERVER_USER         SSH 用户
+SERVER_SSH_KEY      SSH 私钥
+SERVER_PORT         SSH 端口
+SERVER_DEPLOY_PATH  服务器上的仓库目录，默认 /data/tether
+```
+
+服务器侧前置条件：
+
+```bash
+cd /data/tether
+git remote -v
+pnpm install
+bash deploy/deploy.sh main all
+```
+
+确认手动命令可用后，再启用 GitHub Actions 自动部署。
+
 ## 本机最短路径
 
 安装 CLI：
