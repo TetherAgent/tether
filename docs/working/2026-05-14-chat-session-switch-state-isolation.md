@@ -2,6 +2,16 @@
 
 日期：2026-05-14
 
+> 状态：已被后续 Restore flow 定案和实现取代。
+>
+> 本文保留为历史排查记录。当前规范以 `apps/web/CLAUDE.md` 的 Chat 时序规范和
+> `docs/working/2026-05-15-offline-gateway-session-navigation.md` 为准：
+> `activeSessionId` 切换后必须立即进入当前 session 的 restoring/loading/offline pending 状态，
+> Server snapshot/catch-up path 立即启动，不等待 `subscription.ack`；live subscribe 只负责
+> realtime ready。本文中关于 `lastDeltaEventIdRef`、`currentAgentIdRef`、
+> `historySnapshotLooksOlder()` 和 `gateway.chat-catchup` 的描述均为旧实现背景，不是当前实现
+> 或未来方案依据。
+
 ## 背景
 
 在 Web Chat 左侧会话列表中反复切换会话时，右侧详情区可能出现：

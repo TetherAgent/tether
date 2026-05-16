@@ -294,6 +294,44 @@ Chat 消息必须以结构化事件为事实源。Web 侧只能按 `clientReques
 之前的旧事件，必须由 reducer 的 `eventSeq` 去重丢弃；禁止在 `chat-panel.tsx` 手工
 append 这类 live/catch-up 消息。
 
+### 时序强校验要求
+
+Chat Create/Restore/Live/Catch-up 的时序属于强契约。以后任何修改只要触碰
+`eventSeq`、`turnId`、`clientRequestId`、`snapshotEventSeq`、restore attempt、
+restore buffer、`subscription.ack`、`chat-panel.tsx` 接线、Server `/messages` 或
+`/events?after=`，都必须同步更新能锁住时序的单元测试；不能只改实现或只改文档。
+
+必须保留或补齐以下测试线：
+
+- Web restore plan 必须证明进入 session 时 `load-snapshot` 先于 live subscribe，不等待
+  `subscription.ack`。
+- Web reducer/buffer 必须证明 snapshot、catch-up、buffered live 全部按 `eventSeq ASC`
+  合流，`eventSeq <= lastEventSeq` 被丢弃。
+- Web session guard 必须证明 A -> B、A -> B -> A 旧请求晚返回不会覆盖当前 attempt。
+- Server catch-up 必须证明 `after` 是非负整数水位，非法值返回错误或被测试明确拦截；
+  events 返回必须是全类型结构化事件，并按 `eventSeq ASC`。
+- Relay/Gateway 测试必须证明 live event 在持久化成功后再广播，不能重新引入
+  `gateway.chat-catchup` 作为新 Restore flow。
+
+如果未来有人想改掉这些测试断言，必须先确认是否有意改变 Chat 时序契约；不能把测试
+“改到通过”为止。
+
+### 未来本地缓存约束
+
+未来可以为 Web chat 做内存缓存或持久缓存，但缓存只能是 Restore 的加速层，不能成为
+事实源：
+
+- 缓存必须按 `sessionId` 隔离，不能跨 session 复用消息。
+- 缓存条目必须携带 `snapshotEventSeq` 或 `lastAppliedEventSeq`，并明确来源。
+- 切换 `activeSessionId` 时可以先用缓存显示当前 session 的只读临时内容，但仍必须立即
+  发 `/api/server/chat-sessions/:sessionId/messages`；缓存不能阻塞 Server snapshot。
+- 缓存不能推进 reducer 水位，除非它来自已验证 reducer state，并且后续仍要由 Server
+  snapshot/catch-up 校准。
+- Gateway 离线时可以展示当前 session 的缓存/历史和离线只读提示，禁止继续展示上一个
+  session 数据。
+- 缓存命中、Server snapshot、structured catch-up、live buffer 最终仍必须走同一个 reducer
+  和 `eventSeq` 去重规则。
+
 ### 文件职责
 
 - `events/chat-flow-types.ts`：Chat event、snapshot、restore attempt 等类型。

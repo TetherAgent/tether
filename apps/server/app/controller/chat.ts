@@ -13,6 +13,18 @@ function authScope(ctx: Controller['ctx']): { accountId: string; userId: string 
   };
 }
 
+export function parseEventSeqWatermark(raw: unknown): number | undefined {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (value === undefined || value === null || value === '') {
+    return 0;
+  }
+  const after = Number(value);
+  if (!Number.isSafeInteger(after) || after < 0) {
+    return undefined;
+  }
+  return after;
+}
+
 export default class ChatController extends Controller {
   public async sessions(): Promise<void> {
     const { ctx } = this;
@@ -41,7 +53,11 @@ export default class ChatController extends Controller {
       ctx.throw(400, 'sessionId is required');
       return;
     }
-    const after = Number(ctx.query['after'] ?? 0);
+    const after = parseEventSeqWatermark(ctx.query['after']);
+    if (after === undefined) {
+      ctx.throw(400, 'after must be a non-negative integer eventSeq');
+      return;
+    }
     const events = await ctx.service.chatEventsRepository.listClientEventsAfter(sessionId, after, { accountId, userId });
     ctx.success({ events });
   }

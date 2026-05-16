@@ -210,27 +210,34 @@ Chat 前端只保留两套核心流程：
 
 ### Restore flow
 
-Restore flow 采用“先订阅并 buffer，再加载 snapshot”。这样可以避免 `GET /messages` 与 subscribe 之间无法消除的竞态窗口。
+Restore flow 采用“Server snapshot/catch-up path 先行，live subscribe path 实时增强”。这是
+2026-05-15 离线 Gateway 切换问题后的修正版契约：进入、切换或重连 chat session 后，
+Web 必须立即拉 Server `/messages` 和 structured catch-up，不能等待
+`subscription.ack`。`subscription.ack` 只决定 live path 是否 ready，不决定能不能拉历史。
 
 ```text
 1. Web 准备进入已有 sessionId
 2. 如果当前已有旧 session subscription，先 release old subscription
 3. 创建 restoreAttemptId，并清空旧 buffer
-4. Web 先 subscribe(sessionId, after=0)，并等待 subscribe 已生效
-   - buffer 是 Web 本地行为：收到 live events 后先放入本地 buffer，不立即写 UI
+4. Web 立即 GET /messages，得到 messages + snapshotEventSeq
+5. Web 用 snapshot 初始化 reducer，lastEventSeq = snapshotEventSeq
+6. Web 拉 /chat-events?after=snapshotEventSeq 的结构化 catch-up events[]
+7. Web 同时或随后 subscribe(sessionId, after=0)
+   - buffer 是 Web 本地行为：snapshot/catch-up 完成前收到的 live events 先放入本地 buffer，不立即写 UI
    - Relay 不需要知道 buffer，也不负责缓存这段本地初始化窗口
-5. GET /messages，得到 messages + snapshotEventSeq
-6. Web 用 snapshot 初始化 reducer，lastEventSeq = snapshotEventSeq
-7. Web 拉 /chat-events?after=snapshotEventSeq 的结构化 catch-up events[]
+   - subscribe ack 只代表 live subscribe 已生效，不是 Server history path 的前置条件
 8. Web 把 catch-up events 与 buffered live events 一起按 eventSeq 排序后交给 reducer
 9. 后续 live events 继续走同一个 reducer
 ```
 
-兼容流程可以是“先 GET /messages，再 subscribe(after=snapshotEventSeq)”，但这要求 Relay 在 subscribe 时原子地做 catch-up + live 转发，否则仍可能漏掉窗口。实现上优先采用 Web 本地 buffer 流程：Web 拉 snapshot，也由 Web 拉 catch-up；Relay 只负责 live subscribe 转发。
+`subscribe(sessionId, after=0)` 是有意保留：它避免 live path 等待 Server snapshot
+返回后才启动。在线 Gateway 下可能收到 snapshot 水位之前的旧事件，必须由 reducer 的
+`eventSeq` 去重丢弃；禁止在 `chat-panel.tsx` 手工 append live/catch-up 消息。
 
 Restore flow 有三个硬约束：
 
-1. `subscribe` 必须有“已注册成功”的语义。Web 不能只把 subscribe frame 发出去就立刻认为 live buffer 已经覆盖窗口；`acquireSessionSubscription()` 要么等待 Relay ack，要么 Relay 必须在处理 subscribe frame 同步注册 client 后再处理同连接后续动作。
+1. `subscribe` 必须有“已注册成功”的语义，但这个语义只约束 live path。Web 不能把
+   ack 当成 `/messages` 或 `/chat-events?after=` 的前置条件。
 2. 目标方案里 Relay subscribe 不再做 blob catch-up。Relay subscribe 只负责 live 转发；结构化 catch-up 由 Web 调 Server `/chat-events?after=snapshotEventSeq` 完成。否则会出现 Relay blob catch-up 和 Web structured catch-up 两套恢复路径并存。
 3. Relay 到 Server 的 runtime event sync 必须有一致性策略。不能假设“Relay 已经把断线期间事件写入 Server”一定早于 Web 的 catch-up 请求。
 
@@ -326,7 +333,7 @@ if (frame.sessionId !== activeSessionId) drop
 | 场景 | 目标流程 | 目标行为 | 当前实现差距 | 结论 |
 | --- | --- | --- | --- | --- |
 | 新建 chat | Create flow | Web 生成 `clientRequestId`，创建 optimistic user + waiting assistant；Gateway echo `user.message(clientRequestId, turnId, eventSeq)` 后合并；delta/result 按 `turnId` 更新同一个 assistant。 | 当前 `sendMessage()` 没有为 chat 生成 `clientRequestId`，Gateway chat echo 也没有带回；Web 用本地 `currentAgentIdRef` 归位。 | 目标正确，但依赖 Wave 1/4。 |
-| 刷新进入已有 chat | Restore flow | 先 subscribe 并本地 buffer，再拉 `/messages` snapshot，使用 `snapshotEventSeq` 拉 structured catch-up，排序后交给 reducer。 | 当前先 load history，再用 `lastDeltaEventIdRef` 订阅；catch-up 是 blob，history 只有 `lastEventId`。 | 必须改成 Restore flow，是本次 loading 问题主线。 |
+| 刷新进入已有 chat | Restore flow | 进入 session 后立即拉 `/messages` snapshot，使用 `snapshotEventSeq` 拉 structured catch-up；live subscribe 同时或随后启动，ack 只管 realtime ready；catch-up 与 buffer 排序后交给 reducer。 | 旧实现曾先 load history，再用 `lastDeltaEventIdRef` 订阅；catch-up 是 blob，history 只有 `lastEventId`。当前实现已改为 Server-first Restore。 | 必须保持 Server-first Restore，是离线 Gateway 切换问题的核心防线。 |
 | 断线重连 | Restore flow | 重连等同重新进入当前 session：新建 `restoreAttemptId`，重新订阅、拉 snapshot、拉 catch-up、合并 buffered live。 | 当前 reconnect 只是重新 load metadata/history，并依赖 subscription 的 `after=lastDeltaEventIdRef.current`；缺少结构化 catch-up 和 attempt guard。 | 可以完整复用刷新逻辑，不需要单独重连状态机。 |
 | 左侧切换 session | Restore flow | release 旧订阅，清空旧 buffer，生成新 `restoreAttemptId`，走同一套 Restore；旧请求和旧 frame 必须被 guard 丢弃。 | 当前有 release subscription 和 `frame.sessionId` 检查，但 history 请求没有 `restoreAttemptId`，`A -> B -> A` 仍可能被旧 A 响应覆盖。 | 也应完整走 Restore flow，并补 attempt guard。 |
 | 直接打开旧 URL | Restore flow | 和刷新一致。 | 当前靠 `activeSessionId` effect 加载 history，再订阅。 | 归入 Restore flow。 |
@@ -1113,8 +1120,8 @@ shouldAcceptLiveFrame(frameSessionId, activeSessionId)
 - Relay 对 chat runtime event 采用 `sync-before-broadcast`，目标默认：Server sync ok 后再 broadcast Web。
 - Relay subscribe 不再生成 `gateway.chat-catchup` blob；旧 blob path 只保留为 legacy 兼容，不进入新 Restore flow。
 - Relay live frame 保留 `eventSeq/turnId/clientRequestId`，不能降级成 `eventId/text`。
-- Relay 对 subscribe 返回 ack，Web 收到 ack 后才开始 snapshot/catch-up。
-- Relay 测试必须覆盖：sync 失败不广播或进入明确错误路径；sync 成功后广播；subscribe ack 后才接收 live。
+- Relay 对 subscribe 返回 ack，Web 收到 ack 后只标记 live path ready；Server snapshot/catch-up 不能等 ack。
+- Relay 测试必须覆盖：sync 失败不广播或进入明确错误路径；sync 成功后广播；subscribe ack 只影响 live ready，不影响 Server history path。
 
 ### Wave 4：Server structured snapshot and catch-up
 
@@ -1131,7 +1138,7 @@ shouldAcceptLiveFrame(frameSessionId, activeSessionId)
 - 刷新进入旧 chat 走 Restore flow。
 - 左侧切换 session 走 Restore flow + guard。
 - 断线重连复用 Restore flow。
-- Restore flow 等 subscribe ack 后开始 snapshot/catch-up。
+- Restore flow 进入 session 后立即开始 Server snapshot/catch-up，不能等待 subscribe ack。
 - Web 本地 buffer 按 `restoreAttemptId` 隔离，超限进入 overflow diagnostics。
 - `chat-panel.tsx` 只负责 IO 连接和渲染，把 history/live/catch-up 都交给 reducer。
 
@@ -1255,9 +1262,10 @@ Wave 0 执行要求：
 
 | 编号 | 场景 |
 | --- | --- |
-| S1 | subscribe ack 在 5 秒内到达，Restore flow 继续 snapshot/catch-up |
-| S2 | subscribe ack 超时，当前 attempt failed，buffer 丢弃，显示可重试恢复失败 |
-| S3 | ack 超时后 WebSocket 重连成功，新 attempt 重新执行 Restore flow |
+| S1 | 进入 session 后即使没有 subscribe ack，也必须计划/触发 Server snapshot/catch-up |
+| S2 | subscribe ack 在 5 秒内到达，只标记 live path ready，不重复触发 snapshot/catch-up |
+| S3 | subscribe ack 超时，只影响 live path/realtime 状态；当前 session 已有 Server history 不能被清空 |
+| S4 | ack 超时后 WebSocket 重连成功，新 attempt 重新执行 Server-first Restore flow |
 
 ### `chat-restore-plan.test.ts`
 
@@ -1291,7 +1299,7 @@ Wave 0 目标：只补前端纯逻辑和单测，不接生产 UI，不改 Gatewa
 | --- | --- | --- |
 | [x] | `reconcileOptimisticTurn()` 必须同时更新 optimistic user 和 waiting agent 的临时身份，把二者绑定到真实 `turnId`。 | C5 单测：echo 到达后，后续 delta 只更新原 waiting assistant，不新增第二个 assistant。 |
 | [x] | `chat-restore-buffer.ts` 必须实现 `open -> drained` 单向状态切换；drain 后同 attempt 的 live event 不再进入 buffer。 | B11/B12 单测：drained buffer 返回 `rejectedEvent`，重复 drain 被拒绝或保持幂等，不乱序。 |
-| [x] | subscribe ack 必须有超时处理，默认 5 秒。超时后当前 attempt failed，buffer 丢弃，进入可重试恢复失败或触发重连。 | S1-S3 单测：ack 成功继续 restore；ack 超时失败；重连后新 attempt 重新 restore。 |
+| [x] | subscribe ack 必须有超时处理，默认 5 秒。ack 超时只影响 live path/realtime ready，不能阻塞或回滚 Server snapshot/catch-up。 | S1-S4 单测：无 ack 仍计划 snapshot；ack 成功不重复触发 history；ack 超时不清 Server history；重连后新 attempt 重新 restore。 |
 | [x] | `snapshotEventSeq` 的测试和图示必须明确水位来源：它是 derived messages 已覆盖的最大 session `eventSeq`，通常是上一条已派生 message 的 source eventSeq。 | reducer/server mapper 测试：snapshotEventSeq=103 时，`eventSeq <= 103` 被丢弃，`104+` 进入 catch-up。 |
 
 ### Wave 0 文件 TODO
@@ -1311,7 +1319,7 @@ Wave 0 目标：只补前端纯逻辑和单测，不接生产 UI，不改 Gatewa
 | [x] | 补 create flow 单测 C1-C8，必须覆盖同文本不同 request 不去重、`session_inflight` 回滚、echo 后 waiting agent 绑定真实 turnId | `apps/web/test/chat-create-flow.test.ts` |
 | [x] | 新增 restore plan：进入 session、切换 session、重连时生成可测试步骤 | `apps/web/src/components/chats/chat-restore-plan.ts` |
 | [x] | 补 restore plan 单测 P1-P6，必须覆盖 subscribe 初始 `after=0` 和 snapshot 后 catch-up `after=snapshotEventSeq` | `apps/web/test/chat-restore-plan.test.ts` |
-| [x] | 补 subscribe ack 超时测试 S1-S3，覆盖 5 秒超时、attempt failed、重连后新 attempt | `apps/web/test/chat-session-guards.test.ts` |
+| [x] | 补 subscribe ack / Server-first Restore 测试 S1-S4，覆盖无 ack 仍 snapshot、ack 只影响 live ready、ack 超时不清 Server history、重连后新 attempt | `apps/web/test/chat-session-guards.test.ts`、`apps/web/test/chat-restore-plan.test.ts` |
 | [x] | 如果当前已有 prototype 测试与新契约冲突，改成新契约测试，不保留靠巧合通过的断言 | `apps/web/test/chat-event-reducer.test.ts` |
 | [x] | 运行 Web 单测 | `pnpm --filter @tether/web test` |
 | [x] | 运行 Web typecheck | `pnpm --filter @tether/web typecheck` |
@@ -1332,7 +1340,7 @@ Wave 0 目标：只补前端纯逻辑和单测，不接生产 UI，不改 Gatewa
 - `createOptimisticTurn()` 生成的 user/agent 临时 ID 能被 `clientRequestId` 稳定查回，供 `reconcileOptimisticTurn()` 替换为真实 `turnId`。
 - Restore buffer drain 是单向切换：drain 后 buffer 进入 `drained`，后续 live event 走 immediate apply，不再进入 buffer。
 - drain 期间不会让新 live event 绕过排序提前进入 reducer。
-- subscribe ack 5 秒超时会终止当前 attempt，丢弃 buffer，并进入可重试恢复失败或触发重连。
+- subscribe ack 5 秒超时只影响 live path/realtime ready；Server snapshot/catch-up 仍按当前 attempt 独立完成，不能被 ack 缺失阻塞。
 - `snapshotEventSeq` 的语义在测试中固定为 derived messages 已覆盖的最大 session `eventSeq`，不是 `lastDeltaEventId`。
 
 代码级验收：
@@ -1385,7 +1393,7 @@ Wave 0 目标：只补前端纯逻辑和单测，不接生产 UI，不改 Gatewa
 | [x] | Server `/messages` 返回 `snapshotEventSeq`，history message 返回可选 `turnId/clientRequestId` | `apps/server/app/service/chatRepository.ts`、controller |
 | [x] | Server 派生 `gateway_chat_messages` 时保留 source event 的 turn 信息，供 completed history 建 gate | `apps/server/app/service/runtimeSyncRepository.ts` |
 | [x] | Web Wave 0 纯函数和完整单测落地 | `apps/web/src/components/chats/*`、`apps/web/test/*` |
-| [x] | Web 生产聊天入口接入 Restore flow：subscribe ack -> buffer -> snapshot -> structured catch-up -> reducer | `apps/web/src/components/chats/chat-panel.tsx` |
+| [x] | Web 生产聊天入口接入 Restore flow：Server snapshot/catch-up first；live subscribe/buffer 同时或随后增强；ack 不作为 history gate；最终通过 reducer 合流 | `apps/web/src/components/chats/chat-panel.tsx` |
 | [x] | Web 处理 Relay/Server 断线重启：snapshot/catch-up 失败不清空消息，显示 recovering/error，支持重试 | `apps/web/src/components/chats/chat-panel.tsx` |
 | [x] | Web Create flow 接入 `clientRequestId` optimistic 合并 | `apps/web/src/components/chats/chat-create-flow.ts`、`apps/web/src/components/chats/chat-panel.tsx` |
 | [x] | Web 删除旧启发式生产路径：`lastDeltaEventIdRef`、`currentAgentIdRef`、`historySnapshotLooksOlder()`、blob catch-up 写 streaming | `apps/web/src/components/chats/chat-panel.tsx` |
@@ -1405,7 +1413,7 @@ Wave 0 目标：只补前端纯逻辑和单测，不接生产 UI，不改 Gatewa
 - Server `/chat-events?after=` 返回结构化全类型 events，并按 `eventSeq ASC`。
 - Server `/messages` 返回真实 `snapshotEventSeq`，不是 `lastDeltaEventId`。
 - Web 刷新、断线重连、左侧切换、直接打开旧 URL、登录恢复都走同一套 Restore flow。
-- Web Restore flow 等 subscribe ack 后再 snapshot/catch-up。
+- Web Restore flow 必须在进入 session 后立即启动 Server snapshot/catch-up，不能等待 subscribe ack。
 - Web 在 Relay 重启、Server 临时不可用、catch-up 失败时不会清空消息或永久 loading；必须显示 recovering/error 并允许重试。
 - Web reducer 能处理 result 先到、旧 delta 后到，多轮 delta ID 重复，同文本多次发送，tool/permission 迟到。
 - Web 不再依赖文本长度、文本重复、latest open agent、blob catch-up 来决定消息真相。
@@ -1416,6 +1424,41 @@ Wave 0 目标：只补前端纯逻辑和单测，不接生产 UI，不改 Gatewa
   - Relay chat subscribe/broadcast/sync 相关测试
   - Server runtime sync/chat-events/messages 相关测试
   - Protocol typecheck/test
+
+## 未来时序修改强校验规则
+
+以后任何修改只要触碰 Chat Create/Restore/Live/Catch-up 时序，必须同步补或改测试；
+不能只改实现。尤其是以下位置：
+
+- `eventSeq`、`turnId`、`clientRequestId`、`snapshotEventSeq`。
+- Web `restoreAttemptId`、restore buffer、reducer、mapper、`chat-panel.tsx` 接线。
+- Relay `subscription.ack`、chat subscribe、sync-before-broadcast。
+- Server `/messages`、`/events?after=`、runtime event repository。
+- Gateway event sequencer、turn lifecycle、in-flight release。
+
+测试要求：
+
+- Web 单测必须锁住完整时序：进入 session 后 Server snapshot/catch-up 先行；live subscribe
+  只增强实时；ack 不得作为 history gate。
+- Server 单测必须锁住 `after` 强校验、全类型 structured catch-up、`eventSeq ASC` 排序。
+- Relay/Gateway 单测必须锁住持久化成功后广播、旧 blob catch-up 不进入新 Restore flow。
+- 如果改动需要修改这些测试断言，必须先确认“是否有意改变 Chat 时序契约”，不能为了让
+  CI 通过而弱化断言。
+
+## 未来本地缓存约束
+
+Web 可以增加内存缓存来加速左侧切换，但缓存只能是显示优化，不是事实源：
+
+- cache key 必须包含 `sessionId`，禁止跨 session 复用。
+- cache value 必须包含 `messages`、`snapshotEventSeq` 或 `lastAppliedEventSeq`、来源和生成时间。
+- 切换 `activeSessionId` 时，可以先显示当前 session cache 的只读临时内容，但必须立即发
+  `/api/server/chat-sessions/:sessionId/messages`，不能因为 cache 命中跳过 Server snapshot。
+- cache 不能推进 reducer watermark；只有 Server snapshot/catch-up 或已验证 reducer state
+  才能更新 `lastAppliedEventSeq`。
+- Gateway 离线时，UI 可以显示当前 session cache/Server history + 离线只读提示；禁止继续
+  展示上一个 session 消息。
+- cache、Server snapshot、structured catch-up、buffered live 最终都必须进入同一个 reducer，
+  由 `eventSeq` 做去重和排序。
 
 ## 业务行为验收
 

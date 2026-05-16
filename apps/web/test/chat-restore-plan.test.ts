@@ -14,6 +14,13 @@ test('planEnterSessionRestore starts server snapshot before live subscribe', () 
   ]);
 });
 
+test('planEnterSessionRestore never gates server snapshot on subscription ack', () => {
+  const steps = planEnterSessionRestore({ sessionId: 's1' });
+  assert.equal(steps[1]?.type, 'load-snapshot');
+  assert.equal(steps.some((step) => (step as { type: string }).type === 'wait-subscription-ack'), false);
+  assert(steps.findIndex((step) => step.type === 'load-snapshot') < steps.findIndex((step) => step.type === 'subscribe'));
+});
+
 test('planEnterSessionRestore releases previous subscription when switching sessions', () => {
   assert.deepEqual(planEnterSessionRestore({ previousSessionId: 'a', sessionId: 'b' }), [
     { type: 'release-subscription', sessionId: 'a' },

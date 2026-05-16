@@ -41,7 +41,7 @@ export default class ChatEventsRepositoryService extends Service {
         createdAt: String(row.created_at ?? ''),
         rawJson
       };
-    });
+    }).sort((left, right) => left.eventSeq - right.eventSeq || left.eventId - right.eventId);
   }
 
   public async listDeltaEventsAfter(sessionId: string, after: number): Promise<ChatRuntimeEventRow[]> {

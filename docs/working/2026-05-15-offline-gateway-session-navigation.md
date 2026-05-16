@@ -113,8 +113,8 @@ Web 侧已经维护：
 6. **不改变 Chat 事件身份，但需要修正 Restore flow 入口顺序**
    - 本方案不修改 Chat Event Ordering 的 `eventSeq`、`turnId`、`clientRequestId`、`snapshotEventSeq` 契约。
    - Gateway 离线只影响 live subscribe / send / control，不改变 history、catch-up、reducer 的消息合并规则。
-   - 现有 `apps/web/CLAUDE.md` 的 Restore flow 仍写着“先等 `subscription.ack`，再拉 snapshot/catch-up”。这会导致 owner Gateway 离线时 `/messages` 不发请求，右侧保留上一个 session 数据。
-   - 修正方向：Server snapshot/catch-up path 必须在进入 session 后立即启动，不能被 live subscribe / `subscription.ack` 阻塞；live subscribe 只负责实时增强。
+   - 历史问题：`apps/web/CLAUDE.md` 曾写着“先等 `subscription.ack`，再拉 snapshot/catch-up”。这会导致 owner Gateway 离线时 `/messages` 不发请求，右侧保留上一个 session 数据。
+   - 当前定案：Server snapshot/catch-up path 必须在进入 session 后立即启动，不能被 live subscribe / `subscription.ack` 阻塞；live subscribe 只负责实时增强。
    - Gateway 恢复在线后的重新订阅必须复用 Restore flow 的 reducer / mapper 边界；恢复水位继续使用 `snapshotEventSeq` / `eventSeq after`。
    - 不允许为了修离线切换，在 `chat-panel.tsx` 里新增文本拼接、最后一个 assistant 气泡猜测、delta 文本去重等旧启发式逻辑。
    - 相关长期规范以 `apps/web/CLAUDE.md` 的“Chat 时序规范”为准，但本方案确认后必须同步修正其中 Restore flow 顺序；完整时序方案记录在 `docs/working/2026-05-14-chat-event-ordering-and-web-refactor.md`。
@@ -293,7 +293,7 @@ Live path 只负责实时增强。
 - Chat 和 Terminal 都要处理离线只读态。
 - Web 需要区分“Relay 断开”和“owner Gateway 离线”。
 - 需要避免 `gateway_unavailable` 触发全局列表清空体验。
-- 需要修正 `apps/web/CLAUDE.md` 里现有 Restore flow 的“ack 后 snapshot”顺序。
+- `apps/web/CLAUDE.md` 里的 Restore flow 已修正为“Server snapshot/catch-up 先行，ack 只管 live ready”。
 
 ### 不推荐方案 B：离线 session 禁止点击
 
@@ -452,8 +452,8 @@ Live path 只负责实时增强。
 ### 文档回写
 
 - [x] 方案确认后，如果实现改变了长期 Web 行为，更新 `apps/web/CLAUDE.md`。
-- [x] 本方案确认后，必须把 `apps/web/CLAUDE.md` 的 Restore flow 从“先等 `subscription.ack`，再 snapshot/catch-up”改成“Server snapshot/catch-up path 先行，live subscribe path 增强；两条路径通过 reducer 和 `eventSeq` 合流”。
-- [ ] 如果确认为跨模块长期事实，再更新 `AI_CONTEXT.md` 或 `docs/current/`。
+- [x] 已把 `apps/web/CLAUDE.md` 的 Restore flow 从“先等 `subscription.ack`，再 snapshot/catch-up”改成“Server snapshot/catch-up path 先行，live subscribe path 增强；两条路径通过 reducer 和 `eventSeq` 合流”。
+- [x] 已把跨模块长期时序事实更新到 `AI_CONTEXT.md`。
 - [ ] 如果只是一次 bugfix，不改变长期契约，可只保留本 working 文档和测试。
 
 ## 自动验证项目

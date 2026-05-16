@@ -136,6 +136,22 @@ HarmonyOS / Flutter / iOS / Android 都视为 client surface，只消费 Gateway
   的 Auth Shell、Admin Layout、Data Management Page 布局规则分别记录在对应
   app 的 `CLAUDE.md`。
 
+## Chat 时序长期事实
+
+Chat 消息恢复和实时流是跨 Web / Relay / Gateway / Server 的强时序契约：
+
+- 结构化事件是事实源；Web 只能按 `eventSeq`、`turnId`、`clientRequestId` 合并消息。
+- `eventSeq` 是 session 级单调水位；snapshot、structured catch-up、buffered live、live
+  event 最终都必须按 `eventSeq ASC` 进入 reducer，并丢弃已处理水位。
+- 进入、切换或重连 chat session 时，Server snapshot/catch-up path 必须立即启动；
+  `subscription.ack` 只表示 live subscribe ready，不能作为 `/messages` 或
+  `/events?after=` 的前置条件。
+- Relay/Gateway 不能把 `gateway.chat-catchup` blob 重新引入新 Restore flow；旧 blob
+  只能作为 legacy 兼容路径。
+- 未来如果做 Web 本地缓存，缓存只能作为当前 `sessionId` 的首屏加速层，仍必须立即发
+  Server snapshot/catch-up，并由同一个 reducer 校准。
+- 改动上述时序必须同步更新单元测试；如果需要弱化测试断言，先确认是否有意改变时序契约。
+
 ## 模块级 AI 规范
 
 - `apps/cli/CLAUDE.md`：CLI 命令入口、Gateway supervisor、Relay 短请求、
