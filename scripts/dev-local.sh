@@ -48,7 +48,7 @@ ensure_local_env_hint() {
 
 ensure_fresh_zellij_session() {
   local session_line
-  session_line="$(zellij list-sessions 2>/dev/null | grep -E "^${SESSION_NAME}(\\s|$)" || true)"
+  session_line="$(zellij list-sessions --no-formatting 2>/dev/null | grep -E "^${SESSION_NAME}([[:space:]]|$)" || true)"
   if [ -z "$session_line" ]; then
     return
   fi

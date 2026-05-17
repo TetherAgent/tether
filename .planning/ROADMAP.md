@@ -39,9 +39,10 @@ occupies an active roadmap phase number.
 - [ ] **Phase 14: Multi-device Gateway Routing** - 允许同一账号在多台设备上各自绑定稳定 Gateway 记录，Web 显示选择器，Relay 按 gatewayId 严格路由，禁止任何 fallback (automated implementation complete; human UAT pending)
 - [ ] **Phase 15: Chat Remote Session Metadata** - Chat 链路不再依赖 Gateway 本地 SQLite：Relay 从 Server DB 补齐可信 metadata（provider/projectPath/agentSessionId）后转发给 Gateway，Gateway 直接执行不查本地 sessions
 - [x] **Phase 16: Chat Runtime Raw Events** - 新增 `gateway_runtime_chats_events` 表存储所有 chat 过程事件（包括 agent.delta）；`gateway_chat_messages` 补 `raw_json` 字段；Relay 同步 agent.delta 到 Server；支持完整 chat 链路调试和审计 (completed 2026-05-11)
-- [ ] **Phase 20: Approvals Inbox and Structured Action Gate** - 将 Mission Control 审批流收敛进 Tether：新增 Approvals Tab、审批持久化、Relay 广播、Gateway 决策桥和审计，不复制完整团队平台
-- [ ] **Phase 21: Mobile Quick Actions and Diagnostics** - 将 NomadAI 的手机操作经验产品化为 Tether 原生快捷 Dock、会话动作抽屉、键盘适配、连接诊断和扫码/深链配对
+- [x] **Phase 20: Approvals Inbox and Structured Action Gate** - 将 Mission Control 审批流收敛进 Tether：新增 Approvals Tab、审批持久化、Relay 广播、Gateway 决策桥和审计，不复制完整团队平台 (automated implementation complete; human UAT pending)
+- [x] **Phase 21: Mobile Quick Actions and Diagnostics** - 将 NomadAI 的手机操作经验产品化为 Tether 原生快捷 Dock、会话动作抽屉、键盘适配、连接诊断和扫码/深链配对 (automated implementation complete; human UAT pending)
 - [ ] **Phase 22: Unified App Shell Architecture** - 明确 Web/PWA、Flutter 移动端、Tauri 桌面壳的统一架构，重置 App 迁移边界，避免 Electron/Flutter 重写导致协议分裂
+- [x] **Phase 23: Local Startup and Runtime Hygiene** - 用 Zellij 一键启动/停止本地 Server、Relay、Web、Gateway，固定 NVM Node 24，隔离本地 Gateway 配置并清理 TS 编译残留 (completed 2026-05-17)
 
 ## Phase Details
 
@@ -468,7 +469,7 @@ Plans:
   6. The phase does not claim generic raw PTY command interception; raw PTY support is deferred until reliable provider-specific structured signals exist.
 
 **Plans:**
-  - [ ] `20-PLAN.md` — Approval request contract, Server persistence/API, Relay broadcast, Gateway response bridge, Web Approvals tab, and verification
+  - [x] `20-PLAN.md` — Approval request contract, Server persistence/API, Relay broadcast, Gateway response bridge, Web Approvals tab, and verification
 
 ### Phase 21: Mobile Quick Actions and Diagnostics
 
@@ -487,7 +488,7 @@ Plans:
   6. QR/deep-link pairing uses Tether device/token trust boundaries, not legacy query-param token auth.
 
 **Plans:**
-  - [ ] `21-PLAN.md` — Quick action contract, Terminal dock, Chat actions, session drawer, diagnostics panel, QR/deep-link pairing, and verification
+  - [x] `21-PLAN.md` — Quick action contract, Terminal dock, Chat actions, session drawer, diagnostics panel, QR/deep-link pairing, and verification
 
 ### Phase 22: Unified App Shell Architecture
 
@@ -508,6 +509,24 @@ Plans:
 **Plans:**
   - [ ] `22-PLAN.md` — App-shell contract, PWA hardening, Flutter protocol/auth foundation, Flutter product screens, desktop shell decision, and verification
 
+### Phase 23: Local Startup and Runtime Hygiene
+
+**Goal:** Make local debugging reproducible for Tether's multi-process stack without developers memorizing command order or accidentally using global machine state.
+
+**Requirements:** DEV-RUN-01, DEV-RUN-02, DEV-RUN-03, DEV-RUN-04, DEV-RUN-05
+
+**Depends on:** Phase 18
+
+**Success Criteria** (what must be TRUE):
+  1. `pnpm dev:local` starts Server, Relay, Web, and Gateway in a Zellij session with visible logs.
+  2. `pnpm dev:stop` deletes the Zellij session and stops known local dev listeners on ports 4800, 4889, 4790, and 4799.
+  3. Local debug uses `.env.local` when present and falls back to shared dev `env.sh` without committing secrets.
+  4. Dev Gateway auth/config is isolated under `.tether-dev-home` and does not overwrite the user's real `~/.tether`.
+  5. Scripts prefer NVM Node 24 and clean compiled Server `.js` artifacts before `egg-bin dev --ts`.
+
+**Plans:**
+  - [x] `23-PLAN.md` — Zellij local orchestration, production startup helper, NVM Node 24 selection, local env isolation, Gateway auth timeout hardening, and stop/cleanup command
+
 ---
 *Roadmap created: 2026-05-01*
 *Milestone reordered: 2026-05-01 — personal Relay MVP moved to Phase 1*
@@ -526,4 +545,5 @@ Plans:
 *Execution update: 2026-05-12 — Phase 17 complete; Relay multi-client broadcast + Gateway chatInFlight lock verified by relay/gateway tests*
 *Scope update: 2026-05-12 — Phase 18 去掉本地 SQLite planned: 3 plans across 3 waves; PTY 事件改内存+relay，sessions-restore WS 恢复，store.ts 删除*
 *Scope update: 2026-05-15 — Phase 20-22 added from cross-project consolidation: Approvals tab, mobile quick actions/diagnostics, and unified app-shell architecture*
+*Execution update: 2026-05-17 — Phase 20-21 automated implementation complete; Phase 23 local startup/runtime hygiene added and completed*
 *Coverage: 40/40 v1 requirements mapped*
