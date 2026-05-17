@@ -10,6 +10,8 @@ const LoginPage = React.lazy(() => import('./pages/login-page.js').then((module)
 const RegisterPage = React.lazy(() => import('./pages/register-page.js').then((module) => ({ default: module.RegisterPage })));
 const ChatsPage = React.lazy(() => import('./pages/chats-page.js').then((module) => ({ default: module.ChatsPage })));
 const TerminalPage = React.lazy(() => import('./pages/terminal-page.js').then((module) => ({ default: module.TerminalPage })));
+const ApprovalsPage = React.lazy(() => import('./pages/approvals-page.js').then((module) => ({ default: module.ApprovalsPage })));
+const DiagnosticsPage = React.lazy(() => import('./pages/diagnostics-page.js').then((module) => ({ default: module.DiagnosticsPage })));
 const WorkbenchLayout = React.lazy(() => import('./components/workbench/workbench-layout.js').then((module) => ({ default: module.WorkbenchLayout })));
 
 export function WebRoutes() {
@@ -40,6 +42,8 @@ export function WebRoutes() {
           <Route path="/chats/:sessionId" element={<ChatsPage />} />
           <Route path="/terminal" element={<TerminalPage />} />
           <Route path="/terminal/:sessionId" element={<TerminalPage />} />
+          <Route path="/approvals" element={<ApprovalsPage />} />
+          <Route path="/diagnostics" element={<DiagnosticsPage />} />
         </Route>
         <Route path="*" element={<Navigate replace to="/chats" />} />
       </Routes>

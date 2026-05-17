@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LogOut, Moon, PanelLeftClose, Sun } from 'lucide-react';
+import { Activity, LogOut, Moon, PanelLeftClose, ShieldCheck, Sun } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@tether/design';
 import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
@@ -33,7 +33,11 @@ export function WorkbenchSidebar({
   const { gatewayIdsOnline, relaySessions, relaySessionsVersion, sendFrame } = useRelayClient();
   const navigate = useNavigate();
   const location = useLocation();
-  const activeTab: WorkbenchSidebarTab = location.pathname.startsWith('/terminal') ? 'terminal' : 'chats';
+  const activeTab: WorkbenchSidebarTab = location.pathname.startsWith('/terminal')
+    ? 'terminal'
+    : location.pathname.startsWith('/approvals')
+      ? 'approvals'
+      : 'chats';
   const { loaded, loading, loadSessions, sessions, setSessions } = useWorkbenchSessions({
     activeSessionId,
     refreshKey,
@@ -102,6 +106,10 @@ export function WorkbenchSidebar({
     if (tab === activeTab) return;
     if (tab === 'terminal') {
       navigate('/terminal');
+      return;
+    }
+    if (tab === 'approvals') {
+      navigate('/approvals');
       return;
     }
     navigate('/chats');
@@ -203,25 +211,39 @@ export function WorkbenchSidebar({
         )}
 
         <div className="flex-1 overflow-y-auto pt-1">
-          <WorkbenchSessionList
-            activeSessionId={activeSessionId}
-            gatewayIdsOnline={gatewayIdsOnline}
-            onArchive={setArchiveSessionState}
-            onRename={startRename}
-            onSelect={onSelect}
-            onStop={setStopSessionState}
-            onTerminalSelect={onTerminalSelect}
-            relaySessions={visibleRelaySessions}
-            loaded={loaded}
-            loading={loading}
-            sessions={visibleSessions}
-            tab={activeTab}
-            t={t}
-          />
+          {activeTab === 'approvals' ? (
+            <div className="px-5 pt-6 text-left">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-300">
+                <ShieldCheck className="h-4 w-4" />
+              </div>
+              <div className="mt-3 text-[12px] font-medium text-foreground">
+                {t.approvalsNavLabel}
+              </div>
+              <div className="mt-1 text-[11px] leading-4 text-muted-foreground">
+                {t.approvalsSidebarDescription}
+              </div>
+            </div>
+          ) : (
+            <WorkbenchSessionList
+              activeSessionId={activeSessionId}
+              gatewayIdsOnline={gatewayIdsOnline}
+              onArchive={setArchiveSessionState}
+              onRename={startRename}
+              onSelect={onSelect}
+              onStop={setStopSessionState}
+              onTerminalSelect={onTerminalSelect}
+              relaySessions={visibleRelaySessions}
+              loaded={loaded}
+              loading={loading}
+              sessions={visibleSessions}
+              tab={activeTab}
+              t={t}
+            />
+          )}
         </div>
 
         <div className="px-3 pb-3">
-          <div className="grid grid-cols-2 rounded-xl border border-border bg-card p-1">
+          <div className="grid grid-cols-3 rounded-xl border border-border bg-card p-1">
             <button
               type="button"
               onClick={() => switchTab('chats')}
@@ -239,6 +261,15 @@ export function WorkbenchSidebar({
               }`}
             >
               {t.terminalView}
+            </button>
+            <button
+              type="button"
+              onClick={() => switchTab('approvals')}
+              className={`h-8 rounded-lg text-[12px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/30 ${
+                activeTab === 'approvals' ? 'bg-sidebar-accent text-foreground' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {t.approvalsNavLabel}
             </button>
           </div>
         </div>
@@ -262,6 +293,10 @@ export function WorkbenchSidebar({
               <DropdownMenuItem onClick={toggleTheme} className="gap-2">
                 {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
                 {isDark ? t.light : t.dark}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/diagnostics')} className="gap-2">
+                <Activity className="h-4 w-4" />
+                {t.diagnosticsNavLabel}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem

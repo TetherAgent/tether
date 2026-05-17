@@ -15,6 +15,7 @@ describe('test/runtime-sync.test.ts', () => {
     assert(whitelist.includes('/api/relay/runtime-sync/gateway/sessions'))
     assert(whitelist.includes('/api/relay/runtime-sync/gateway/event'))
     assert(whitelist.includes('/api/relay/runtime-sync/gateway-sessions-restore/:gatewayId'))
+    assert(whitelist.includes('/api/relay/approvals/from-event'))
     assert(whitelist.includes('/api/relay/gateway-sessions/:sessionId/metadata'))
     assert(whitelist.includes('/api/relay/gateway-sessions/:sessionId/agent-session-id'))
   })

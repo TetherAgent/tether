@@ -17,6 +17,7 @@
     "@tailwindcss/typography": "^0.5.19",
     "@tether/design": "workspace:*",
     "@tether/http": "workspace:*",
+    "@tether/protocol": "workspace:*",
     "@tether/theme": "workspace:*",
     "@vitejs/plugin-react": "^5.0.2",
     "@xterm/addon-fit": "^0.11.0",

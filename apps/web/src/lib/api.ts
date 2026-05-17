@@ -1,4 +1,5 @@
 import { ApiRequestError, createHttpClient } from '@tether/http';
+import type { ApprovalDecision, ApprovalRequest } from '@tether/protocol';
 
 export type NormalAuthPayload = {
   accessToken: string;
@@ -183,6 +184,69 @@ export async function archiveSession(sessionId: string, token?: string) {
       token: token ?? getStoredNormalAccessToken(),
       suppressGlobalError: true
     });
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
+}
+
+export async function listApprovals(input: { status?: 'pending' | 'all'; token?: string } = {}) {
+  try {
+    const params = new URLSearchParams();
+    params.set('status', input.status ?? 'pending');
+    const response = await http.get<{ approvals: ApprovalRequest[] }>(
+      `/api/server/approvals?${params.toString()}`,
+      undefined,
+      {
+        token: input.token ?? getStoredNormalAccessToken(),
+        suppressGlobalError: true
+      }
+    );
+    return response.approvals ?? [];
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
+}
+
+export async function decideApproval(input: {
+  approvalId: string;
+  decision: ApprovalDecision;
+  token?: string;
+}) {
+  try {
+    const response = await http.post<{ approval: ApprovalRequest }>(
+      `/api/server/approvals/${encodeURIComponent(input.approvalId)}/decision`,
+      { decision: input.decision },
+      {
+        token: input.token ?? getStoredNormalAccessToken(),
+        suppressGlobalError: true
+      }
+    );
+    return response.approval;
+  } catch (error) {
+    throw normalizeRequestError(error);
+  }
+}
+
+export async function decideApprovalByRequest(input: {
+  sessionId: string;
+  requestId: string;
+  decision: ApprovalDecision;
+  token?: string;
+}) {
+  try {
+    const response = await http.post<{ approval?: ApprovalRequest }>(
+      '/api/server/approvals/by-request/decision',
+      {
+        sessionId: input.sessionId,
+        requestId: input.requestId,
+        decision: input.decision
+      },
+      {
+        token: input.token ?? getStoredNormalAccessToken(),
+        suppressGlobalError: true
+      }
+    );
+    return response.approval;
   } catch (error) {
     throw normalizeRequestError(error);
   }

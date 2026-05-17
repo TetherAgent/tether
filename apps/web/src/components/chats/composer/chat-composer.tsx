@@ -5,6 +5,13 @@ import {
 import type { UsageStats } from '../model/chat-types.js';
 import { ChatSessionStatusPopover } from '../shell/chat-session-status-popover.js';
 
+const CHAT_QUICK_ACTIONS = [
+  '/gsd-progress',
+  '/gsd-plan-phase ',
+  '/gsd-execute-phase ',
+  '/help'
+] as const;
+
 export function ChatComposer({
   activeSessionProjectPath,
   buildInputPlaceholder,
@@ -46,12 +53,19 @@ export function ChatComposer({
   setSessionSettingsOpen: (open: boolean) => void;
   slashMenuEl: React.ReactNode;
   t: {
+    chatQuickActions: string;
     chatsCwdShort: string;
     chatsLabelModel: string;
     chatsSessionSettings: string;
   };
   usageStats?: UsageStats;
 }) {
+  const insertQuickAction = React.useCallback((value: string) => {
+    const separator = inputText.length > 0 && !/\s$/.test(inputText) ? '\n' : '';
+    onInputChange(`${inputText}${separator}${value}`);
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  }, [inputRef, inputText, onInputChange]);
+
   return (
     <div className="chat-composer-shell px-4 pb-4 pt-2">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-1.5 2xl:max-w-6xl">
@@ -71,6 +85,18 @@ export function ChatComposer({
 
         <div className="relative">
           {slashMenuEl}
+          <div className="chat-quick-actions" aria-label={t.chatQuickActions}>
+            {CHAT_QUICK_ACTIONS.map((action) => (
+              <button
+                key={action}
+                type="button"
+                disabled={isInputDisabled}
+                onClick={() => insertQuickAction(action)}
+              >
+                {action.trim()}
+              </button>
+            ))}
+          </div>
           <div className="chat-input-card relative overflow-hidden rounded-2xl border border-border" style={{ boxShadow: '0 2px 16px rgba(0,0,0,0.07)' }}>
             <div className="flex items-end gap-2 px-3 py-2.5">
               <Textarea

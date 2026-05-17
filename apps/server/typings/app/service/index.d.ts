@@ -8,6 +8,7 @@ type AnyFunc<T = any> = (...args: any[]) => T;
 type CanExportFunc = AnyFunc<Promise<any>> | AnyFunc<IterableIterator<any>>;
 type AutoInstanceType<T, U = T extends CanExportFunc ? T : T extends AnyFunc ? ReturnType<T> : T> = U extends AnyClass ? InstanceType<U> : U;
 import ExportAdminAuth from '../../../app/service/admin-auth';
+import ExportApprovalRepository from '../../../app/service/approvalRepository';
 import ExportAudit from '../../../app/service/audit';
 import ExportAuditRepository from '../../../app/service/auditRepository';
 import ExportAuth from '../../../app/service/auth';
@@ -33,6 +34,7 @@ import ExportAdminUsers from '../../../app/service/admin/users';
 declare module 'egg' {
   interface IService {
     adminAuth: AutoInstanceType<typeof ExportAdminAuth>;
+    approvalRepository: AutoInstanceType<typeof ExportApprovalRepository>;
     audit: AutoInstanceType<typeof ExportAudit>;
     auditRepository: AutoInstanceType<typeof ExportAuditRepository>;
     auth: AutoInstanceType<typeof ExportAuth>;

@@ -4,6 +4,7 @@
 
 import 'egg';
 import ExportAdminAuth from '../../../app/controller/admin-auth';
+import ExportApproval from '../../../app/controller/approval';
 import ExportAudit from '../../../app/controller/audit';
 import ExportAuth from '../../../app/controller/auth';
 import ExportChatEvents from '../../../app/controller/chat-events';
@@ -24,6 +25,7 @@ import ExportAdminUsers from '../../../app/controller/admin/users';
 declare module 'egg' {
   interface IController {
     adminAuth: ExportAdminAuth;
+    approval: ExportApproval;
     audit: ExportAudit;
     auth: ExportAuth;
     chatEvents: ExportChatEvents;

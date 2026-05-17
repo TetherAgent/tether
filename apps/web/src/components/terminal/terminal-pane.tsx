@@ -55,6 +55,21 @@ const COMPOSER_ENTER_DELAY_MS = 120;
 const TERMINAL_ENTER = '\r';
 const REPLAY_FLUSH_BUDGET_MS = 8;
 const REPLAY_FLUSH_MAX_CHARS = 128 * 1024;
+const CTRL_D = '\x04';
+const CTRL_C = '\x03';
+
+const TERMINAL_QUICK_INPUTS = [
+  { label: 'Esc', value: '\x1b' },
+  { label: 'Tab', value: '\t' },
+  { label: '↑', value: '\x1b[A' },
+  { label: '↓', value: '\x1b[B' },
+  { label: '←', value: '\x1b[D' },
+  { label: '→', value: '\x1b[C' },
+  { label: 'Enter', value: TERMINAL_ENTER },
+  { label: 'Ctrl-C', value: CTRL_C },
+  { label: 'y', value: 'y' },
+  { label: 'n', value: 'n' }
+] as const;
 
 type WebMessages = ReturnType<typeof useI18n>['t'];
 
@@ -225,6 +240,10 @@ export function TerminalPane({
   const [isInputReady, setInputReady] = React.useState(false);
   const [isComposerSending, setComposerSending] = React.useState(false);
   const [text, setText] = React.useState('');
+  const [ctrlDArmed, setCtrlDArmed] = React.useState(false);
+  const [stopArmed, setStopArmed] = React.useState(false);
+  const ctrlDTimerRef = React.useRef<number | undefined>(undefined);
+  const stopTimerRef = React.useRef<number | undefined>(undefined);
   const cursorKey = React.useMemo(
     () => sessionCursorKey(sessionId, normalAuth?.identity, connectionSettings),
     [connectionSettings, normalAuth?.identity, sessionId]
@@ -255,6 +274,7 @@ export function TerminalPane({
   const isComposerInputDisabled = Boolean(composerDisabledReason);
   const isComposerSubmitDisabled = isComposerInputDisabled || text.trim().length === 0;
   const composerSubmitTitle = composerDisabledReason ?? (text.trim().length === 0 ? t.composerDisabledEmpty : t.send);
+  const quickActionsDisabled = Boolean(composerDisabledReason) || !isInputReady;
   const composerPlaceholder =
     agentRuntimeStatus === 'submitted' || agentRuntimeStatus === 'running' || agentRuntimeStatus === 'responding'
       ? t.composerPlaceholderThinking
@@ -267,6 +287,15 @@ export function TerminalPane({
       terminal.current.options.theme = buildTerminalTheme(isDark, terminalThemeOverride);
     }
   }, [isDark, terminalThemeOverride]);
+
+  React.useEffect(() => () => {
+    if (ctrlDTimerRef.current !== undefined) {
+      window.clearTimeout(ctrlDTimerRef.current);
+    }
+    if (stopTimerRef.current !== undefined) {
+      window.clearTimeout(stopTimerRef.current);
+    }
+  }, []);
 
   React.useEffect(() => {
     const handleFullscreenChange = () => {
@@ -311,6 +340,66 @@ export function TerminalPane({
     event.preventDefault();
     submitComposerText();
   }, [submitComposerText]);
+
+  const sendQuickInput = React.useCallback((value: string) => {
+    if (quickActionsDisabled) {
+      if (composerDisabledReason) {
+        setStatus(composerDisabledReason);
+      }
+      return;
+    }
+    if (sendRelayInput(value)) {
+      setStatus(t.statusRelaySent);
+      terminal.current?.focus();
+    }
+  }, [composerDisabledReason, quickActionsDisabled, sendRelayInput, t.statusRelaySent]);
+
+  const sendGuardedCtrlD = React.useCallback(() => {
+    if (!ctrlDArmed) {
+      setCtrlDArmed(true);
+      setStatus(t.terminalCtrlDConfirm);
+      if (ctrlDTimerRef.current !== undefined) {
+        window.clearTimeout(ctrlDTimerRef.current);
+      }
+      ctrlDTimerRef.current = window.setTimeout(() => setCtrlDArmed(false), 2_000);
+      return;
+    }
+    setCtrlDArmed(false);
+    if (ctrlDTimerRef.current !== undefined) {
+      window.clearTimeout(ctrlDTimerRef.current);
+      ctrlDTimerRef.current = undefined;
+    }
+    sendQuickInput(CTRL_D);
+  }, [ctrlDArmed, sendQuickInput, t.terminalCtrlDConfirm]);
+
+  const sendSessionControlFrame = React.useCallback((type: 'client.detach' | 'client.stop') => {
+    if (quickActionsDisabled) {
+      if (composerDisabledReason) {
+        setStatus(composerDisabledReason);
+      }
+      return;
+    }
+    const sent = sendFrame({ type, sessionId });
+    setStatus(sent ? t.statusRelaySent : t.statusRelayUnavailable);
+  }, [composerDisabledReason, quickActionsDisabled, sendFrame, sessionId, t.statusRelaySent, t.statusRelayUnavailable]);
+
+  const sendGuardedStop = React.useCallback(() => {
+    if (!stopArmed) {
+      setStopArmed(true);
+      setStatus(t.stopSessionConfirmTitle);
+      if (stopTimerRef.current !== undefined) {
+        window.clearTimeout(stopTimerRef.current);
+      }
+      stopTimerRef.current = window.setTimeout(() => setStopArmed(false), 2_000);
+      return;
+    }
+    setStopArmed(false);
+    if (stopTimerRef.current !== undefined) {
+      window.clearTimeout(stopTimerRef.current);
+      stopTimerRef.current = undefined;
+    }
+    sendSessionControlFrame('client.stop');
+  }, [sendSessionControlFrame, stopArmed, t.stopSessionConfirmTitle]);
 
   React.useEffect(() => {
     const root = terminalRef.current;
@@ -737,6 +826,43 @@ export function TerminalPane({
         <div ref={terminalRef} className="terminal-host" />
         {!isTerminalReady ? <TerminalSurfaceSkeleton /> : null}
       </main>
+      {!replayOnly ? (
+        <div className="terminal-quick-actions" aria-label={t.terminalQuickActions}>
+          {TERMINAL_QUICK_INPUTS.map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              disabled={quickActionsDisabled}
+              onClick={() => sendQuickInput(action.value)}
+            >
+              {action.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            className={ctrlDArmed ? 'is-armed' : ''}
+            disabled={quickActionsDisabled}
+            onClick={sendGuardedCtrlD}
+          >
+            {ctrlDArmed ? t.terminalCtrlDConfirmShort : 'Ctrl-D'}
+          </button>
+          <button
+            type="button"
+            disabled={quickActionsDisabled}
+            onClick={() => sendSessionControlFrame('client.detach')}
+          >
+            {t.terminalDetach}
+          </button>
+          <button
+            type="button"
+            className={stopArmed ? 'is-armed' : ''}
+            disabled={quickActionsDisabled}
+            onClick={sendGuardedStop}
+          >
+            {stopArmed ? t.confirmStop : t.stop}
+          </button>
+        </div>
+      ) : null}
       {!replayOnly ? (
         <form className="composer-form" onSubmit={sendLine}>
           <Textarea

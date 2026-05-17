@@ -4021,6 +4021,63 @@ a {
   padding: 10px;
 }
 
+.terminal-quick-actions {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--background) 94%, transparent);
+  padding: 8px 10px;
+  scrollbar-width: none;
+}
+
+.terminal-quick-actions::-webkit-scrollbar {
+  display: none;
+}
+
+.terminal-quick-actions button,
+.chat-quick-actions button {
+  min-height: 32px;
+  white-space: nowrap;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--foreground);
+  padding: 0 11px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.terminal-quick-actions button:hover:not(:disabled),
+.chat-quick-actions button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--brand) 44%, var(--border));
+  background: color-mix(in srgb, var(--brand) 10%, var(--card));
+}
+
+.terminal-quick-actions button:disabled,
+.chat-quick-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.terminal-quick-actions button.is-armed {
+  border-color: color-mix(in srgb, var(--destructive) 60%, var(--border));
+  background: color-mix(in srgb, var(--destructive) 14%, var(--card));
+  color: var(--destructive);
+}
+
+.chat-quick-actions {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding: 0 2px 8px;
+  scrollbar-width: none;
+}
+
+.chat-quick-actions::-webkit-scrollbar {
+  display: none;
+}
+
 .chat-panel {
   min-height: 0;
   min-width: 0;
@@ -7543,7 +7600,7 @@ textarea.composer-input {
   }
 
   .terminal-embedded-page {
-    grid-template-rows: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
   }
 
   .terminal-embedded-page .composer-form {

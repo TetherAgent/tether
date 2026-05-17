@@ -12,7 +12,7 @@ import {
 import { useAuth } from '../../hooks/use-auth.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { rememberGatewayVersion } from '../../hooks/use-update-check.js';
-import { getStoredNormalAccessToken } from '../../lib/api.js';
+import { decideApprovalByRequest, getStoredNormalAccessToken } from '../../lib/api.js';
 import { providerResumeCommand } from '../../lib/provider-resume-command.js';
 import { fetchChatEventsAfter, fetchChatMessages, fetchChatSessions, type ChatRuntimeEventResponse, type ChatSessionRecord, type ProviderOption } from './data/chat-data.js';
 import { applyChatStreamEvent, applyChatStreamEvents, historySnapshotToReducerState, type ChatStreamEvent } from './events/chat-event-reducer.js';
@@ -1018,10 +1018,12 @@ export function ChatPanel({
 
   const sendPermissionResponse = React.useCallback((requestId: string, decision: 'allow' | 'deny') => {
     if (!wsReady || !currentSessionIdRef.current) return;
+    const sessionId = currentSessionIdRef.current;
     setMessages((items) => items.map((item) =>
       item.kind === 'permission' && item.requestId === requestId ? { ...item, decided: decision } : item
     ));
-    sendFrame({ type: 'client.permission_response', sessionId: currentSessionIdRef.current, requestId, decision });
+    void decideApprovalByRequest({ sessionId, requestId, decision }).catch(() => undefined);
+    sendFrame({ type: 'client.permission_response', sessionId, requestId, decision });
   }, [sendFrame, wsReady]);
 
   const applyNextSuggestion = React.useCallback((description: string) => {

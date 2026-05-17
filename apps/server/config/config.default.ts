@@ -170,6 +170,7 @@ export default (appInfo: EggAppInfo) => {
       '/api/relay/runtime-sync/gateway/conversation',
       '/api/relay/runtime-sync/gateway/event',
       '/api/relay/runtime-sync/gateway-sessions-restore/:gatewayId',
+      '/api/relay/approvals/from-event',
       '/api/relay/chat-events/:sessionId',
       '/api/relay/gateway-sessions/:sessionId/metadata',
       '/api/relay/gateway-sessions/:sessionId/agent-session-id'

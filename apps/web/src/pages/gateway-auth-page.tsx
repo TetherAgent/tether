@@ -61,7 +61,7 @@ export function GatewayAuthPage() {
         throw new Error(`授权失败：HTTP ${response.status}`);
       }
       const data = await readGatewayData<GatewayBindResult>(response);
-      const callbackUrl = new URL(`http://localhost:${port}/callback`);
+      const callbackUrl = new URL(`http://127.0.0.1:${port}/callback`);
       callbackUrl.searchParams.set('gatewayId', data.gateway.id);
       callbackUrl.searchParams.set('accountId', data.accountId);
       callbackUrl.searchParams.set('gatewayAccessToken', data.gatewayAccessToken);

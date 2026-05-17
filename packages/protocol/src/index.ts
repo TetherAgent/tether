@@ -128,6 +128,41 @@ export type ChatRuntimeEventsResponseDto = {
   events: ChatRuntimeEventDto[];
 };
 
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'blocked';
+
+export type ApprovalDecision = 'allow' | 'deny';
+
+export type ApprovalRisk = 'low' | 'medium' | 'high' | 'critical';
+
+export type ApprovalSource = 'chat_permission' | 'provider_action' | 'diff' | 'handoff';
+
+export type ApprovalRequest = {
+  id: string;
+  accountId: string;
+  workspaceId?: string;
+  gatewayId: string;
+  sessionId: string;
+  userId: string;
+  requestId: string;
+  source: ApprovalSource;
+  status: ApprovalStatus;
+  risk: ApprovalRisk;
+  title: string;
+  summary: string;
+  reason?: string;
+  toolName?: string;
+  inputPreview?: Record<string, unknown>;
+  inputHash?: string;
+  eventId?: number;
+  eventSeq?: number;
+  turnId?: string;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt?: string;
+  decidedBy?: string;
+  decidedAt?: string;
+};
+
 export type RelayGatewayToServerFrame =
   | { type: 'gateway.auth'; gatewayId: string; token?: string; secret?: string; scope?: RelayAuthScope; version?: string }
   | { type: 'gateway.sessions'; gatewayId: string; sessions: RelaySession[] }
@@ -228,6 +263,7 @@ export type RelayServerToClientFrame =
   | { type: 'agent.result'; sessionId: string; text: string; usage: { input_tokens: number; output_tokens: number; cost_usd?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }; stop_reason?: string; contextWindow?: number; contextInputTokens?: number; contextUsedPercentage?: number; rateLimitInfo?: RelayRateLimitInfo; nextSuggestions?: RelayNextSuggestion[]; eventSeq?: number; turnId?: string; clientRequestId?: string }
   | { type: 'agent.tool'; sessionId: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean; eventSeq?: number; turnId?: string }
   | { type: 'agent.permission_request'; sessionId: string; requestId: string; toolName: string; input: Record<string, unknown>; eventSeq?: number; turnId?: string }
+  | { type: 'approval.updated'; approval: ApprovalRequest }
   | { type: 'gateway.chat-catchup'; sessionId: string; text: string; lastEventId?: number }
   | { type: 'gateway.providers'; gatewayId?: string; providers: Array<{ provider: string; models: string[] }> }
   | { type: 'gateway.cwd-suggestions'; gatewayId?: string; cwd: string; suggestions: string[] }

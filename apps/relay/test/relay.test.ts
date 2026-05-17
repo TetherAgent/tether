@@ -84,6 +84,37 @@ async function createMetadataServer(metadata: Record<string, Record<string, unkn
         response.end(JSON.stringify({ code: 0, msg: 'success', data: session }));
         return;
       }
+      if (request.method === 'POST' && request.url === '/api/relay/approvals/from-event') {
+        const parsed = JSON.parse(body || '{}') as Record<string, any>;
+        const event = parsed.event ?? {};
+        const payload = event.payload ?? {};
+        const scope = parsed.scope ?? {};
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({
+          code: 0,
+          msg: 'success',
+          data: {
+            approval: {
+              id: 'approval-test',
+              accountId: scope.accountId,
+              gatewayId: parsed.gatewayId,
+              sessionId: event.sessionId,
+              userId: scope.userId ?? 'user_a',
+              requestId: payload.requestId,
+              source: 'chat_permission',
+              status: 'pending',
+              risk: 'high',
+              title: `${payload.toolName ?? 'tool'} permission request`,
+              summary: 'test approval',
+              toolName: payload.toolName,
+              inputPreview: payload.input ?? {},
+              createdAt: new Date(0).toISOString(),
+              updatedAt: new Date(0).toISOString()
+            }
+          }
+        }));
+        return;
+      }
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ code: 0, msg: 'success', data: { ok: true } }));
     });
@@ -2715,6 +2746,36 @@ test('Phase17-T4: relay broadcasts agent.permission_request to all chat subscrib
     gateway.close();
     clientA1.close();
     clientA2.close();
+    await harness.close();
+  }
+});
+
+test('Phase20: relay broadcasts approval.updated to authorized clients outside chat subscription', async () => {
+  const harness = await createPhase17RelayHarness();
+  const gateway = await openPhase17Gateway(harness, 'a');
+  const chatClient = await openPhase17Client(harness, 'client-a1');
+  const approvalsClient = await openPhase17Client(harness, 'client-a2');
+  try {
+    const sessionId = 'tth_phase20_approval';
+    await subscribePhase17Chat(harness, chatClient, sessionId);
+    const approvalPromise = waitForJson(approvalsClient, (message) => message.type === 'approval.updated');
+    gateway.send(JSON.stringify({
+      type: 'gateway.event',
+      gatewayId: 'gateway-a',
+      event: {
+        id: 2001,
+        type: 'agent.permission_request',
+        sessionId,
+        payload: { requestId: 'req-approval', toolName: 'bash', input: { packageName: 'left-pad' } }
+      }
+    }));
+    const frame = await approvalPromise;
+    assert.equal((frame.approval as Record<string, unknown>).requestId, 'req-approval');
+    assert.equal((frame.approval as Record<string, unknown>).sessionId, sessionId);
+  } finally {
+    gateway.close();
+    chatClient.close();
+    approvalsClient.close();
     await harness.close();
   }
 });

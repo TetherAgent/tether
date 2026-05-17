@@ -7,6 +7,15 @@ logs/
 .DS_Store
 
 env.sh
+.env.local
+.tether-dev-home/
+.tether-dev-logs/
 
 packages/core/**/*.js
 packages/core/**/*.d.ts
+apps/server/app/**/*.js
+apps/server/app/**/*.js.map
+apps/server/config/**/*.js
+apps/server/config/**/*.js.map
+apps/server/test/**/*.js
+apps/server/test/**/*.js.map

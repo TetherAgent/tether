@@ -30,15 +30,18 @@ export function useWorkbenchSessions({
 }) {
   const [sessionsByTab, setSessionsByTab] = React.useState<Record<WorkbenchSidebarTab, WorkbenchSessionRecord[]>>({
     chats: [],
-    terminal: []
+    terminal: [],
+    approvals: []
   });
   const [loadedByTab, setLoadedByTab] = React.useState<Record<WorkbenchSidebarTab, boolean>>({
     chats: false,
-    terminal: false
+    terminal: false,
+    approvals: true
   });
   const [loadingByTab, setLoadingByTab] = React.useState<Record<WorkbenchSidebarTab, boolean>>({
     chats: false,
-    terminal: false
+    terminal: false,
+    approvals: false
   });
   const didHandleRelayRefreshRef = React.useRef(false);
 
@@ -54,6 +57,12 @@ export function useWorkbenchSessions({
 
   const loadSessions = React.useCallback(() => {
     const token = getStoredNormalAccessToken();
+    if (tab === 'approvals') {
+      setSessionsByTab((current) => ({ ...current, approvals: [] }));
+      setLoadedByTab((current) => ({ ...current, approvals: true }));
+      setLoadingByTab((current) => ({ ...current, approvals: false }));
+      return;
+    }
     setLoadingByTab((current) => ({ ...current, [tab]: true }));
     if (tab === 'terminal') {
       void fetchTerminalSessions(token)

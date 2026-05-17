@@ -9,6 +9,8 @@ import { gatewayAuthPath, writeGatewayAuthState } from './gateway-auth-store.js'
 import { decodeTokenPayload } from './token.js';
 
 const LOCAL_SERVER_URL = 'http://127.0.0.1:4800';
+const GATEWAY_AUTH_CALLBACK_HOST = '127.0.0.1';
+const DEFAULT_GATEWAY_AUTH_TIMEOUT_MS = 10 * 60 * 1000;
 
 export type GatewayLoginEnv = 'local' | 'prod';
 
@@ -27,7 +29,7 @@ export async function performGatewayLogin(options: {
   terminal.section('正在打开浏览器进行授权...');
   terminal.warn(`如果浏览器未自动打开，请访问：${browserUrl}`);
   openBrowser(browserUrl);
-  const result = await waitForGatewayAuthCallback(port, 120_000);
+  const result = await waitForGatewayAuthCallback(port, DEFAULT_GATEWAY_AUTH_TIMEOUT_MS);
   const payload = decodeTokenPayload(result.gatewayAccessToken);
   if (!payload || typeof payload.expiresAt !== 'number') {
     throw new Error('Gateway 登录失败：access token 缺少 expiresAt');
@@ -76,11 +78,11 @@ async function waitForGatewayAuthCallback(port: number, timeoutMs: number): Prom
       });
     };
     const timer = setTimeout(() => {
-      finish(undefined, new Error('Gateway 授权超时（2 分钟），请重试'));
+      finish(undefined, new Error('Gateway 授权超时（10 分钟），请重试'));
     }, timeoutMs);
 
     const server = http.createServer((req, res) => {
-      const url = new URL(req.url ?? '/', `http://localhost:${port}`);
+      const url = new URL(req.url ?? '/', `http://${GATEWAY_AUTH_CALLBACK_HOST}:${port}`);
       if (url.pathname !== '/callback') {
         res.writeHead(404, { connection: 'close' }).end();
         return;
@@ -151,7 +153,7 @@ async function waitForGatewayAuthCallback(port: number, timeoutMs: number): Prom
       );
     });
 
-    server.listen(port, '127.0.0.1');
+    server.listen(port, GATEWAY_AUTH_CALLBACK_HOST);
   });
 }
 

@@ -1,6 +1,7 @@
 import { createServer, type Server as HttpServer } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import type {
+  ApprovalRequest,
   RelayAuthScope,
   RelayClientToServerFrame,
   RelayClientMode,
@@ -111,6 +112,32 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     }
   }
 
+  async function syncApprovalRequestToServer(body: unknown): Promise<ApprovalRequest | undefined> {
+    if (!options.serverSyncUrl || !options.runtimeSyncSecret) {
+      return undefined;
+    }
+    try {
+      const response = await fetch(`${options.serverSyncUrl}/api/relay/approvals/from-event`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-tether-runtime-sync-secret': options.runtimeSyncSecret
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(3000)
+      });
+      if (!response.ok) {
+        console.warn(`[relay] approval sync failed: HTTP ${response.status}`);
+        return undefined;
+      }
+      const json = await response.json() as { data?: { approval?: ApprovalRequest } };
+      return json.data?.approval;
+    } catch (error) {
+      console.warn('[relay] approval sync error:', String(error));
+      return undefined;
+    }
+  }
+
   async function fetchSessionMetadata(sessionId: string): Promise<FetchedChatSessionMetadata | undefined> {
     if (!options.serverSyncUrl || !options.runtimeSyncSecret) {
       return undefined;
@@ -195,6 +222,30 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
       if (!clientCanAccessSession(client.scope, client.authMethod, sessionId)) continue;
       sendToClient(subscriberId, frame);
     }
+  }
+
+  function sendApprovalToAuthorizedClients(approval: ApprovalRequest): void {
+    for (const client of clients.values()) {
+      if (!clientCanReceiveApproval(client, approval)) continue;
+      sendToClient(client.clientId, { type: 'approval.updated', approval });
+    }
+  }
+
+  function clientCanReceiveApproval(client: ClientState, approval: ApprovalRequest): boolean {
+    const scope = client.scope;
+    if (!scope || scope.accountId !== approval.accountId) {
+      return false;
+    }
+    if (scope.userId && scope.userId !== approval.userId) {
+      return false;
+    }
+    if (scope.gatewayId && scope.gatewayId !== approval.gatewayId) {
+      return false;
+    }
+    if (scope.tokenClass === 'ws_ticket' && scope.sessionId !== approval.sessionId) {
+      return false;
+    }
+    return true;
   }
 
   function notifyChatSyncFailed(event: RelayTerminalEvent): void {
@@ -567,6 +618,17 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           if (options.serverSyncUrl && !synced) {
             notifyChatSyncFailed(frame.event);
             break;
+          }
+          const approval = await syncApprovalRequestToServer({
+            gatewayId: frame.gatewayId,
+            event: frame.event,
+            scope: {
+              ...gatewayScope,
+              transport: 'chat'
+            }
+          });
+          if (approval) {
+            sendApprovalToAuthorizedClients(approval);
           }
           sendChatEventToSubscribers(frame.event.sessionId, {
             type: 'agent.permission_request',
@@ -1173,15 +1235,6 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
             sessionId: frame.sessionId,
             code: 'forbidden',
             message: 'session is outside client scope'
-          });
-          break;
-        }
-        if (!chatSessionSubscribers.get(frame.sessionId)?.has(clientId)) {
-          sendToClient(clientId, {
-            type: 'error',
-            sessionId: frame.sessionId,
-            code: 'not_subscribed',
-            message: 'client is not subscribed to this session'
           });
           break;
         }

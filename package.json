@@ -9,6 +9,7 @@
   "scripts": {
     "typecheck": "pnpm -r --if-present run typecheck",
     "dev:web": "pnpm --filter @tether/web dev",
+    "dev:local": "bash scripts/dev-local.sh",
     "dev:web:remote": "TETHER_WEB_REMOTE_ONLY=1 TETHER_WEB_PORT=4792 TETHER_WEB_SERVER_API_URL=https://tether.fundingrate.cn TETHER_WEB_RELAY_WS_URL=wss://tether.fundingrate.cn VITE_TETHER_RELAY_URL=wss://tether.fundingrate.cn pnpm --filter @tether/web dev",
     "dev:admin": "pnpm --filter @tether/admin-web dev",
     "clean":"pnpm --filter @tether/server run clean",
@@ -18,6 +19,7 @@
     "build:server": "pnpm --filter @tether/server build",
     "build:relay": "pnpm --filter @tether/relay build",
     "start:server": "if [ -f /data/env/tether.sh ]; then . /data/env/tether.sh; elif [ -f env.sh ]; then . env.sh; fi; pnpm --filter @tether/server start",
+    "start:prod": "bash scripts/start-prod.sh",
     "stop:server": "pnpm --filter @tether/server stop",
     "start:relay": "pm2 start ecosystem.config.cjs",
     "reload:relay": "pm2 reload tether-relay",
