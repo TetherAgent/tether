@@ -101,6 +101,10 @@ monorepo 内其他说明。
 --chart-accent
 ```
 
+`--gradient-brand: linear-gradient(135deg, #00ff9d, #00d4ff)` 是 Tether
+官方品牌渐变，所有需要表达品牌身份的主视觉、品牌标记、启动入口、核心 CTA
+优先使用它，不要在应用层另起一套品牌渐变。
+
 `--brand` (`#00b974` light) 是产品身份色（CTA / 选中态 / focus ring 来源）。
 `--brand-text` (`#00875a` light) 是**白底文字 / 图标专用**深色派生：在白底
 或 `--brand-muted` 底上对比 ≥ 5:1，AA 通过。`--primary` 直接映射为
@@ -209,7 +213,7 @@ leading-none / leading-tight / leading-snug / leading-normal / leading-relaxed
 
 ```text
 --shadow-card / --shadow-bull / --shadow-bear / --shadow-brand
---gradient-brand
+--gradient-brand  官方品牌渐变：linear-gradient(135deg, #00ff9d, #00d4ff)
 --radius-sm / --radius-md / --radius-lg / --radius-xl
 --radius-2xl / --radius-3xl / --radius-4xl / --radius-full
 --duration-fast (120ms) / --duration-base (200ms)

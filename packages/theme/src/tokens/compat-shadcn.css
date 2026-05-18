@@ -105,7 +105,7 @@
   --shadow-bull: 0 4px 16px rgba(22, 162, 104, 0.20);
   --shadow-bear: 0 4px 16px rgba(224, 38, 79, 0.20);
   --shadow-brand: 0 4px 16px rgba(0, 185, 116, 0.25);
-  --gradient-brand: linear-gradient(135deg, #00b974, #2563eb);
+  --gradient-brand: linear-gradient(135deg, #00ff9d, #00d4ff);
 }
 
 .dark,
