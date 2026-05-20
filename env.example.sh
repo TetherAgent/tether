@@ -25,6 +25,8 @@ export TETHER_SERVER_MYSQL_USER=tether_prod
 # 数据库密码，必填
 export TETHER_SERVER_MYSQL_PASSWORD=
 export TETHER_SERVER_MYSQL_DATABASE=tether_prd
+# Server MySQL 连接池上限。低流量单 worker 部署默认 2，避免长期保留过多 Sleep 连接。
+export TETHER_SERVER_MYSQL_CONNECTION_LIMIT=2
 
 # ── Redis 配置 ────────────────────────────────────────
 export TETHER_SERVER_REDIS_HOST=127.0.0.1
