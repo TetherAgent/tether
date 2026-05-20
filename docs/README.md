@@ -39,6 +39,7 @@
 | [2026-05-11-multi-device-gateway-routing.md](working/2026-05-11-multi-device-gateway-routing.md) | **Working** | 同一账号多电脑多 Gateway 的设备绑定、Gateway 选择、Relay 路由和防串设计 |
 | [2026-05-14-claude-hud-metrics.md](working/2026-05-14-claude-hud-metrics.md) | **Working** | Claude HUD 指标接入：Context、5 小时 Usage、Weekly 用量的 hook 数据源、协议字段、安全边界、TODO 和验收项 |
 | [2026-05-14-chat-event-ordering-and-web-refactor.md](working/2026-05-14-chat-event-ordering-and-web-refactor.md) | **Working** | Chat 事件时序契约与 Web Chat 重构方案：`eventSeq`、`turnId`、`clientRequestId`、`snapshotEventSeq`、Create/Restore flow、组件拆分、测试和验收 |
+| [2026-05-20-pty-single-control-owner.md](working/2026-05-20-pty-single-control-owner.md) | **Working** | PTY session 单控制端锁：`ptyControlOwner` 全局 Map、control 转移与 `control_revoked` 通知、避免多端输入叠字、改动仅在 `relay.ts` |
 
 ## 归档记录 (`archive/`)
 

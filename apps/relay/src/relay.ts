@@ -184,6 +184,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
   // Relay-side routing for chat sessions: updated on every client.subscribe/unsubscribe.
   // Overrides the stale clientId embedded by Gateway in event payloads.
   const chatSessionSubscribers = new Map<string, Set<string>>(); // sessionId -> Set<clientId>
+  const ptyControlOwner = new Map<string, string>(); // sessionId -> clientId
 
   function sendChatEventToSubscribers(sessionId: string, frame: RelayServerToClientFrame, exceptClientId?: string): void {
     const subscribers = chatSessionSubscribers.get(sessionId);
@@ -792,6 +793,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
     for (const [sessionId, session] of latestSessions.entries()) {
       if (session.gatewayId === gatewayId) {
         latestSessions.delete(sessionId);
+        ptyControlOwner.delete(sessionId);
       }
     }
   }
@@ -893,6 +895,11 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         subscribers.delete(clientId);
         if (subscribers.size === 0) chatSessionSubscribers.delete(sessionId);
       }
+      for (const [sessionId, owner] of ptyControlOwner) {
+        if (owner === clientId) {
+          ptyControlOwner.delete(sessionId);
+        }
+      }
     });
   }
 
@@ -967,6 +974,26 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
           sessionId: frame.sessionId,
           mode: frame.mode
         });
+        if (
+          session.transport === 'pty-event-stream' &&
+          frame.mode === 'observe' &&
+          ptyControlOwner.get(frame.sessionId) === clientId
+        ) {
+          ptyControlOwner.delete(frame.sessionId);
+        }
+        if (session.transport === 'pty-event-stream' && frame.mode === 'control') {
+          const prevOwner = ptyControlOwner.get(frame.sessionId);
+          if (prevOwner && prevOwner !== clientId) {
+            clients.get(prevOwner)?.subscriptions.set(frame.sessionId, 'observe');
+            sendToClient(prevOwner, {
+              type: 'error',
+              sessionId: frame.sessionId,
+              code: 'control_revoked',
+              message: 'another client took control of this session'
+            });
+          }
+          ptyControlOwner.set(frame.sessionId, clientId);
+        }
         if (session.transport === 'chat') {
           const chatSubscribers = chatSessionSubscribers.get(frame.sessionId) ?? new Set<string>();
           chatSubscribers.add(clientId);
@@ -1196,6 +1223,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
       case 'client.unsubscribe': {
         subscriptions.delete(frame.sessionId);
         removeChatSubscriber(frame.sessionId, clientId);
+        if (ptyControlOwner.get(frame.sessionId) === clientId) {
+          ptyControlOwner.delete(frame.sessionId);
+        }
         const unsubSession = latestSessions.get(frame.sessionId);
         if (
           (!unsubSession || unsubSession.transport !== 'chat') &&
@@ -1212,6 +1242,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Run
         }
         subscriptions.delete(frame.sessionId);
         removeChatSubscriber(frame.sessionId, clientId);
+        if (ptyControlOwner.get(frame.sessionId) === clientId) {
+          ptyControlOwner.delete(frame.sessionId);
+        }
         const detachSession = latestSessions.get(frame.sessionId);
         if (!detachSession || detachSession.transport !== 'chat') {
           forwardToSessionGateway({ type: 'client.detach', clientId, sessionId: frame.sessionId });
