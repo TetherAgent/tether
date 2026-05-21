@@ -129,6 +129,21 @@ async function createMetadataServer(metadata: Record<string, Record<string, unkn
   };
 }
 
+function ptyRelaySession(id: string): RelaySession {
+  return {
+    id,
+    provider: 'codex',
+    title: 'PTY Test',
+    projectPath: process.cwd(),
+    accountId: 'acct_1',
+    gatewayId: 'gateway-test',
+    userId: 'user_1',
+    status: 'running',
+    transport: 'pty-event-stream',
+    lastActiveAt: Date.now()
+  };
+}
+
 test('relay sends websocket heartbeat pings to connected sockets', async () => {
   const relay = await createRelay({ heartbeatIntervalMs: 20, heartbeatTimeoutMs: 100 });
   const client = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
@@ -977,6 +992,146 @@ test('relay rejects observe input and resize', async () => {
   } finally {
     gateway.close();
     client.close();
+    await relay.close();
+  }
+});
+
+test('relay transfers PTY control owner and blocks previous owner input', async () => {
+  const relay = await createRelay();
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const clientA = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+  const clientB = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+  const sessionId = 'tth_control_owner_transfer';
+
+  try {
+    await authenticateGateway(gateway);
+    const clientAId = await authenticateClient(clientA);
+    const clientBId = await authenticateClient(clientB);
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [ptyRelaySession(sessionId)]
+    }));
+    await waitForJson(clientA, (message) => message.type === 'sessions');
+    await waitForJson(clientB, (message) => message.type === 'sessions');
+
+    clientA.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control' }));
+    await waitForJson(clientA, (message) => message.type === 'subscription.ack' && message.sessionId === sessionId);
+    await waitForJson(gateway, (message) => message.type === 'client.subscribe' && message.clientId === clientAId);
+
+    const revokedPromise = waitForJson(clientA, (message) => message.type === 'error' && message.code === 'control_revoked');
+    clientB.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control' }));
+    await waitForJson(clientB, (message) => message.type === 'subscription.ack' && message.sessionId === sessionId);
+    const revoked = await revokedPromise;
+    assert.equal(revoked.sessionId, sessionId);
+    await waitForJson(gateway, (message) => message.type === 'client.subscribe' && message.clientId === clientBId);
+
+    clientA.send(JSON.stringify({ type: 'client.input', sessionId, data: 'blocked\r' }));
+    const oldOwnerError = await waitForJson(clientA, (message) => message.type === 'error' && message.code === 'observe_only');
+    assert.equal(oldOwnerError.sessionId, sessionId);
+    const oldOwnerLeak = await Promise.race([
+      waitForJson(gateway, (message) => message.type === 'client.input' && message.clientId === clientAId, 150).then(() => 'leaked', () => 'blocked'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('blocked'), 200))
+    ]);
+    assert.equal(oldOwnerLeak, 'blocked');
+
+    clientB.send(JSON.stringify({ type: 'client.input', sessionId, data: 'ok\r' }));
+    const input = await waitForJson(gateway, (message) => message.type === 'client.input' && message.clientId === clientBId);
+    assert.deepEqual(input, {
+      type: 'client.input',
+      clientId: clientBId,
+      sessionId,
+      data: 'ok\r'
+    });
+  } finally {
+    gateway.close();
+    clientA.close();
+    clientB.close();
+    await relay.close();
+  }
+});
+
+test('relay releases PTY control owner on detach before another client controls', async () => {
+  const relay = await createRelay();
+  const gateway = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const clientA = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+  const clientB = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+  const sessionId = 'tth_control_owner_detach';
+
+  try {
+    await authenticateGateway(gateway);
+    const clientAId = await authenticateClient(clientA);
+    const clientBId = await authenticateClient(clientB);
+    gateway.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [ptyRelaySession(sessionId)]
+    }));
+    await waitForJson(clientA, (message) => message.type === 'sessions');
+    await waitForJson(clientB, (message) => message.type === 'sessions');
+
+    clientA.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control' }));
+    await waitForJson(gateway, (message) => message.type === 'client.subscribe' && message.clientId === clientAId);
+    clientA.send(JSON.stringify({ type: 'client.detach', sessionId }));
+    await waitForJson(gateway, (message) => message.type === 'client.detach' && message.clientId === clientAId);
+
+    const unexpectedRevocation = waitForJson(clientA, (message) => message.type === 'error' && message.code === 'control_revoked', 150)
+      .then(() => 'revoked', () => 'clean');
+    clientB.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control' }));
+    await waitForJson(gateway, (message) => message.type === 'client.subscribe' && message.clientId === clientBId);
+    assert.equal(await unexpectedRevocation, 'clean');
+  } finally {
+    gateway.close();
+    clientA.close();
+    clientB.close();
+    await relay.close();
+  }
+});
+
+test('relay releases PTY control owner when gateway session is dropped', async () => {
+  const relay = await createRelay();
+  const gatewayA = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const gatewayB = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/gateway`);
+  const clientA = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+  const clientB = new WebSocket(`${relay.url.replace('http', 'ws')}/ws/client`);
+  const sessionId = 'tth_control_owner_gateway_drop';
+
+  try {
+    await authenticateGateway(gatewayA);
+    const clientAId = await authenticateClient(clientA);
+    const clientBId = await authenticateClient(clientB);
+    gatewayA.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [ptyRelaySession(sessionId)]
+    }));
+    await waitForJson(clientA, (message) => message.type === 'sessions');
+    await waitForJson(clientB, (message) => message.type === 'sessions');
+
+    clientA.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control' }));
+    await waitForJson(gatewayA, (message) => message.type === 'client.subscribe' && message.clientId === clientAId);
+
+    gatewayA.close();
+    await waitForJson(clientA, (message) => message.type === 'gateway.status' && message.status === 'disconnected');
+
+    await authenticateGateway(gatewayB);
+    gatewayB.send(JSON.stringify({
+      type: 'gateway.sessions',
+      gatewayId: 'gateway-test',
+      sessions: [ptyRelaySession(sessionId)]
+    }));
+    await waitForJson(clientB, (message) => message.type === 'sessions' && Array.isArray(message.sessions) && message.sessions.some((session) => (session as RelaySession).id === sessionId));
+
+    const unexpectedRevocation = waitForJson(clientA, (message) => message.type === 'error' && message.code === 'control_revoked', 150)
+      .then(() => 'revoked', () => 'clean');
+    clientB.send(JSON.stringify({ type: 'client.subscribe', sessionId, after: 0, mode: 'control' }));
+    await waitForJson(gatewayB, (message) => message.type === 'client.subscribe' && message.clientId === clientBId);
+    assert.equal(await unexpectedRevocation, 'clean');
+  } finally {
+    gatewayA.close();
+    gatewayB.close();
+    clientA.close();
+    clientB.close();
     await relay.close();
   }
 });

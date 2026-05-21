@@ -34,6 +34,7 @@ type AppConfig = EggAppConfig & {
         user: string;
         password: string;
         database: string;
+        connectionLimit: number;
       };
     };
     default: {
@@ -195,7 +196,8 @@ export default (appInfo: EggAppInfo) => {
           port: String(readPort('TETHER_SERVER_MYSQL_PORT', 3306)),
           user: readEnv('TETHER_SERVER_MYSQL_USER') ?? 'root',
           password: readEnv('TETHER_SERVER_MYSQL_PASSWORD') ?? '',
-          database: readEnv('TETHER_SERVER_MYSQL_DATABASE') ?? 'tether'
+          database: readEnv('TETHER_SERVER_MYSQL_DATABASE') ?? 'tether',
+          connectionLimit: readPort('TETHER_SERVER_MYSQL_CONNECTION_LIMIT', 2)
         }
       },
       default: {
